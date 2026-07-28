@@ -1,0 +1,723 @@
+name: build
+on:
+  workflow_dispatch:
+  push:
+  # pull_request:
+
+# When pushing new commits, cancel any running builds on that branch
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.id }}
+    runs-on: ${{ matrix.os }}
+    environment: ${{ (github.ref == 'refs/heads/main' || (github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/'))) && 'main' || ''}}
+    container:
+      image: "${{ matrix.container }}"
+      options: "--memory 7.5G"
+    strategy:
+      max-parallel: 2
+      fail-fast: false
+      matrix:
+        include:
+          # TODO: BLAS/compiler assignments based on https://link.springer.com/article/10.1007/s00180-024-01461-w
+          # We assume GGML is using BLAS without LAPACK
+          #   AMD CPU: gcc or aocc, AOCL
+          #   Intel CPU: Intel icpx, Intel MKL
+          #   NVIDIA GB10: NVPL BLAS or ARM BLAS
+
+          # MACOS BUILDS
+          - id: "build-arm64-macos13.3-clang-ggml-Release"
+            container: ""
+            build_type: "Release"
+            cmake_args: '-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3 -DENABLE_GGML_CPU=ON -DENABLE_GGML_BLAS=ON -DGGML_BLAS_VENDOR=Apple -DENABLE_GGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON -DENABLE_GGML_VULKAN=ON -DOpenMP_CXX_FLAG="-Xclang -fopenmp" -DOpenMP_CXX_INCLUDE_DIR=/opt/homebrew/opt/libomp/include -DOpenMP_CXX_LIB_NAMES=libomp -DOpenMP_C_FLAG="-Xclang -fopenmp" -DOpenMP_C_INCLUDE_DIR=/opt/homebrew/opt/libomp/include -DOpenMP_C_LIB_NAMES=libomp -DOpenMP_libomp_LIBRARY=/opt/homebrew/opt/libomp/lib/libomp.dylib'
+            build_onnxruntime: "OFF"
+            cc: "/usr/bin/clang"
+            cxx: "/usr/bin/clang++"
+            fc: ""
+            additional_path: "/opt/homebrew/bin"
+            install_pkgs: "libomp shaderc vulkan-headers vulkan-loader" # TODO(Perry): molten-vk required at runtime
+            target_arch: "arm64"
+            os: [ self-hosted, resenv, macos, ARM64 ]
+          # UBUNTU 24.04 BUILDS
+          - id: "build-amd64-amdcpu-nvidiagpu-cuda13-ubuntu24.04-gcc13-ggml-Release"
+            container: "nvidia/cuda:13.1.1-devel-ubuntu24.04"
+            build_type: "Release"
+            cmake_args: "-DENABLE_GGML_CPU=ON -DBUILD_BLAS_AOCL_MT=ON -DENABLE_GGML_BLAS=ON -DENABLE_GGML_ZENDNN=OFF -DENABLE_GGML_CUDA=ON -DENABLE_GGML_VULKAN=ON"
+            build_onnxruntime: "OFF"
+            cc: "/usr/bin/gcc-13"
+            cxx: "/usr/bin/g++-13"
+            fc: "/usr/bin/gfortran-13"
+            install_pkgs: "gcc-13 g++-13 gfortran-13 libomp-dev glslc glslang-tools libvulkan-dev"
+            target_arch: "amd64"
+            os: [ self-hosted, necsys, linux, docker ]
+          - id: "build-sbsa-gb10-cuda13-ubuntu24.04-gcc15-ggml-Release"
+            container: "nvidia/cuda:13.1.1-devel-ubuntu24.04"
+            build_type: "Release"
+            cmake_args: "-DENABLE_GGML_CPU=ON -DGGML_CPU_KLEIDIAI=OFF -DGGML_BLAS_VENDOR=NVPL -DENABLE_GGML_BLAS=OFF -DENABLE_GGML_CUDA=ON -DENABLE_GGML_VULKAN=ON -DCMAKE_TOOLCHAIN_FILE=./cmake/toolchains/tc-linux-aarch64-gnu-15-gb10-cross.cmake"
+            build_onnxruntime: "OFF"
+            cc: "/usr/bin/gcc-15"
+            cxx: "/usr/bin/g++-15"
+            fc: "/usr/bin/gfortran-15"
+            install_pkgs: "gcc-15 g++-15 binutils gfortran-15 gcc-15-aarch64-linux-gnu g++-15-aarch64-linux-gnu gfortran-15-aarch64-linux-gnu glslc glslang-tools libomp-dev:arm64 libvulkan-dev:arm64 cuda-cross-sbsa-13-1"
+            rm_pkgs: "libcublas-dev-13-1:amd64 libcublas-13-1:amd64"
+            install_pkgs_force_overwrite: "libcublas-13-1:arm64" # cuda-cross-sbsa-13-1 is missing libcublas.so.13 but both contain libnvblas.so.13
+            target_arch: "arm64"
+            appimage_arch: "aarch64"
+            os: [ self-hosted, necsys, linux, docker ]
+          - id: "build-amd64-amdcpu-nvidiagpu-cuda13-ubuntu24.04-gcc15-ggml-Release"
+            container: "nvidia/cuda:13.1.1-devel-ubuntu24.04"
+            build_type: "Release"
+            # AOCL BLAS disabled for now: https://github.com/amd/blis/issues/50
+            cmake_args: "-DENABLE_GGML_CPU=ON -DBUILD_BLAS_AOCL_MT=OFF -DENABLE_GGML_BLAS=OFF -DENABLE_GGML_ZENDNN=OFF -DENABLE_GGML_CUDA=ON -DENABLE_GGML_VULKAN=ON"
+            build_onnxruntime: "OFF"
+            cc: "/usr/bin/gcc-15"
+            cxx: "/usr/bin/g++-15"
+            fc: "/usr/bin/gfortran-15"
+            install_pkgs: "gcc-15 g++-15 binutils gfortran-15 libomp-dev glslc glslang-tools libvulkan-dev"
+            target_arch: "amd64"
+            os: [ self-hosted, necsys, linux, docker ]
+          - id: "build-amd64-amdcpu-nvidiagpu-cuda13-ubuntu24.04-clang18-ggml-Release"
+            container: "nvidia/cuda:13.1.1-devel-ubuntu24.04"
+            build_type: "Release"
+            cmake_args: "-DENABLE_GGML_CPU=ON -DBUILD_BLAS_AOCL_MT=ON -DENABLE_GGML_BLAS=ON -DENABLE_GGML_ZENDNN=OFF -DENABLE_GGML_CUDA=ON -DENABLE_GGML_VULKAN=ON"
+            build_onnxruntime: "OFF"
+            cc: "/usr/bin/clang-18"
+            cxx: "/usr/bin/clang++-18"
+            fc: "flang-new-18"
+            install_pkgs: "clang-18 clang++-18 flang-18 libomp-dev glslc glslang-tools libvulkan-dev"
+            target_arch: "amd64"
+            os: [ self-hosted, necsys, linux, docker ]
+          - id: "build-amd64-amdcpu-amdgpu-rocm7-ubuntu24.04-gcc13-ggml-Release"
+            container: "rocm/dev-ubuntu-24.04:7.1.1-complete"
+            build_type: "Release"
+            cmake_args: "-DENABLE_GGML_CPU=ON -DBUILD_BLAS_AOCL_MT=ON -DENABLE_GGML_BLAS=ON -DENABLE_GGML_ZENDNN=OFF -DENABLE_GGML_VULKAN=ON"
+            build_onnxruntime: "OFF"
+            cc: "/usr/bin/gcc-13"
+            cxx: "/usr/bin/g++-13"
+            fc: "/usr/bin/gfortran-13"
+            install_pkgs: "gcc-13 g++-13 gfortran-13 libomp-dev glslc glslang-tools libvulkan-dev"
+            target_arch: "amd64"
+            os: [ self-hosted, necsys, linux, docker ]
+          - id: "build-amd64-amdcpu-nvidiagpu-cuda12-ubuntu24.04-gcc13-ggml-onnxruntime-Release"
+            container: "nvidia/cuda:12.9.1-cudnn-devel-ubuntu24.04"
+            build_type: "Release"
+            cmake_args: "-DENABLE_GGML_CPU=ON -DBUILD_BLAS_AOCL_MT=ON -DENABLE_GGML_BLAS=ON -DENABLE_GGML_ZENDNN=OFF -DENABLE_GGML_CUDA=ON -DENABLE_GGML_VULKAN=ON -DENABLE_ONNXRUNTIME_CPU=ON -DENABLE_ONNXRUNTIME_CUDA=ON -DENABLE_ONNXRUNTIME_TENSORRT=ON"
+            build_onnxruntime: "OFF"
+            cc: "/usr/bin/gcc-13"
+            cxx: "/usr/bin/g++-13"
+            fc: "/usr/bin/gfortran-13"
+            install_pkgs: "gcc-13 g++-13 gfortran-13 libomp-dev glslc glslang-tools libvulkan-dev"
+            target_arch: "amd64"
+            os: [ self-hosted, necsys, linux, docker ]
+          # DISABLED FOR NOW DUE TO LIMITED RAM ON NEXSYS RUNNERS
+          # - id: "build-amd64-amdcpu-nvidiagpu-cuda12-ubuntu24.04-gcc13-ggml-onnxruntime-Debug"
+          #   container: "nvidia/cuda:12.9.1-cudnn-devel-ubuntu24.04"
+          #   build_type: "Debug"
+          #   cmake_args: "-DENABLE_GGML_CPU=ON -DBUILD_BLAS_AOCL_MT=ON -DENABLE_GGML_BLAS=ON -DENABLE_GGML_ZENDNN=OFF -DENABLE_GGML_CUDA=ON -DENABLE_GGML_VULKAN=ON -DENABLE_ONNXRUNTIME_CPU=ON -DENABLE_ONNXRUNTIME_CUDA=ON -DENABLE_ONNXRUNTIME_TENSORRT=ON"
+          #   build_onnxruntime: "OFF"
+          #   cc: "/usr/bin/gcc-13"
+          #   cxx: "/usr/bin/g++-13"
+          #   fc: "/usr/bin/gfortran-13"
+          #   install_pkgs: "gcc-13 g++-13 gfortran-13 libomp-dev glslc glslang-tools libvulkan-dev"
+          #   target_arch: "amd64"
+          #   os: [ self-hosted, necsys, linux, docker ]
+          # DISABLED FOR NOW DUE TO LIMITED RAM ON NEXSYS RUNNERS
+          # - id: "build-amd64-amdcpu-nvidiagpu-cuda12-ubuntu24.04-gcc13-ggml-onnxruntime-RelWithDebInfo"
+          #   container: "nvidia/cuda:12.9.1-cudnn-devel-ubuntu24.04"
+          #   build_type: "RelWithDebInfo"
+          #   cmake_args: "-DENABLE_GGML_CPU=ON -DBUILD_BLAS_AOCL_MT=ON -DENABLE_GGML_BLAS=ON -DENABLE_GGML_ZENDNN=OFF -DENABLE_GGML_CUDA=ON -DENABLE_GGML_VULKAN=ON -DENABLE_ONNXRUNTIME_CPU=ON -DENABLE_ONNXRUNTIME_CUDA=ON -DENABLE_ONNXRUNTIME_TENSORRT=ON"
+          #   build_onnxruntime: "OFF"
+          #   cc: "/usr/bin/gcc-13"
+          #   cxx: "/usr/bin/g++-13"
+          #   fc: "/usr/bin/gfortran-13"
+          #   install_pkgs: "gcc-13 g++-13 gfortran-13 libomp-dev glslc glslang-tools libvulkan-dev"
+          #   target_arch: "amd64"
+          #   os: [ self-hosted, necsys, linux, docker ]
+          # UBUNTU 22.04 BUILDS
+          # DISABLED FOR NOW DUE TO LIMITED RAM ON NEXSYS RUNNERS
+          # - id: "build-amd64-amdcpu-nvidiagpu-cuda12-ubuntu22.04-gcc11-ggml-onnxruntime-Release"
+          #   container: "ubuntu:22.04"
+          #   build_type: "Release"
+          #   cmake_args: "-DENABLE_GGML_CPU=ON -DBUILD_BLAS_AOCL_MT=ON -DENABLE_GGML_BLAS=ON -DENABLE_GGML_ZENDNN=OFF -DENABLE_GGML_CUDA=ON -DENABLE_GGML_VULKAN=OFF -DENABLE_ONNXRUNTIME_CPU=ON -DENABLE_ONNXRUNTIME_CUDA=ON -DENABLE_ONNXRUNTIME_TENSORRT=ON"
+          #   build_onnxruntime: "OFF"
+          #   cc: "/usr/bin/gcc-11"
+          #   cxx: "/usr/bin/g++-11"
+          #   fc: "/usr/bin/gfortran-11"
+          #   install_pkgs: "gcc-11 g++-11 gfortran-11"
+          #   target_arch: "amd64"
+          #   os: [ self-hosted, necsys, linux, docker ]
+          # - id: "build-amd64-cuda12.1.0-cudnn8-devel-ubuntu22.04-gcc11-onnxruntimesource-Release"
+          #   container: "nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04"
+          #   build_type: "Release"
+          #   cmake_args: "-DENABLE_ONNXRUNTIME_CPU=ON -DENABLE_ONNXRUNTIME_CUDA=ON -DENABLE_ONNXRUNTIME_TENSORRT=ON"
+          #   build_onnxruntime: "ON"
+          #   cc: "/usr/bin/gcc-11"
+          #   cxx: "/usr/bin/g++-11"
+          #   fc: "/usr/bin/gfortran-11"
+          #   install_pkgs: "gcc-11 g++-11 gfortran-11"
+          #   target_arch: "amd64"
+          #   os: [ self-hosted, necsys, linux, docker ]
+    env:
+      CC: "${{ matrix.cc }}"
+      CXX: "${{ matrix.cxx }}"
+      FC: "${{ matrix.fc }}"
+      CCACHE_COMPRESS: "true"
+      CCACHE_COMPRESSLEVEL: "6"
+      CCACHE_MAXSIZE: "800M"
+    steps:
+        # This makes env.GITHUB_WORKSPACE available for later steps because github.workspace is broken
+        # See https://github.com/actions/runner/issues/2058#issuecomment-1308554566
+      - name: Get workspace directory path
+        shell: bash
+        run: |
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE" >> $GITHUB_ENV
+        id: workspace-dir
+      - name: Set cache environment config based on workspace directory path
+        shell: bash
+        run: |
+          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> $GITHUB_ENV
+          echo "CCACHE_DIR=$GITHUB_WORKSPACE/.ccache" >> $GITHUB_ENV
+          echo "CPM_SOURCE_CACHE=$GITHUB_WORKSPACE/.cpm-cache" >> $GITHUB_ENV
+        id: ccache-env
+      - name: Get number of CPU cores
+        if: ${{ contains(matrix.os, 'linux') }}
+        run: echo "NUM_CPU_CORES=$(grep -c processor /proc/cpuinfo)" >> $GITHUB_OUTPUT
+        id: num-cpu-cores
+      - name: Get host OS architecture (Ubuntu)
+        if: ${{ contains(matrix.id, 'ubuntu') }}
+        run: echo "HOSTARCH=$(dpkg --print-architecture)" >> $GITHUB_OUTPUT
+        id: host-arch
+      - name: Update apt
+        if: ${{ contains(matrix.id, 'ubuntu') }}
+        run: apt-get update
+      - name: Install git, sudo, lsb-release, wget, curl, ca-certificates, gpg
+        if: ${{ contains(matrix.id, 'ubuntu') }}
+        run: apt-get install -y git sudo lsb-release wget curl ca-certificates gpg jq
+        env:
+          DEBIAN_FRONTEND: "noninteractive" # Workaround interactive tzdata
+      - name: Add target architecture (for GB10 cross compile on Ubuntu 24.04)
+        if: ${{ contains(matrix.id, 'ubuntu24.04') && matrix.target_arch != steps.host-arch.outputs.HOSTARCH }}
+        shell: bash
+        run: |
+          sed -i '/Components:/a Architectures: '"${{ steps.host-arch.outputs.HOSTARCH }}"'' /etc/apt/sources.list.d/ubuntu.sources
+          dpkg --add-architecture ${{ matrix.target_arch }}
+        env:
+          DEBIAN_FRONTEND: "noninteractive" # Workaround interactive tzdata
+      - name: Download AMD AOCL (for Ubuntu 24.04 amd64)
+        if: ${{ contains(matrix.id, 'ubuntu24.04') && contains(matrix.install_pkgs, '/tmp/aocl-linux-gcc-5.1.0_1_amd64.deb') }}
+        shell: bash
+        working-directory: /tmp
+        run: |
+          wget https://download.amd.com/developer/eula/aocl/aocl-5-1/aocl-linux-gcc-5.1.0_1_amd64.deb
+          echo "b27be8e8f564ee3417438748bc281b5398155c361dc9633af83c0e9fc94b8784 aocl-linux-gcc-5.1.0_1_amd64.deb" | sha256sum --check --strict
+      - name: Add Ubuntu ports repo (for Ubuntu 24.04 cross compile)
+        if: ${{ contains(matrix.id, 'ubuntu24.04') && matrix.target_arch != steps.host-arch.outputs.HOSTARCH }}
+        shell: bash
+        run: |
+          cat <<EOF | tee /etc/apt/sources.list.d/ubuntu-ports.sources
+          Types: deb deb-src
+          URIs: http://ports.ubuntu.com/ubuntu-ports
+          Suites: $(lsb_release -c -s) $(lsb_release -c -s)-updates $(lsb_release -c -s)-backports
+          Components: main restricted universe multiverse
+          Architectures: ${{ matrix.target_arch }}
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+          Types: deb deb-src
+          URIs: http://ports.ubuntu.com/ubuntu-ports
+          Suites: $(lsb_release -c -s)-security
+          Components: main restricted universe multiverse
+          Architectures: ${{ matrix.target_arch }}
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          EOF
+      - name: Add NVIDIA cross compile (sbsa) sources (for GB10 cross compile on Ubuntu 24.04)
+        if: ${{ contains(matrix.id, 'ubuntu24.04') && contains(matrix.install_pkgs, 'cuda-cross-sbsa') }}
+        shell: bash
+        run: |
+          wget -O - https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/cross-linux-sbsa/cuda-archive-keyring.gpg 2>/dev/null | sudo tee /etc/apt/keyrings/cuda-archive-keyring_cross-linux-sbsa.gpg >/dev/null
+          wget -O - https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/cuda-archive-keyring.gpg 2>/dev/null | sudo tee /etc/apt/keyrings/cuda-archive-keyring_sbsa.gpg >/dev/null
+          echo "deb [signed-by=/etc/apt/keyrings/cuda-archive-keyring_cross-linux-sbsa.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/cross-linux-sbsa/ /" | tee /etc/apt/sources.list.d/nvidia-cross-compile.list
+          echo "deb [signed-by=/etc/apt/keyrings/cuda-archive-keyring_sbsa.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/ /" | tee -a /etc/apt/sources.list.d/nvidia-cross-compile.list
+      - name: Add NVIDIA Cross Compile (arm64) sources (for ARM cross compile on Ubuntu 24.04)
+        if: ${{ contains(matrix.id, 'ubuntu24.04') && contains(matrix.install_pkgs, 'cuda-cross-aarch64') }}
+        shell: bash
+        run: |
+          wget -O - https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/cross-linux-aarch64/cuda-archive-keyring.gpg 2>/dev/null | sudo tee /etc/apt/keyrings/cuda-archive-keyring_cross-linux-aarch64.gpg >/dev/null
+          wget -O - https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/cuda-archive-keyring.gpg 2>/dev/null | sudo tee /etc/apt/keyrings/cuda-archive-keyring_arm64.gpg >/dev/null
+          echo "deb [signed-by=/etc/apt/keyrings/cuda-archive-keyring_cross-linux-aarch64.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/cross-linux-aarch64/ /" | tee /etc/apt/sources.list.d/nvidia-cross-compile.list
+          echo "deb [signed-by=/etc/apt/keyrings/cuda-archive-keyring_arm64.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/arm64/ /" | tee -a /etc/apt/sources.list.d/nvidia-cross-compile.list
+      - name: Add GCC 15 and Clang 21 PPA (for Ubuntu 24.04)
+        if: ${{ contains(matrix.id, 'ubuntu24.04') && (contains(matrix.install_pkgs, 'gcc-15') || contains(matrix.install_pkgs, 'g++-15') || contains(matrix.install_pkgs, 'clang-21')) }}
+        shell: bash
+        run: |
+          mkdir -p /etc/apt/keyrings
+          wget -O - "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x44cb1da8758a9ab2f68d43012b8913bc5db24d53" 2>/dev/null | gpg --dearmor - | sudo tee /etc/apt/keyrings/daawesomep.gpg >/dev/null
+          echo "deb [signed-by=/etc/apt/keyrings/daawesomep.gpg] https://ppa.launchpadcontent.net/daawesomep/toolchain-backports-noble/ubuntu $(lsb_release -c -s) main" | tee /etc/apt/sources.list.d/ppa_daawesomep_toolchain-backports-noble.list >/dev/null
+          echo "deb-src [signed-by=/etc/apt/keyrings/daawesomep.gpg] https://ppa.launchpadcontent.net/daawesomep/toolchain-backports-noble/ubuntu $(lsb_release -c -s) main" | tee -a /etc/apt/sources.list.d/ppa_daawesomep_toolchain-backports-noble.list >/dev/null
+      - name: Add kitware Ubuntu repository (for Ubuntu 20.04, 22.04, and 24.04)
+        if: ${{ contains(matrix.id, 'ubuntu20.04') || contains(matrix.id, 'ubuntu22.04') || contains(matrix.id, 'ubuntu24.04') }}
+        shell: bash
+        run: |
+          mkdir -p /etc/apt/keyrings
+          wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | sudo tee /etc/apt/keyrings/kitware-archive-keyring.gpg >/dev/null
+          echo "deb [signed-by=/etc/apt/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ $(lsb_release -c -s) main" | sudo tee /etc/apt/sources.list.d/kitware.list >/dev/null
+      - name: Add Ubuntu toolchain repository (for Ubuntu 20.04)
+        if: ${{ contains(matrix.id, 'ubuntu20.04') }}
+        shell: bash
+        run: |
+          mkdir -p /etc/apt/keyrings
+          wget -O - "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xc8ec952e2a0e1fbdc5090f6a2c277a0a352154e5" 2>/dev/null | gpg --dearmor - | sudo tee /etc/apt/keyrings/toolchain.gpg >/dev/null
+          echo "deb [signed-by=/etc/apt/keyrings/toolchain.gpg] https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu $(lsb_release -c -s) main" | sudo tee /etc/apt/sources.list.d/toolchain.list >/dev/null
+      - name: Update apt
+        if: ${{ contains(matrix.id, 'ubuntu') }}
+        run: apt-get update
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+          fetch-depth: 0 # Fetch all tags for version info
+      - name: Set dir owner (Linux)
+        if: ${{ contains(matrix.os, 'linux') }}
+        shell: bash
+        run: |
+          chown root:root .
+      - name: Get build rev
+        shell: bash
+        run: |
+          export BUILD_REV=$(./tools/version.sh)
+          echo "BUILD_REV=$BUILD_REV" >> $GITHUB_OUTPUT
+          echo "Build rev: $BUILD_REV"
+        id: build-rev
+      - name: Install Build Dependencies (macOS)
+        if: ${{ contains(matrix.id, 'macos') }}
+        shell: bash
+        run: |
+          brew install ccache freetype fontconfig pkgconfig ${{ matrix.install_pkgs }}
+          xcodebuild -downloadComponent MetalToolchain
+      - name: Install Build Dependencies (Ubuntu)
+        if: ${{ contains(matrix.id, 'ubuntu') }}
+        run: |
+          apt-get install -y \
+            cmake ccache build-essential gdb pkg-config \
+            libfreetype-dev libfontconfig-dev libasound2-dev \
+            libx11-dev:${{ matrix.target_arch }} libxrandr-dev:${{ matrix.target_arch }} libxinerama-dev:${{ matrix.target_arch }} libxcursor-dev:${{ matrix.target_arch }} libfreetype-dev:${{ matrix.target_arch }} libasound2-dev:${{ matrix.target_arch }} libfontconfig-dev:${{ matrix.target_arch }} \
+            ${{ matrix.install_pkgs }}
+        env:
+          DEBIAN_FRONTEND: "noninteractive" # Workaround interactive tzdata
+      - name: Remove Selected Build Dependencies (Ubuntu)
+        if: ${{ contains(matrix.id, 'ubuntu') && matrix.rm_pkgs != '' }}
+        run: |
+          apt-get remove -y --allow-change-held-packages \
+            ${{ matrix.rm_pkgs }}
+        env:
+          DEBIAN_FRONTEND: "noninteractive" # Workaround interactive tzdata
+      - name: Install Build Dependencies with force overwrite (Ubuntu)
+        if: ${{ contains(matrix.id, 'ubuntu') && matrix.install_pkgs_force_overwrite != '' }}
+        run: |
+          apt-get install -y -o DPkg::options::="--force-overwrite" \
+            ${{ matrix.install_pkgs_force_overwrite }}
+        env:
+          DEBIAN_FRONTEND: "noninteractive" # Workaround interactive tzdata
+      - name: Install ONNX Runtime Build dependencies
+        if: ${{ matrix.build_onnxruntime == 'ON' }}
+        run: apt-get install -y python3-psutil
+        env:
+          DEBIAN_FRONTEND: "noninteractive" # Workaround interactive tzdata
+      - name: Check for OpenMP (macOS)
+        if: ${{ contains(matrix.id, 'macos') }}
+        shell: bash
+        run: |
+          if [ -d /opt/homebrew/opt/libomp ]; then
+            echo "OpenMP found"
+          else
+            echo "OpenMP not found!"
+            exit 1
+          fi
+      - name: Prepare cache prefix
+        id: cache_prefix
+        shell: bash
+        run: echo "CACHE_PREFIX=$(echo "${{ github.ref }}" | tr / -)" >> $GITHUB_OUTPUT
+      - name: Cache CPM sources
+        id: cache_cpm
+        uses: runs-on/cache@v4
+        with:
+          path: ${{ env.CPM_SOURCE_CACHE }}
+          key: ${{ steps.cache_prefix.outputs.cache_prefix }}-${{ matrix.id }}-cpm-${{ hashFiles('**/CMakeLists.txt', '.github/workflows/*.yml') }}
+          restore-keys: |
+            ${{ steps.cache_prefix.outputs.cache_prefix }}-${{ matrix.id }}-cpm-${{ hashFiles('**/CMakeLists.txt', '.github/workflows/*.yml') }}
+            ${{ steps.cache_prefix.outputs.cache_prefix }}-${{ matrix.id }}-cpm-
+            refs-heads-main-${{ matrix.id }}-cpm-${{ hashFiles('**/CMakeLists.txt', '.github/workflows/*.yml') }}
+            refs-heads-main-${{ matrix.id }}-cpm-
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CACHE_AWS_ACCESS_KEY_ID }}
+          AWS_ENDPOINT_URL: https://gh-runner-storage.media.mit.edu
+          AWS_REGION: us-east-1
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CACHE_AWS_SECRET_ACCESS_KEY }}
+          RUNS_ON_S3_BUCKET_CACHE: resenv-cache
+          RUNS_ON_S3_FORCE_PATH_STYLE: "true"
+      - name: Prepare ccache timestamp
+        id: cache_ccache_timestamp
+        shell: cmake -P {0}
+        run: |
+          string(TIMESTAMP current_date "%Y-%m-%d-%H;%M;%S" UTC)
+          file(APPEND "$ENV{GITHUB_OUTPUT}" "timestamp=${current_date}")
+      - name: Cache ccache
+        id: cache_ccache
+        uses: runs-on/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ steps.cache_prefix.outputs.cache_prefix }}-${{ matrix.id }}-ccache-${{ hashFiles('**/CMakeLists.txt', '.github/workflows/*.yml') }}-${{ steps.cache_ccache_timestamp.outputs.timestamp }}
+          restore-keys: |
+            ${{ steps.cache_prefix.outputs.cache_prefix }}-${{ matrix.id }}-ccache-${{ hashFiles('**/CMakeLists.txt', '.github/workflows/*.yml') }}-
+            ${{ steps.cache_prefix.outputs.cache_prefix }}-${{ matrix.id }}-ccache-
+            refs-heads-main-${{ matrix.id }}-ccache-${{ hashFiles('**/CMakeLists.txt', '.github/workflows/*.yml') }}-
+            refs-heads-main-${{ matrix.id }}-ccache-
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CACHE_AWS_ACCESS_KEY_ID }}
+          AWS_ENDPOINT_URL: https://gh-runner-storage.media.mit.edu
+          AWS_REGION: us-east-1
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CACHE_AWS_SECRET_ACCESS_KEY }}
+          RUNS_ON_S3_BUCKET_CACHE: resenv-cache
+          RUNS_ON_S3_FORCE_PATH_STYLE: "true"
+      - name: Additional path
+        if: ${{ matrix.additional_path != '' }}
+        shell: bash
+        run: |
+          echo "Adding ${{ matrix.additional_path }} to PATH"
+          echo "${{ matrix.additional_path }}" >> $GITHUB_PATH
+      - name: Show compiler version
+        shell: bash
+        run: |
+          echo "CC:"
+          $CC --version
+          echo "CXX"
+          $CXX --version
+          if [ -n "$FC" ]; then
+            echo "FC:"
+            $FC --version;
+          fi
+      - name: Configure JordanAI
+        shell: bash
+        # Need to specify CMAKE_INSTALL_PREFIX_PATH for AOCL BLIS (ignores --prefix)
+        run: |
+          if [ -e /opt/AMD/aocl/aocl-linux-gcc-5.1.0/gcc/amd-libs.cfg ]; then source /opt/AMD/aocl/aocl-linux-gcc-5.1.0/gcc/amd-libs.cfg; fi
+          cmake -S . -B _builds/${{ matrix.build_type }} \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCPM_SOURCE_CACHE=${{ env.CPM_SOURCE_CACHE }} \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_OBJC_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache \
+            -DONNXRUNTIME_BUILD_FROM_SOURCE_CCACHE=ON \
+            -DONNXRUNTIME_BUILD_FROM_SOURCE=${{ matrix.build_onnxruntime }} \
+            -DCMAKE_INSTALL_PREFIX_PATH=_builds/${{ matrix.build_type }}/install \
+            ${{ matrix.cmake_args }}
+      - name: Build JordanAI
+        run: cmake --build _builds/${{ matrix.build_type }} --parallel ${{ steps.num-cpu-cores.outputs.NUM_CPU_CORES }}
+      - name: Install Dependencies for AppImage
+        if: ${{ contains(matrix.id, 'ubuntu') }}
+        run: |
+          apt-get install -y patchelf libfuse2t64 file
+          wget "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" -O /usr/local/bin/appimagetool
+          chmod +x /usr/local/bin/appimagetool
+        env:
+          DEBIAN_FRONTEND: "noninteractive" # Workaround interactive tzdata
+      - name: Write AppImage signing cert to file and import
+        if: ${{ contains(matrix.id, 'ubuntu') && vars.ENABLE_SIGN_APPIMAGE == 'true' && github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/') }}
+        run: |
+          mkdir -p ${{ env.GITHUB_WORKSPACE }}/private_keys
+          echo -n $APPIMAGE_SIGNING_KEY_BASE64 | base64 --decode > ${{ env.GITHUB_WORKSPACE }}/private_keys/appimage_signing_key.asc
+          gpg --import --batch --yes ${{ env.GITHUB_WORKSPACE }}/private_keys/appimage_signing_key.asc
+        env:
+          APPIMAGE_SIGNING_KEY_BASE64: ${{ secrets.APPIMAGE_SIGNING_KEY_BASE64 }}
+      - name: Remove AppImage signing key file
+        if: always()
+        shell: bash
+        run: |
+          rm -rf ${{ env.GITHUB_WORKSPACE }}/private_keys/
+      - name: Bundle AppImage
+        if: ${{ contains(matrix.id, 'ubuntu') }}
+        shell: bash
+        working-directory: ${{ env.GITHUB_WORKSPACE }}/_builds/${{ matrix.build_type }}
+        run: |
+          cpack -G AppImage \
+            ${{ (vars.ENABLE_SIGN_APPIMAGE == 'true' && github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/')) && '-D CPACK_APPIMAGE_SIGN=true' || '' }} \
+            ${{ (vars.ENABLE_SIGN_APPIMAGE == 'true' && github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/')) && format('-D CPACK_APPIMAGE_SIGN_KEY={0}', vars.APPIMAGE_SIGNING_KEY_ID) || '' }} \
+
+          mv *.AppImage jordanai-${{ matrix.id }}_${{ steps.build-rev.outputs.BUILD_REV }}.AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          APPIMAGETOOL_SIGN_PASSPHRASE: ${{ secrets.APPIMAGE_SIGNING_KEY_PASSPHRASE }}
+          ARCH: ${{ matrix.appimage_arch }}
+      - name: Validate AppImage
+        if: ${{ contains(matrix.id, 'ubuntu') && vars.ENABLE_SIGN_APPIMAGE == 'true' && github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/') }}
+        shell: bash
+        run: |
+          wget "https://github.com/AppImageCommunity/AppImageUpdate/releases/download/continuous/validate-x86_64.AppImage" -O /usr/local/bin/appimage_validate
+          chmod +x /usr/local/bin/appimage_validate
+          appimage_validate ${{ env.GITHUB_WORKSPACE }}/_builds/${{ matrix.build_type }}/jordanai-${{ matrix.id }}_${{ steps.build-rev.outputs.BUILD_REV }}.AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+      - name: Remove AppImage signing key
+        if: always()
+        shell: bash
+        run: |
+          ${{ (contains(matrix.id, 'ubuntu') && vars.ENABLE_SIGN_APPIMAGE == 'true' && github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/')) && format('gpg --batch --yes --delete-secret-and-public-keys {0}', vars.APPIMAGE_SIGNING_KEY_ID) || 'echo "No key to delete!"' }}
+      - name: Fix macOS Bundle
+        if: ${{ contains(matrix.id, 'macos') }}
+        shell: bash
+        run: |
+          cmake --install _builds/${{ matrix.build_type }} --prefix _builds/${{ matrix.build_type }}/install
+      - name: Install Dependencies for signing and notarizing macOS Bundle
+        if: ${{ contains(matrix.id, 'macos') && vars.ENABLE_SIGN_MACOS == 'true' && github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/') }}
+        shell: bash
+        working-directory: ${{ env.GITHUB_WORKSPACE }}
+        run: |
+          brew install rust
+          cargo install apple-codesign
+      - name: Write macOS signing certs to files
+        if: ${{ contains(matrix.id, 'macos') && vars.ENABLE_SIGN_MACOS == 'true' && github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/') }}
+        env:
+          MACOS_SIGNING_CERT_P12_BASE64: ${{ secrets.MACOS_SIGNING_CERT_P12_BASE64 }}
+          APPLE_APP_STORE_CONNECT_API_CERT_P8_BASE64: ${{ secrets.APPLE_APP_STORE_CONNECT_API_CERT_P8_BASE64 }}
+        run: |
+          mkdir -p ${{ env.GITHUB_WORKSPACE }}/private_keys
+          echo -n $MACOS_SIGNING_CERT_P12_BASE64 | base64 -d -o ${{ env.GITHUB_WORKSPACE }}/private_keys/macos_signing_cert.p12
+          echo -n $APPLE_APP_STORE_CONNECT_API_CERT_P8_BASE64 | base64 -d -o ${{ env.GITHUB_WORKSPACE }}/private_keys/AuthKey_${{ secrets.APPLE_APP_STORE_CONNECT_API_KEY }}.p8
+      # - name: Sign and notarize macOS Bundle
+      #   if: ${{ contains(matrix.id, 'macos') && vars.ENABLE_SIGN_MACOS == 'true' && github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/') }}
+      #   uses: indygreg/apple-code-sign-action@v1
+      #   with:
+      #     input_path: _builds/${{ matrix.build_type }}/app/JordanAI_artefacts/${{ matrix.build_type }}/JordanAI.app
+      #     sign: true
+      #     notarize: true
+      #     staple: true
+      #     sign_args: '--for-notarization --code-signature-flags runtime'
+      #     p12_file: ${{ env.GITHUB_WORKSPACE }}/private_keys/macos_signing_cert.p12
+      #     p12_password: ${{ secrets.MACOS_SIGNING_CERT_PASSWORD }}
+      #     app_store_connect_api_issuer: '${{ secrets.APPLE_APP_STORE_CONNECT_API_ISSUER }}'
+      #     app_store_connect_api_key: '${{ secrets.APPLE_APP_STORE_CONNECT_API_KEY }}'
+      - name: Sign and notarize macOS Bundle
+        if: ${{ contains(matrix.id, 'macos') && vars.ENABLE_SIGN_MACOS == 'true' && github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/') }}
+        shell: bash
+        working-directory: ${{ env.GITHUB_WORKSPACE }}
+        run: |
+          ~/.cargo/bin/rcodesign sign \
+            --for-notarization \
+            --code-signature-flags runtime \
+            --p12-file ${{ env.GITHUB_WORKSPACE }}/private_keys/macos_signing_cert.p12 \
+            --p12-password '${{ secrets.MACOS_SIGNING_CERT_PASSWORD }}' \
+            _builds/${{ matrix.build_type }}/app/JordanAI_artefacts/${{ matrix.build_type }}/JordanAI.app
+          # ~/.cargo/bin/rcodesign notary-submit \
+          #   --wait \
+          #   --staple \
+          #   --api-issuer '${{ secrets.APPLE_APP_STORE_CONNECT_API_ISSUER }}' \
+          #   --api-key '${{ secrets.APPLE_APP_STORE_CONNECT_API_KEY }}' \
+          #   _builds/${{ matrix.build_type }}/app/JordanAI_artefacts/${{ matrix.build_type }}/JordanAI.app
+          ditto -c -k --sequesterRsrc --keepParent \
+            _builds/${{ matrix.build_type }}/app/JordanAI_artefacts/${{ matrix.build_type }}/JordanAI.app \
+            _builds/${{ matrix.build_type }}/app/JordanAI_artefacts/${{ matrix.build_type }}/jordanai-${{ matrix.id }}_${{ steps.build-rev.outputs.BUILD_REV }}_signed_not_notarized.app.zip
+          xcrun notarytool submit \
+            --wait \
+            --key ${{ env.GITHUB_WORKSPACE }}/private_keys/AuthKey_${{ secrets.APPLE_APP_STORE_CONNECT_API_KEY }}.p8 \
+            --key-id ${{ secrets.APPLE_APP_STORE_CONNECT_API_KEY }} \
+            _builds/${{ matrix.build_type }}/app/JordanAI_artefacts/${{ matrix.build_type }}/jordanai-${{ matrix.id }}_${{ steps.build-rev.outputs.BUILD_REV }}_signed_not_notarized.app.zip
+          xcrun stapler staple \
+            _builds/${{ matrix.build_type }}/app/JordanAI_artefacts/${{ matrix.build_type }}/JordanAI.app
+      - name: Remove macOS signing cert
+        if: always()
+        shell: bash
+        run: |
+          rm -rf ${{ env.GITHUB_WORKSPACE }}/private_keys/
+      - name: Archive macOS Bundle
+        # Need to do this again after stapling, and always when not signing/notarizing
+        if: ${{ contains(matrix.id, 'macos') }}
+        shell: bash
+        working-directory: ${{ env.GITHUB_WORKSPACE }}
+        run: |
+          rm -rf _builds/${{ matrix.build_type }}/app/JordanAI_artefacts/${{ matrix.build_type }}/jordanai-${{ matrix.id }}_${{ steps.build-rev.outputs.BUILD_REV }}_signed_not_notarized.app.zip
+          ditto -c -k --sequesterRsrc --keepParent \
+            _builds/${{ matrix.build_type }}/app/JordanAI_artefacts/${{ matrix.build_type }}/JordanAI.app \
+            _builds/${{ matrix.build_type }}/app/JordanAI_artefacts/${{ matrix.build_type }}/jordanai-${{ matrix.id }}_${{ steps.build-rev.outputs.BUILD_REV }}.zip
+      # - name: Archive artifacts
+      #   if: ${{ !contains(matrix.id, 'macos') }}
+      #   shell: bash
+      #   # If the file does not exist when tar excludes it, then it will not
+      #   # actually exclude it, so it must first be touched
+      #   run: |
+      #     touch jordanai-${{ matrix.id }}_${{ steps.build-rev.outputs.BUILD_REV }}.tar.gz
+      #     tar --dereference --exclude=jordanai-${{ matrix.id }}_${{ steps.build-rev.outputs.BUILD_REV }}.tar.gz -cvzf jordanai-${{ matrix.id }}_${{ steps.build-rev.outputs.BUILD_REV }}.tar.gz .
+      #   working-directory: _builds/${{ matrix.build_type }}/app/JordanAI_artefacts/${{ matrix.build_type }}
+      - name: Display structure and size of build files and archive
+        if: always()
+        run: ls -alR
+        working-directory: _builds/${{ matrix.build_type }}/app/JordanAI_artefacts/${{ matrix.build_type }}
+      - name: SHA256 built files and archive
+        if: always()
+        run: find . -type f -exec sha256sum {} \;
+        working-directory: _builds/${{ matrix.build_type }}/app/JordanAI_artefacts/${{ matrix.build_type }}
+      #      - uses: actions/upload-artifact@v4
+      #        if: always()
+      #        with:
+      #          name: ${{ matrix.id }}
+      #          path: _builds/${{ matrix.build_type }}/app/JordanAI_artefacts/${{ matrix.build_type }}/jordanai-${{ matrix.id }}_${{ steps.build-rev.outputs.BUILD_REV }}.tar.gz
+      # - name: Upload to Dropbox
+      #   uses: Lewuathe/dropbox-github-action@v1
+      #   with:
+      #     dropbox-app-key: ${{ secrets.DROPBOX_APP_KEY }}
+      #     dropbox-app-secret: ${{ secrets.DROPBOX_APP_SECRET }}
+      #     dropbox-refresh-token: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
+      #     source-path: _builds/${{ matrix.build_type }}/app/JordanAI_artefacts/${{ matrix.build_type }}/jordanai-${{ matrix.id }}_${{ steps.build-rev.outputs.BUILD_REV }}.tar.gz
+      #     target-path: /jordanai-${{ matrix.id }}_${{ steps.build-rev.outputs.BUILD_REV }}.tar.gz
+      - name: Link artifacts in artifacts directory
+        shell: bash
+        # Note ln is different on most macOS and Linux
+        run: |
+          mkdir -p ${{ env.GITHUB_WORKSPACE }}/artifacts/
+          find "${{ env.GITHUB_WORKSPACE }}/_builds/${{ matrix.build_type }}/app/JordanAI_artefacts/${{ matrix.build_type }}/"             -name "*.tar.gz"   -exec ln ${{ contains(matrix.id, 'macos') && '-s' || '--symbolic --relative --force' }} {} "${{ env.GITHUB_WORKSPACE }}/artifacts/" \;
+          find "${{ env.GITHUB_WORKSPACE }}/_builds/${{ matrix.build_type }}/app/JordanAI_artefacts/${{ matrix.build_type }}/"             -name "*.zip"      -exec ln ${{ contains(matrix.id, 'macos') && '-s' || '--symbolic --relative --force' }} {} "${{ env.GITHUB_WORKSPACE }}/artifacts/" \;
+          find "${{ env.GITHUB_WORKSPACE }}/_builds/${{ matrix.build_type }}/"                                                 -maxdepth 1 -name "*.AppImage" -exec ln ${{ contains(matrix.id, 'macos') && '-s' || '--symbolic --relative --force' }} {} "${{ env.GITHUB_WORKSPACE }}/artifacts/" \;
+      - name: Display structure and size of artifacts
+        if: always()
+        run: ls -alRL
+        working-directory: ${{ env.GITHUB_WORKSPACE }}/artifacts/
+      - name: SHA256 artifacts
+        if: always()
+        run: find -L . -type f -exec sha256sum {} \;
+        working-directory: ${{ env.GITHUB_WORKSPACE }}/artifacts/
+      - name: Install S3 upload tools
+        shell: bash
+        run: |
+          ${{ contains(matrix.id, 'macos') && 'brew install awscli' || '' }}
+          ${{ contains(matrix.id, 'ubuntu') && 'apt-get install -y unzip' || '' }}
+          ${{ contains(matrix.id, 'ubuntu') && 'curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"' || '' }}
+          ${{ contains(matrix.id, 'ubuntu') && 'unzip awscliv2.zip' || '' }}
+          ${{ contains(matrix.id, 'ubuntu') && './aws/install' || '' }}
+          aws --version
+        env:
+          DEBIAN_FRONTEND: "noninteractive" # Workaround interactive tzdata
+      - name: Upload artifacts to S3
+        shell: bash
+        run: |
+          aws s3 sync \
+            ${{ env.GITHUB_WORKSPACE }}/artifacts/ \
+            's3://resenv-artifacts/artifacts/mitmedialab/jordanai/${{ github.workflow }}/${{ steps.cache_prefix.outputs.cache_prefix }}-${{ github.run_id }}/' \
+            --no-progress \
+            --follow-symlinks
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.ARTIFACTS_AWS_ACCESS_KEY_ID }}
+          AWS_DEFAULT_REGION: us-east-1
+          AWS_ENDPOINT_URL_S3: https://gh-runner-storage.media.mit.edu
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.ARTIFACTS_AWS_SECRET_ACCESS_KEY }}
+      - name: Clear S3 credentials
+        if: always()
+        shell: bash
+        run: |
+          rm -rf ~/.aws
+  publish-release-artifacts:
+    name: Publish Release Artifacts to GitHub
+    needs: [ build ]
+    runs-on: [ self-hosted, necsys, linux, docker ]
+    environment: ${{ (github.ref == 'refs/heads/main' || (github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/'))) && 'main' || ''}}
+    container:
+      image: "ubuntu:24.04"
+      options: "--memory 7.5G"
+    permissions:
+      contents: write
+    if: github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/')
+    steps:
+      # This makes env.GITHUB_WORKSPACE available for later steps because github.workspace is broken
+      # See https://github.com/actions/runner/issues/2058#issuecomment-1308554566
+      - name: Get workspace directory path
+        shell: bash
+        run: |
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE" >> $GITHUB_ENV
+        id: workspace-dir
+      - name: Update apt
+        run: apt-get update
+      - name: Install git, sudo, lsb-release, wget, curl, ca-certificates, gpg
+        run: apt-get install -y git sudo lsb-release wget curl ca-certificates gpg jq
+        env:
+          DEBIAN_FRONTEND: "noninteractive" # Workaround interactive tzdata
+      - uses: actions/checkout@v4
+      # - name: Download all artifacts
+      #   uses: actions/download-artifact@v4
+      #   with:
+      #     path: artifacts
+      - name: Create artifacts directory
+        shell: bash
+        run: |
+          mkdir -p ${{ env.GITHUB_WORKSPACE }}/artifacts/
+      - name: Prepare cache prefix
+        id: cache_prefix
+        shell: bash
+        run: echo "CACHE_PREFIX=$(echo "${{ github.ref }}" | tr / -)" >> $GITHUB_OUTPUT
+      - name: Install S3 download tools
+        shell: bash
+        run: |
+          apt-get install -y unzip
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          ./aws/install
+          aws --version
+        env:
+          DEBIAN_FRONTEND: "noninteractive" # Workaround interactive tzdata
+      - name: Download artifacts from S3
+        shell: bash
+        run: |
+          aws s3 sync \
+            's3://resenv-artifacts/artifacts/mitmedialab/jordanai/${{ github.workflow }}/${{ steps.cache_prefix.outputs.cache_prefix }}-${{ github.run_id }}/' \
+            ${{ env.GITHUB_WORKSPACE }}/artifacts/ \
+            --no-progress \
+            --follow-symlinks
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.ARTIFACTS_AWS_ACCESS_KEY_ID }}
+          AWS_DEFAULT_REGION: us-east-1
+          AWS_ENDPOINT_URL_S3: https://gh-runner-storage.media.mit.edu
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.ARTIFACTS_AWS_SECRET_ACCESS_KEY }}
+      - name: Clear S3 credentials
+        if: always()
+        shell: bash
+        run: |
+          rm -rf ~/.aws
+      - name: Display structure of artifact files
+        run: ls -alR
+        working-directory: artifacts
+      - name: Flatten artifact directories
+        shell: bash
+        run: find ./ -mindepth 2 -type f -exec mv -t ./ --backup=t '{}' +
+        working-directory: artifacts
+      - name: SHA256 files
+        shell: bash
+        run: |
+          find -L . -type f -exec sha256sum {} \; | tee jordanai_${GITHUB_REF##*/}.sha256sum
+        working-directory: artifacts
+      - name: Pubish artifacts to S3
+        shell: bash
+        run: |
+          aws s3 sync \
+            ${{ env.GITHUB_WORKSPACE }}/artifacts/ \
+            "s3://${PUBLISH_ARTIFACTS_AWS_S3_PREFIX}/${GITHUB_REF##*/}/" \
+            --no-progress \
+            --follow-symlinks
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.PUBLISH_ARTIFACTS_AWS_ACCESS_KEY_ID }}
+          AWS_DEFAULT_REGION: ${{ secrets.PUBLISH_ARTIFACTS_AWS_REGION }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.PUBLISH_ARTIFACTS_AWS_SECRET_ACCESS_KEY }}
+          PUBLISH_ARTIFACTS_AWS_S3_PREFIX: ${{ secrets.PUBLISH_ARTIFACTS_AWS_S3_PREFIX }}
+      - name: Clear S3 credentials
+        if: always()
+        shell: bash
+        run: |
+          rm -rf ~/.aws
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        if: github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          prerelease: ${{ contains(github.event.ref, '-pre') || contains(github.event.ref, '-alpha') || contains(github.event.ref, '-beta') || contains(github.event.ref, '-rc') || contains(github.event.ref, '-dev') || contains(github.event.ref, '-test') }}
+          files: |
+            artifacts/jordanai_*.sha256sum

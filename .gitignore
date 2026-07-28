@@ -1,0 +1,21 @@
+cmake-build-debug/
+cmake-build-release/
+libs/
+.idea/
+.DS_Store
+
+build/
+builds/
+_build/
+_builds/
+
+/artifacts/
+private_keys/
+
+/Release/
+/Debug/
+/RelWithDebInfo/
+/MinSizeRel/
+
+# Any .venv for model_preparation
+.venv

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=JordanAI
+Icon=JordanAI
+Exec=JordanAI
+Terminal=false
+Categories=Midi;Music;Audio;AudioVideo;
+
+X-AppImage-Name=JordanAI

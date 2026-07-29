@@ -26,7 +26,7 @@
 #include "Fifo.h"
 #include "MetricsComponent.h"
 #include "ModelConfigurationComponent.h"
-#include "JordanAI/MusicModelList.h"
+#include "VirtualOrch/MusicModelList.h"
 
 template<typename T>
 static void softmax(T &input, const float temperature) {

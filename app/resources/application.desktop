@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=JordanAI
-Icon=JordanAI
-Exec=JordanAI
+Name=virtual-orch
+Icon=virtual-orch
+Exec=virtual-orch
 Terminal=false
 Categories=Midi;Music;Audio;AudioVideo;
 
-X-AppImage-Name=JordanAI
+X-AppImage-Name=virtual-orch

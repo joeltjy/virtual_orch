@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 4.2)
 
 # TODO (Perry): redo version method
-project(JordanAI VERSION 0.0.1)
+project(VirtualOrch VERSION 0.0.1)
 
 # Add JUCE target
 juce_add_gui_app(${PROJECT_NAME}
     COMPANY_NAME "MITMediaLab"
-    PRODUCT_NAME "JordanAI"
+    PRODUCT_NAME "virtual-orch"
     NEEDS_MIDI_INPUT TRUE
     ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/icon.png"
 )
@@ -65,15 +65,15 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
         CODE "
             set(TARGET_RESOURCES \"${TARGET_RESOURCES}\")
 
-            message(\"Copying runtime dependencies for JordanAI...\")
+            message(\"Copying runtime dependencies for VirtualOrch...\")
             cmake_path(GET TARGET_RESOURCES PARENT_PATH folder_parent_path)
             file(GLOB_RECURSE resources \"\${folder_parent_path}\" \"\${TARGET_RESOURCES}/*.so\")
-            message(\"Processing resource file: \$<TARGET_FILE:JordanAI>\")
+            message(\"Processing resource file: \$<TARGET_FILE:VirtualOrch>\")
             foreach(file IN LISTS resources)
                 message(\"Processing resource file: \${file}\")
             endforeach()
             file(GET_RUNTIME_DEPENDENCIES
-                EXECUTABLES \$<TARGET_FILE:JordanAI>
+                EXECUTABLES \$<TARGET_FILE:VirtualOrch>
                 LIBRARIES \${resources}
                 RESOLVED_DEPENDENCIES_VAR resolved_deps
                 PRE_EXCLUDE_REGEXES libcuda\\..*  # Exclude NVIDIA GPU driver
@@ -128,7 +128,7 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
 endif()
 
 # Get all source files
-set(INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include/JordanAI")
+set(INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include/VirtualOrch")
 file(GLOB_RECURSE SourceFiles
     CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/source/*.cpp"
@@ -201,15 +201,15 @@ target_link_directories(${PROJECT_NAME}
 set_target_properties(${PROJECT_NAME} PROPERTIES FOLDER "")
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX "" FILES ${SourceFiles})
 
-# Create a static library for JordanAI
-# add_library(JordanAILibrary
+# Create a static library for VirtualOrch
+# add_library(VirtualOrchLibrary
 #     STATIC
 #         ${SourceFiles}
 #         ${ML_FRAMEWORK_SOURCE}
 # )
 # # Use the app's JuceHeader.h
 # get_target_property(juce_library_code ${PROJECT_NAME} JUCE_GENERATED_SOURCES_DIRECTORY)
-# target_include_directories(JordanAILibrary
+# target_include_directories(VirtualOrchLibrary
 #     PUBLIC
 #         include
 #         ${ML_FRAMEWORK_INCLUDE}
@@ -222,8 +222,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX "" FILES ${SourceFiles})
 #         ${CUSTOMMATPLOT_SOURCE_DIR}/include/include
 #         ${CUSTOMMATPLOT_BINARY_DIR}/include/include
 # )
-# target_link_directories(JordanAILibrary PUBLIC ${ML_FRAMEWORK_LIB_DIR})
-# target_link_libraries(JordanAILibrary
+# target_link_directories(VirtualOrchLibrary PUBLIC ${ML_FRAMEWORK_LIB_DIR})
+# target_link_libraries(VirtualOrchLibrary
 #     PRIVATE
 #         juce::juce_audio_utils
 #         juce::juce_osc
@@ -237,6 +237,6 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} PREFIX "" FILES ${SourceFiles})
 #         juce::juce_recommended_warning_flags
 # )
 # Prevent GTK and curl dependencies
-# target_compile_definitions(JordanAILibrary PRIVATE
+# target_compile_definitions(VirtualOrchLibrary PRIVATE
 #   JUCE_WEB_BROWSER=0
 #   JUCE_USE_CURL=0)

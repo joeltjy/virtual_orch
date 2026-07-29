@@ -1,4 +1,4 @@
-#include "JordanAI/MetricsComponent.h"
+#include "VirtualOrch/MetricsComponent.h"
 
 MetricsComponent::MetricsComponent(Metrics &metrics) : metrics(metrics), juce::Thread("Metrics") {
     Component::setName("Metrics");

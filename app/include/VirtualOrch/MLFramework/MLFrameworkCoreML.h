@@ -6,7 +6,7 @@
 
 #include <JuceHeader.h>
 
-#include "JordanAI/MLFramework/MLFramework.h"
+#include "VirtualOrch/MLFramework/MLFramework.h"
 
 class MLFrameworkCoreML : public MLFramework {
 public:

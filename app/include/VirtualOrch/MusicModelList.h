@@ -4,7 +4,7 @@
 #include <map>
 #include <JuceHeader.h>
 
-#include "JordanAI/MLFramework/MLFramework.h"
+#include "VirtualOrch/MLFramework/MLFramework.h"
 
 struct MusicModel {
     juce::String friendlyName;

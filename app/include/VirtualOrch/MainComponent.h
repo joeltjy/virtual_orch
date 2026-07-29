@@ -129,7 +129,7 @@ private:
 
     const juce::File presetsDir = juce::File::getSpecialLocation(
                 juce::File::SpecialLocationType::userDocumentsDirectory)
-            .getChildFile("JordanAI")
+            .getChildFile("VirtualOrch")
             .getChildFile("Presets");
 
     juce::Component::SafePointer<PresetSaveDialog> presetSaveDialog;

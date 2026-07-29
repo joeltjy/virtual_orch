@@ -1,4 +1,4 @@
-#include "JordanAI/OSCBufferOutputProcessor.h"
+#include "VirtualOrch/OSCBufferOutputProcessor.h"
 
 OSCBufferOutputProcessor::OSCBufferOutputProcessor(const juce::String &host, const uint32_t &port) {
     if (!oscSender.connect(host, port)) {

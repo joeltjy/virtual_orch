@@ -1,4 +1,4 @@
-#include "JordanAI/ModelConfigurationComponent.h"
+#include "VirtualOrch/ModelConfigurationComponent.h"
 
 void ModelConfig::updateParameter(const juce::String &parameterName, const juce::String &parameterValue) {
     switch (compile_time_hash(parameterName.toStdString().c_str())) {

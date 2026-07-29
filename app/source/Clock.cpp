@@ -1,4 +1,4 @@
-#include "JordanAI/Clock.h"
+#include "VirtualOrch/Clock.h"
 
 Clock::Clock(const ModelConfig &modelConfig, Metrics &metrics) : modelConfig(modelConfig), metrics(metrics) {
     const uint32_t clockTime = juce::Time::getMillisecondCounterHiRes();

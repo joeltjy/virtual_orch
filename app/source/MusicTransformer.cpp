@@ -1,9 +1,9 @@
 #include <chrono>
 
-#include "JordanAI/MusicTransformer.h"
+#include "VirtualOrch/MusicTransformer.h"
 
-#include "JordanAI/MetricsComponent.h"
-#include "JordanAI/MusicModelList.h"
+#include "VirtualOrch/MetricsComponent.h"
+#include "VirtualOrch/MusicModelList.h"
 
 MusicTransformer::MusicTransformer(ModelConfig &modelConfig): Thread("Music Transformer"), modelConfig(modelConfig) {
 }

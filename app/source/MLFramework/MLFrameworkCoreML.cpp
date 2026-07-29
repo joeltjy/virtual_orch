@@ -3,8 +3,8 @@
 #include <string>
 #include <unordered_set>
 
-#include "JordanAI/MLFramework/MLFrameworkCoreML.h"
-#include "JordanAI/CoreMLWrapper.h"
+#include "VirtualOrch/MLFramework/MLFrameworkCoreML.h"
+#include "VirtualOrch/CoreMLWrapper.h"
 
 MLFrameworkCoreML::MLFrameworkCoreML() : MLFramework() {}
 

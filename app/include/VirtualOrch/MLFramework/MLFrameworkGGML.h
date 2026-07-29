@@ -6,7 +6,7 @@
 #include <unordered_set>
 #include <JuceHeader.h>
 
-#include "JordanAI/MLFramework/MLFramework.h"
+#include "VirtualOrch/MLFramework/MLFramework.h"
 
 #include "ggml.h"
 #include "ggml-alloc.h"

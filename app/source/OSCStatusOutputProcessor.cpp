@@ -1,4 +1,4 @@
-#include "JordanAI/OSCStatusOutputProcessor.h"
+#include "VirtualOrch/OSCStatusOutputProcessor.h"
 
 OSCStatusOutputProcessor::OSCStatusOutputProcessor(const juce::String &host, const uint32_t &port) {
     if (!oscSender.connect(host, port)) {

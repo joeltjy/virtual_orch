@@ -1,7 +1,7 @@
 #pragma once
 
-#include "JordanAI/OutputProcessor.h"
-#include "JordanAI/MusicTransformer.h"
+#include "VirtualOrch/OutputProcessor.h"
+#include "VirtualOrch/MusicTransformer.h"
 
 enum MidiOutputType : uint8_t {
     VIRTUAL,

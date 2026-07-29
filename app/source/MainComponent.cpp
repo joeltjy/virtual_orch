@@ -1,10 +1,10 @@
-#include "JordanAI/MainComponent.h"
+#include "VirtualOrch/MainComponent.h"
 
 #include <chrono>
 
-#include "JordanAI/MidiOutputProcessor.h"
-#include "JordanAI/OSCOutputProcessor.h"
-#include "JordanAI/OSCController.h"
+#include "VirtualOrch/MidiOutputProcessor.h"
+#include "VirtualOrch/OSCOutputProcessor.h"
+#include "VirtualOrch/OSCController.h"
 
 //==============================================================================
 MainComponent::MainComponent() : musicTransformer(modelConfig), clock(modelConfig, metrics),
@@ -23,7 +23,7 @@ MainComponent::MainComponent() : musicTransformer(modelConfig), clock(modelConfi
     endpointsChanged();
 
     // FOR DEBUG ONLY
-    // virtualMidiInput = juce::MidiInput::createNewDevice("JordanAI Virtual MIDI Input", this);
+    // virtualMidiInput = juce::MidiInput::createNewDevice("virtual-orch Virtual MIDI Input", this);
     // virtualMidiInput->start();
 
     /* PRESET LIST */
@@ -553,7 +553,7 @@ MainComponent::MainComponent() : musicTransformer(modelConfig), clock(modelConfi
     saveLastGenButton.onClick = [this] {
         juce::File lastGenFile = juce::File::getSpecialLocation(
                     juce::File::SpecialLocationType::userDocumentsDirectory)
-                .getChildFile("JordanAI")
+                .getChildFile("VirtualOrch")
                 .getChildFile("last_gen.txt");
 
         // write musicTransformer's inputData into file
@@ -793,7 +793,7 @@ void MainComponent::endpointsChanged()
 void MainComponent::loadSettings() {
     juce::File settingsFile = juce::File(
         juce::File::getSpecialLocation(juce::File::SpecialLocationType::userDocumentsDirectory)
-        .getChildFile("JordanAI")
+        .getChildFile("VirtualOrch")
         .getChildFile("settings.xml"));
 
     // If there is no settings file, create an empty XML file
@@ -809,7 +809,7 @@ void MainComponent::loadSettings() {
 void MainComponent::saveSettings() {
     juce::File settingsFile = juce::File(
         juce::File::getSpecialLocation(juce::File::SpecialLocationType::userDocumentsDirectory)
-        .getChildFile("JordanAI")
+        .getChildFile("VirtualOrch")
         .getChildFile("settings.xml"));
 
     std::unique_ptr<juce::XmlElement> xmlSettings = settings.createXml();
@@ -1300,7 +1300,7 @@ void MainComponent::updateOutputProcessor() {
             break;
         case 1: // Virtual MIDI
             outputProcessor = std::make_unique<
-                MidiOutputProcessor>(MidiOutputType::VIRTUAL, "JordanAI Virtual MIDI Output",
+                MidiOutputProcessor>(MidiOutputType::VIRTUAL, "virtual-orch Virtual MIDI Output",
                                      modelConfig.getOutputInstrumentsIds());
 
             // enableOscConfig = false;

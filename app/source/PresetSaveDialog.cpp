@@ -1,4 +1,4 @@
-#include "JordanAI/PresetSaveDialog.h"
+#include "VirtualOrch/PresetSaveDialog.h"
 
 PresetSaveDialog::PresetSaveDialog(PresetSaver *parentComponent) : presetSaver(parentComponent) {
     Component::setName("Preset Save Dialog");
@@ -17,7 +17,7 @@ PresetSaveDialog::PresetSaveDialog(PresetSaver *parentComponent) : presetSaver(p
 
     const juce::File presetsDir = juce::File::getSpecialLocation(
                 juce::File::SpecialLocationType::userDocumentsDirectory)
-            .getChildFile("JordanAI")
+            .getChildFile("VirtualOrch")
             .getChildFile("Presets");
     juce::Array<juce::File> presetsFiles;
     presetsDir.findChildFiles(presetsFiles, juce::File::findFiles, false, "*.json");

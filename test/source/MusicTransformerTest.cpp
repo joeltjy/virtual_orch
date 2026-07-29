@@ -1,17 +1,17 @@
 #include <gtest/gtest.h>
-#include <JordanAI/MusicTransformer.h>
+#include <VirtualOrch/MusicTransformer.h>
 #include <chrono>
 #include <thread>
 
 ModelConfig modelConfig;
 
 std::string modelPath = juce::File::getSpecialLocation(juce::File::SpecialLocationType::userDocumentsDirectory)
-        .getChildFile("JordanAI")
+        .getChildFile("VirtualOrch")
         .getChildFile("Models").getChildFile("bassAndChords.onnx").getFullPathName().toStdString();
 const ModelType modelType = ModelType::Small;
 std::vector<int32_t> instruments{33};
 
-namespace jordan_ai_test {
+namespace virtual_orch_test {
     TEST(MusicTransformer, CanInstantiate) {
         MusicTransformer musicTransformer{modelConfig};
         ASSERT_TRUE(true);
@@ -139,4 +139,4 @@ namespace jordan_ai_test {
         ASSERT_GE(token.time, Config::MaxTime + 100);
         musicTransformer.stopThread(2000);
     }
-} // namespace jordan_ai_test
+} // namespace virtual_orch_test

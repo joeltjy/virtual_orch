@@ -1,4 +1,4 @@
-#include "JordanAI/ModelConfigurationComponent.h"
+#include "VirtualOrch/ModelConfigurationComponent.h"
 
 ModelConfigurationComponent::ModelConfigurationComponent(ModelConfig &modelConfig) : modelConfig(modelConfig) {
     Component::setName("Model Configuration");

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "JordanAI/MusicTransformer.h"
+#include "VirtualOrch/MusicTransformer.h"
 
 struct NoteOnEvent {
     int32_t instrument;

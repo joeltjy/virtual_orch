@@ -1,4 +1,4 @@
-#include "JordanAI/OSCOutputProcessor.h"
+#include "VirtualOrch/OSCOutputProcessor.h"
 
 OSCOutputProcessor::OSCOutputProcessor(const std::string &host, const uint32_t &port) {
     if (!oscSender.connect(host, port)) {

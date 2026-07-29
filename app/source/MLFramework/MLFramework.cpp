@@ -1,11 +1,11 @@
 #include <map>
 #include <string>
 
-#include "JordanAI/MLFramework/MLFramework.h"
-#include "JordanAI/MLFramework/MLFrameworkCoreML.h"
-#include "JordanAI/MLFramework/MLFrameworkGGML.h"
-#include "JordanAI/MLFramework/MLFrameworkONNXRuntime.h"
-#include "JordanAI/MLFramework/MLFrameworkTorch.h"
+#include "VirtualOrch/MLFramework/MLFramework.h"
+#include "VirtualOrch/MLFramework/MLFrameworkCoreML.h"
+#include "VirtualOrch/MLFramework/MLFrameworkGGML.h"
+#include "VirtualOrch/MLFramework/MLFrameworkONNXRuntime.h"
+#include "VirtualOrch/MLFramework/MLFrameworkTorch.h"
 
 const std::map<MLFramework::ACCELERATOR, std::string> MLFramework::ACCELERATOR_FRIENDLY_NAMES = {
     {MLFramework::ACCELERATOR::COREML_COREML, "Apple CoreML"},

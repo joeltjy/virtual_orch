@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(JordanAITest VERSION 0.0.1)
+project(VirtualOrchTest VERSION 0.0.1)
 
 # Download Google Test
 CPMAddPackage(
@@ -14,7 +14,7 @@ CPMAddPackage(
 enable_testing()
 
 juce_add_console_app(${PROJECT_NAME}
-        PRODUCT_NAME "JordanAI Test Runner"
+        PRODUCT_NAME "virtual-orch Test Runner"
 )
 
 file(GLOB_RECURSE TestSourceFiles CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/source/*.cpp")
@@ -45,7 +45,7 @@ target_link_libraries(${PROJECT_NAME}
         onnxruntime
         lomse-shared
         chordnamer
-        JordanAILibrary
+        VirtualOrchLibrary
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags

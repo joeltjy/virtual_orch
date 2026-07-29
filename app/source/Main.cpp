@@ -1,15 +1,15 @@
 #include <JuceHeader.h>
-#include "JordanAI/MainComponent.h"
+#include "VirtualOrch/MainComponent.h"
 
 extern "C" {
 extern const char *BUILD_REV;
 }
 
 //==============================================================================
-class JordanAIApplication : public juce::JUCEApplication {
+class VirtualOrchApplication : public juce::JUCEApplication {
 public:
     //==============================================================================
-    JordanAIApplication() {
+    VirtualOrchApplication() {
     }
 
     const juce::String getApplicationName() override { return ProjectInfo::projectName; }
@@ -91,4 +91,4 @@ private:
 
 //==============================================================================
 // This macro generates the main() routine that launches the app.
-START_JUCE_APPLICATION(JordanAIApplication)
+START_JUCE_APPLICATION(VirtualOrchApplication)

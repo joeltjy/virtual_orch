@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(JordanAI LANGUAGES CXX)
+project(VirtualOrch LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 
 # Enable LTO

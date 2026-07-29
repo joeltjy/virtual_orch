@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
-#include <JordanAI/MainComponent.h>
+#include <VirtualOrch/MainComponent.h>
 
-namespace jordan_ai_test {
+namespace virtual_orch_test {
     TEST(MainComponent, CanInstantiate) {
 
         // This lets us use JUCE's MessageManager without leaking.

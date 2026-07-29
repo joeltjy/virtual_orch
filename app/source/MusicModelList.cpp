@@ -2,7 +2,7 @@
 #include <map>
 #include <set>
 
-#include "JordanAI/MusicModelList.h"
+#include "VirtualOrch/MusicModelList.h"
 
 #include <juce_core/juce_core.h>
 
@@ -15,7 +15,7 @@ auto MusicModelList::buildList() -> int {
     std::unordered_set<MLFramework::ACCELERATOR> availableAccels = MLFramework::getAllAvailableAccelerators();
 
     juce::File modelsDir = juce::File::getSpecialLocation(juce::File::SpecialLocationType::userDocumentsDirectory)
-            .getChildFile("JordanAI")
+            .getChildFile("VirtualOrch")
             .getChildFile("Models");
 
     std::set<MusicModel> orderedModelList;

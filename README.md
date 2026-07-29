@@ -1,6 +1,6 @@
-# JordanAI
+# virtual-orch
 
-This is a repository for the JordanAI project. The version we used for the September, 21st concert is in the
+This is a repository for the VirtualOrch project. The version we used for the September, 21st concert is in the
 branch `september-concert-edits`.
 
 I am currently on developing ports of the model to GGML, PyTorch, and CoreML using this branch network:

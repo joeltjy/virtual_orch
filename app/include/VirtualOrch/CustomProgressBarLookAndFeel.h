@@ -1,7 +1,5 @@
 #pragma once
 
-#include <format>
-
 #include <JuceHeader.h>
 
 class CustomProgressBarLookAndFeel : public juce::LookAndFeel_V4 {
@@ -42,7 +40,7 @@ public:
             g.setColour(textColour);
             g.setFont((float) height * 0.6f);
 
-            g.drawText(juce::String(std::format("{:.0f}", progress * 10)) + "s", textX, 0,
+            g.drawText((progress >= 0 ? "+ " : "- ") + juce::String(abs(progress) * 10, 2) + "s", textX, 0,
                        textWidth, height, Justification::centred, false);
         } else {
             // spinning bar..

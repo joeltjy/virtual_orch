@@ -13,10 +13,6 @@ struct NoteOffEvent {
     int32_t note;
 };
 
-struct BarSeparatorEvent {
-    int32_t bar;
-};
-
 /**
  * Base class for processing output. Inherited by [MidiOutputProcessor] and [OSCOutputProcessor].
  */
@@ -25,8 +21,6 @@ public:
     OutputProcessor() = default;
 
     virtual ~OutputProcessor() = default;
-
-    virtual void send(BarSeparatorEvent event) = 0;
 
     virtual void send(NoteOnEvent event) = 0;
 

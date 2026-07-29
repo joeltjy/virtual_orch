@@ -17,7 +17,7 @@ PresetSaveDialog::PresetSaveDialog(PresetSaver *parentComponent) : presetSaver(p
 
     const juce::File presetsDir = juce::File::getSpecialLocation(
                 juce::File::SpecialLocationType::userDocumentsDirectory)
-            .getChildFile("VirtualOrch")
+            .getChildFile("virtual-orch")
             .getChildFile("Presets");
     juce::Array<juce::File> presetsFiles;
     presetsDir.findChildFiles(presetsFiles, juce::File::findFiles, false, "*.json");

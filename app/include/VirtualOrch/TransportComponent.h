@@ -3,12 +3,10 @@
 #include <JuceHeader.h>
 
 #include "Clock.h"
-#include "MusicTransformer.h"
 
 class TransportComponent : public juce::Component, juce::Timer {
 public:
-    TransportComponent(bool onSecondDisplay, const Clock &clock, const MusicTransformer &musicTransformer,
-                       const ModelConfig &modelConfig);
+    TransportComponent(bool onSecondDisplay, const Clock &clock);
 
     ~TransportComponent() override;
 
@@ -22,8 +20,6 @@ public:
 
 private:
     const Clock &clock;
-    const MusicTransformer &musicTransformer;
-    const ModelConfig &modelConfig;
 
     float scale = 1;
 };

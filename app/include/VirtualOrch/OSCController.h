@@ -16,9 +16,6 @@ public:
     std::function<void()> onStart;
     std::function<void()> onStop;
     std::function<void()> onOpenTransport;
-    std::function<void()> onCueStopTrading;
     std::function<void(const juce::int32 &id, const juce::int32 &low, const juce::int32 &high)> onSetOutputRange;
     std::function<void(const juce::OSCMessage &message)> onSetModelConfig;
-    std::function<void(bool value)> onSetManualPause;
-    std::function<void(const juce::int32 &velocity)> onSetVelocity;
 };

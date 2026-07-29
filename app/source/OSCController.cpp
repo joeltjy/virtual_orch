@@ -10,11 +10,8 @@ OSCController::OSCController(const uint32_t &port) {
     addListener(this, "/start");
     addListener(this, "/stop");
     addListener(this, "/openTransport");
-    addListener(this, "/cueStopTrading");
     addListener(this, "/setOutputRange");
     addListener(this, "/setModelConfig");
-    addListener(this, "/setManualPause");
-    addListener(this, "/setVelocity");
 }
 
 OSCController::~OSCController() {
@@ -32,9 +29,6 @@ void OSCController::oscMessageReceived(const OSCMessage &message) {
         onStop();
     } else if (message.getAddressPattern().matches("/openTransport")) {
         onOpenTransport();
-    } else if (message.getAddressPattern().matches("/cueStopTrading")) {
-        DBG("RECEIVED CUE STOP TRADING");
-        onCueStopTrading();
     } else if (message.getAddressPattern().matches("/setOutputRange")) {
         const auto ID = message[0].getInt32();
         const auto LOW = message[1].getInt32();
@@ -44,12 +38,5 @@ void OSCController::oscMessageReceived(const OSCMessage &message) {
         onSetOutputRange(ID, LOW, HIGH);
     } else if (message.getAddressPattern().matches("/setModelConfig")) {
         onSetModelConfig(message);
-    } else if (message.getAddressPattern().matches("/setManualPause")) {
-        const auto value = message[0].getInt32();
-        onSetManualPause(value != 0);
-    } else if (message.getAddressPattern().matches("/setVelocity")) {
-        const auto velocity = message[0].getInt32();
-        DBG("VELOCITY SET TO: " + std::to_string(velocity));
-        onSetVelocity(velocity);
     }
 }

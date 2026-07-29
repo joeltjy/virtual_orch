@@ -1,60 +1,62 @@
-#include <chrono>
-
 #include "VirtualOrch/MusicTransformer.h"
-
-#include "VirtualOrch/MetricsComponent.h"
-#include "VirtualOrch/MusicModelList.h"
+#include <onnxruntime_cxx_api.h>
+#include <iostream>
 
 MusicTransformer::MusicTransformer(ModelConfig &modelConfig): Thread("Music Transformer"), modelConfig(modelConfig) {
 }
 
-void MusicTransformer::init(MusicModel newMusicModel, ModelType &modelType) {
-    musicModel = newMusicModel;
-    switch (musicModel.accelerator) {
-        #ifdef ENABLE_COREML
-        case MLFramework::ACCELERATOR::COREML_COREML:
-            mlFramework = std::make_unique<MLFrameworkCoreML>();
-            break;
-        #endif
-        #ifdef ENABLE_GGML
-        case MLFramework::ACCELERATOR::GGML_CPU:
-        case MLFramework::ACCELERATOR::GGML_CUDA:
-        case MLFramework::ACCELERATOR::GGML_METAL:
-        case MLFramework::ACCELERATOR::GGML_SYCL:
-        case MLFramework::ACCELERATOR::GGML_VULKAN:
-            mlFramework = std::make_unique<MLFrameworkGGML>();
-            break;
-        #endif
-        #ifdef ENABLE_ONNXRUNTIME
-        case MLFramework::ACCELERATOR::ONNXRUNTIME_CPU:
-        case MLFramework::ACCELERATOR::ONNXRUNTIME_TENSORRT:
-        case MLFramework::ACCELERATOR::ONNXRUNTIME_CUDA:
-            mlFramework = std::make_unique<MLFrameworkONNXRuntime>();
-            break;
-        #endif
-        #ifdef ENABLE_TORCH
-        case MLFramework::ACCELERATOR::TORCH_CUDA:
-        case MLFramework::ACCELERATOR::TORCH_MPS:
-        case MLFramework::ACCELERATOR::TORCH_CPU:
-            mlFramework = std::make_unique<MLFrameworkTorch>();
-            break;
-        #endif
-        default:
-            throw std::runtime_error("Unsupported accelerator for music transformer.");
-            break;
+void MusicTransformer::notifyInputDataChanged() {
+    auto callback = onInputDataChanged;
+    if (!callback) {
+        return;
+    }
+    auto snapshot = inputData;
+    juce::MessageManager::callAsync([callback = std::move(callback), snapshot = std::move(snapshot)]() mutable {
+        callback(std::move(snapshot));
+    });
+}
+
+void MusicTransformer::init(const char *modelPath, ModelType newModelType) {
+    Ort::SessionOptions sessionOptions;
+
+    // If on Linux, use CUDA
+#ifdef __linux__
+    OrtCUDAProviderOptions cudaOptions{};
+    sessionOptions.AppendExecutionProvider_CUDA(cudaOptions);
+#endif
+
+    // Create session and set model typez
+    session = std::make_unique<Ort::Session>(env, modelPath, sessionOptions);
+    modelType = std::make_unique<ModelType>(newModelType);
+
+    // Set Input and Output names
+    {
+        allocatedInputNames.clear();
+        allocatedOutputNames.clear();
+        const Ort::AllocatorWithDefaultOptions allocator;
+        for (size_t i = 0; i < session->GetInputCount(); i++) {
+            allocatedInputNames.emplace_back(session->GetInputNameAllocated(i, allocator).get());
+        }
+        for (size_t i = 0; i < session->GetOutputCount(); i++) {
+            allocatedOutputNames.emplace_back(
+                session->GetOutputNameAllocated(i, allocator).get());
+        }
     }
 
-    // Load the model
-    mlFramework->init(musicModel.path.toStdString().c_str(), modelType, musicModel.accelerator);
+    // Create empty Past tensors
+    pastShape = std::make_unique<std::vector<int64_t> >(std::initializer_list<int64_t>{2, 1, getHiddenSize(), 0, 64});
+    emptyPast = std::make_unique<std::vector<float> >(std::accumulate(pastShape->begin(), pastShape->end(),
+                                                                      static_cast<int64_t>(1),
+                                                                      std::multiplies<int64_t>()), 0.0f);
 }
 
-auto MusicTransformer::getCurrentMusicModel() const -> MusicModel {
-    return musicModel;
+void MusicTransformer::threadInit() {
+    // TODO Maybe transfer memory_info initialization and stuff here.
 }
 
-void MusicTransformer::run() {
+void MusicTransformer::threadRun() {
     // If no session has been started, stop
-    if (!mlFramework) {
+    if (session == nullptr) {
         return;
     }
 
@@ -62,14 +64,9 @@ void MusicTransformer::run() {
     clearInputTokenQueue();
     clearOutputTokenQueue();
 
-    // Clear pause
-    paused = false;
-
     currentTime = modelConfig.outputStartTime;
-    currentBar = currentTime / modelConfig.outputBarLength;
 
     // Whether we want to generate a token at a precise time
-    // (Used during Trading when the model needs to generate at the start of the bar)
     int32_t forceAtTime = -1;
 
     // If we force the start time, set the forceAtTime to the start time
@@ -77,91 +74,24 @@ void MusicTransformer::run() {
         forceAtTime = modelConfig.outputStartTime;
     }
 
-    std::multiset<Token> controlTokens;
-    int32_t anticipatedTime = -1;
-
-    // If in Playback mode, set the current time and control sequence
-    if (modelConfig.inputMode == InputMode::Playback) {
-        // Split the control sequence by space
-        juce::StringArray controlSequence;
-        controlSequence.addTokens(modelConfig.playbackInputControlSequence, " ", "");
-        for (int i = 0; i < controlSequence.size(); i += 3) {
-            controlTokens.insert({
-                controlSequence[i].getIntValue(),
-                controlSequence[i + 1].getIntValue(),
-                controlSequence[i + 2].getIntValue()
-            });
-            DBG("Control token: " + controlSequence[i] + " " + controlSequence[i + 1] + " " + controlSequence[i + 2]);
-        }
-        anticipatedTime = controlTokens.begin()->time;
-        DBG("Anticipated time: " + juce::String(anticipatedTime));
-
-        // If anticipated time is before start time, set current time to start time
-        // Otherwise, set current time to anticipated time
-        if (anticipatedTime < modelConfig.playbackInputStartTime) {
-            currentTime = modelConfig.playbackInputStartTime;
-        } else {
-            DBG("Anticipated time is after start time, using anticipated time instead.");
-            currentTime = anticipatedTime;
-        }
-        currentBar = currentTime / modelConfig.outputBarLength;
-    }
-
-    // If in Trading mode, set initial offset
-    if (modelConfig.inputMode == InputMode::Trading) {
-        tradingOffset.set(modelConfig.tradingInputInitialOffset);
-    }
-
-
-    // If outputPauseAfterTradingSequence and we shouldn't trade to start, start paused but send the necessary BarSeparators to get to the start of the trading
-    if (modelConfig.outputPauseAfterTradingSequence && modelConfig.inputMode == InputMode::Trading && !shouldTradeNow()) {
-        paused = true;
-        DBG("Calculated trading start bar: " + std::to_string(tradingStart() / modelConfig.outputBarLength));
-        for (int32_t time = (currentBar + 1) * modelConfig.outputBarLength; time <= tradingStart(); time += modelConfig.outputBarLength) {
-            outputTokenQueue.push({time, Vocab::DurOffset, Vocab::BarSeparator});
-        }
-    }
-
     // If we have initial input data, add it to the input data
-    std::vector<int32_t> inputInitialData;
-    int32_t lastInputInitialDataTime = 0;
     if (modelConfig.inputInitialData.length() > 0) {
         // Split the control sequence by space
-        juce::StringArray inputInitialDataStringArray;
-        inputInitialDataStringArray.addTokens(modelConfig.inputInitialData, " ", "");
-        for (int i = 0; i < inputInitialDataStringArray.size(); i += 3) {
-            inputInitialData.push_back(inputInitialDataStringArray[i].getIntValue());
-            inputInitialData.push_back(inputInitialDataStringArray[i + 1].getIntValue());
-            inputInitialData.push_back(inputInitialDataStringArray[i + 2].getIntValue());
-
-            inputData.push_back(inputInitialDataStringArray[i].getIntValue());
-            inputData.push_back(inputInitialDataStringArray[i + 1].getIntValue());
-            inputData.push_back(inputInitialDataStringArray[i + 2].getIntValue());
+        juce::StringArray inputInitialData;
+        inputInitialData.addTokens(modelConfig.inputInitialData, " ", "");
+        for (int i = 0; i < inputInitialData.size(); i += 3) {
+            inputData.push_back(inputInitialData[i].getIntValue());
+            inputData.push_back(inputInitialData[i + 1].getIntValue());
+            inputData.push_back(inputInitialData[i + 2].getIntValue());
         }
     }
-
-    firstToken = true;
-
-    // We trigger the start of the clock
-    outputTokenQueue.push({Vocab::TimeOffset, Vocab::DurOffset, Vocab::BarSeparator});
+    notifyInputDataChanged();
 
     // We keep track of a flag to clear the queue
     bool clearFlag = false;
 
-    // If input clicks, set up the first beat
-    if (modelConfig.inputClicks) {
-        auto beatLength = modelConfig.outputBarLength / 4;
-        inputData.push_back(Vocab::TimeOffset + 0);
-        inputData.push_back(Vocab::DurOffset + modelConfig.outputBarLength - 1);
-        inputData.push_back(Vocab::BarClick);
-        inputData.push_back(Vocab::TimeOffset + 0);
-        inputData.push_back(Vocab::DurOffset + beatLength - 1);
-        inputData.push_back(Vocab::BeatClick);
-    }
-
-    // Until thread is not stopped (or until we reach the end of the time in Playback mode)
-    while (!threadShouldExit()
-           && (modelConfig.inputMode != InputMode::Playback || currentTime < modelConfig.playbackInputEndTime)) {
+    // Until thread is not stopped
+    while (!threadShouldExit()) {
         // DIRECT INPUT: WAIT FOR INPUT BLOCK
         if (modelConfig.inputMode == InputMode::Direct && modelConfig.directInputStartOnInput
             && directInputBlock.value) {
@@ -170,62 +100,18 @@ void MusicTransformer::run() {
 
         // Watch for input tokens
         Token inputToken = {-1, -1, -1};
-        int32_t lastTokenTime = -1;
-        Token bassToken = {-1, -1, -1}; // TODO Cleanup
 
         /* COLLECT INPUT */
-        while (inputTokenQueue.pull(inputToken) && modelConfig.inputMode != InputMode::Playback) {
-            // CLEARING INPUT DATA IF FIRST TOKEN
+        while (inputTokenQueue.pull(inputToken)) {
+            DBG("input: " + inputToken.toUnderstandableString());
+            // CLEARING FUTURE INPUT DATA IF FIRST TOKEN
             if (!clearFlag) {
-                if (modelConfig.inputClearsPast) {
-                    // If inputClearsPast, clear all past events
-                    // Otherwise, clear events that are in the future
-                    inputData.clear();
-                } else {
-                    for (size_t i = 0; i < inputData.size(); i += 3) {
-                        if (inputData[i] > inputToken.time) {
-                            inputData.erase(inputData.begin() + i, inputData.end());
-                            break;
-                        }
+                for (size_t i = 0; i < inputData.size(); i += 3) {
+                    if (inputData[i] > inputToken.time) {
+                        inputData.erase(inputData.begin() + i, inputData.end());
+                        break;
                     }
                 }
-            }
-
-            // IF BAR SEPARATOR, THIS MEANS THE PLAY THREAD WANTS TO CLEAR THE QUEUE (CHANGE OF TRADING PATTERN)
-            if (inputToken.note == Vocab::BarSeparator) {
-                currentTime = inputToken.time;
-                currentBar = currentTime / modelConfig.outputBarLength;
-
-                clearFlag = true;
-                continue;
-            }
-
-            // INPUT CLICKS: ADD KICK AND HIHATS
-            if (modelConfig.inputClicks && lastTokenTime == -1) {
-                // If first, add a bar click
-                auto beatLength = modelConfig.outputBarLength / 4;
-                auto lastBar = modelConfig.outputBarLength * (inputToken.time / modelConfig.outputBarLength);
-                inputData.push_back(Vocab::TimeOffset + lastBar);
-                inputData.push_back(Vocab::DurOffset + beatLength - 1);
-                inputData.push_back(Vocab::NoteOffset + Vocab::BarClick);
-            } else if (modelConfig.inputClicks) {
-                // Otherwise, add hihats on beats between lastTokenTime and inputToken.time
-                auto beatLength = modelConfig.outputBarLength / 4;
-                auto lastBeat = beatLength * (lastTokenTime / beatLength); // TODO Fix this, it doesn't really work
-                for (int32_t t = lastBeat; t < inputToken.time; t += beatLength) {
-                    inputData.push_back(Vocab::TimeOffset + t);
-                    inputData.push_back(Vocab::DurOffset + beatLength - 1);
-                    inputData.push_back(Vocab::NoteOffset + Vocab::BeatClick);
-                }
-            }
-            // Used for adding beats
-            lastTokenTime = inputToken.time;
-
-            // KEEP TRACK OF BASS NOTE (FIRST NOTE IF BUFFER)
-            if (!clearFlag) {
-                bassToken.time = inputToken.time;
-                bassToken.duration = inputToken.duration;
-                bassToken.note = inputToken.note;
             }
 
             // ADD TOKEN TO INPUT DATA (IF BUFFER DO SOME PROCESSING)
@@ -258,188 +144,30 @@ void MusicTransformer::run() {
 
             // Set current time to last token time
             currentTime = inputToken.time;
-            currentBar = currentTime / modelConfig.outputBarLength;
-
-            // SNAP ON BAR: Force the generation at the given closest bar
-            if (modelConfig.inputMode == InputMode::Direct && modelConfig.directInputSnapOnBar) {
-                forceAtTime = currentTime;
-            }
-
-            // Remove the pause, and set the lastGeneratedTokenTime to -1
-            paused = false;
-            lastGeneratedTokenTime = -1;
 
             // Set Clear Flag
             clearFlag = true;
         }
+        if (clearFlag) {
+            notifyInputDataChanged();
+        }
         /* END COLLECT INPUT */
-
-        // Do not generate if paused
-        if (paused.get()) {
-            continue;
-        }
-
-        // PLAYBACK INPUT: ANTICIPATE CONTROL SEQUENCE
-        while (modelConfig.inputMode == InputMode::Playback
-               && controlTokens.size() > 0
-               && currentTime >= anticipatedTime + Config::AnticipationDelta) {
-            DBG("Anticipating " + controlTokens.begin()->toUnderstandableString());
-            inputData.push_back(controlTokens.begin()->time);
-            inputData.push_back(controlTokens.begin()->duration);
-            inputData.push_back(controlTokens.begin()->note);
-
-            controlTokens.erase(controlTokens.begin());
-            if (controlTokens.size() > 0) {
-                anticipatedTime = controlTokens.begin()->time;
-                DBG("NEW ANTICIPATED TIME: " + juce::String(anticipatedTime));
-            } else {
-                DBG("DONE ANTICIPATING");
-            }
-        }
-
-        // Refresh Input Initial Data
-        if (modelConfig.inputInitialDataRefreshRate > 0) {
-            if (currentTime >= lastInputInitialDataTime + modelConfig.inputInitialDataRefreshRate) {
-                DBG("Refreshing prompt at time " + juce::String(currentTime));
-                inputData.clear();
-                lastInputInitialDataTime = currentTime;
-                for (int32_t i = 0; i < inputInitialData.size(); i += 3) {
-                    inputData.push_back(inputInitialData[i]);
-                    inputData.push_back(inputInitialData[i + 1]);
-                    inputData.push_back(inputInitialData[i + 2]);
-                }
-            }
-        }
-
-        // BUFFER INPUT FORCE INSTRUMENT INPUT ON NEXT BAR
-        if (modelConfig.inputMode == InputMode::Buffer && modelConfig.bufferInputForceOnNextBar && clearFlag) {
-            // Generate token for all instrument
-            for (const auto &[id, instrument]: modelConfig.outputInstruments) {
-                auto beatLength = modelConfig.outputBarLength / 4; // TODO: Make beatsPerBar a parameter
-                Token token{
-                    static_cast<int32_t>(Vocab::TimeOffset + currentTime),
-                    static_cast<int32_t>(Vocab::DurOffset + beatLength - 1),
-                    static_cast<int32_t>(Vocab::NoteOffset + Config::MaxPitch * id
-                                         + 12 * (instrument.low / 12) + bassToken.getPitch() % 12)
-                };
-                inputData.push_back(token.time);
-                inputData.push_back(token.duration);
-                inputData.push_back(token.note);
-                outputTokenQueue.push(token);
-            }
-        }
-
-        // INPUT CLICKS: CONTROL OF BASS NOTE AND DRUMS
-        // if (clearFlag && modelConfig.inputClicks) {
-        //     auto beatLength = modelConfig.outputBarLength / 4; // TODO: Make beatsPerBar a parameter
-        //     auto nextBar = modelConfig.outputBarLength * ((currentTime / modelConfig.outputBarLength) + 1);
-        //     if (modelConfig.inputMode == InputMode::Buffer) {
-        //         inputData.push_back(Vocab::AtimeOffset + nextBar);
-        //         inputData.push_back(Vocab::AdurOffset + beatLength / 2);
-        //         inputData.push_back(Vocab::AnoteOffset + Config::MaxPitch * 33 + bassToken.getPitch());
-        //         inputData.push_back(Vocab::AtimeOffset + nextBar);
-        //         inputData.push_back(Vocab::AdurOffset + beatLength);
-        //         inputData.push_back(Vocab::AnoteOffset + Config::MaxPitch * 49 + bassToken.getPitch() + 12 * 2);
-        //         // TODO: !!!!!!! THIS IS WRONG !!!!!!!!
-        //     }
-        //     for (int32_t t = nextBar; t < currentTime + modelConfig.outputBarLength * 4; t += beatLength) {
-        //         if (t % modelConfig.outputBarLength == 0) {
-        //             inputData.push_back(Vocab::AtimeOffset + t);
-        //             inputData.push_back(Vocab::AdurOffset + beatLength - 1);
-        //             inputData.push_back(Vocab::ControlOffset + Vocab::BarClick);
-        //         }
-        //         inputData.push_back(Vocab::AtimeOffset + t);
-        //         inputData.push_back(Vocab::AdurOffset + beatLength - 1);
-        //         inputData.push_back(Vocab::ControlOffset + Vocab::BeatClick);
-        //     }
-        // }
 
         // GENERATE NEW TOKEN (OR REST)
         Token newToken = {-1, -1, -1};
-        if (modelConfig.inputMode == InputMode::Trading && !shouldTradeNow()) {
-            // If in Trading mode and it's not time to play, generate rests
-            newToken.time = Vocab::TimeOffset + (currentBar + 1) * modelConfig.outputBarLength;
-            newToken.duration = Vocab::DurOffset + modelConfig.outputBarLength - 1;
-            newToken.note = Vocab::Rest;
+        // Generate new token
+        newToken = generateNewToken(forceAtTime);
+        std::cout << "generated token: " << newToken.toUnderstandableString() << std::endl;
+        DBG("generating " + newToken.toUnderstandableString());
 
-            // We set forceAtTime to the next bar for the model to prepare for the first token of the trading sequence
-            forceAtTime = (currentBar + 1) * modelConfig.outputBarLength;
-        } else {
-            // Otherwise, generate new token
-            newToken = generateNewToken(forceAtTime);
-            DBG("generating " + newToken.toUnderstandableString());
-
-            // OUTPUT PAUSE:
-            // PAUSE AFTER TIME INTERVAL: If more than time interval, ignore and pause
-            if (lastGeneratedTokenTime != -1 && modelConfig.outputPauseAfterTimeInterval
-                && (newToken.time - lastGeneratedTokenTime) > modelConfig.outputPauseAfterTimeIntervalValue) {
-                DBG("PAUSING - TIME INTERVAL");
-                paused = true;
-                newToken.note = Vocab::Rest;
-            }
-            // PAUSE AFTER DURATION: If more than duration, pause but keep the token
-            if (modelConfig.outputPauseAfterDuration
-                && newToken.duration >= (Vocab::DurOffset + modelConfig.outputPauseAfterDurationValue)) {
-                DBG("PAUSING - DURATION");
-                paused = true;
-            }
-            // PAUSE AFTER TRADING SEQUENCE: If we finished a trading sequence, ignore and pause until next bar
-            if (modelConfig.outputPauseAfterTradingSequence && newToken.time == nextTradingStop()) {
-                DBG("PAUSING - TRADING SEQUENCE");
-                paused = true;
-                newToken.note = Vocab::Rest;
-                if (modelConfig.inputMode == InputMode::Trading) {
-                    // TODO (Lancelot): Now I'm thinking that the triggering of the trading sequence should not come
-                    // TODO (Lancelot): from the MusicTransformer sending BarSeparators. We should change that.
-
-                    // TODO (Lancelot): This also breaks the changing from 2 bars to 4 bars since the corresponding BarSeparator won't be there !!
-                    // If in Trading mode, we want to be able to trigger the next trading sequence
-                    // so we add the next bar separators to the queue
-                    for (int i = 1; i <= 5; i++) {
-                        const int32_t barTime = Vocab::TimeOffset + (currentBar + i) * modelConfig.outputBarLength;
-                        outputTokenQueue.push({barTime, Vocab::DurOffset, Vocab::BarSeparator});
-                    }
-                }
-            }
-
-            // Set the new lastGeneratedTokenTime if it's not a rest
-            if (newToken.note != Vocab::Rest) {
-                lastGeneratedTokenTime = newToken.time;
-            }
-
-            // We set forceAtTime back to -1
-            forceAtTime = -1;
-
-            firstToken = false;
-        }
-
-        // INPUT CLICKS: ADD MISSING BEATS
-        if (modelConfig.inputClicks) {
-            auto beatLength = modelConfig.outputBarLength / 4; // TODO Make beatsPerBar a parameter
-            int32_t previousNextBeat = (currentTime / beatLength) + 1;
-            int32_t currentLastBeat = newToken.time / beatLength;
-            // If we passed some beats, add them
-            if (currentLastBeat >= previousNextBeat) {
-                for (int32_t t = previousNextBeat; t <= currentLastBeat; t += 1) {
-                    if (t % 4 == 0) {
-                        // TODO Make beatsPerBar a parameter
-                        inputData.push_back(Vocab::TimeOffset + t * beatLength);
-                        inputData.push_back(Vocab::DurOffset + modelConfig.outputBarLength - 1);
-                        inputData.push_back(Vocab::BarClick);
-                    }
-                    inputData.push_back(Vocab::TimeOffset + t * beatLength);
-                    inputData.push_back(Vocab::DurOffset + beatLength - 1);
-                    inputData.push_back(Vocab::BeatClick);
-                }
-
-                // TODO Then add next bar-worth of beats as anticipation (??)
-            }
-        }
+        // We set forceAtTime back to -1
+        forceAtTime = -1;
 
         // Add the token to inputData
         inputData.push_back(newToken.time);
         inputData.push_back(newToken.duration);
         inputData.push_back(newToken.note);
+        notifyInputDataChanged();
 
         // Update current time
         currentTime = newToken.time;
@@ -447,25 +175,21 @@ void MusicTransformer::run() {
         // If we need to clear the queue, send a clear queue token
         // We do it here to ensure we can push the new token right after, and not have a moment without any token
         if (clearFlag) {
-            outputTokenQueue.push({Vocab::TimeOffset, Vocab::DurOffset, Vocab::ClearQueue});
-        }
-
-        // If "Send Bar Separators":
-        // If we are at a new bar, set it and send a Bar Separator signal.
-        if (modelConfig.outputSendBarSeparators && (currentTime / modelConfig.outputBarLength) > currentBar
-            && !clearFlag) {
-            currentBar = currentTime / modelConfig.outputBarLength;
-            const int32_t barTime = Vocab::TimeOffset + modelConfig.outputBarLength * currentBar;
-            outputTokenQueue.push({barTime, Vocab::DurOffset, Vocab::BarSeparator});
-        } else {
-            currentBar = currentTime / modelConfig.outputBarLength;
+            Token clearToken = {Vocab::TimeOffset, Vocab::DurOffset, Vocab::ClearQueue};
+            outputTokenQueue.push(clearToken);
+            DBG("output: " + clearToken.toUnderstandableString());
         }
 
         if (clearFlag) { clearFlag = false; }
 
         // Push new token to output queue
         outputTokenQueue.push(newToken);
+        DBG("output: " + newToken.toUnderstandableString());
     }
+}
+
+void MusicTransformer::threadStop() {
+    // TODO Maybe transfer memory_info destruction and stuff here.
 }
 
 void MusicTransformer::instrLogits(std::vector<float> &logits) {
@@ -520,22 +244,10 @@ void MusicTransformer::futureLogits(std::vector<float> &logits, const int curren
                     -std::numeric_limits<float>::infinity());
     }
 
-    // Follow minimum time interval (if not out of bounds and not first token)
-    if ((currentTime + modelConfig.outputMinimumTimeInterval) < Config::MaxTime && !firstToken) {
-        std::fill_n(logits.begin() + Vocab::TimeOffset + currentTime + 1, modelConfig.outputMinimumTimeInterval,
-                    -std::numeric_limits<float>::infinity());
-        // If chords are not allowed (or if it is already too large), also set current time to -inf
-        if (modelConfig.outputMinimumTimeInterval > 0 && (
-                !modelConfig.outputAllowChords || currentChordSize >= modelConfig.outputMaximumChordSize)) {
-            std::fill_n(logits.begin() + Vocab::TimeOffset + currentTime, 1,
-                        -std::numeric_limits<float>::infinity());
-        }
-    }
-
     // Do not generate too far in the future (TODO: manually set to 200, but could be part of config)
-    if (currentTime < (Config::MaxTime - maximumFuture - modelConfig.outputMinimumTimeInterval)) {
+    if (currentTime < (Config::MaxTime - maximumFuture)) {
         std::fill(
-            logits.begin() + Vocab::TimeOffset + currentTime + maximumFuture + modelConfig.outputMinimumTimeInterval,
+            logits.begin() + Vocab::TimeOffset + currentTime + maximumFuture,
             logits.begin() + Vocab::DurOffset,
             -std::numeric_limits<float>::infinity());
     }
@@ -572,6 +284,66 @@ void safeLogits(std::vector<float> &logits, const size_t idx) {
     }
 }
 
+std::vector<float> MusicTransformer::runModelAndGetLogits(std::vector<int32_t> &tokens) {
+    // Prepare buffers for inputs and outputs
+    const std::vector input_shape{1, static_cast<int64_t>(tokens.size())};
+
+    // Attention mask and position_ids setup (we assume the same shape as input for simplicity)
+    std::vector attention_mask(tokens.size(), 1);
+    std::vector position_ids(tokens.size(), 0);
+    std::iota(position_ids.begin(), position_ids.end(), 0);
+
+    Ort::Value input_tensor = Ort::Value::CreateTensor<int32_t>(memoryInfo, tokens.data(), tokens.size(),
+                                                                input_shape.data(), input_shape.size());
+    Ort::Value attention_mask_tensor = Ort::Value::CreateTensor<int32_t>(
+        memoryInfo, attention_mask.data(), attention_mask.size(), input_shape.data(), input_shape.size());
+    Ort::Value position_ids_tensor = Ort::Value::CreateTensor<int32_t>(memoryInfo, position_ids.data(),
+                                                                       position_ids.size(), input_shape.data(),
+                                                                       input_shape.size());
+
+    // Fill the input tensor vector without copying Ort::Value objects
+    std::vector<Ort::Value> input_tensors;
+    input_tensors.push_back(std::move(input_tensor));
+    input_tensors.push_back(std::move(position_ids_tensor));
+    input_tensors.push_back(std::move(attention_mask_tensor));
+
+    // Add past state tensor(s) to the input_tensors if needed
+    for (size_t i = 0; i < getNHeads(); ++i) {
+        Ort::Value pastTensor = Ort::Value::CreateTensor<float>(memoryInfo, emptyPast->data(), emptyPast->size(),
+                                                                pastShape->data(), pastShape->size());
+        input_tensors.push_back(std::move(pastTensor));
+    }
+
+    // convert from string to char*
+    std::vector<const char *> inputNames;
+    std::vector<const char *> outputNames;
+    for (auto &allocatedInputName: allocatedInputNames) {
+        inputNames.push_back(allocatedInputName.c_str());
+    }
+    for (auto &allocatedOutputName: allocatedOutputNames) {
+        outputNames.push_back(allocatedOutputName.c_str());
+    }
+
+    // Run inference
+    try {
+        auto output_tensors = session->Run(Ort::RunOptions{nullptr}, inputNames.data(), input_tensors.data(),
+                                           input_tensors.size(), outputNames.data(), outputNames.size());
+
+
+        // Get logits output tensor
+        Ort::Value &logits_tensor = output_tensors.front();
+
+        // Sort the logits tensor
+        std::vector scores(logits_tensor.GetTensorMutableData<float>() + (Vocab::VocabSize * (tokens.size() - 1)),
+                           logits_tensor.GetTensorMutableData<float>() + logits_tensor.GetTensorTypeAndShapeInfo().
+                           GetElementCount());
+
+        return scores;
+    } catch (const Ort::Exception &exception) {
+        DBG("Error running model: " + juce::String(exception.what()));
+    }
+}
+
 Token MusicTransformer::generateNewToken(int32_t forceAtTime) {
     if (inputData.size() % 3 != 0) {
         throw std::runtime_error("inputData must be a multiple of 3");
@@ -596,13 +368,7 @@ Token MusicTransformer::generateNewToken(int32_t forceAtTime) {
     Token newToken{-1, -1, -1};
 
     for (int i = 0; i < 3; i++) {
-        std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
-        std::vector<float> scores = mlFramework->runModelAndGetLogits(history, false);
-        std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-        if (metricsWindow) {
-            metricsWindow->tokenLatencyFifo.push(
-                static_cast<int32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count()));
-        }
+        std::vector<float> scores = runModelAndGetLogits(history);
         safeLogits(scores, i % 3);
         if (i == 0) {
             // If forceAtTime is not -1, then pass it by removing the offset
@@ -618,21 +384,6 @@ Token MusicTransformer::generateNewToken(int32_t forceAtTime) {
 
         if (i == 0) {
             newToken.time = token + offset;
-
-            // If we reached the end of the trading sequence, return a REST
-            if (modelConfig.inputMode == InputMode::Trading && (token + offset >= nextTradingStop())) {
-                newToken.time = nextTradingStop();
-                newToken.duration = Vocab::DurOffset + modelConfig.outputBarLength - 1;
-                newToken.note = Vocab::Rest;
-                return newToken;
-            }
-
-            // If we are building a chord, increment the currentChordSize
-            if ((token + offset) == currentTime) {
-                currentChordSize++;
-            } else {
-                currentChordSize = 1;
-            }
         } else if (i == 1) {
             newToken.duration = token;
         } else if (i == 2) {
@@ -641,55 +392,4 @@ Token MusicTransformer::generateNewToken(int32_t forceAtTime) {
     }
 
     return newToken;
-}
-
-/**
- * @return whether the model should trade now based on the current bar and the setting of the model
- */
-auto MusicTransformer::shouldTradeNow() const -> bool {
-    auto _tradingOffset = tradingOffset.get();
-    return ((modelConfig.tradingInputModelGoesFirst &&
-             ((currentBar - _tradingOffset) % (modelConfig.tradingInputNumberOfBars * 2))
-             < modelConfig.tradingInputNumberOfBars)
-            || (!modelConfig.tradingInputModelGoesFirst &&
-                ((currentBar - _tradingOffset) % (modelConfig.tradingInputNumberOfBars * 2))
-                >= modelConfig.tradingInputNumberOfBars));
-}
-
-/**
- * Returns the time of the next time at which Trading should stop, or -1 if the model is not currently trading.
- * Two examples:
- *   - In a Trading sequence of 4 bars with Model Goes First:
- *      0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
- *      ------- ------- --------- -----------
- *        = 4     = -1    = 12       = -1           ( converted to time )
- *
-*   - In a Trading sequence of 4 bars with Model Goes Second:
- *      0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
- *      ------- ------- --------- -----------
- *        = -1    = 8     = -1       = 16           ( converted to time )
- *
- */
-auto MusicTransformer::nextTradingStop() const -> int32_t {
-    if (!shouldTradeNow()) {
-        return -1;
-    }
-
-    auto _tradingOffset = tradingOffset.get();
-    // Return the next group of tradingInputNumberOfBars
-    const auto nextGroup = modelConfig.tradingInputNumberOfBars
-                           * ((currentBar - _tradingOffset) / modelConfig.tradingInputNumberOfBars)
-                           + modelConfig.tradingInputNumberOfBars + _tradingOffset;
-    return modelConfig.outputBarLength * nextGroup;
-}
-
-/** Calculates when the trading should start */
-auto MusicTransformer::tradingStart() const -> int32_t {
-    int32_t barToStart = 0;
-    auto _tradingOffset = tradingOffset.get();
-    barToStart += _tradingOffset;
-    if (!modelConfig.tradingInputModelGoesFirst) {
-        barToStart += modelConfig.tradingInputNumberOfBars;
-    }
-    return modelConfig.outputBarLength * barToStart;
 }

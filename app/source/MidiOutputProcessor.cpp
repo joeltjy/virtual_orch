@@ -20,13 +20,6 @@ MidiOutputProcessor::~MidiOutputProcessor() {
     midiOutput.reset();
 }
 
-void MidiOutputProcessor::send(const BarSeparatorEvent event) {
-    // We send a Song Position Pointer message with the number of 16ths of a bar that have passed since the start, hence
-    // we multiply the bar by 16.
-    // TODO (Lancelot & Perry): Make this configurable
-    // midiOutput->sendMessageNow(juce::MidiMessage::noteOn(15, 36, 1.0F));
-}
-
 void MidiOutputProcessor::send(const NoteOnEvent event) {
     // Find the index of the instrument in the generated instruments
     ptrdiff_t instrumentIndex = std::distance(generatedInstruments.begin(),

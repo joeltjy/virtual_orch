@@ -13,10 +13,6 @@ OSCOutputProcessor::~OSCOutputProcessor() {
     oscSender.disconnect();
 }
 
-void OSCOutputProcessor::send(const BarSeparatorEvent event) {
-    oscSender.send("/bar", event.bar);
-}
-
 void OSCOutputProcessor::send(NoteOnEvent event) {
     oscSender.send("/noteon", event.instrument, event.note, event.velocity);
 }

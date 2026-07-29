@@ -3,11 +3,10 @@
 #include <JuceHeader.h>
 
 #include "Metrics.h"
-#include "ModelConfigurationComponent.h"
 
 class Clock : juce::HighResolutionTimer {
 public:
-    Clock(const ModelConfig &modelConfig, Metrics &metrics);
+    Clock(Metrics &metrics);
 
     ~Clock() override;
 
@@ -28,13 +27,6 @@ public:
 
     [[nodiscard]] auto getTime() const -> uint32_t;
 
-    [[nodiscard]] auto getCurrentBar() const -> uint32_t;
-
-    /**
-     * Get both metrics in one call to the atomic time
-     */
-    [[nodiscard]] auto getTimeAndBar() const -> std::tuple<uint32_t, uint32_t>;
-
     void hiResTimerCallback() override;
 
     auto setMtcOffset(int32_t newMtcOffset) -> void;
@@ -46,8 +38,6 @@ private:
 
     juce::Atomic<int32_t> offset;
     juce::Atomic<uint32_t> savedLastTime, lastClockTimeOfMtcMessage;
-
-    const ModelConfig &modelConfig;
 
     Metrics &metrics;
 

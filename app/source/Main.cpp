@@ -50,7 +50,7 @@ public:
     class MainWindow : public juce::DocumentWindow {
     public:
         MainWindow(juce::String name)
-            : DocumentWindow(name + " - " + std::string(BUILD_REV) + " ",
+            : DocumentWindow(name + " - " + std::string(BUILD_REV),
                              juce::Desktop::getInstance().getDefaultLookAndFeel()
                              .findColour(juce::ResizableWindow::backgroundColourId),
                              DocumentWindow::allButtons) {

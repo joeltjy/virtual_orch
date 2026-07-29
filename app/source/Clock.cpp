@@ -1,6 +1,6 @@
 #include "VirtualOrch/Clock.h"
 
-Clock::Clock(const ModelConfig &modelConfig, Metrics &metrics) : modelConfig(modelConfig), metrics(metrics) {
+Clock::Clock(Metrics &metrics) : metrics(metrics) {
     const uint32_t clockTime = juce::Time::getMillisecondCounterHiRes();
     offset.set(clockTime);
 }
@@ -67,15 +67,6 @@ auto Clock::getTime() const -> uint32_t {
     return clockTime - offset.get() + mtcOffset.get();
 }
 
-auto Clock::getCurrentBar() const -> uint32_t {
-    return getTime() / modelConfig.outputBarLength;
-}
-
-auto Clock::getTimeAndBar() const -> std::tuple<uint32_t, uint32_t> {
-    const uint32_t time = getTime();
-    return {time, time / modelConfig.outputBarLength};
-}
-
 auto Clock::setMtcOffset(int32_t newMtcOffset) -> void {
     mtcOffset.set(newMtcOffset);
 }
@@ -83,4 +74,3 @@ auto Clock::setMtcOffset(int32_t newMtcOffset) -> void {
 auto Clock::isRunning() const -> bool {
     return isOn.get();
 }
-

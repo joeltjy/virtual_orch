@@ -1,32 +1,60 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <onnxruntime_cxx_api.h>
 
-#include "MLFramework/MLFramework.h"
-
-#ifdef ENABLE_COREML
-#include "MLFramework/MLFrameworkCoreML.h"
-#endif
-
-#ifdef ENABLE_GGML
-#include "MLFramework/MLFrameworkGGML.h"
-#endif
-
-#ifdef ENABLE_ONNXRUNTIME
-#include "MLFramework/MLFrameworkONNXRuntime.h"
-#endif
-
-#ifdef ENABLE_TORCH
-#include "MLFramework/MLFrameworkTorch.h"
-#endif
-
+#include <functional>
 #include <random>
 #include <limits>
 
 #include "Fifo.h"
-#include "MetricsComponent.h"
 #include "ModelConfigurationComponent.h"
-#include "VirtualOrch/MusicModelList.h"
+
+namespace Config {
+    constexpr int32_t MaxTimeInSeconds = 100;
+    constexpr int32_t MaxDurationInSeconds = 10;
+    constexpr int32_t TimeResolution = 100;
+
+    constexpr int32_t MaxPitch = 128;
+    constexpr int32_t MaxInstr = 129;
+    constexpr int32_t MaxNote = MaxPitch * MaxInstr;
+
+    constexpr int32_t MaxTime = TimeResolution * MaxTimeInSeconds;
+    constexpr int32_t MaxDur = TimeResolution * MaxDurationInSeconds;
+
+    constexpr int32_t AnticipationDelta = 0 * TimeResolution;
+} // namespace Config
+
+namespace Vocab {
+    // Event Block
+    constexpr size_t EventOffset = 0;
+    constexpr size_t TimeOffset = EventOffset + 0;
+    constexpr size_t DurOffset = TimeOffset + Config::MaxTime;
+    constexpr size_t NoteOffset = DurOffset + Config::MaxDur;
+
+    // SPECIAL ALIASES
+    constexpr size_t BarClick = NoteOffset + Config::MaxPitch * 128 + 36;
+    constexpr size_t BeatClick = NoteOffset + Config::MaxPitch * 128 + 42;
+
+    constexpr size_t Rest = NoteOffset + Config::MaxNote;
+
+    // Control Block
+    constexpr size_t ControlOffset = NoteOffset + Config::MaxNote + 1;
+    constexpr size_t AtimeOffset = ControlOffset + 0;
+    constexpr size_t AdurOffset = AtimeOffset + Config::MaxTime;
+    constexpr size_t AnoteOffset = AdurOffset + Config::MaxDur;
+
+    // Special Block
+    constexpr size_t SpecialOffset = AnoteOffset + Config::MaxNote;
+    constexpr size_t Separator = SpecialOffset + 0;
+    constexpr size_t AutoRegress = SpecialOffset + 1;
+    constexpr size_t Anticipate = SpecialOffset + 2;
+    constexpr size_t VocabSize = Anticipate + 1;
+
+    // Added events
+    constexpr size_t BarSeparator = VocabSize + 1;
+    constexpr size_t ClearQueue = VocabSize + 2;
+} // namespace Vocab
 
 template<typename T>
 static void softmax(T &input, const float temperature) {
@@ -165,15 +193,34 @@ inline bool operator<(const Token &lhs, const Token &rhs) {
     return lhs.time < rhs.time;
 }
 
+enum ModelType : uint8_t {
+    Small,
+    Medium
+};
+
+constexpr int SMALL_HIDDEN_SIZE = 12;
+constexpr int MEDIUM_HIDDEN_SIZE = 16;
+
+constexpr int SMALL_N_HEADS = 12;
+constexpr int MEDIUM_N_HEADS = 24;
+
 class MusicTransformer : public juce::Thread {
 public:
     MusicTransformer(ModelConfig &modelConfig);
 
-    void run() override;
+    void run() override {
+        threadInit();
+        threadRun();
+        threadStop();
+    }
 
-    void init(MusicModel newMusicModel, ModelType &modelType);
+    void init(const char *modelPath, ModelType newModelType);
 
-    auto getCurrentMusicModel() const -> MusicModel;
+    void threadInit();
+
+    void threadRun();
+
+    void threadStop();
 
     CircularFifo<Token> inputTokenQueue;
     CircularFifo<Token> outputTokenQueue;
@@ -186,18 +233,13 @@ public:
         return currentTime;
     }
 
-    juce::Atomic<int32_t> tradingOffset;
+    /** Called on the message thread whenever inputData changes. */
+    std::function<void(std::vector<int32_t>)> onInputDataChanged;
 
     juce::Atomic<bool> directInputBlock = false;
 
-
-    /* Whether the generation is currently paused */
-    juce::Atomic<bool> paused = false;
-
-    juce::Component::SafePointer<MetricsComponent> metricsWindow;
-
 private:
-    MusicModel musicModel;
+    void notifyInputDataChanged();
 
     ModelConfig &modelConfig;
 
@@ -207,33 +249,47 @@ private:
 
     void durLogits(std::vector<float> &logits);
 
-    auto generateNewToken(int32_t forceAtTime) -> Token;
+    std::vector<float> runModelAndGetLogits(std::vector<int32_t> &tokens);
 
-    auto shouldTradeNow() const -> bool;
+    Token generateNewToken(int32_t forceAtTime);
 
-    auto nextTradingStop() const -> int32_t;
-
-    auto tradingStart() const -> int32_t;
-
-    std::unique_ptr<MLFramework> mlFramework;
+    Ort::Env env;
+    std::unique_ptr<Ort::Session> session;
+    std::unique_ptr<ModelType> modelType;
+    Ort::MemoryInfo memoryInfo = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault);
 
     std::vector<int32_t> inputData;
 
     int32_t currentTime = 0;
     int32_t finalTime = 10000; // 100 seconds // TODO Set this from somewhere else.
 
-    int32_t currentBar = 0;
+    auto getHiddenSize() const -> int {
+        switch (*modelType) {
+            case Medium:
+                return MEDIUM_HIDDEN_SIZE;
+                break;
+            case Small:
+            default:
+                return SMALL_HIDDEN_SIZE;
+        }
+    }
 
-    /* Used to avoid looking at the minimum time interval on the first token */
-    bool firstToken = true;
+    auto getNHeads() const -> int {
+        switch (*modelType) {
+            case Medium:
+                return MEDIUM_N_HEADS;
+                break;
+            case Small:
+            default:
+                return SMALL_N_HEADS;
+        }
+    }
 
-    /* Used to keep track of how many notes were generated with the same onset time */
-    int32_t currentChordSize = 0;
+    std::vector<std::string> allocatedInputNames;
+    std::vector<std::string> allocatedOutputNames;
 
-    /* Keep track of the last generated token time for outputPauseAfterTimeInterval */
-    // TODO: This kinda clashes with the lastTokenTime in the MusicTransformer.cpp code, which should be removed at some
-    // TODO: point since it's used for the deprecated send click functionality.
-    int32_t lastGeneratedTokenTime = -1;
+    std::unique_ptr<std::vector<int64_t> > pastShape;
+    std::unique_ptr<std::vector<float> > emptyPast;
 
     auto clearInputTokenQueue() -> void {
         Token t{-1, -1, -1};

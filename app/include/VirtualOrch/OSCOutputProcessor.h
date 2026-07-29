@@ -8,8 +8,6 @@ public:
 
     ~OSCOutputProcessor() override;
 
-    void send(BarSeparatorEvent event) override;
-
     void send(NoteOnEvent event) override;
 
     void send(NoteOffEvent event) override;

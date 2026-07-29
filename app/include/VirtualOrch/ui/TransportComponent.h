@@ -2,7 +2,7 @@
 
 #include <JuceHeader.h>
 
-#include "Clock.h"
+#include "VirtualOrch/Clock.h"
 
 class TransportComponent : public juce::Component, juce::Timer {
 public:

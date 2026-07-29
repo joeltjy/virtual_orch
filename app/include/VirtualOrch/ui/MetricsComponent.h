@@ -4,7 +4,7 @@
 
 #include <cmp_plot.h>
 
-#include "Metrics.h"
+#include "VirtualOrch/Metrics.h"
 
 class MetricsComponent : public juce::Component, juce::Thread {
 public:

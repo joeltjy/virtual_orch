@@ -1,4 +1,4 @@
-#include "VirtualOrch/MainComponent.h"
+#include "VirtualOrch/ui/MainComponent.h"
 
 #include <iostream>
 
@@ -7,28 +7,23 @@
 #include "VirtualOrch/OSCController.h"
 
 //==============================================================================
-MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), musicTransformer(modelConfig),
-                                 outputPlayback(clock, musicTransformer, outputProcessor,
-                                                bufferOutputProcessor, visualizationBufferSize),
-                                 midiInputProcess(clock, musicTransformer, modelConfig, outputProcessor,
-                                                  selectedMidiInputIdentifier, selectedMidiInput2Identifier,
-                                                  selectedMtcClockIdentifier, mtcClockActive) {
+MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     setOpaque(true);
 
     setWantsKeyboardFocus(true);
 
-    presetStore.setModelNameProvider([this] {
+    session.presetStore.setModelNameProvider([this] {
         if (modelList.getSelectedId() == 0) {
             return juce::String();
         }
         return modelList.getItemText(modelList.getSelectedItemIndex());
     });
-    presetStore.setOnPresetSaved([this](const juce::String &presetName) {
+    session.presetStore.setOnPresetSaved([this](const juce::String &presetName) {
         presetList.addItem(presetName, presetList.getNumItems() + 1);
         presetList.setSelectedId(presetList.getNumItems(), juce::dontSendNotification);
         savePresetButton.setEnabled(false);
     });
-    presetStore.loadSettings();
+    session.presetStore.loadSettings();
 
     // Get displays (used to place Transport on an external display when available)
     auto const &displays = Desktop::getInstance().getDisplays().displays;
@@ -37,7 +32,7 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
     hardwareMidiOutputs = juce::MidiOutput::getAvailableDevices();
 
     // FOR DEBUG ONLY
-    virtualMidiInput = juce::MidiInput::createNewDevice("virtual-orch Virtual MIDI Input", &midiInputProcess);
+    virtualMidiInput = juce::MidiInput::createNewDevice("virtual-orch Virtual MIDI Input", &session.midiInputProcess);
     virtualMidiInput->start();
 
     /* PRESET LIST */
@@ -48,7 +43,7 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
     addAndMakeVisible(presetList);
     presetList.addItem("Empty", 1);
     {
-        const auto presetNames = presetStore.listPresetNames();
+        const auto presetNames = session.presetStore.listPresetNames();
         for (int i = 0; i < presetNames.size(); ++i) {
             presetList.addItem(presetNames[i], i + 2);
         }
@@ -76,7 +71,7 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
         if (presetSaveDialog) {
             presetSaveDialog->toFront(true);
         } else {
-            presetSaveDialog = new PresetSaveDialog(&presetStore);
+            presetSaveDialog = new PresetSaveDialog(&session.presetStore);
             presetSaveDialog->addToDesktop(juce::ComponentPeer::windowIsTemporary);
             presetSaveDialog->centreWithSize(400, 150);
             presetSaveDialog->setVisible(true);
@@ -98,14 +93,14 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
     controllerLabel.attachToComponent(&controllerOscPort, true);
 
     addAndMakeVisible(controllerOscPort);
-    juce::String savedControllerOscPort = presetStore.settings.getOrCreateChildWithName("controller", nullptr).
+    juce::String savedControllerOscPort = session.presetStore.settings.getOrCreateChildWithName("controller", nullptr).
             getProperty("oscPort", "9001");
     controllerOscPort.setText(savedControllerOscPort);
     controllerOscPort.setInputRestrictions(6, "0123456789");
     controllerOscPort.onTextChange = [this] {
         controllerConnectButton.setEnabled(true);
         DBG("Saving Preset Controller OSC Port: " + controllerOscPort.getText());
-        presetStore.settings.getChildWithName("controller").
+        session.presetStore.settings.getChildWithName("controller").
                 setProperty("oscPort", controllerOscPort.getText(), nullptr);
     };
 
@@ -126,15 +121,15 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
             openTransport.triggerClick();
         };
         controller->onSetOutputRange = [this](const juce::int32 &id, const juce::int32 &low, const juce::int32 &high) {
-            modelConfig.outputInstruments[id].low = low;
-            modelConfig.outputInstruments[id].high = high;
+            session.modelConfig.outputInstruments[id].low = low;
+            session.modelConfig.outputInstruments[id].high = high;
         };
         controller->onSetModelConfig = [this](const juce::OSCMessage &message) {
             if (message.size() == 2) {
                 if (message[1].getType() == juce::OSCTypes::string) {
-                    modelConfig.updateParameter(message[0].getString(), message[1].getString());
+                    session.modelConfig.updateParameter(message[0].getString(), message[1].getString());
                 } else if (message[1].getType() == juce::OSCTypes::int32) {
-                    modelConfig.updateParameter(message[0].getString(), message[1].getInt32());
+                    session.modelConfig.updateParameter(message[0].getString(), message[1].getInt32());
                 } else {
                     throw std::runtime_error("Invalid OSC type " +
                                              std::to_string(message[1].getType()) +
@@ -150,7 +145,7 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
                                              message[0].getString().toStdString() +
                                              " with instrument id");
                 }
-                modelConfig.updateParameter(message[0].getString(), message[1].getInt32(),
+                session.modelConfig.updateParameter(message[0].getString(), message[1].getInt32(),
                                             message[2].getInt32());
             }
         };
@@ -167,10 +162,10 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
     mtcClock.onClick = [this] {
         updateMtcClock();
         DBG("Saving MTC Clock Status: " + std::to_string(mtcClock.getToggleState()));
-        presetStore.settings.getChildWithName("mtcClock").setProperty(
+        session.presetStore.settings.getChildWithName("mtcClock").setProperty(
             "active", mtcClock.getToggleState(), nullptr);
     };
-    bool savedMtcClockStatus = presetStore.settings.getOrCreateChildWithName("mtcClock", nullptr).getProperty("active", false);
+    bool savedMtcClockStatus = session.presetStore.settings.getOrCreateChildWithName("mtcClock", nullptr).getProperty("active", false);
     mtcClock.setToggleState(savedMtcClockStatus, juce::sendNotification);
 
     juce::StringArray midiInputNames;
@@ -184,10 +179,10 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
     mtcClockList.onChange = [this] {
         updateMtcClock();
         DBG("Saving MTC Clock: " + midiInputs[mtcClockList.getSelectedItemIndex()].identifier);
-        presetStore.settings.getChildWithName("mtcClock").setProperty(
+        session.presetStore.settings.getChildWithName("mtcClock").setProperty(
             "identifier", midiInputs[mtcClockList.getSelectedItemIndex()].identifier, nullptr);
     };
-    juce::String savedMtcClock = presetStore.settings.getOrCreateChildWithName("mtcClock", nullptr).getProperty("identifier", "");
+    juce::String savedMtcClock = session.presetStore.settings.getOrCreateChildWithName("mtcClock", nullptr).getProperty("identifier", "");
     if (savedMtcClock.isNotEmpty()) {
         DBG("Saved MTC Clock: " + savedMtcClock);
         // Find the index of the saved input
@@ -216,13 +211,13 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
     mtcClockOffsetLabel.attachToComponent(&mtcClockOffset, true);
 
     addAndMakeVisible(mtcClockOffset);
-    juce::String savedMtcClockOffset = presetStore.settings.getOrCreateChildWithName("mtcClock", nullptr).
+    juce::String savedMtcClockOffset = session.presetStore.settings.getOrCreateChildWithName("mtcClock", nullptr).
             getProperty("offset", "0");
     mtcClockOffset.setInputRestrictions(6, "0123456789");
     mtcClockOffset.onTextChange = [this] {
         updateMtcClock();
         DBG("Saving MTC Clock Offset: " + mtcClockOffset.getText());
-        presetStore.settings.getChildWithName("mtcClock").setProperty(
+        session.presetStore.settings.getChildWithName("mtcClock").setProperty(
             "offset", mtcClockOffset.getText(), nullptr);
     };
     mtcClockOffset.setText(savedMtcClockOffset);
@@ -243,10 +238,10 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
         }
         setMidiInput(midiInputList.getSelectedItemIndex(), 0);
         DBG("Saving input: " + midiInputs[midiInputList.getSelectedItemIndex()].identifier);
-        presetStore.settings.getChildWithName("input").setProperty(
+        session.presetStore.settings.getChildWithName("input").setProperty(
             "identifier", midiInputs[midiInputList.getSelectedItemIndex()].identifier, nullptr);
     };
-    juce::String savedInput = presetStore.settings.getOrCreateChildWithName("input", nullptr).getProperty("identifier", "");
+    juce::String savedInput = session.presetStore.settings.getOrCreateChildWithName("input", nullptr).getProperty("identifier", "");
     if (savedInput.isNotEmpty()) {
         DBG("Saved Input: " + savedInput);
         // Find the index of the saved input
@@ -286,10 +281,10 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
         }
         setMidiInput(midiInput2List.getSelectedItemIndex(), 1);
         DBG("Saving input2: " + midiInputs[midiInput2List.getSelectedItemIndex()].identifier);
-        presetStore.settings.getChildWithName("input2").setProperty(
+        session.presetStore.settings.getChildWithName("input2").setProperty(
             "identifier", midiInputs[midiInput2List.getSelectedItemIndex()].identifier, nullptr);
     };
-    juce::String savedInput2 = presetStore.settings.getOrCreateChildWithName("input2", nullptr).getProperty("identifier", "");
+    juce::String savedInput2 = session.presetStore.settings.getOrCreateChildWithName("input2", nullptr).getProperty("identifier", "");
     if (savedInput2.isNotEmpty()) {
         DBG("Saved Input2: " + savedInput2);
         // Find the index of the saved input2
@@ -347,7 +342,7 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
         if (modelConfigurationWindow) {
             modelConfigurationWindow->toFront(true);
         } else {
-            modelConfigurationWindow = new ScrollableWindow(new ModelConfigurationComponent(modelConfig), this, 700,
+            modelConfigurationWindow = new ScrollableWindow(new ModelConfigurationComponent(session.modelConfig), this, 700,
                                                             700);
             modelConfigurationWindow->toFront(true);
             modelConfigurationWindow->addChangeListener(this);
@@ -360,13 +355,13 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
     inputThruLabel.attachToComponent(&inputThru, true);
 
     addAndMakeVisible(inputThru);
-    bool savedInputThru = presetStore.settings.getOrCreateChildWithName("input", nullptr).getProperty("thru", false);
+    bool savedInputThru = session.presetStore.settings.getOrCreateChildWithName("input", nullptr).getProperty("thru", false);
     inputThru.setToggleState(savedInputThru, juce::dontSendNotification);
-    midiInputProcess.setInputThru(savedInputThru);
+    session.midiInputProcess.setInputThru(savedInputThru);
     inputThru.onClick = [this] {
         DBG("Saving input thru: " + std::to_string(inputThru.getToggleState()));
-        presetStore.settings.getChildWithName("input").setProperty("thru", inputThru.getToggleState(), nullptr);
-        midiInputProcess.setInputThru(inputThru.getToggleState());
+        session.presetStore.settings.getChildWithName("input").setProperty("thru", inputThru.getToggleState(), nullptr);
+        session.midiInputProcess.setInputThru(inputThru.getToggleState());
     };
 
 
@@ -394,10 +389,10 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
     outputList.onChange = [this, outputIdentifiers] {
         updateOutputProcessor();
         DBG("Saving output: " + outputIdentifiers.at(outputList.getSelectedItemIndex()));
-        presetStore.settings.getChildWithName("output").setProperty(
+        session.presetStore.settings.getChildWithName("output").setProperty(
             "identifier", outputIdentifiers.at(outputList.getSelectedItemIndex()), nullptr);
     };
-    juce::String savedOutput = presetStore.settings.getOrCreateChildWithName("output", nullptr).getProperty("identifier", "");
+    juce::String savedOutput = session.presetStore.settings.getOrCreateChildWithName("output", nullptr).getProperty("identifier", "");
     if (savedOutput.isNotEmpty()) {
         DBG("Saved Output: " + savedOutput);
         // Find the index of the saved input
@@ -428,14 +423,14 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
     oscIpLabel.attachToComponent(&oscIp, true);
 
     addAndMakeVisible(oscIp);
-    juce::String savedOscIp = presetStore.settings.getOrCreateChildWithName("output", nullptr).getProperty("oscIp", "127.0.0.1");
+    juce::String savedOscIp = session.presetStore.settings.getOrCreateChildWithName("output", nullptr).getProperty("oscIp", "127.0.0.1");
     oscIp.setText(savedOscIp);
     oscIp.setInputRestrictions(15, "0123456789.");
 
     oscIp.onTextChange = [this] {
         connectButton.setEnabled(true);
         DBG("Saving OSC IP: " + oscIp.getText());
-        presetStore.settings.getChildWithName("output").setProperty("oscIp", oscIp.getText(), nullptr);
+        session.presetStore.settings.getChildWithName("output").setProperty("oscIp", oscIp.getText(), nullptr);
     };
 
     addAndMakeVisible(oscPortLabel);
@@ -443,14 +438,14 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
     oscPortLabel.attachToComponent(&oscPort, true);
 
     addAndMakeVisible(oscPort);
-    juce::String savedOscPort = presetStore.settings.getOrCreateChildWithName("output", nullptr).getProperty("oscPort", "9001");
+    juce::String savedOscPort = session.presetStore.settings.getOrCreateChildWithName("output", nullptr).getProperty("oscPort", "9001");
     oscPort.setText(savedOscPort);
     oscPort.setInputRestrictions(6, "0123456789");
 
     oscPort.onTextChange = [this] {
         connectButton.setEnabled(true);
         DBG("Saving OSC Port: " + oscPort.getText());
-        presetStore.settings.getChildWithName("output").setProperty("oscPort", oscPort.getText(), nullptr);
+        session.presetStore.settings.getChildWithName("output").setProperty("oscPort", oscPort.getText(), nullptr);
     };
 
 
@@ -458,7 +453,7 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
 
     addAndMakeVisible(connectButton);
     connectButton.onClick = [this] {
-        outputProcessor = std::make_unique<OSCOutputProcessor>(oscIp.getText().toStdString(),
+        session.outputProcessor = std::make_unique<OSCOutputProcessor>(oscIp.getText().toStdString(),
                                                                oscPort.getText().getIntValue());
         connectButton.setEnabled(false);
     };
@@ -470,7 +465,7 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
     bufferOutputOscIpLabel.attachToComponent(&bufferOutputOscIp, true);
 
     addAndMakeVisible(bufferOutputOscIp);
-    juce::String savedBufferOutputOscIp = presetStore.settings.getOrCreateChildWithName("bufferOutput", nullptr)
+    juce::String savedBufferOutputOscIp = session.presetStore.settings.getOrCreateChildWithName("bufferOutput", nullptr)
             .getProperty("oscIp", "127.0.0.1");
     bufferOutputOscIp.setText(savedBufferOutputOscIp);
     bufferOutputOscIp.setInputRestrictions(15, "0123456789.");
@@ -478,7 +473,7 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
     bufferOutputOscIp.onTextChange = [this] {
         bufferOutputConnectButton.setEnabled(true);
         DBG("Saving Buffer Output OSC IP: " + bufferOutputOscIp.getText());
-        presetStore.settings.getChildWithName("bufferOutput").setProperty("oscIp", bufferOutputOscIp.getText(), nullptr);
+        session.presetStore.settings.getChildWithName("bufferOutput").setProperty("oscIp", bufferOutputOscIp.getText(), nullptr);
     };
 
     addAndMakeVisible(bufferOutputOscPortLabel);
@@ -486,7 +481,7 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
     bufferOutputOscPortLabel.attachToComponent(&bufferOutputOscPort, true);
 
     addAndMakeVisible(bufferOutputOscPort);
-    juce::String savedBufferOutputOscPort = presetStore.settings.getOrCreateChildWithName("bufferOutput", nullptr).getProperty(
+    juce::String savedBufferOutputOscPort = session.presetStore.settings.getOrCreateChildWithName("bufferOutput", nullptr).getProperty(
         "oscPort", "9001");
     bufferOutputOscPort.setText(savedBufferOutputOscPort);
     bufferOutputOscPort.setInputRestrictions(6, "0123456789");
@@ -494,12 +489,12 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
     bufferOutputOscPort.onTextChange = [this] {
         bufferOutputConnectButton.setEnabled(true);
         DBG("Saving Buffer Output OSC Port: " + bufferOutputOscPort.getText());
-        presetStore.settings.getChildWithName("bufferOutput").setProperty("oscPort", bufferOutputOscPort.getText(), nullptr);
+        session.presetStore.settings.getChildWithName("bufferOutput").setProperty("oscPort", bufferOutputOscPort.getText(), nullptr);
     };
 
     addAndMakeVisible(bufferOutputConnectButton);
     bufferOutputConnectButton.onClick = [this] {
-        bufferOutputProcessor = std::make_unique<OSCBufferOutputProcessor>(bufferOutputOscIp.getText().toStdString(),
+        session.bufferOutputProcessor = std::make_unique<OSCBufferOutputProcessor>(bufferOutputOscIp.getText().toStdString(),
                                                                            bufferOutputOscPort.getText().getIntValue());
         bufferOutputConnectButton.setEnabled(false);
     };
@@ -511,7 +506,7 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
     statusOutputOscIpLabel.attachToComponent(&statusOutputOscIp, true);
 
     addAndMakeVisible(statusOutputOscIp);
-    juce::String savedStatusOutputOscIp = presetStore.settings.getOrCreateChildWithName("statusOutput", nullptr)
+    juce::String savedStatusOutputOscIp = session.presetStore.settings.getOrCreateChildWithName("statusOutput", nullptr)
             .getProperty("oscIp", "127.0.0.1");
     statusOutputOscIp.setText(savedStatusOutputOscIp);
     statusOutputOscIp.setInputRestrictions(15, "0123456789.");
@@ -519,7 +514,7 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
     statusOutputOscIp.onTextChange = [this] {
         statusOutputConnectButton.setEnabled(true);
         DBG("Saving Status Output OSC IP: " + statusOutputOscIp.getText());
-        presetStore.settings.getChildWithName("statusOutput").setProperty("oscIp", statusOutputOscIp.getText(), nullptr);
+        session.presetStore.settings.getChildWithName("statusOutput").setProperty("oscIp", statusOutputOscIp.getText(), nullptr);
     };
 
     addAndMakeVisible(statusOutputOscPortLabel);
@@ -527,7 +522,7 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
     statusOutputOscPortLabel.attachToComponent(&statusOutputOscPort, true);
 
     addAndMakeVisible(statusOutputOscPort);
-    juce::String savedStatusOutputOscPort = presetStore.settings.getOrCreateChildWithName("statusOutput", nullptr).getProperty(
+    juce::String savedStatusOutputOscPort = session.presetStore.settings.getOrCreateChildWithName("statusOutput", nullptr).getProperty(
         "oscPort", "9001");
     statusOutputOscPort.setText(savedStatusOutputOscPort);
     statusOutputOscPort.setInputRestrictions(6, "0123456789");
@@ -535,7 +530,7 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
     statusOutputOscPort.onTextChange = [this] {
         statusOutputConnectButton.setEnabled(true);
         DBG("Saving Status Output OSC Port: " + statusOutputOscPort.getText());
-        presetStore.settings.getChildWithName("statusOutput").setProperty("oscPort", statusOutputOscPort.getText(), nullptr);
+        session.presetStore.settings.getChildWithName("statusOutput").setProperty("oscPort", statusOutputOscPort.getText(), nullptr);
     };
 
     addAndMakeVisible(statusOutputConnectButton);
@@ -554,7 +549,7 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
     generationLabel.setFont(juce::Font(20.0f));
 
     /* GENERATION STATUS PROGRESS BAR */
-    generationStatusProgressBar = std::make_unique<juce::ProgressBar>(outputPlayback.progress);
+    generationStatusProgressBar = std::make_unique<juce::ProgressBar>(session.outputPlayback.progress);
     generationStatusProgressBar->setLookAndFeel(&progressBarLookAndFeel);
     addAndMakeVisible(generationStatusProgressBar.get());
     addAndMakeVisible(generationStatusProgressBarLabel);
@@ -581,37 +576,16 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
                 .getChildFile("virtual-orch")
                 .getChildFile("last_gen.txt");
 
-        // write musicTransformer's inputData into file
+        // write session.musicTransformer's inputData into file
         auto outputStream = lastGenFile.createOutputStream();
         if (outputStream->openedOk()) {
             outputStream->setPosition(0);
             outputStream->truncate();
-            for (const auto &token: musicTransformer.getInputData()) {
+            for (const auto &token: session.musicTransformer.getInputData()) {
                 outputStream->writeText(std::to_string(token) + " ", false, false, "\n");
             }
         }
     };
-
-    /* INPUT DATA DISPLAY */
-    addAndMakeVisible(inputDataLabel);
-    inputDataLabel.setText("Prompt (inputData):", juce::dontSendNotification);
-
-    addAndMakeVisible(inputDataDisplay);
-    inputDataDisplay.setMultiLine(true, true);
-    inputDataDisplay.setReadOnly(true);
-    inputDataDisplay.setScrollbarsShown(true);
-    inputDataDisplay.setCaretVisible(false);
-    inputDataDisplay.setPopupMenuEnabled(true);
-    inputDataDisplay.setTextToShowWhenEmpty("(empty)", juce::Colours::grey);
-
-    {
-        juce::Component::SafePointer<MainComponent> safeThis(this);
-        musicTransformer.onInputDataChanged = [safeThis](std::vector<int32_t> data) {
-            if (safeThis != nullptr) {
-                safeThis->updateInputDataDisplay(data);
-            }
-        };
-    }
 
     /* OPEN TRANSPORT BUTTON */
     addAndMakeVisible(openTransport);
@@ -619,7 +593,7 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
         if (transportWindow) {
             transportWindow->toFront(true);
         } else {
-            transportWindow = new TransportComponent(displays.size() >= 2, clock);
+            transportWindow = new TransportComponent(displays.size() >= 2, session.clock);
             transportWindow->addToDesktop(juce::ComponentPeer::windowHasCloseButton |
                                           juce::ComponentPeer::windowHasTitleBar);
             if (displays.size() >= 2) {
@@ -642,7 +616,7 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
         if (metricsWindow) {
             metricsWindow->toFront(true);
         } else {
-            metricsWindow = new MetricsComponent(metrics);
+            metricsWindow = new MetricsComponent(session.metrics);
             metricsWindow->addToDesktop(juce::ComponentPeer::windowHasCloseButton |
                                         juce::ComponentPeer::windowHasTitleBar);
             metricsWindow->setSize(1000, 1000);
@@ -656,11 +630,11 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
     /* AUTO CONNECT BUTTON */
     addAndMakeVisible(autoConnect);
     autoConnect.setButtonText("Auto Connect");
-    bool savedAutoConnect = presetStore.settings.getOrCreateChildWithName("general", nullptr).getProperty("autoConnect", false);
+    bool savedAutoConnect = session.presetStore.settings.getOrCreateChildWithName("general", nullptr).getProperty("autoConnect", false);
     autoConnect.setToggleState(savedAutoConnect, juce::dontSendNotification);
     autoConnect.onClick = [this] {
         DBG("Saving Auto Connect: " + std::to_string(autoConnect.getToggleState()));
-        presetStore.settings.getChildWithName("general").setProperty("autoConnect", autoConnect.getToggleState(), nullptr);
+        session.presetStore.settings.getChildWithName("general").setProperty("autoConnect", autoConnect.getToggleState(), nullptr);
     };
     if (autoConnect.getToggleState()) {
         connectButton.triggerClick();
@@ -675,7 +649,7 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
     visualizationBufferSizeLabel.attachToComponent(&visualizationBufferSizeEditor, true);
 
     addAndMakeVisible(visualizationBufferSizeEditor);
-    juce::String savedBufferSize = presetStore.settings.getOrCreateChildWithName("output", nullptr)
+    juce::String savedBufferSize = session.presetStore.settings.getOrCreateChildWithName("output", nullptr)
                                        .getProperty("visualizationBufferSize", "512");
     visualizationBufferSizeEditor.setText(savedBufferSize);
     visualizationBufferSizeEditor.setInputRestrictions(6, "0123456789");
@@ -684,10 +658,10 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
 
         juce::String text = visualizationBufferSizeEditor.getText();
         int newSize = text.getIntValue();  // safely parse to int
-        visualizationBufferSize = newSize; // <-- keep your variable updated
+        session.visualizationBufferSize = newSize; // <-- keep your variable updated
 
         DBG("Saving Visualization Buffer Size: " + text);
-        presetStore.settings.getChildWithName("output")
+        session.presetStore.settings.getChildWithName("output")
                 .setProperty("visualizationBufferSize", text, nullptr);
     };
 
@@ -698,11 +672,9 @@ MainComponent::MainComponent() : presetStore(modelConfig), clock(metrics), music
 }
 
 MainComponent::~MainComponent() {
-    presetStore.saveSettings();
+    session.presetStore.saveSettings();
     deviceManager.removeMidiInputDeviceCallback(
-        juce::MidiInput::getAvailableDevices()[midiInputList.getSelectedItemIndex()].identifier, &midiInputProcess);
-    musicTransformer.stopThread(-1);
-    outputPlayback.stopThread(-1);
+        juce::MidiInput::getAvailableDevices()[midiInputList.getSelectedItemIndex()].identifier, &session.midiInputProcess);
     generationStatusProgressBar->setLookAndFeel(nullptr);
     delete presetSaveDialog;
     delete modelConfigurationWindow;
@@ -717,7 +689,7 @@ MainComponent::~MainComponent() {
  * @param presetName The name of the preset to load
  */
 void MainComponent::loadPresetFromName(const juce::String &presetName) {
-    const juce::var preset = presetStore.readPreset(presetName);
+    const juce::var preset = session.presetStore.readPreset(presetName);
     if (preset.isVoid()) {
         return;
     }
@@ -761,7 +733,7 @@ void MainComponent::loadPresetFromName(const juce::String &presetName) {
         modelList.setSelectedId(modelIndex + 1, juce::dontSendNotification);
         updateModel(false);
     }
-    presetStore.applyPreset(preset);
+    session.presetStore.applyPreset(preset);
     resized();
 }
 
@@ -831,13 +803,13 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
     }
 
     // MODEL CONFIG: Set Output Instruments
-    modelConfig.outputInstruments.clear();
+    session.modelConfig.outputInstruments.clear();
     auto *jsonOutputInstruments = parsedJson.getProperty("outputInstruments", var()).getArray();
     if (jsonOutputInstruments && !jsonOutputInstruments->isEmpty()) {
         for (int32_t instrumentId: *jsonOutputInstruments) {
             // Add default instrument config
             OutputInstrumentConfig outputInstrumentConfig{false, false, 36, 120};
-            modelConfig.outputInstruments.emplace(instrumentId, outputInstrumentConfig);
+            session.modelConfig.outputInstruments.emplace(instrumentId, outputInstrumentConfig);
         }
     } else {
         juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Error",
@@ -849,14 +821,14 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
     // Load preset
     if (loadDefaultPreset) {
         DBG("Loading default preset");
-        presetStore.applyPreset(parsedJson.getProperty("defaultPreset", var()));
+        session.presetStore.applyPreset(parsedJson.getProperty("defaultPreset", var()));
         resized();
         // We are changing the model, so mark preset as modified
         markPresetAsEdited();
     }
 
     const auto modelPath = modelsDir.getChildFile(modelName + ".onnx");
-    musicTransformer.init(modelPath.getFullPathName().toStdString().c_str(), modelType);
+    session.musicTransformer.init(modelPath.getFullPathName().toStdString().c_str(), modelType);
 
     // Send modelLoaded status to statusOutputProcessor
     if (statusOutputProcessor != nullptr) {
@@ -870,41 +842,11 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
 }
 
 void MainComponent::start() {
-    if (modelConfig.inputMode == InputMode::Direct && modelConfig.directInputStartOnInput) {
-        musicTransformer.directInputBlock = true;
-    } else {
-        musicTransformer.directInputBlock = false;
-    }
-
-    midiInputProcess.resetForStart();
-
-    musicTransformer.startThread();
-    outputPlayback.startThread();
-    if (!mtcClockActive) {
-        clock.startAtTime(0);
-    } else {
-        clock.setMtcTime(0);
-    }
+    session.startGeneration();
 }
 
 void MainComponent::stop() {
-    musicTransformer.signalThreadShouldExit();
-    outputPlayback.signalThreadShouldExit();
-    clock.stop();
-    outputPlayback.resetProgress();
-    if (outputProcessor != nullptr) {
-        outputProcessor->clear();
-    }
-}
-
-void MainComponent::updateInputDataDisplay(const std::vector<int32_t> &data) {
-    juce::String text;
-    for (size_t i = 0; i + 2 < data.size(); i += 3) {
-        Token token{data[i], data[i + 1], data[i + 2]};
-        text += juce::String(token.toUnderstandableString()) + "\n";
-    }
-    inputDataDisplay.setText(text, juce::dontSendNotification);
-    inputDataDisplay.moveCaretToEnd();
+    session.stopGeneration();
 }
 
 void MainComponent::markPresetAsEdited() {
@@ -998,31 +940,28 @@ void MainComponent::resized() {
 
     saveLastGenButton.setBounds(area.removeFromBottom(40).reduced(8));
 
-    inputDataLabel.setBounds(area.removeFromTop(24).reduced(8, 0));
-    inputDataDisplay.setBounds(area.reduced(8));
-
 }
 
 void MainComponent::updateOutputProcessor() {
-    outputProcessor = nullptr;
+    session.outputProcessor = nullptr;
     switch (outputList.getSelectedItemIndex()) {
         case 0: // OSC
             connectButton.setEnabled(true);
             enableOscConfig = true;
             break;
         case 1: // Virtual MIDI
-            outputProcessor = std::make_unique<
+            session.outputProcessor = std::make_unique<
                 MidiOutputProcessor>(MidiOutputType::VIRTUAL, "virtual-orch Virtual MIDI Output",
-                                     modelConfig.getOutputInstrumentsIds());
+                                     session.modelConfig.getOutputInstrumentsIds());
 
             enableOscConfig = false;
             break;
         default: // Hardware MIDI
-            outputProcessor = std::make_unique<MidiOutputProcessor>(MidiOutputType::HARDWARE,
+            session.outputProcessor = std::make_unique<MidiOutputProcessor>(MidiOutputType::HARDWARE,
                                                                     hardwareMidiOutputs[
                                                                         outputList.getSelectedItemIndex() - 2].
                                                                     identifier,
-                                                                    modelConfig.getOutputInstrumentsIds());
+                                                                    session.modelConfig.getOutputInstrumentsIds());
 
             enableOscConfig = false;
             break;
@@ -1040,37 +979,37 @@ void MainComponent::setMidiInput(int index, int idx) {
     if (!deviceManager.isMidiInputDeviceEnabled(newInput.identifier))
         deviceManager.setMidiInputDeviceEnabled(newInput.identifier, true);
 
-    deviceManager.addMidiInputDeviceCallback(newInput.identifier, &midiInputProcess);
+    deviceManager.addMidiInputDeviceCallback(newInput.identifier, &session.midiInputProcess);
     // midiInputList.setSelectedId(index + 1, juce::dontSendNotification);
 
     lastInputIndex = index;
     if (idx == 0) {
-        selectedMidiInputIdentifier = newInput.identifier;
+        session.selectedMidiInputIdentifier = newInput.identifier;
     } else if (idx == 1) {
-        selectedMidiInput2Identifier = newInput.identifier;
+        session.selectedMidiInput2Identifier = newInput.identifier;
     }
 }
 
 void MainComponent::updateMtcClock() {
-    mtcClockActive = mtcClock.getToggleState();
+    session.mtcClockActive = mtcClock.getToggleState();
 
     auto list = juce::MidiInput::getAvailableDevices();
     auto index = mtcClockList.getSelectedItemIndex();
 
-    deviceManager.removeMidiInputDeviceCallback(list[lastMtcClockIndex].identifier, &midiInputProcess);
+    deviceManager.removeMidiInputDeviceCallback(list[lastMtcClockIndex].identifier, &session.midiInputProcess);
 
     lastMtcClockIndex = index;
 
-    if (mtcClockActive) {
+    if (session.mtcClockActive) {
         auto newMtcClock = list[index];
 
         if (!deviceManager.isMidiInputDeviceEnabled(newMtcClock.identifier))
             deviceManager.setMidiInputDeviceEnabled(newMtcClock.identifier, true);
 
-        deviceManager.addMidiInputDeviceCallback(newMtcClock.identifier, &midiInputProcess);
+        deviceManager.addMidiInputDeviceCallback(newMtcClock.identifier, &session.midiInputProcess);
 
-        selectedMtcClockIdentifier = newMtcClock.identifier;
-        clock.setMtcOffset(mtcClockOffset.getText().getIntValue());
+        session.selectedMtcClockIdentifier = newMtcClock.identifier;
+        session.clock.setMtcOffset(mtcClockOffset.getText().getIntValue());
     }
 }
 

@@ -4,8 +4,8 @@
 
 #include <functional>
 
-#include "ModelConfigurationComponent.h"
-#include "PresetSaveDialog.h"
+#include "VirtualOrch/ui/ModelConfigurationComponent.h"
+#include "VirtualOrch/ui/PresetSaveDialog.h"
 
 /**
  * Persists app settings (settings.xml) and model presets (JSON under Presets/).

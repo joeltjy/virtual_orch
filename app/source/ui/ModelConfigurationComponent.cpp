@@ -1,4 +1,4 @@
-#include "VirtualOrch/ModelConfigurationComponent.h"
+#include "VirtualOrch/ui/ModelConfigurationComponent.h"
 
 
 ModelConfigurationComponent::ModelConfigurationComponent(ModelConfig &modelConfig) : modelConfig(modelConfig) {

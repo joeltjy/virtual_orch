@@ -1,4 +1,4 @@
-#include "VirtualOrch/PresetSaveDialog.h"
+#include "VirtualOrch/ui/PresetSaveDialog.h"
 
 PresetSaveDialog::PresetSaveDialog(PresetSaver *parentComponent) : presetSaver(parentComponent) {
     Component::setName("Preset Save Dialog");

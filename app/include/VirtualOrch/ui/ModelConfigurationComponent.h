@@ -2,7 +2,7 @@
 
 #include <JuceHeader.h>
 
-#include "ScrollableWindow.h"
+#include "VirtualOrch/ui/ScrollableWindow.h"
 
 enum InputMode {
     Direct,

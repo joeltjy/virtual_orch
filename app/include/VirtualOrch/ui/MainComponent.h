@@ -2,32 +2,24 @@
 
 #include <JuceHeader.h>
 
-#include "Clock.h"
-#include "ScrollableWindow.h"
-#include "PresetSaveDialog.h"
-#include "PresetStore.h"
-#include "ModelConfigurationComponent.h"
-#include "MusicTransformer.h"
-#include "MidiInputProcess.h"
-#include "OutputProcessor.h"
-#include "OutputPlayback.h"
-#include "TransportComponent.h"
-#include "Metrics.h"
-#include "MetricsComponent.h"
-#include "OSCBufferOutputProcessor.h"
-#include "OSCStatusOutputProcessor.h"
-#include "OSCController.h"
-#include "CustomProgressBarLookAndFeel.h"
+#include "VirtualOrch/AppSession.h"
+#include "VirtualOrch/ui/ScrollableWindow.h"
+#include "VirtualOrch/ui/PresetSaveDialog.h"
+#include "VirtualOrch/ui/ModelConfigurationComponent.h"
+#include "VirtualOrch/ui/TransportComponent.h"
+#include "VirtualOrch/ui/MetricsComponent.h"
+#include "VirtualOrch/OSCStatusOutputProcessor.h"
+#include "VirtualOrch/OSCController.h"
+#include "VirtualOrch/ui/CustomProgressBarLookAndFeel.h"
 
 //==============================================================================
 /*
-    This component lives inside our window, and this is where you should put all
-    your controls and content.
+    Settings page UI. Engines live in AppSession (owned by AppRootComponent).
 */
 class MainComponent : public ParentComponent {
 public:
     //==============================================================================
-    MainComponent();
+    explicit MainComponent(AppSession &session);
 
     ~MainComponent() override;
 
@@ -41,15 +33,7 @@ public:
     void changeListenerCallback(ChangeBroadcaster *source) override;
 
 private:
-    ModelConfig modelConfig;
-
-    PresetStore presetStore;
-
-    Metrics metrics;
-
-    Clock clock;
-
-    int32_t visualizationBufferSize = 400;
+    AppSession &session;
 
     void loadPresetFromName(const juce::String &presetName);
 
@@ -81,10 +65,7 @@ private:
     juce::Label presetListLabel, configLabel, mtcClockLabel, mtcClockOffsetLabel, controllerLabel,
             midiInputListLabel, midiInput2ListLabel, modelListLabel,
             inputThruLabel, outputListLabel, oscIpLabel, oscPortLabel, bufferOutputOscIpLabel, bufferOutputOscPortLabel,
-            statusOutputOscIpLabel, statusOutputOscPortLabel, generationLabel, visualizationBufferSizeLabel,
-            inputDataLabel;
-
-    juce::TextEditor inputDataDisplay;
+            statusOutputOscIpLabel, statusOutputOscPortLabel, generationLabel, visualizationBufferSizeLabel;
 
     juce::TextEditor controllerOscPort, mtcClockOffset, visualizationBufferSizeEditor;
     juce::TextButton controllerConnectButton{"Connect"};
@@ -100,8 +81,6 @@ private:
     juce::TextEditor bufferOutputOscIp, bufferOutputOscPort;
     juce::TextButton bufferOutputConnectButton{"Connect"};
 
-    std::unique_ptr<OSCBufferOutputProcessor> bufferOutputProcessor;
-
     juce::TextEditor statusOutputOscIp, statusOutputOscPort;
     juce::TextButton statusOutputConnectButton{"Connect"};
 
@@ -111,20 +90,13 @@ private:
     bool isAddingFromMidiInput = false;
 
     std::unique_ptr<OSCController> controller;
-    std::unique_ptr<OutputProcessor> outputProcessor;
 
     // FOR DEBUG ONLY
     std::unique_ptr<juce::MidiInput> virtualMidiInput;
 
     double finalTime = 10000; // 100 seconds // TODO Set this from somewhere else.
 
-    juce::String selectedMidiInputIdentifier, selectedMidiInput2Identifier, selectedMtcClockIdentifier;
-    bool mtcClockActive = false;
     int lastMtcClockIndex = 0;
-
-    MusicTransformer musicTransformer;
-    OutputPlayback outputPlayback;
-    MidiInputProcess midiInputProcess;
 
     juce::TextButton startButton{"Start Generation"}, stopButton{"Stop"}, saveLastGenButton{"Save Last Generation"};
 
@@ -141,8 +113,6 @@ private:
     juce::Component::SafePointer<MetricsComponent> metricsWindow;
 
     void updateMtcClock();
-
-    void updateInputDataDisplay(const std::vector<int32_t> &data);
 
     bool keyPressed(const KeyPress &key) override;
 

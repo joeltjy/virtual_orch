@@ -1,4 +1,4 @@
-#include "VirtualOrch/ScrollableWindow.h"
+#include "VirtualOrch/ui/ScrollableWindow.h"
 
 ScrollableWindow::ScrollableWindow(const juce::Component::SafePointer<ScrollableComponent> &contentComponent,
                                    const juce::Component::SafePointer<ParentComponent> &parentComponent,

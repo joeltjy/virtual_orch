@@ -1,4 +1,4 @@
-#include "VirtualOrch/MetricsComponent.h"
+#include "VirtualOrch/ui/MetricsComponent.h"
 
 MetricsComponent::MetricsComponent(Metrics &metrics) : metrics(metrics), juce::Thread("Metrics") {
     Component::setName("Metrics");

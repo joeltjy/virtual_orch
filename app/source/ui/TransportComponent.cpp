@@ -1,4 +1,4 @@
-#include "VirtualOrch/TransportComponent.h"
+#include "VirtualOrch/ui/TransportComponent.h"
 
 TransportComponent::TransportComponent(bool onSecondDisplay, const Clock &clock) : clock(clock) {
     Component::setName("Transport");

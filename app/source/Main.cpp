@@ -1,5 +1,5 @@
 #include <JuceHeader.h>
-#include "VirtualOrch/MainComponent.h"
+#include "VirtualOrch/ui/AppRootComponent.h"
 
 extern "C" {
 extern const char *BUILD_REV;
@@ -55,7 +55,7 @@ public:
                              .findColour(juce::ResizableWindow::backgroundColourId),
                              DocumentWindow::allButtons) {
             setUsingNativeTitleBar(true);
-            setContentOwned(new MainComponent(), true);
+            setContentOwned(new AppRootComponent(), true);
 
 #if JUCE_IOS || JUCE_ANDROID
             setFullScreen (true);

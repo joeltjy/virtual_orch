@@ -8,7 +8,7 @@
 #include <limits>
 
 #include "Fifo.h"
-#include "VirtualOrch/ui/ModelConfigurationComponent.h"
+#include "ModelConfigurationComponent.h"
 
 namespace Config {
     constexpr int32_t MaxTimeInSeconds = 100;
@@ -215,8 +215,6 @@ public:
     }
 
     void init(const char *modelPath, ModelType newModelType);
-
-    [[nodiscard]] auto isModelLoaded() const -> bool { return session != nullptr; }
 
     void threadInit();
 

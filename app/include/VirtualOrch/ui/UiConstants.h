@@ -17,16 +17,35 @@ inline constexpr const char *workspaceWidgetTypeStub = "stub";
 inline constexpr const char *workspaceWidgetTypePrompt = "prompt";
 inline constexpr const char *workspaceWidgetTypeGeneration = "generation";
 inline constexpr const char *workspaceWidgetTypeTransport = "transport";
+inline constexpr const char *workspaceWidgetTypeTokenPianoRoll = "tokenPianoRoll";
+inline constexpr const char *workspaceWidgetTypeConditioningPianoRoll = "conditioningPianoRoll";
 inline constexpr const char *workspacePromptWidgetTitle = "Prompt";
 inline constexpr const char *workspaceGenerationWidgetTitle = "Generation";
 inline constexpr const char *workspaceTransportWidgetTitle = "Transport";
+inline constexpr const char *workspaceTokenPianoRollTitle = "Token Input";
+inline constexpr const char *workspaceConditioningPianoRollTitle = "Conditioning Input";
 inline constexpr const char *workspacePromptEmptyText = "(empty)";
 inline constexpr const char *workspaceAddMenuPromptItem = "Prompt";
 inline constexpr const char *workspaceAddMenuGenerationItem = "Generation";
 inline constexpr const char *workspaceAddMenuTransportItem = "Transport";
+inline constexpr const char *workspaceAddMenuTokenPianoRollItem = "Token Piano Roll";
+inline constexpr const char *workspaceAddMenuConditioningPianoRollItem = "Conditioning Piano Roll";
 inline constexpr int workspaceAddMenuPromptItemId = 1;
 inline constexpr int workspaceAddMenuGenerationItemId = 2;
 inline constexpr int workspaceAddMenuTransportItemId = 3;
+inline constexpr int workspaceAddMenuTokenPianoRollItemId = 4;
+inline constexpr int workspaceAddMenuConditioningPianoRollItemId = 5;
+inline constexpr const char *workspaceInputViewName = "InputView";
+inline constexpr int workspaceInputViewTokenRollX = 40;
+inline constexpr int workspaceInputViewTokenRollY = 40;
+inline constexpr int workspaceInputViewConditioningRollX = 40;
+inline constexpr int workspaceInputViewConditioningRollY = 340;
+inline constexpr int workspaceInputViewGenerationX = 700;
+inline constexpr int workspaceInputViewGenerationY = 40;
+inline constexpr int workspaceInputViewGenerationWidth = 280;
+inline constexpr int workspaceInputViewGenerationHeight = 160;
+inline constexpr int workspaceInputViewPianoRollWidth = 640;
+inline constexpr int workspaceInputViewPianoRollHeight = 280;
 inline constexpr int workspaceGenerationButtonWidth = 100;
 inline constexpr int workspaceGenerationButtonHeight = 28;
 inline constexpr int workspaceGenerationControlGap = 8;
@@ -106,5 +125,16 @@ inline const juce::Colour workspacePromptEditorBackground{juce::Colours::black.b
 inline const juce::Colour workspacePromptEditorTextColour{juce::Colours::lightgrey};
 inline const juce::Colour workspacePromptEditorEmptyTextColour{juce::Colours::grey};
 inline const juce::Colour workspaceTransportTimeColour{juce::Colours::lightgrey};
+
+// Piano roll view.
+inline constexpr int pianoRollTimerIntervalMs = 33;
+inline constexpr int32_t pianoRollPastWindow = 400;      // 4s before now (1/100s)
+inline constexpr int32_t pianoRollLookaheadWindow = 100; // 1s after now
+inline constexpr float pianoRollNowbarFraction = 0.75f;  // unused if windows define now X; kept for clarity
+inline constexpr float pianoRollNoteCornerRadius = 2.0f;
+inline const juce::Colour pianoRollBackground{juce::Colours::black.brighter(0.05f)};
+inline const juce::Colour pianoRollGridColour{juce::Colours::grey.withAlpha(0.25f)};
+inline const juce::Colour pianoRollNoteColour{juce::Colours::cornflowerblue.withAlpha(0.85f)};
+inline const juce::Colour pianoRollNowbarColour{juce::Colours::orange};
 
 } // namespace UiConstants

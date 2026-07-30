@@ -13,6 +13,15 @@ void ModelConfig::updateParameter(const juce::String &parameterName, const juce:
                 throw std::runtime_error("Unknown InputMode value: " + parameterValue.toStdString());
             }
             break;
+        case ModelConfigParameter::INPUT_FILTER_TYPE:
+            if (parameterValue.equalsIgnoreCase("passthrough")) {
+                inputFilterType = InputFilterType::Passthrough;
+            } else if (parameterValue.equalsIgnoreCase("pitchRangeSplit")) {
+                inputFilterType = InputFilterType::PitchRangeSplit;
+            } else {
+                throw std::runtime_error("Unknown InputFilterType value: " + parameterValue.toStdString());
+            }
+            break;
         case ModelConfigParameter::INPUT_INITIAL_DATA:
             DBG("CGB: inputInitialData set to " + parameterValue);
             inputInitialData = parameterValue;
@@ -40,6 +49,14 @@ void ModelConfig::updateParameter(const juce::String &parameterName, const int32
         case ModelConfigParameter::INPUT_DURATION:
             DBG("CGB: inputDuration set to " + std::to_string(parameterValue));
             inputDuration = parameterValue;
+            break;
+        case ModelConfigParameter::FILTER_CONDITIONING_LOW:
+            DBG("CGB: filterConditioningLow set to " + std::to_string(parameterValue));
+            filterConditioningLow = parameterValue;
+            break;
+        case ModelConfigParameter::FILTER_CONDITIONING_HIGH:
+            DBG("CGB: filterConditioningHigh set to " + std::to_string(parameterValue));
+            filterConditioningHigh = parameterValue;
             break;
 
         // ===== DIRECT INPUT =====

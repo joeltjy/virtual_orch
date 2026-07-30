@@ -225,6 +225,7 @@ public:
     void threadStop();
 
     CircularFifo<Token> inputTokenQueue;
+    CircularFifo<Token> inputConditioningQueue;
     CircularFifo<Token> outputTokenQueue;
 
     auto getInputData() const -> std::vector<int32_t> {
@@ -242,6 +243,9 @@ public:
 
 private:
     void notifyInputDataChanged();
+
+    // Decides how to apply the queued input from both queues into inputData. Returns true if any input was applied.
+    auto applyQueuedInputToInputData() -> bool;
 
     ModelConfig &modelConfig;
 
@@ -296,6 +300,12 @@ private:
     auto clearInputTokenQueue() -> void {
         Token t{-1, -1, -1};
         while (inputTokenQueue.pull(t)) {
+        }
+    }
+
+    auto clearInputConditioningQueue() -> void {
+        Token t{-1, -1, -1};
+        while (inputConditioningQueue.pull(t)) {
         }
     }
 

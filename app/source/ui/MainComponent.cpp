@@ -148,6 +148,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
                 session.modelConfig.updateParameter(message[0].getString(), message[1].getInt32(),
                                             message[2].getInt32());
             }
+            session.rebuildInputFilter();
         };
 
         controllerConnectButton.setEnabled(false);
@@ -734,6 +735,7 @@ void MainComponent::loadPresetFromName(const juce::String &presetName) {
         updateModel(false);
     }
     session.presetStore.applyPreset(preset);
+    session.rebuildInputFilter();
     resized();
 }
 
@@ -822,6 +824,7 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
     if (loadDefaultPreset) {
         DBG("Loading default preset");
         session.presetStore.applyPreset(parsedJson.getProperty("defaultPreset", var()));
+        session.rebuildInputFilter();
         resized();
         // We are changing the model, so mark preset as modified
         markPresetAsEdited();
@@ -1014,6 +1017,8 @@ void MainComponent::updateMtcClock() {
 }
 
 void MainComponent::changeListenerCallback(ChangeBroadcaster *source) {
+    juce::ignoreUnused(source);
+    session.rebuildInputFilter();
     resized();
     markPresetAsEdited();
 }

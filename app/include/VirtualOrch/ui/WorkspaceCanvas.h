@@ -28,8 +28,15 @@ public:
 
     auto addTransportWidget() -> void;
 
-    /** Seeds Prompt + Generation + Transport for a new Default view. */
+    auto addTokenPianoRollWidget() -> void;
+
+    auto addConditioningPianoRollWidget() -> void;
+
+    /** Prompt + Generation + Transport widgets for Default view. */
     auto addDefaultWidgets() -> void;
+
+    /** Token + Conditioning piano roll widgets for InputView. */
+    auto addInputViewWidgets() -> void;
 
     auto getWidgetCount() const -> int { return (int) widgets.size(); }
 

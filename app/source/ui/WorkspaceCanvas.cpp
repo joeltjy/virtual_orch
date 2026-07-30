@@ -2,8 +2,10 @@
 
 #include "VirtualOrch/AppSession.h"
 #include "VirtualOrch/ui/UiConstants.h"
-#include "VirtualOrch/widgets/PromptWidget.h"
+#include "VirtualOrch/widgets/ConditioningPianoRollWidget.h"
 #include "VirtualOrch/widgets/GenerationWidget.h"
+#include "VirtualOrch/widgets/PromptWidget.h"
+#include "VirtualOrch/widgets/TokenInputPianoRollWidget.h"
 #include "VirtualOrch/widgets/TransportWidget.h"
 
 #include <algorithm>
@@ -74,6 +76,18 @@ auto WorkspaceCanvas::createWidgetForType(const juce::String &type) const
         return std::make_unique<TransportWidget>(*session);
     }
 
+    if (type == UiConstants::workspaceWidgetTypeTokenPianoRoll) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<TokenInputPianoRollWidget>(*session);
+    }
+
+    if (type == UiConstants::workspaceWidgetTypeConditioningPianoRoll) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<ConditioningPianoRollWidget>(*session);
+    }
+
     // Legacy views may still contain stubs.
     if (type == UiConstants::workspaceWidgetTypeStub)
         return std::make_unique<WorkspaceWidget>(UiConstants::workspaceStubWidgetTitle,
@@ -123,12 +137,60 @@ auto WorkspaceCanvas::addTransportWidget() -> void {
     addWidget(std::move(widget), nextCascadedBounds());
 }
 
+auto WorkspaceCanvas::addTokenPianoRollWidget() -> void {
+    auto widget = createWidgetForType(UiConstants::workspaceWidgetTypeTokenPianoRoll);
+    if (widget == nullptr)
+        return;
+    addWidget(std::move(widget), nextCascadedBounds());
+}
+
+auto WorkspaceCanvas::addConditioningPianoRollWidget() -> void {
+    auto widget = createWidgetForType(UiConstants::workspaceWidgetTypeConditioningPianoRoll);
+    if (widget == nullptr)
+        return;
+    addWidget(std::move(widget), nextCascadedBounds());
+}
+
 auto WorkspaceCanvas::addDefaultWidgets() -> void {
     suppressLayoutNotifications = true;
     clearWidgets();
     addPromptWidget();
     addGenerationWidget();
     addTransportWidget();
+    suppressLayoutNotifications = false;
+}
+
+auto WorkspaceCanvas::addInputViewWidgets() -> void {
+    suppressLayoutNotifications = true;
+    clearWidgets();
+
+    auto tokenRoll = createWidgetForType(UiConstants::workspaceWidgetTypeTokenPianoRoll);
+    if (tokenRoll != nullptr) {
+        addWidget(std::move(tokenRoll),
+                  {UiConstants::workspaceInputViewTokenRollX,
+                   UiConstants::workspaceInputViewTokenRollY,
+                   UiConstants::workspaceInputViewPianoRollWidth,
+                   UiConstants::workspaceInputViewPianoRollHeight});
+    }
+
+    auto conditioningRoll = createWidgetForType(UiConstants::workspaceWidgetTypeConditioningPianoRoll);
+    if (conditioningRoll != nullptr) {
+        addWidget(std::move(conditioningRoll),
+                  {UiConstants::workspaceInputViewConditioningRollX,
+                   UiConstants::workspaceInputViewConditioningRollY,
+                   UiConstants::workspaceInputViewPianoRollWidth,
+                   UiConstants::workspaceInputViewPianoRollHeight});
+    }
+
+    auto generation = createWidgetForType(UiConstants::workspaceWidgetTypeGeneration);
+    if (generation != nullptr) {
+        addWidget(std::move(generation),
+                  {UiConstants::workspaceInputViewGenerationX,
+                   UiConstants::workspaceInputViewGenerationY,
+                   UiConstants::workspaceInputViewGenerationWidth,
+                   UiConstants::workspaceInputViewGenerationHeight});
+    }
+
     suppressLayoutNotifications = false;
 }
 

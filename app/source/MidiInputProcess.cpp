@@ -6,6 +6,7 @@ MidiInputProcess::MidiInputProcess(Clock &clock,
                                    MusicTransformer &musicTransformer,
                                    ModelConfig &modelConfig,
                                    std::unique_ptr<OutputProcessor> &outputProcessor,
+                                   std::unique_ptr<InputFilter> &inputFilter,
                                    juce::String &selectedMidiInputIdentifier,
                                    juce::String &selectedMidiInput2Identifier,
                                    juce::String &selectedMtcClockIdentifier,
@@ -14,6 +15,7 @@ MidiInputProcess::MidiInputProcess(Clock &clock,
       musicTransformer(musicTransformer),
       modelConfig(modelConfig),
       outputProcessor(outputProcessor),
+      inputFilter(inputFilter),
       selectedMidiInputIdentifier(selectedMidiInputIdentifier),
       selectedMidiInput2Identifier(selectedMidiInput2Identifier),
       selectedMtcClockIdentifier(selectedMtcClockIdentifier),
@@ -38,7 +40,8 @@ void MidiInputProcess::sendTokensToMusicTransformer(const std::optional<int32_t>
             token.time = atTime.value();
         }
         std::cout << "input token: " << token.toUnderstandableString() << std::endl;
-        musicTransformer.inputTokenQueue.push(token);
+        if (inputFilter != nullptr)
+            inputFilter->filter(token);
     }
     tokensToSend.clear();
 }

@@ -37,6 +37,8 @@ private:
 
     auto ensureDefaultView() -> void;
 
+    auto ensureInputView() -> void;
+
     auto markDirty() -> void;
 
     auto clearDirty() -> void;

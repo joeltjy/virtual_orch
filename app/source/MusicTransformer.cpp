@@ -62,6 +62,7 @@ void MusicTransformer::threadRun() {
 
     inputData.clear();
     clearInputTokenQueue();
+    clearInputConditioningQueue();
     clearOutputTokenQueue();
 
     currentTime = modelConfig.outputStartTime;
@@ -87,8 +88,8 @@ void MusicTransformer::threadRun() {
     }
     notifyInputDataChanged();
 
-    // We keep track of a flag to clear the queue
-    bool clearFlag = false;
+    // Whether this iteration applied live token-queue input (triggers ClearQueue on output).
+    bool inputApplied = false;
 
     // Until thread is not stopped
     while (!threadShouldExit()) {
@@ -98,60 +99,7 @@ void MusicTransformer::threadRun() {
             continue;
         }
 
-        // Watch for input tokens
-        Token inputToken = {-1, -1, -1};
-
-        /* COLLECT INPUT */
-        while (inputTokenQueue.pull(inputToken)) {
-            DBG("input: " + inputToken.toUnderstandableString());
-            // CLEARING FUTURE INPUT DATA IF FIRST TOKEN
-            if (!clearFlag) {
-                for (size_t i = 0; i < inputData.size(); i += 3) {
-                    if (inputData[i] > inputToken.time) {
-                        inputData.erase(inputData.begin() + i, inputData.end());
-                        break;
-                    }
-                }
-            }
-
-            // ADD TOKEN TO INPUT DATA (IF BUFFER DO SOME PROCESSING)
-            if (modelConfig.inputMode != InputMode::Buffer) {
-                inputData.push_back(inputToken.time);
-                inputData.push_back(inputToken.duration);
-                inputData.push_back(inputToken.note);
-            } else {
-                // NOTE: Should the output ranges be a parameter?
-                // If bass, add an octave to range 36-48 and 48-60
-                // Otherwise, put in range 60-72
-                if (!clearFlag) {
-                    inputData.push_back(inputToken.time);
-                    inputData.push_back(inputToken.duration);
-                    inputData.push_back(Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument
-                                        + 36 + (inputToken.getPitch() % 12));
-                    inputData.push_back(inputToken.time);
-                    inputData.push_back(inputToken.duration);
-                    inputData.push_back(Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument
-                                        + 48 + (inputToken.getPitch() % 12));
-                } else {
-                    inputData.push_back(inputToken.time);
-                    inputData.push_back(inputToken.duration);
-                    inputData.push_back(Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument
-                                        + 60 + (inputToken.getPitch() % 12));
-                }
-            }
-
-            DBG("In prompt: " + inputToken.toUnderstandableString());
-
-            // Set current time to last token time
-            currentTime = inputToken.time;
-
-            // Set Clear Flag
-            clearFlag = true;
-        }
-        if (clearFlag) {
-            notifyInputDataChanged();
-        }
-        /* END COLLECT INPUT */
+        inputApplied = applyQueuedInputToInputData();
 
         // GENERATE NEW TOKEN (OR REST)
         Token newToken = {-1, -1, -1};
@@ -174,18 +122,79 @@ void MusicTransformer::threadRun() {
 
         // If we need to clear the queue, send a clear queue token
         // We do it here to ensure we can push the new token right after, and not have a moment without any token
-        if (clearFlag) {
+        if (inputApplied) {
             Token clearToken = {Vocab::TimeOffset, Vocab::DurOffset, Vocab::ClearQueue};
             outputTokenQueue.push(clearToken);
             DBG("output: " + clearToken.toUnderstandableString());
         }
 
-        if (clearFlag) { clearFlag = false; }
+        if (inputApplied) { inputApplied = false; }
 
         // Push new token to output queue
         outputTokenQueue.push(newToken);
         DBG("output: " + newToken.toUnderstandableString());
     }
+}
+
+auto MusicTransformer::applyQueuedInputToInputData() -> bool {
+    Token discarded{-1, -1, -1};
+    while (inputConditioningQueue.pull(discarded)) {
+    }
+
+    bool inputApplied = false;
+    Token inputToken = {-1, -1, -1};
+
+    while (inputTokenQueue.pull(inputToken)) {
+        DBG("input: " + inputToken.toUnderstandableString());
+        // CLEARING FUTURE INPUT DATA IF FIRST TOKEN
+        if (!inputApplied) {
+            for (size_t i = 0; i < inputData.size(); i += 3) {
+                if (inputData[i] > inputToken.time) {
+                    inputData.erase(inputData.begin() + i, inputData.end());
+                    break;
+                }
+            }
+        }
+
+        // ADD TOKEN TO INPUT DATA (IF BUFFER DO SOME PROCESSING)
+        if (modelConfig.inputMode != InputMode::Buffer) {
+            inputData.push_back(inputToken.time);
+            inputData.push_back(inputToken.duration);
+            inputData.push_back(inputToken.note);
+        } else {
+            // NOTE: Should the output ranges be a parameter?
+            // If bass, add an octave to range 36-48 and 48-60
+            // Otherwise, put in range 60-72
+            if (!inputApplied) {
+                inputData.push_back(inputToken.time);
+                inputData.push_back(inputToken.duration);
+                inputData.push_back(Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument
+                                    + 36 + (inputToken.getPitch() % 12));
+                inputData.push_back(inputToken.time);
+                inputData.push_back(inputToken.duration);
+                inputData.push_back(Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument
+                                    + 48 + (inputToken.getPitch() % 12));
+            } else {
+                inputData.push_back(inputToken.time);
+                inputData.push_back(inputToken.duration);
+                inputData.push_back(Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument
+                                    + 60 + (inputToken.getPitch() % 12));
+            }
+        }
+
+        DBG("In prompt: " + inputToken.toUnderstandableString());
+
+        // Set current time to last token time
+        currentTime = inputToken.time;
+
+        inputApplied = true;
+    }
+
+    if (inputApplied) {
+        notifyInputDataChanged();
+    }
+
+    return inputApplied;
 }
 
 void MusicTransformer::threadStop() {

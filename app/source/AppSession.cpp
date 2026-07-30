@@ -6,9 +6,13 @@ AppSession::AppSession()
     : presetStore(modelConfig),
       clock(metrics),
       musicTransformer(modelConfig),
+      inputFilter(createInputFilter(modelConfig.inputFilterType,
+                                    modelConfig,
+                                    musicTransformer.inputTokenQueue,
+                                    musicTransformer.inputConditioningQueue)),
       outputPlayback(clock, musicTransformer, outputProcessor, bufferOutputProcessor,
                      visualizationBufferSize),
-      midiInputProcess(clock, musicTransformer, modelConfig, outputProcessor,
+      midiInputProcess(clock, musicTransformer, modelConfig, outputProcessor, inputFilter,
                        selectedMidiInputIdentifier, selectedMidiInput2Identifier,
                        selectedMtcClockIdentifier, mtcClockActive) {
 }
@@ -16,6 +20,13 @@ AppSession::AppSession()
 AppSession::~AppSession() {
     musicTransformer.stopThread(-1);
     outputPlayback.stopThread(-1);
+}
+
+auto AppSession::rebuildInputFilter() -> void {
+    inputFilter = createInputFilter(modelConfig.inputFilterType,
+                                    modelConfig,
+                                    musicTransformer.inputTokenQueue,
+                                    musicTransformer.inputConditioningQueue);
 }
 
 auto AppSession::startGeneration() -> void {
@@ -34,6 +45,8 @@ auto AppSession::startGeneration() -> void {
     }
 
     midiInputProcess.resetForStart();
+    if (inputFilter != nullptr)
+        inputFilter->reset();
 
     musicTransformer.startThread();
     outputPlayback.startThread();

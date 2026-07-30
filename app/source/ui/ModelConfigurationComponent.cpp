@@ -26,6 +26,43 @@ ModelConfigurationComponent::ModelConfigurationComponent(ModelConfig &modelConfi
         resized();
     };
 
+    /* INPUT FILTER TYPE */
+    addAndMakeVisible(inputFilterTypeLabel);
+    inputFilterTypeLabel.setText("Input Filter:", juce::dontSendNotification);
+    inputFilterTypeLabel.attachToComponent(&inputFilterType, true);
+
+    addAndMakeVisible(inputFilterType);
+    inputFilterType.addItem("Passthrough", static_cast<int>(InputFilterType::Passthrough) + 1);
+    inputFilterType.addItem("Pitch range split", static_cast<int>(InputFilterType::PitchRangeSplit) + 1);
+    inputFilterType.setSelectedId(static_cast<int>(modelConfig.inputFilterType) + 1, juce::dontSendNotification);
+    inputFilterType.onChange = [this] {
+        sendChangeMessage();
+        resized();
+    };
+
+    /* FILTER CONDITIONING RANGE */
+    addAndMakeVisible(filterConditioningLowLabel);
+    filterConditioningLowLabel.setText("Conditioning Range:", juce::dontSendNotification);
+    filterConditioningLowLabel.attachToComponent(&filterConditioningLow, true);
+
+    addAndMakeVisible(filterConditioningLow);
+    filterConditioningLow.setInputRestrictions(10, "0123456789");
+    filterConditioningLow.setText(juce::String(modelConfig.filterConditioningLow));
+    filterConditioningLow.onTextChange = [this] {
+        sendChangeMessage();
+    };
+
+    addAndMakeVisible(filterConditioningHighLabel);
+    filterConditioningHighLabel.setText("- ", juce::dontSendNotification);
+    filterConditioningHighLabel.attachToComponent(&filterConditioningHigh, true);
+
+    addAndMakeVisible(filterConditioningHigh);
+    filterConditioningHigh.setInputRestrictions(10, "0123456789");
+    filterConditioningHigh.setText(juce::String(modelConfig.filterConditioningHigh));
+    filterConditioningHigh.onTextChange = [this] {
+        sendChangeMessage();
+    };
+
     /* INPUT INSTRUMENT */
     addAndMakeVisible(inputInstrumentLabel);
     inputInstrumentLabel.setText("Input Instrument:", juce::dontSendNotification);
@@ -400,6 +437,8 @@ void ModelConfigurationComponent::resized() {
     bufferInputHigh.setVisible(false);
     bufferInputBassLow.setVisible(false);
     bufferInputBassHigh.setVisible(false);
+    filterConditioningLow.setVisible(false);
+    filterConditioningHigh.setVisible(false);
 
 
     auto area = getLocalBounds().reduced(8);
@@ -442,6 +481,16 @@ void ModelConfigurationComponent::resized() {
         bufferInputHigh.setBounds(bufferInputRangeArea.removeFromLeft(135).withTrimmedRight(90));
         bufferInputBassLow.setBounds(bufferInputRangeArea.removeFromLeft(65).withTrimmedRight(25));
         bufferInputBassHigh.setBounds(bufferInputRangeArea.removeFromLeft(45).withTrimmedRight(10));
+    }
+
+    inputFilterType.setBounds(area.removeFromTop(36).removeFromRight(getWidth() - 250).reduced(8));
+
+    if (inputFilterType.getSelectedId() == static_cast<int>(InputFilterType::PitchRangeSplit) + 1) {
+        filterConditioningLow.setVisible(true);
+        filterConditioningHigh.setVisible(true);
+        auto filterRangeArea = area.removeFromTop(36).removeFromRight(getWidth() - 250).reduced(8);
+        filterConditioningLow.setBounds(filterRangeArea.removeFromLeft(65).withTrimmedRight(25));
+        filterConditioningHigh.setBounds(filterRangeArea.removeFromLeft(135).withTrimmedRight(90));
     }
 
     inputInstrument.setBounds(area.removeFromTop(36).removeFromRight(getWidth() - 250).reduced(8));
@@ -504,11 +553,14 @@ bool ModelConfigurationComponent::apply() {
     }
 
     modelConfig.inputMode = static_cast<InputMode>(inputMode.getSelectedId() - 1);
+    modelConfig.inputFilterType = static_cast<InputFilterType>(inputFilterType.getSelectedId() - 1);
     modelConfig.inputInstrument = inputInstrument.getText().getIntValue();
     modelConfig.inputLow = inputLow.getText().getIntValue();
     modelConfig.inputHigh = inputHigh.getText().getIntValue();
     modelConfig.inputDuration = inputDuration.getText().getIntValue();
     modelConfig.inputInitialData = inputInitialData.getText();
+    modelConfig.filterConditioningLow = filterConditioningLow.getText().getIntValue();
+    modelConfig.filterConditioningHigh = filterConditioningHigh.getText().getIntValue();
     modelConfig.directInputWindowLength = directInputWindowLength.getText().getIntValue();
     modelConfig.directInputSendNoteOffs = directInputSendNoteOffs.getToggleState();
     modelConfig.directInputStartOnInput = directInputStartOnInput.getToggleState();

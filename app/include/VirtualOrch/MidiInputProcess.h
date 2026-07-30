@@ -10,9 +10,10 @@
 #include "Clock.h"
 #include "MusicTransformer.h"
 #include "OutputProcessor.h"
+#include "VirtualOrch/InputFilter.h"
 
 /**
- * MIDI / MTC input → tokens into MusicTransformer.
+ * MIDI / MTC input → tokens into MusicTransformer via InputFilter.
  * Owns windowing, buffer/direct modes, and note collection state.
  */
 class MidiInputProcess : public juce::MidiInputCallback, public juce::Timer {
@@ -21,6 +22,7 @@ public:
                      MusicTransformer &musicTransformer,
                      ModelConfig &modelConfig,
                      std::unique_ptr<OutputProcessor> &outputProcessor,
+                     std::unique_ptr<InputFilter> &inputFilter,
                      juce::String &selectedMidiInputIdentifier,
                      juce::String &selectedMidiInput2Identifier,
                      juce::String &selectedMtcClockIdentifier,
@@ -48,6 +50,7 @@ private:
     MusicTransformer &musicTransformer;
     ModelConfig &modelConfig;
     std::unique_ptr<OutputProcessor> &outputProcessor;
+    std::unique_ptr<InputFilter> &inputFilter;
 
     juce::String &selectedMidiInputIdentifier;
     juce::String &selectedMidiInput2Identifier;

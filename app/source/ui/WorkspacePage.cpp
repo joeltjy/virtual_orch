@@ -31,6 +31,10 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
                      UiConstants::workspaceAddMenuGenerationItem);
         menu.addItem(UiConstants::workspaceAddMenuTransportItemId,
                      UiConstants::workspaceAddMenuTransportItem);
+        menu.addItem(UiConstants::workspaceAddMenuTokenPianoRollItemId,
+                     UiConstants::workspaceAddMenuTokenPianoRollItem);
+        menu.addItem(UiConstants::workspaceAddMenuConditioningPianoRollItemId,
+                     UiConstants::workspaceAddMenuConditioningPianoRollItem);
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addButton),
                            [this](int result) {
                                if (result == UiConstants::workspaceAddMenuPromptItemId)
@@ -39,6 +43,10 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
                                    canvas.addGenerationWidget();
                                else if (result == UiConstants::workspaceAddMenuTransportItemId)
                                    canvas.addTransportWidget();
+                               else if (result == UiConstants::workspaceAddMenuTokenPianoRollItemId)
+                                   canvas.addTokenPianoRollWidget();
+                               else if (result == UiConstants::workspaceAddMenuConditioningPianoRollItemId)
+                                   canvas.addConditioningPianoRollWidget();
                            });
     };
     saveButton.onClick = [this] { saveCurrentView(); };
@@ -52,6 +60,7 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
     addAndMakeVisible(canvas);
 
     ensureDefaultView();
+    ensureInputView();
 
     auto names = viewStore.listViewNames();
     juce::String initialName;
@@ -72,6 +81,38 @@ auto WorkspacePage::ensureDefaultView() -> void {
 
     canvas.addDefaultWidgets();
     viewStore.saveView(UiConstants::workspaceDefaultViewName, canvas.toVar());
+    clearDirty();
+}
+
+auto WorkspacePage::ensureInputView() -> void {
+    const auto viewHasGeneration = [](const juce::var &viewJson) {
+        if (! viewJson.isObject())
+            return false;
+        const auto widgetsVar = viewJson.getProperty("widgets", juce::var());
+        if (! widgetsVar.isArray())
+            return false;
+        for (const auto &entry : *widgetsVar.getArray()) {
+            if (! entry.isObject())
+                continue;
+            if (entry.getProperty("type", {}).toString() == UiConstants::workspaceWidgetTypeGeneration)
+                return true;
+        }
+        return false;
+    };
+
+    if (viewStore.viewExists(UiConstants::workspaceInputViewName)
+        && viewHasGeneration(viewStore.loadView(UiConstants::workspaceInputViewName)))
+        return;
+
+    const auto snapshot = canvas.toVar();
+    const bool restore = canvas.getWidgetCount() > 0;
+
+    canvas.addInputViewWidgets();
+    viewStore.saveView(UiConstants::workspaceInputViewName, canvas.toVar());
+
+    if (restore)
+        canvas.fromVar(snapshot);
+
     clearDirty();
 }
 

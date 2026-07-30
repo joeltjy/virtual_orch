@@ -9,6 +9,11 @@ enum InputMode {
     Buffer
 };
 
+enum class InputFilterType {
+    Passthrough,
+    PitchRangeSplit
+};
+
 struct OutputInstrumentConfig {
     /** Whether the instrument is active */
     bool active = false;
@@ -33,11 +38,14 @@ constexpr std::size_t compile_time_hash(const char *str) {
 
 enum ModelConfigParameter : size_t {
     INPUT_MODE = compile_time_hash("inputMode"),
+    INPUT_FILTER_TYPE = compile_time_hash("inputFilterType"),
     INPUT_INSTRUMENT = compile_time_hash("inputInstrument"),
     INPUT_LOW = compile_time_hash("inputLow"),
     INPUT_HIGH = compile_time_hash("inputHigh"),
     INPUT_DURATION = compile_time_hash("inputDuration"),
     INPUT_INITIAL_DATA = compile_time_hash("inputInitialData"),
+    FILTER_CONDITIONING_LOW = compile_time_hash("filterConditioningLow"),
+    FILTER_CONDITIONING_HIGH = compile_time_hash("filterConditioningHigh"),
 
     DIRECT_INPUT_WINDOW_LENGTH = compile_time_hash("directInputWindowLength"),
     DIRECT_INPUT_SEND_NOTE_OFFS = compile_time_hash("directInputSendNoteOffs"),
@@ -72,6 +80,9 @@ struct ModelConfig {
     /** The input mode of the model. */
     InputMode inputMode = Direct;
 
+    /** How MIDI tokens are split into token vs conditioning queues. */
+    InputFilterType inputFilterType = InputFilterType::Passthrough;
+
     /** The MIDI instrument used to condition the model. */
     int32_t inputInstrument = 0;
 
@@ -84,6 +95,10 @@ struct ModelConfig {
 
     /** The initial input data */
     juce::String inputInitialData = "";
+
+    /** PitchRangeSplit: pitches in [low, high) go to conditioning. */
+    int32_t filterConditioningLow = 24;
+    int32_t filterConditioningHigh = 36;
 
     /** DIRECT INPUT: The length (1/100s) of the window to trigger input. */
     int32_t directInputWindowLength = 10;
@@ -156,6 +171,13 @@ struct ModelConfig {
             inputMode = InputMode::Buffer;
         }
 
+        juce::String filterTypeStr = parsedJson.getProperty("inputFilterType", "passthrough").toString();
+        if (filterTypeStr == "pitchRangeSplit") {
+            inputFilterType = InputFilterType::PitchRangeSplit;
+        } else {
+            inputFilterType = InputFilterType::Passthrough;
+        }
+
         // INPUT: Set instrument
         inputInstrument = parsedJson.getProperty("inputInstrument", 0);
 
@@ -170,6 +192,9 @@ struct ModelConfig {
 
         // INPUT: Set initial data
         inputInitialData = parsedJson.getProperty("inputInitialData", "");
+
+        filterConditioningLow = parsedJson.getProperty("filterConditioningLow", 24);
+        filterConditioningHigh = parsedJson.getProperty("filterConditioningHigh", 36);
 
         // DIRECT INPUT: Set Direct Input's window length
         directInputWindowLength = parsedJson.getProperty("directInputWindowLength", 10);
@@ -272,15 +297,17 @@ private:
     ModelConfig &modelConfig;
 
     /* INPUT */
-    juce::Label inputTitle, inputModeLabel, inputInstrumentLabel, inputLowLabel, inputHighLabel, inputDurationLabel,
-            inputInitialDataLabel, directInputWindowLengthLabel,
+    juce::Label inputTitle, inputModeLabel, inputFilterTypeLabel, inputInstrumentLabel, inputLowLabel, inputHighLabel,
+            inputDurationLabel,
+            inputInitialDataLabel, filterConditioningLowLabel, filterConditioningHighLabel, directInputWindowLengthLabel,
             directInputSendNoteOffsLabel, directInputStartOnInputLabel,
             directInputStartDelayLabel,
             directInputHoldBassLabel, directInputBassLowLabel, directInputBassHighLabel, directInputInitialBassLabel,
             bufferInputSizeLabel, bufferInputLowLabel,
             bufferInputHighLabel, bufferInputBassLowLabel, bufferInputBassHighLabel;
-    juce::ComboBox inputMode;
-    juce::TextEditor inputInstrument, inputLow, inputHigh, inputDuration, inputInitialData, directInputWindowLength,
+    juce::ComboBox inputMode, inputFilterType;
+    juce::TextEditor inputInstrument, inputLow, inputHigh, inputDuration, inputInitialData,
+            filterConditioningLow, filterConditioningHigh, directInputWindowLength,
             directInputStartDelay,
             directInputBassLow, directInputBassHigh, directInputInitialBass, bufferInputSize, bufferInputLow,
             bufferInputHigh, bufferInputBassLow, bufferInputBassHigh;

@@ -5,6 +5,7 @@
 #include <memory>
 
 #include "VirtualOrch/Clock.h"
+#include "VirtualOrch/InputFilter.h"
 #include "VirtualOrch/MidiInputProcess.h"
 #include "VirtualOrch/MusicTransformer.h"
 #include "VirtualOrch/OSCBufferOutputProcessor.h"
@@ -39,8 +40,11 @@ public:
     bool mtcClockActive = false;
 
     MusicTransformer musicTransformer;
+    std::unique_ptr<InputFilter> inputFilter;
     OutputPlayback outputPlayback;
     MidiInputProcess midiInputProcess;
+
+    auto rebuildInputFilter() -> void;
 
     auto startGeneration() -> void;
 

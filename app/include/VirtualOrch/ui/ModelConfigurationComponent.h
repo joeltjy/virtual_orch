@@ -104,7 +104,7 @@ struct ModelConfig {
     int32_t directInputWindowLength = 10;
 
     /** DIRECT INPUT: Whether to send Note Off signals. */
-    bool directInputSendNoteOffs = false;
+    bool directInputSendNoteOffs = true;
 
     /** DIRECT INPUT: Start Music Transformer on input. */
     bool directInputStartOnInput = false;
@@ -200,7 +200,7 @@ struct ModelConfig {
         directInputWindowLength = parsedJson.getProperty("directInputWindowLength", 10);
 
         // DIRECT INPUT: Set Direct Input's send note offs
-        directInputSendNoteOffs = parsedJson.getProperty("directInputSendNoteOffs", false);
+        directInputSendNoteOffs = parsedJson.getProperty("directInputSendNoteOffs", true);
 
         // DIRECT INPUT: Set Direct Input's start on input
         directInputStartOnInput = parsedJson.getProperty("directInputStartOnInput", false);

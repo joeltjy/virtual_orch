@@ -7,7 +7,7 @@
 
 class AppSession;
 
-/** Piano roll of InputFilter pastTokens. */
+/** Piano roll of InputFilter pastInput. */
 class TokenInputPianoRollWidget : public WorkspaceWidget, private juce::Timer {
 public:
     explicit TokenInputPianoRollWidget(AppSession &session);

@@ -1,5 +1,6 @@
 #include "VirtualOrch/MidiInputProcess.h"
 
+#include <algorithm>
 #include <iostream>
 
 MidiInputProcess::MidiInputProcess(Clock &clock,
@@ -33,6 +34,15 @@ void MidiInputProcess::resetForStart() {
     }
 }
 
+auto MidiInputProcess::hasUnflushedDirectNotes() const -> bool {
+    for (const auto &[pitch, note]: notesOnToSend) {
+        juce::ignoreUnused(pitch);
+        if (! note.flushedTime.has_value())
+            return true;
+    }
+    return false;
+}
+
 void MidiInputProcess::sendTokensToMusicTransformer(const std::optional<int32_t> atTime) {
     for (auto &token: tokensToSend) {
         std::cout << "considering token: " << token.note << std::endl;
@@ -52,35 +62,42 @@ void MidiInputProcess::timerCallback() {
     }
 
     uint32_t time = clock.getTime();
-    if ((!notesOnToSend.empty() || (modelConfig.directInputSendNoteOffs && !tokensToSend.empty()))
-        && time - lastTokenAddedTime > modelConfig.directInputWindowLength) {
-        if (modelConfig.directInputHoldBass && bassHeld.has_value()) {
-            DBG("Holding bass " + std::to_string(bassHeld.value()));
-            Token bassToken = {
-                .time = static_cast<int32_t>(lastTokenAddedTime),
-                .duration = static_cast<int32_t>(Vocab::DurOffset + modelConfig.inputDuration),
-                .note = bassHeld.value()
-            };
-            tokensToSend.push_back(bassToken);
-        }
-        for (auto &note: notesOnToSend) {
-            Token inputToken = {
-                .time = static_cast<int32_t>(lastTokenAddedTime),
-                .duration = static_cast<int32_t>(Vocab::DurOffset + modelConfig.inputDuration),
-                .note = static_cast<int32_t>(Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument
-                                             + note.first)
-            };
-            tokensToSend.push_back(inputToken);
-        }
-
-        if (modelConfig.directInputStartOnInput && musicTransformer.directInputBlock.get()) {
-            sendTokensToMusicTransformer(lastTokenAddedTime + modelConfig.directInputStartDelay);
-            musicTransformer.directInputBlock = false;
-        } else {
-            sendTokensToMusicTransformer(std::nullopt);
-        }
-        stopTimer();
+    if ((! hasUnflushedDirectNotes() && ! (modelConfig.directInputSendNoteOffs && ! tokensToSend.empty()))
+        || time - lastTokenAddedTime <= modelConfig.directInputWindowLength) {
+        return;
     }
+
+    std::optional<int32_t> atTime;
+    if (modelConfig.directInputStartOnInput && musicTransformer.directInputBlock.get()) {
+        atTime = static_cast<int32_t>(lastTokenAddedTime + modelConfig.directInputStartDelay);
+        musicTransformer.directInputBlock = false;
+    }
+    const int32_t stamp = atTime.value_or(static_cast<int32_t>(lastTokenAddedTime));
+    const int32_t defaultDur = static_cast<int32_t>(Vocab::DurOffset + modelConfig.inputDuration);
+
+    if (modelConfig.directInputHoldBass && bassHeld.has_value()) {
+        DBG("Holding bass " + std::to_string(bassHeld.value()));
+        tokensToSend.push_back({
+            .time = stamp,
+            .duration = defaultDur,
+            .note = bassHeld.value()
+        });
+    }
+
+    for (auto &[pitch, note]: notesOnToSend) {
+        if (note.flushedTime.has_value())
+            continue;
+        tokensToSend.push_back({
+            .time = stamp,
+            .duration = defaultDur,
+            .note = static_cast<int32_t>(Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument
+                                         + pitch)
+        });
+        note.flushedTime = stamp;
+    }
+
+    sendTokensToMusicTransformer(std::nullopt);
+    stopTimer();
 }
 
 void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const juce::MidiMessage &message) {
@@ -170,7 +187,7 @@ void MidiInputProcess::handleNoteOn(int midiNoteNumber, float velocity) {
             bassHeld = inputToken.note;
             DBG("Setting bass to " + std::to_string(bassHeld.value()));
         } else {
-            notesOnToSend[midiNoteNumber] = time;
+            notesOnToSend[midiNoteNumber] = HeldDirectNote{.onset = time, .flushedTime = std::nullopt};
         }
         lastTokenAddedTime = time;
         if (!isTimerRunning()) {
@@ -212,18 +229,35 @@ void MidiInputProcess::handleNoteOff(int midiNoteNumber) {
 
     uint32_t time = clock.getTime();
 
-    if (modelConfig.inputMode == InputMode::Direct) {
-        if (notesOnToSend.contains(midiNoteNumber)) {
-            if (modelConfig.directInputSendNoteOffs) {
-                const double onsetTime = notesOnToSend[midiNoteNumber];
-                Token inputToken = {
-                    static_cast<int32_t>(onsetTime), static_cast<int32_t>(Vocab::DurOffset + (time - onsetTime)),
-                    static_cast<int32_t>(Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument +
-                                         midiNoteNumber)
-                };
-                tokensToSend.push_back(inputToken);
-            }
-            notesOnToSend.erase(midiNoteNumber);
+    if (modelConfig.inputMode != InputMode::Direct)
+        return;
+
+    const auto it = notesOnToSend.find(midiNoteNumber);
+    if (it == notesOnToSend.end())
+        return;
+
+    if (modelConfig.directInputSendNoteOffs && inputFilter != nullptr) {
+        const auto onset = it->second.onset;
+        const int32_t noteId = static_cast<int32_t>(
+            Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument + midiNoteNumber);
+        const int32_t heldDur = std::max<int32_t>(1, static_cast<int32_t>(time - onset));
+        const int32_t defaultDur = static_cast<int32_t>(Vocab::DurOffset + modelConfig.inputDuration);
+        const int32_t correctDur = static_cast<int32_t>(Vocab::DurOffset + heldDur);
+
+        if (it->second.flushedTime.has_value()) {
+            const int32_t stamp = *it->second.flushedTime;
+            inputFilter->updatesFromMain.push({
+                .oldNote = Token{stamp, defaultDur, noteId},
+                .newNote = Token{stamp, correctDur, noteId}
+            });
+            inputFilter->processUpdates();
+        } else {
+            inputFilter->filter(Token{static_cast<int32_t>(onset), correctDur, noteId});
         }
     }
+
+    notesOnToSend.erase(it);
+
+    if (! hasUnflushedDirectNotes() && tokensToSend.empty())
+        stopTimer();
 }

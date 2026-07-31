@@ -6,6 +6,8 @@
 #include <functional>
 #include <random>
 #include <limits>
+#include <algorithm>
+#include <vector>
 
 #include "Fifo.h"
 #include "VirtualOrch/ui/ModelConfigurationComponent.h"
@@ -193,6 +195,50 @@ inline bool operator<(const Token &lhs, const Token &rhs) {
     return lhs.time < rhs.time;
 }
 
+inline auto tokenEquals(const Token &lhs, const Token &rhs) -> bool {
+    return lhs.time == rhs.time && lhs.duration == rhs.duration && lhs.note == rhs.note;
+}
+
+inline auto tokenOrderLess(const Token &lhs, const Token &rhs) -> bool {
+    if (lhs.time != rhs.time)
+        return lhs.time < rhs.time;
+    if (lhs.duration != rhs.duration)
+        return lhs.duration < rhs.duration;
+    return lhs.note < rhs.note;
+}
+
+/** Replace a note. For example, when noteOffs come in. */
+struct TokenUpdate {
+    Token oldNote;
+    Token newNote;
+};
+
+/** Find oldNote scanning backwards; replace with newNote; reinsert if order key changed. */
+inline auto applyTokenUpdateToHistory(std::vector<Token> &history, const TokenUpdate &update) -> bool {
+    for (auto rit = history.rbegin(); rit != history.rend(); ++rit) {
+        if (! tokenEquals(*rit, update.oldNote))
+            continue;
+
+        auto pos = std::prev(rit.base());
+
+        const bool orderKeyChanged = update.newNote.time != update.oldNote.time
+                                     || update.newNote.duration != update.oldNote.duration
+                                     || update.newNote.note != update.oldNote.note;
+
+        if (! orderKeyChanged) {
+            *pos = update.newNote;
+            return true;
+        }
+
+        history.erase(pos);
+        const auto insertAt = std::lower_bound(history.begin(), history.end(), update.newNote, tokenOrderLess);
+        history.insert(insertAt, update.newNote);
+        return true;
+    }
+
+    return false;
+}
+
 enum ModelType : uint8_t {
     Small,
     Medium
@@ -227,6 +273,7 @@ public:
     CircularFifo<Token> inputTokenQueue;
     CircularFifo<Token> inputConditioningQueue;
     CircularFifo<Token> outputTokenQueue;
+    CircularFifo<TokenUpdate> updatesFromFilter;
 
     auto getInputData() const -> std::vector<int32_t> {
         return inputData;
@@ -246,6 +293,9 @@ private:
 
     // Decides how to apply the queued input from both queues into inputData. Returns true if any input was applied.
     auto applyQueuedInputToInputData() -> bool;
+
+    /** Drain updatesFromFilter; patch matching triplets in inputData (search backwards). */
+    auto applyUpdatesFromFilter() -> bool;
 
     ModelConfig &modelConfig;
 
@@ -298,20 +348,26 @@ private:
     std::unique_ptr<std::vector<float> > emptyPast;
 
     auto clearInputTokenQueue() -> void {
-        Token t{-1, -1, -1};
+        Token t{.time=-1, .duration=-1, .note=-1};
         while (inputTokenQueue.pull(t)) {
         }
     }
 
     auto clearInputConditioningQueue() -> void {
-        Token t{-1, -1, -1};
+        Token t{.time=-1, .duration=-1, .note=-1};
         while (inputConditioningQueue.pull(t)) {
         }
     }
 
     auto clearOutputTokenQueue() -> void {
-        Token t{-1, -1, -1};
+        Token t{.time=-1, .duration=-1, .note=-1};
         while (outputTokenQueue.pull(t)) {
+        }
+    }
+
+    auto clearUpdatesFromFilter() -> void {
+        TokenUpdate u{};
+        while (updatesFromFilter.pull(u)) {
         }
     }
 

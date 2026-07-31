@@ -64,6 +64,7 @@ void MusicTransformer::threadRun() {
     clearInputTokenQueue();
     clearInputConditioningQueue();
     clearOutputTokenQueue();
+    clearUpdatesFromFilter();
 
     currentTime = modelConfig.outputStartTime;
 
@@ -100,6 +101,7 @@ void MusicTransformer::threadRun() {
         }
 
         inputApplied = applyQueuedInputToInputData();
+        applyUpdatesFromFilter();
 
         // GENERATE NEW TOKEN (OR REST)
         Token newToken = {-1, -1, -1};
@@ -195,6 +197,36 @@ auto MusicTransformer::applyQueuedInputToInputData() -> bool {
     }
 
     return inputApplied;
+}
+
+auto MusicTransformer::applyUpdatesFromFilter() -> bool {
+    TokenUpdate update{};
+    if (! updatesFromFilter.pull(update))
+        return false;
+
+    std::vector<Token> history;
+    history.reserve(inputData.size() / 3);
+    for (size_t i = 0; i + 2 < inputData.size(); i += 3)
+        history.push_back({inputData[i], inputData[i + 1], inputData[i + 2]});
+
+    bool changed = false;
+    do {
+        if (applyTokenUpdateToHistory(history, update))
+            changed = true;
+    } while (updatesFromFilter.pull(update));
+
+    if (! changed)
+        return false;
+
+    inputData.clear();
+    inputData.reserve(history.size() * 3);
+    for (const auto &t : history) {
+        inputData.push_back(t.time);
+        inputData.push_back(t.duration);
+        inputData.push_back(t.note);
+    }
+    notifyInputDataChanged();
+    return true;
 }
 
 void MusicTransformer::threadStop() {

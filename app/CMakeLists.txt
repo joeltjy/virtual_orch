@@ -10,7 +10,10 @@ juce_add_gui_app(${PROJECT_NAME}
     ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/icon.png"
 )
 
-target_compile_definitions(${PROJECT_NAME} PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_compile_definitions(${PROJECT_NAME} PUBLIC
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_DISPLAY_SPLASH_SCREEN=0)
 
 target_include_directories(${PROJECT_NAME}
     PRIVATE

@@ -29,7 +29,7 @@ auto TokenInputPianoRollWidget::timerCallback() -> void {
 auto TokenInputPianoRollWidget::refreshFromSession() -> void {
     pianoRoll.setPitchRange(session.modelConfig.inputLow, session.modelConfig.inputHigh);
     if (session.inputFilter != nullptr)
-        pianoRoll.setNotes(session.inputFilter->getPastTokens());
+        pianoRoll.setNotes(session.inputFilter->getPastInput());
     else
         pianoRoll.setNotes({});
 }

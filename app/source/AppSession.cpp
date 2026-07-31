@@ -9,7 +9,8 @@ AppSession::AppSession()
       inputFilter(createInputFilter(modelConfig.inputFilterType,
                                     modelConfig,
                                     musicTransformer.inputTokenQueue,
-                                    musicTransformer.inputConditioningQueue)),
+                                    musicTransformer.inputConditioningQueue,
+                                    musicTransformer.updatesFromFilter)),
       outputPlayback(clock, musicTransformer, outputProcessor, bufferOutputProcessor,
                      visualizationBufferSize),
       midiInputProcess(clock, musicTransformer, modelConfig, outputProcessor, inputFilter,
@@ -26,7 +27,8 @@ auto AppSession::rebuildInputFilter() -> void {
     inputFilter = createInputFilter(modelConfig.inputFilterType,
                                     modelConfig,
                                     musicTransformer.inputTokenQueue,
-                                    musicTransformer.inputConditioningQueue);
+                                    musicTransformer.inputConditioningQueue,
+                                    musicTransformer.updatesFromFilter);
 }
 
 auto AppSession::startGeneration() -> void {

@@ -59,10 +59,17 @@ private:
 
     bool inputThruEnabled = false;
 
+    struct HeldDirectNote {
+        uint32_t onset = 0;
+        std::optional<int32_t> flushedTime;
+    };
+
     std::deque<Token> tokensToSend;
     uint32_t lastTokenAddedTime = 0;
     std::optional<int32_t> bassHeld = std::nullopt;
-    std::map<int32_t, uint32_t> notesOnToSend;
+    std::map<int32_t, HeldDirectNote> notesOnToSend;
+
+    auto hasUnflushedDirectNotes() const -> bool;
 
     int32_t hours = 0, minutes = 0, seconds = 0, frames = 0;
 

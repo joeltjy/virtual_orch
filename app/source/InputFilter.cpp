@@ -1,19 +1,38 @@
 #include "VirtualOrch/InputFilter.h"
 
 InputFilter::InputFilter(CircularFifo<Token> &inputTokenQueueIn,
-                         CircularFifo<Token> &inputConditioningQueueIn)
+                         CircularFifo<Token> &inputConditioningQueueIn,
+                         CircularFifo<TokenUpdate> &updatesFromFilterIn)
     : inputTokenQueue(inputTokenQueueIn),
-      inputConditioningQueue(inputConditioningQueueIn) {
+      inputConditioningQueue(inputConditioningQueueIn),
+      updatesFromFilter(updatesFromFilterIn) {
 }
 
 void InputFilter::reset() {
-    pastTokens.clear();
+    pastInput.clear();
     pastConditioning.clear();
+    TokenUpdate u{};
+    while (updatesFromMain.pull(u)) {
+    }
+}
+
+auto InputFilter::processUpdates() -> int {
+    int applied = 0;
+    TokenUpdate update{};
+    while (updatesFromMain.pull(update)) {
+        const bool updatedInput = applyTokenUpdateToHistory(pastInput, update);
+        const bool updatedConditioning = applyTokenUpdateToHistory(pastConditioning, update);
+        if (updatedInput || updatedConditioning) {
+            updatesFromFilter.push(update);
+            ++applied;
+        }
+    }
+    return applied;
 }
 
 void InputFilter::pushToken(const Token &token) {
     inputTokenQueue.push(token);
-    pastTokens.push_back(token);
+    pastInput.push_back(token);
 }
 
 void InputFilter::pushConditioning(const Token &token) {
@@ -27,9 +46,10 @@ void PassthroughInputFilter::filter(const Token &current) {
 
 PitchRangeSplitInputFilter::PitchRangeSplitInputFilter(CircularFifo<Token> &inputTokenQueueIn,
                                                        CircularFifo<Token> &inputConditioningQueueIn,
+                                                       CircularFifo<TokenUpdate> &updatesFromFilterIn,
                                                        int32_t conditioningLowIn,
                                                        int32_t conditioningHighIn)
-    : InputFilter(inputTokenQueueIn, inputConditioningQueueIn),
+    : InputFilter(inputTokenQueueIn, inputConditioningQueueIn, updatesFromFilterIn),
       conditioningLow(conditioningLowIn),
       conditioningHigh(conditioningHighIn) {
 }
@@ -45,18 +65,24 @@ void PitchRangeSplitInputFilter::filter(const Token &current) {
 auto createInputFilter(InputFilterType type,
                        const ModelConfig &modelConfig,
                        CircularFifo<Token> &inputTokenQueue,
-                       CircularFifo<Token> &inputConditioningQueue)
+                       CircularFifo<Token> &inputConditioningQueue,
+                       CircularFifo<TokenUpdate> &updatesFromFilter)
     -> std::unique_ptr<InputFilter> {
     switch (type) {
         case InputFilterType::Passthrough:
-            return std::make_unique<PassthroughInputFilter>(inputTokenQueue, inputConditioningQueue);
+            return std::make_unique<PassthroughInputFilter>(inputTokenQueue,
+                                                            inputConditioningQueue,
+                                                            updatesFromFilter);
         case InputFilterType::PitchRangeSplit:
             return std::make_unique<PitchRangeSplitInputFilter>(
                 inputTokenQueue,
                 inputConditioningQueue,
+                updatesFromFilter,
                 modelConfig.filterConditioningLow,
                 modelConfig.filterConditioningHigh);
     }
 
-    return std::make_unique<PassthroughInputFilter>(inputTokenQueue, inputConditioningQueue);
+    return std::make_unique<PassthroughInputFilter>(inputTokenQueue,
+                                                    inputConditioningQueue,
+                                                    updatesFromFilter);
 }

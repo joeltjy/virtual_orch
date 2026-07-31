@@ -14,7 +14,8 @@
 class InputFilter {
 public:
     InputFilter(CircularFifo<Token> &inputTokenQueue,
-                CircularFifo<Token> &inputConditioningQueue);
+                CircularFifo<Token> &inputConditioningQueue,
+                CircularFifo<TokenUpdate> &updatesFromFilter);
 
     virtual ~InputFilter() = default;
 
@@ -22,22 +23,29 @@ public:
 
     virtual void reset();
 
-    [[nodiscard]] auto getPastTokens() const -> const std::vector<Token> & { return pastTokens; }
+    /** Drain updatesFromMain; patch pastInput / pastConditioning; forward to updatesFromFilter.
+     *  Returns how many updates were applied to at least one history. */
+    auto processUpdates() -> int;
+
+    [[nodiscard]] auto getPastInput() const -> const std::vector<Token> & { return pastInput; }
 
     [[nodiscard]] auto getPastConditioning() const -> const std::vector<Token> & {
         return pastConditioning;
     }
+
+    CircularFifo<TokenUpdate> updatesFromMain;
 
 protected:
     void pushToken(const Token &token);
 
     void pushConditioning(const Token &token);
 
-    std::vector<Token> pastTokens;
+    std::vector<Token> pastInput;
     std::vector<Token> pastConditioning;
 
     CircularFifo<Token> &inputTokenQueue;
     CircularFifo<Token> &inputConditioningQueue;
+    CircularFifo<TokenUpdate> &updatesFromFilter;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(InputFilter)
 };
@@ -50,11 +58,12 @@ public:
     void filter(const Token &current) override;
 };
 
-/** Pitches in [conditioningLow, conditioningHigh) → conditioning; else → token queue. */
+/** Pitches in [conditioningLow, conditioningHigh) are conditioning. */
 class PitchRangeSplitInputFilter : public InputFilter {
 public:
     PitchRangeSplitInputFilter(CircularFifo<Token> &inputTokenQueue,
                                CircularFifo<Token> &inputConditioningQueue,
+                               CircularFifo<TokenUpdate> &updatesFromFilter,
                                int32_t conditioningLow,
                                int32_t conditioningHigh);
 
@@ -68,5 +77,6 @@ private:
 [[nodiscard]] auto createInputFilter(InputFilterType type,
                                      const ModelConfig &modelConfig,
                                      CircularFifo<Token> &inputTokenQueue,
-                                     CircularFifo<Token> &inputConditioningQueue)
+                                     CircularFifo<Token> &inputConditioningQueue,
+                                     CircularFifo<TokenUpdate> &updatesFromFilter)
     -> std::unique_ptr<InputFilter>;

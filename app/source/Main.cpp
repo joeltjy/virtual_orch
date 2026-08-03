@@ -58,21 +58,16 @@ public:
             // false: don't shrink the window to AppRoot/Settings preferred size (~700x800).
             setContentOwned(new AppRootComponent(), false);
             setResizable(true, true);
+            setResizeLimits(640, 480, 10000, 10000);
 
-            // Temporary size until fullscreen is applied (display/WM ready after show).
-            centreWithSize(1280, 800);
+            if (auto *display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()) {
+                auto area = display->userArea.reduced(40);
+                setBounds(area);
+            } else {
+                centreWithSize(1280, 800);
+            }
+
             setVisible(true);
-
-            juce::Component::SafePointer<MainWindow> safeThis(this);
-            juce::Timer::callAfterDelay(100, [safeThis] {
-                if (safeThis == nullptr)
-                    return;
-
-                if (auto *display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
-                    safeThis->setBounds(display->totalArea);
-
-                safeThis->setFullScreen(true);
-            });
         }
 
         void closeButtonPressed() override {

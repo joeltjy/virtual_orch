@@ -973,23 +973,27 @@ void MainComponent::updateOutputProcessor() {
 
 void MainComponent::setMidiInput(int index, int idx) {
     auto list = juce::MidiInput::getAvailableDevices();
-
-    // deviceManager.removeMidiInputDeviceCallback(list[lastInputIndex].identifier, this);
+    if (! juce::isPositiveAndBelow(index, list.size()))
+        return;
 
     auto newInput = list[index];
+    auto &selectedForRole = (idx == 0) ? session.selectedMidiInputIdentifier
+                                       : session.selectedLaunchpadMidiIdentifier;
+    const auto &otherRole = (idx == 0) ? session.selectedLaunchpadMidiIdentifier
+                                       : session.selectedMidiInputIdentifier;
+
+    // Drop the previous device for this role unless the other role still needs it.
+    if (selectedForRole.isNotEmpty()
+        && selectedForRole != newInput.identifier
+        && selectedForRole != otherRole) {
+        deviceManager.removeMidiInputDeviceCallback(selectedForRole, &session.midiInputProcess);
+    }
 
     if (!deviceManager.isMidiInputDeviceEnabled(newInput.identifier))
         deviceManager.setMidiInputDeviceEnabled(newInput.identifier, true);
 
     deviceManager.addMidiInputDeviceCallback(newInput.identifier, &session.midiInputProcess);
-    // midiInputList.setSelectedId(index + 1, juce::dontSendNotification);
-
-    lastInputIndex = index;
-    if (idx == 0) {
-        session.selectedMidiInputIdentifier = newInput.identifier;
-    } else if (idx == 1) {
-        session.selectedLaunchpadMidiIdentifier = newInput.identifier;
-    }
+    selectedForRole = newInput.identifier;
 }
 
 void MainComponent::updateMtcClock() {

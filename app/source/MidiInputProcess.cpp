@@ -1,5 +1,7 @@
 #include "VirtualOrch/MidiInputProcess.h"
 
+#include "VirtualOrch/LaunchpadProgrammerMap.h"
+
 #include <algorithm>
 #include <iostream>
 
@@ -104,49 +106,97 @@ void MidiInputProcess::logIncomingMidiMessage(juce::MidiInput *source, const juc
     const bool fromLaunchpad = source != nullptr
                                && selectedLaunchpadMidiIdentifier.isNotEmpty()
                                && source->getIdentifier() == selectedLaunchpadMidiIdentifier;
-    const char *tag = fromLaunchpad ? "[launchpad]" : "[midi]";
-
-    if (message.isNoteOn(true)) {
-        const auto vel = message.getVelocity();
-        if (vel <= 0) {
-            std::cout << tag << " note off (vel 0) note=" << message.getNoteNumber()
-                      << " ch=" << message.getChannel() << std::endl;
-        } else {
-            std::cout << tag << " note on note=" << message.getNoteNumber()
-                      << " vel=" << vel << " ch=" << message.getChannel() << std::endl;
+    const auto description = [&]() -> juce::String {
+        if (message.isNoteOn(true)) {
+            const auto vel = message.getVelocity();
+            if (vel <= 0)
+                return "note off (vel 0) note=" + juce::String(message.getNoteNumber())
+                       + " ch=" + juce::String(message.getChannel());
+            return "note on note=" + juce::String(message.getNoteNumber())
+                   + " vel=" + juce::String(vel) + " ch=" + juce::String(message.getChannel());
         }
-    } else if (message.isNoteOff()) {
-        std::cout << tag << " note off note=" << message.getNoteNumber()
-                  << " ch=" << message.getChannel() << std::endl;
-    } else if (message.isController()) {
-        std::cout << tag << " cc num=" << message.getControllerNumber()
-                  << " value=" << message.getControllerValue()
-                  << " ch=" << message.getChannel() << std::endl;
-    } else if (message.isProgramChange()) {
-        std::cout << tag << " program change=" << message.getProgramChangeNumber()
-                  << " ch=" << message.getChannel() << std::endl;
-    } else if (message.isPitchWheel()) {
-        std::cout << tag << " pitch wheel=" << message.getPitchWheelValue()
-                  << " ch=" << message.getChannel() << std::endl;
-    } else if (message.isAftertouch()) {
-        std::cout << tag << " aftertouch note=" << message.getNoteNumber()
-                  << " value=" << message.getAfterTouchValue()
-                  << " ch=" << message.getChannel() << std::endl;
-    } else if (message.isChannelPressure()) {
-        std::cout << tag << " channel pressure=" << message.getChannelPressureValue()
-                  << " ch=" << message.getChannel() << std::endl;
-    } else if (message.isSysEx()) {
-        std::cout << tag << " sysex size=" << message.getSysExDataSize() << std::endl;
-    } else if (message.isQuarterFrame()) {
-        std::cout << tag << " mtc quarter frame seq=" << message.getQuarterFrameSequenceNumber()
-                  << " value=" << message.getQuarterFrameValue() << std::endl;
-    } else {
-        std::cout << tag << " other raw=" << message.getDescription() << std::endl;
-    }
+        if (message.isNoteOff())
+            return "note off note=" + juce::String(message.getNoteNumber())
+                   + " ch=" + juce::String(message.getChannel());
+        if (message.isController())
+            return "cc num=" + juce::String(message.getControllerNumber())
+                   + " value=" + juce::String(message.getControllerValue())
+                   + " ch=" + juce::String(message.getChannel());
+        if (message.isProgramChange())
+            return "program change=" + juce::String(message.getProgramChangeNumber())
+                   + " ch=" + juce::String(message.getChannel());
+        if (message.isPitchWheel())
+            return "pitch wheel=" + juce::String(message.getPitchWheelValue())
+                   + " ch=" + juce::String(message.getChannel());
+        if (message.isAftertouch())
+            return "aftertouch note=" + juce::String(message.getNoteNumber())
+                   + " value=" + juce::String(message.getAfterTouchValue())
+                   + " ch=" + juce::String(message.getChannel());
+        if (message.isChannelPressure())
+            return "channel pressure=" + juce::String(message.getChannelPressureValue())
+                   + " ch=" + juce::String(message.getChannel());
+        if (message.isSysEx())
+            return "sysex size=" + juce::String(message.getSysExDataSize());
+        if (message.isQuarterFrame())
+            return "mtc quarter frame seq=" + juce::String(message.getQuarterFrameSequenceNumber())
+                   + " value=" + juce::String(message.getQuarterFrameValue());
+        return "other raw=" + message.getDescription();
+    }();
+
+    const juce::String line = juce::String(fromLaunchpad ? "[launchpad] " : "[midi] ") + description;
+    // Logger is safe from the MIDI thread; avoid std::cout here (can block under midiCallbackLock).
+    juce::Logger::writeToLog(line);
+    juce::MessageManager::callAsync([line] {
+        std::cout << line << std::endl;
+    });
 }
 
 void MidiInputProcess::handleLaunchpadMessage(juce::MidiInput *source, const juce::MidiMessage &message) {
-    juce::ignoreUnused(source, message);
+    juce::ignoreUnused(source);
+
+    // Keep MIDI thread work cheap; flip/log/callback on the message thread.
+    const auto postInput = [this](int row, int col, bool pressed) {
+        juce::MessageManager::callAsync([this, row, col, pressed] {
+            launchpadGrid.handleInput(row, col, pressed);
+        });
+    };
+    const auto postScene = [this](int idx) {
+        juce::MessageManager::callAsync([this, idx] {
+            launchpadGrid.handleSceneInput(idx);
+        });
+    };
+
+    if (message.isNoteOn(true) || message.isNoteOff()) {
+        const int note = message.getNoteNumber();
+        const bool pressed = message.isNoteOn(true) && message.getVelocity() > 0;
+
+        if (const auto pad = LaunchpadProgrammerMap::padFromNote(note)) {
+            postInput(pad->row, pad->col, pressed);
+            return;
+        }
+
+        if (pressed) {
+            const juce::String line =
+                "[launchpad] unmapped note=" + juce::String(note)
+                + " (expected Programmer pads 11-88 or side 19/29/…/89)";
+            juce::Logger::writeToLog(line);
+            juce::MessageManager::callAsync([line] { std::cout << line << std::endl; });
+        }
+        return;
+    }
+
+    if (message.isController() && message.getControllerValue() > 0) {
+        const int cc = message.getControllerNumber();
+        if (const auto idx = LaunchpadProgrammerMap::sceneIndexFromTopCc(cc)) {
+            postScene(*idx);
+            return;
+        }
+
+        const juce::String line = "[launchpad] unmapped cc=" + juce::String(cc)
+                                  + " (top scene expects CC 104-111)";
+        juce::Logger::writeToLog(line);
+        juce::MessageManager::callAsync([line] { std::cout << line << std::endl; });
+    }
 }
 
 void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const juce::MidiMessage &message) {

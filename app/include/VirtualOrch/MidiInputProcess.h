@@ -11,6 +11,7 @@
 #include "MusicTransformer.h"
 #include "OutputProcessor.h"
 #include "VirtualOrch/InputFilter.h"
+#include "VirtualOrch/LaunchpadGrid.h"
 
 /**
  * MIDI / MTC input → tokens into MusicTransformer via InputFilter.
@@ -60,6 +61,8 @@ private:
     bool &mtcClockActive;
 
     bool inputThruEnabled = false;
+
+    LaunchpadGrid launchpadGrid;
 
     struct HeldDirectNote {
         uint32_t onset = 0;

@@ -35,7 +35,7 @@ public:
     std::unique_ptr<OSCBufferOutputProcessor> bufferOutputProcessor;
 
     juce::String selectedMidiInputIdentifier;
-    juce::String selectedMidiInput2Identifier;
+    juce::String selectedLaunchpadMidiIdentifier;
     juce::String selectedMtcClockIdentifier;
     bool mtcClockActive = false;
 

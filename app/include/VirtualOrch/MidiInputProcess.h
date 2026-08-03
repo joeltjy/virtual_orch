@@ -24,7 +24,7 @@ public:
                      std::unique_ptr<OutputProcessor> &outputProcessor,
                      std::unique_ptr<InputFilter> &inputFilter,
                      juce::String &selectedMidiInputIdentifier,
-                     juce::String &selectedMidiInput2Identifier,
+                     juce::String &selectedLaunchpadMidiIdentifier,
                      juce::String &selectedMtcClockIdentifier,
                      bool &mtcClockActive);
 
@@ -40,7 +40,9 @@ public:
 private:
     void sendTokensToMusicTransformer(std::optional<int32_t> atTime);
 
-    void handleContinuousControl(int controllerNumber, int controllerValue);
+    void logIncomingMidiMessage(juce::MidiInput *source, const juce::MidiMessage &message);
+
+    void handleLaunchpadMessage(juce::MidiInput *source, const juce::MidiMessage &message);
 
     void handleNoteOn(int midiNoteNumber, float velocity);
 
@@ -53,7 +55,7 @@ private:
     std::unique_ptr<InputFilter> &inputFilter;
 
     juce::String &selectedMidiInputIdentifier;
-    juce::String &selectedMidiInput2Identifier;
+    juce::String &selectedLaunchpadMidiIdentifier;
     juce::String &selectedMtcClockIdentifier;
     bool &mtcClockActive;
 

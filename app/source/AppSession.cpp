@@ -14,7 +14,7 @@ AppSession::AppSession()
       outputPlayback(clock, musicTransformer, outputProcessor, bufferOutputProcessor,
                      visualizationBufferSize),
       midiInputProcess(clock, musicTransformer, modelConfig, outputProcessor, inputFilter,
-                       selectedMidiInputIdentifier, selectedMidiInput2Identifier,
+                       selectedMidiInputIdentifier, selectedLaunchpadMidiIdentifier,
                        selectedMtcClockIdentifier, mtcClockActive) {
 }
 

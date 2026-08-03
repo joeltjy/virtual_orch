@@ -9,7 +9,7 @@ MidiInputProcess::MidiInputProcess(Clock &clock,
                                    std::unique_ptr<OutputProcessor> &outputProcessor,
                                    std::unique_ptr<InputFilter> &inputFilter,
                                    juce::String &selectedMidiInputIdentifier,
-                                   juce::String &selectedMidiInput2Identifier,
+                                   juce::String &selectedLaunchpadMidiIdentifier,
                                    juce::String &selectedMtcClockIdentifier,
                                    bool &mtcClockActive)
     : clock(clock),
@@ -18,7 +18,7 @@ MidiInputProcess::MidiInputProcess(Clock &clock,
       outputProcessor(outputProcessor),
       inputFilter(inputFilter),
       selectedMidiInputIdentifier(selectedMidiInputIdentifier),
-      selectedMidiInput2Identifier(selectedMidiInput2Identifier),
+      selectedLaunchpadMidiIdentifier(selectedLaunchpadMidiIdentifier),
       selectedMtcClockIdentifier(selectedMtcClockIdentifier),
       mtcClockActive(mtcClockActive) {
 }
@@ -100,15 +100,63 @@ void MidiInputProcess::timerCallback() {
     stopTimer();
 }
 
-void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const juce::MidiMessage &message) {
-    if (message.isController()) {
-        std::cout << "midi in: cc " << message.getControllerNumber() << " value "
-                  << message.getControllerValue() << std::endl;
-    } else if (message.isNoteOn()) {
-        std::cout << "midi in: note on " << message.getNoteNumber() << " vel "
-                  << message.getVelocity() << std::endl;
+void MidiInputProcess::logIncomingMidiMessage(juce::MidiInput *source, const juce::MidiMessage &message) {
+    const bool fromLaunchpad = source != nullptr
+                               && selectedLaunchpadMidiIdentifier.isNotEmpty()
+                               && source->getIdentifier() == selectedLaunchpadMidiIdentifier;
+    const char *tag = fromLaunchpad ? "[launchpad]" : "[midi]";
+
+    if (message.isNoteOn(true)) {
+        const auto vel = message.getVelocity();
+        if (vel <= 0) {
+            std::cout << tag << " note off (vel 0) note=" << message.getNoteNumber()
+                      << " ch=" << message.getChannel() << std::endl;
+        } else {
+            std::cout << tag << " note on note=" << message.getNoteNumber()
+                      << " vel=" << vel << " ch=" << message.getChannel() << std::endl;
+        }
     } else if (message.isNoteOff()) {
-        std::cout << "midi in: note off " << message.getNoteNumber() << std::endl;
+        std::cout << tag << " note off note=" << message.getNoteNumber()
+                  << " ch=" << message.getChannel() << std::endl;
+    } else if (message.isController()) {
+        std::cout << tag << " cc num=" << message.getControllerNumber()
+                  << " value=" << message.getControllerValue()
+                  << " ch=" << message.getChannel() << std::endl;
+    } else if (message.isProgramChange()) {
+        std::cout << tag << " program change=" << message.getProgramChangeNumber()
+                  << " ch=" << message.getChannel() << std::endl;
+    } else if (message.isPitchWheel()) {
+        std::cout << tag << " pitch wheel=" << message.getPitchWheelValue()
+                  << " ch=" << message.getChannel() << std::endl;
+    } else if (message.isAftertouch()) {
+        std::cout << tag << " aftertouch note=" << message.getNoteNumber()
+                  << " value=" << message.getAfterTouchValue()
+                  << " ch=" << message.getChannel() << std::endl;
+    } else if (message.isChannelPressure()) {
+        std::cout << tag << " channel pressure=" << message.getChannelPressureValue()
+                  << " ch=" << message.getChannel() << std::endl;
+    } else if (message.isSysEx()) {
+        std::cout << tag << " sysex size=" << message.getSysExDataSize() << std::endl;
+    } else if (message.isQuarterFrame()) {
+        std::cout << tag << " mtc quarter frame seq=" << message.getQuarterFrameSequenceNumber()
+                  << " value=" << message.getQuarterFrameValue() << std::endl;
+    } else {
+        std::cout << tag << " other raw=" << message.getDescription() << std::endl;
+    }
+}
+
+void MidiInputProcess::handleLaunchpadMessage(juce::MidiInput *source, const juce::MidiMessage &message) {
+    juce::ignoreUnused(source, message);
+}
+
+void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const juce::MidiMessage &message) {
+    logIncomingMidiMessage(source, message);
+
+    if (source != nullptr
+        && selectedLaunchpadMidiIdentifier.isNotEmpty()
+        && source->getIdentifier() == selectedLaunchpadMidiIdentifier) {
+        handleLaunchpadMessage(source, message);
+        return;
     }
 
     if (inputThruEnabled && source->getIdentifier() == selectedMidiInputIdentifier
@@ -138,10 +186,6 @@ void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const 
                 clock.setMtcTime(time);
                 break;
         }
-    } else if (message.isController() && source->getIdentifier() == selectedMidiInput2Identifier) {
-        DBG("Controller: " + std::to_string(message.getControllerNumber()) + " - Value: " +
-            std::to_string(message.getControllerValue()));
-        handleContinuousControl(message.getControllerNumber(), message.getControllerValue());
     } else if (message.isNoteOn()) {
         DBG("Note On: " + std::to_string(message.getNoteNumber()) + " - Vel: " +
             std::to_string(message.getVelocity()));
@@ -149,14 +193,6 @@ void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const 
     } else if (message.isNoteOff()) {
         handleNoteOff(message.getNoteNumber());
     }
-}
-
-void MidiInputProcess::handleContinuousControl(int controllerNumber, int controllerValue) {
-    if (!musicTransformer.isThreadRunning()) {
-        std::cout << "input token dropped: thread not running (cc)" << std::endl;
-        return;
-    }
-    juce::ignoreUnused(controllerNumber, controllerValue);
 }
 
 void MidiInputProcess::handleNoteOn(int midiNoteNumber, float velocity) {

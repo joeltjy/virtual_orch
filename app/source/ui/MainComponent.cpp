@@ -266,47 +266,46 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
         midiInputList.setSelectedItemIndex(0);
     }
 
-    /* MIDI INPUT 2 LIST */
+    /* LAUNCHPAD MIDI LIST */
 
-    addAndMakeVisible(midiInput2ListLabel);
-    midiInput2ListLabel.setText("MIDI Input 2: ", juce::dontSendNotification);
-    midiInput2ListLabel.attachToComponent(&midiInput2List, true);
+    addAndMakeVisible(launchpadMidiListLabel);
+    launchpadMidiListLabel.setText("Launchpad MIDI: ", juce::dontSendNotification);
+    launchpadMidiListLabel.attachToComponent(&launchpadMidiList, true);
 
-    addAndMakeVisible(midiInput2List);
-    midiInput2List.setTextWhenNoChoicesAvailable("No MIDI Inputs Enabled");
+    addAndMakeVisible(launchpadMidiList);
+    launchpadMidiList.setTextWhenNoChoicesAvailable("No MIDI Inputs Enabled");
 
-    midiInput2List.addItemList(midiInputNames, 1);
-    midiInput2List.onChange = [this] {
-        if (midiInput2List.getSelectedItemIndex() == 0) {
+    launchpadMidiList.addItemList(midiInputNames, 1);
+    launchpadMidiList.onChange = [this] {
+        if (launchpadMidiList.getSelectedItemIndex() == 0) {
             return;
         }
-        setMidiInput(midiInput2List.getSelectedItemIndex(), 1);
-        DBG("Saving input2: " + midiInputs[midiInput2List.getSelectedItemIndex()].identifier);
-        session.presetStore.settings.getChildWithName("input2").setProperty(
-            "identifier", midiInputs[midiInput2List.getSelectedItemIndex()].identifier, nullptr);
+        setMidiInput(launchpadMidiList.getSelectedItemIndex(), 1);
+        DBG("Saving launchpad input: " + midiInputs[launchpadMidiList.getSelectedItemIndex()].identifier);
+        session.presetStore.settings.getOrCreateChildWithName("launchpadInput", nullptr).setProperty(
+            "identifier", midiInputs[launchpadMidiList.getSelectedItemIndex()].identifier, nullptr);
     };
-    juce::String savedInput2 = session.presetStore.settings.getOrCreateChildWithName("input2", nullptr).getProperty("identifier", "");
-    if (savedInput2.isNotEmpty()) {
-        DBG("Saved Input2: " + savedInput2);
-        // Find the index of the saved input2
+    juce::String savedLaunchpadInput =
+        session.presetStore.settings.getOrCreateChildWithName("launchpadInput", nullptr).getProperty("identifier", "");
+    if (savedLaunchpadInput.isNotEmpty()) {
+        DBG("Saved Launchpad Input: " + savedLaunchpadInput);
         int index = -1;
         for (int i = 0; i < midiInputs.size(); i++) {
-            if (midiInputs[i].identifier == savedInput2) {
+            if (midiInputs[i].identifier == savedLaunchpadInput) {
                 index = i;
                 break;
             }
         }
-        // If the saved input is found, set it
         if (index != -1) {
-            DBG("Set to saved input2.");
-            midiInput2List.setSelectedItemIndex(index);
+            DBG("Set to saved launchpad input.");
+            launchpadMidiList.setSelectedItemIndex(index);
         } else {
-            DBG("Saved input2 not found, setting to first input.");
-            midiInput2List.setSelectedItemIndex(0);
+            DBG("Saved launchpad input not found, setting to first input.");
+            launchpadMidiList.setSelectedItemIndex(0);
         }
     } else {
-        DBG("No saved input2, setting to first input.");
-        midiInput2List.setSelectedItemIndex(0);
+        DBG("No saved launchpad input, setting to first input.");
+        launchpadMidiList.setSelectedItemIndex(0);
     }
 
     /* MODEL LIST */
@@ -896,8 +895,8 @@ void MainComponent::resized() {
     midiInputList.setBounds(midiInputArea.removeFromLeft(getWidth() - 300));
     inputThru.setBounds(midiInputArea.withTrimmedLeft(80));
 
-    auto midiInput2Area = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
-    midiInput2List.setBounds(midiInput2Area);
+    auto launchpadMidiArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
+    launchpadMidiList.setBounds(launchpadMidiArea);
 
     auto modelConfigArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
     modelList.setBounds(modelConfigArea.removeFromLeft(getWidth() - 300).withTrimmedRight(20));
@@ -989,7 +988,7 @@ void MainComponent::setMidiInput(int index, int idx) {
     if (idx == 0) {
         session.selectedMidiInputIdentifier = newInput.identifier;
     } else if (idx == 1) {
-        session.selectedMidiInput2Identifier = newInput.identifier;
+        session.selectedLaunchpadMidiIdentifier = newInput.identifier;
     }
 }
 

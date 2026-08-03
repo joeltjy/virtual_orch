@@ -35,6 +35,14 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
                      UiConstants::workspaceAddMenuTokenPianoRollItem);
         menu.addItem(UiConstants::workspaceAddMenuConditioningPianoRollItemId,
                      UiConstants::workspaceAddMenuConditioningPianoRollItem);
+        menu.addItem(UiConstants::workspaceAddMenuOrchestrationMidiPianoRollItemId,
+                     UiConstants::workspaceAddMenuOrchestrationMidiPianoRollItem);
+        menu.addItem(UiConstants::workspaceAddMenuOrchestrationConditioningPianoRollItemId,
+                     UiConstants::workspaceAddMenuOrchestrationConditioningPianoRollItem);
+        menu.addItem(UiConstants::workspaceAddMenuOrchestrationReductionPianoRollItemId,
+                     UiConstants::workspaceAddMenuOrchestrationReductionPianoRollItem);
+        menu.addItem(UiConstants::workspaceAddMenuActiveInstrumentsItemId,
+                     UiConstants::workspaceAddMenuActiveInstrumentsItem);
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addButton),
                            [this](int result) {
                                if (result == UiConstants::workspaceAddMenuPromptItemId)
@@ -47,6 +55,19 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
                                    canvas.addTokenPianoRollWidget();
                                else if (result == UiConstants::workspaceAddMenuConditioningPianoRollItemId)
                                    canvas.addConditioningPianoRollWidget();
+                               else if (result
+                                        == UiConstants::workspaceAddMenuOrchestrationMidiPianoRollItemId)
+                                   canvas.addOrchestrationMidiPianoRollWidget();
+                               else if (result
+                                        == UiConstants::
+                                            workspaceAddMenuOrchestrationConditioningPianoRollItemId)
+                                   canvas.addOrchestrationConditioningPianoRollWidget();
+                               else if (result
+                                        == UiConstants::
+                                            workspaceAddMenuOrchestrationReductionPianoRollItemId)
+                                   canvas.addOrchestrationReductionPianoRollWidget();
+                               else if (result == UiConstants::workspaceAddMenuActiveInstrumentsItemId)
+                                   canvas.addActiveInstrumentsWidget();
                            });
     };
     saveButton.onClick = [this] { saveCurrentView(); };
@@ -61,6 +82,7 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
 
     ensureDefaultView();
     ensureInputView();
+    ensureOrchestrationDebugView();
 
     auto names = viewStore.listViewNames();
     juce::String initialName;
@@ -109,6 +131,20 @@ auto WorkspacePage::ensureInputView() -> void {
 
     canvas.addInputViewWidgets();
     viewStore.saveView(UiConstants::workspaceInputViewName, canvas.toVar());
+
+    if (restore)
+        canvas.fromVar(snapshot);
+
+    clearDirty();
+}
+
+auto WorkspacePage::ensureOrchestrationDebugView() -> void {
+    // Built-in template: always re-seed so layout updates (e.g. Generation placement) apply.
+    const auto snapshot = canvas.toVar();
+    const bool restore = canvas.getWidgetCount() > 0;
+
+    canvas.addOrchestrationDebugViewWidgets();
+    viewStore.saveView(UiConstants::workspaceOrchestrationDebugViewName, canvas.toVar());
 
     if (restore)
         canvas.fromVar(snapshot);

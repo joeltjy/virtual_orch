@@ -16,10 +16,15 @@ AppSession::AppSession()
       midiInputProcess(clock, musicTransformer, modelConfig, outputProcessor, inputFilter,
                        selectedMidiInputIdentifier, selectedLaunchpadMidiIdentifier,
                        selectedMtcClockIdentifier, mtcClockActive) {
+    musicTransformer.orchestrationMidiIncoming = &orchestrationTransformer.midiInputIncoming;
+    musicTransformer.orchestrationConditioningIncoming =
+        &orchestrationTransformer.conditioningIncoming;
+    musicTransformer.orchestrationUpdatesIncoming = &orchestrationTransformer.updatesIncoming;
 }
 
 AppSession::~AppSession() {
     musicTransformer.stopThread(-1);
+    orchestrationTransformer.stopThread(-1);
     outputPlayback.stopThread(-1);
 }
 
@@ -51,6 +56,7 @@ auto AppSession::startGeneration() -> void {
         inputFilter->reset();
 
     musicTransformer.startThread();
+    orchestrationTransformer.startThread();
     outputPlayback.startThread();
     if (! mtcClockActive) {
         clock.startAtTime(0);
@@ -61,6 +67,7 @@ auto AppSession::startGeneration() -> void {
 
 auto AppSession::stopGeneration() -> void {
     musicTransformer.signalThreadShouldExit();
+    orchestrationTransformer.signalThreadShouldExit();
     outputPlayback.signalThreadShouldExit();
     clock.stop();
     outputPlayback.resetProgress();

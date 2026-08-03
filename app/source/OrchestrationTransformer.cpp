@@ -5,9 +5,64 @@
 
 OrchestrationTransformer::OrchestrationTransformer()
     : Thread("Orchestration Transformer") {
+    resetInstrumentLastUpdateTimes();
 }
 
 void OrchestrationTransformer::threadInit() {
+}
+
+auto OrchestrationTransformer::resetInstrumentLastUpdateTimes() -> void {
+    userInstrumentLastUpdateTime.fill(-kInstrumentUpdateDebounceTicks);
+    modelInstrumentLastUpdateTime.fill(-kInstrumentUpdateDebounceTicks);
+}
+
+auto OrchestrationTransformer::applyInstrumentUpdates() -> void {
+    InstrumentUpdate update{};
+    while (instrumentUpdates.pull(update)) {
+        if (update.instrumentId < 0 || update.instrumentId >= kNumInstruments)
+            continue;
+
+        const auto index = static_cast<size_t>(update.instrumentId);
+        auto &lastUpdateTimes = update.target == InstrumentUpdateTarget::User
+                                    ? userInstrumentLastUpdateTime
+                                    : modelInstrumentLastUpdateTime;
+        auto &instruments = update.target == InstrumentUpdateTarget::User ? userInstruments
+                                                                          : modelInstruments;
+
+        const auto lastUpdate = lastUpdateTimes[index];
+        if (update.requestTime - lastUpdate < kInstrumentUpdateDebounceTicks)
+            continue;
+
+        lastUpdateTimes[index] = update.requestTime;
+
+        if (instruments.contains(update.instrumentId))
+            instruments.erase(update.instrumentId);
+        else
+            instruments.insert(update.instrumentId);
+    }
+}
+
+auto OrchestrationTransformer::applyTokenUpdates() -> void {
+    TokenUpdate update{};
+    while (updatesIncoming.pull(update)) {
+        applyTokenUpdateToHistory(midiInputHistory, update);
+        applyTokenUpdateToHistory(conditioningHistory, update);
+    }
+}
+
+auto OrchestrationTransformer::publishDebugSnapshot(OrchestrationDebugSnapshot snapshot) -> void {
+    const juce::ScopedLock lock(debugSnapshotLock);
+    debugSnapshot = std::move(snapshot);
+}
+
+auto OrchestrationTransformer::getDebugSnapshot() const -> OrchestrationDebugSnapshot {
+    const juce::ScopedLock lock(debugSnapshotLock);
+    return debugSnapshot;
+}
+
+auto OrchestrationTransformer::clearDebugSnapshot() -> void {
+    const juce::ScopedLock lock(debugSnapshotLock);
+    debugSnapshot = {};
 }
 
 auto OrchestrationTransformer::drainIncoming(CircularFifo<Token> &incoming) -> std::vector<Token> {
@@ -84,29 +139,50 @@ void OrchestrationTransformer::threadRun() {
     clearConditioningIncoming();
     clearReductionIncoming();
     clearOutputTokenQueue();
+    clearInstrumentUpdates();
+    clearUpdatesIncoming();
+    resetInstrumentLastUpdateTimes();
+    clearDebugSnapshot();
 
     while (! threadShouldExit()) {
+        applyInstrumentUpdates();
+
         const auto midiUpdate = drainIncoming(midiInputIncoming);
         const auto conditioningUpdate = drainIncoming(conditioningIncoming);
+        const auto reductionUpdate = drainIncoming(reductionIncoming);
+
+        {
+            OrchestrationDebugSnapshot snapshot;
+            snapshot.midiHistory = midiInputHistory;
+            snapshot.midiPending = midiUpdate;
+            snapshot.conditioningHistory = conditioningHistory;
+            snapshot.conditioningPending = conditioningUpdate;
+            snapshot.reductionHistory = reductionHistory;
+            snapshot.reductionPending = reductionUpdate;
+            snapshot.userInstruments = userInstruments;
+            snapshot.modelInstruments = modelInstruments;
+            publishDebugSnapshot(std::move(snapshot));
+        }
+
         const auto signal = getConditioningSignal(midiUpdate, conditioningUpdate);
         appendToHistory(midiInputHistory, midiUpdate);
         appendToHistory(conditioningHistory, conditioningUpdate);
-
-        const auto reductionUpdate = drainIncoming(reductionIncoming);
         appendToHistory(reductionHistory, reductionUpdate);
+        applyTokenUpdates();
 
-        const std::vector<int32_t> userInstruments;
-        const std::vector<int32_t> modelInstruments;
+        const std::vector<int32_t> userInstrumentList(userInstruments.begin(), userInstruments.end());
+        const std::vector<int32_t> modelInstrumentList(modelInstruments.begin(),
+                                                      modelInstruments.end());
 
         std::vector<OrchestrationNote> toOutput;
         if (mode == OrchestrationMode::Edit) {
             auto [userNotes, modelNotes] = getEditOrchestrationOutput(
-                midiUpdate, reductionUpdate, userInstruments, modelInstruments, signal);
+                midiUpdate, reductionUpdate, userInstrumentList, modelInstrumentList, signal);
             toOutput.reserve(userNotes.size() + modelNotes.size());
             toOutput.insert(toOutput.end(), userNotes.begin(), userNotes.end());
             toOutput.insert(toOutput.end(), modelNotes.begin(), modelNotes.end());
         } else if (mode == OrchestrationMode::Jam) {
-            std::set<int32_t> instrumentUnion(userInstruments.begin(), userInstruments.end());
+            std::set<int32_t> instrumentUnion = userInstruments;
             instrumentUnion.insert(modelInstruments.begin(), modelInstruments.end());
             const std::vector<int32_t> orchestrationInstruments(instrumentUnion.begin(),
                                                                 instrumentUnion.end());

@@ -275,6 +275,10 @@ public:
     CircularFifo<Token> outputTokenQueue;
     CircularFifo<TokenUpdate> updatesFromFilter;
 
+    CircularFifo<Token> *orchestrationMidiIncoming = nullptr;
+    CircularFifo<Token> *orchestrationConditioningIncoming = nullptr;
+    CircularFifo<TokenUpdate> *orchestrationUpdatesIncoming = nullptr;
+
     auto getInputData() const -> std::vector<int32_t> {
         return inputData;
     }

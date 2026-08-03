@@ -40,8 +40,9 @@ public:
             g.setColour(textColour);
             g.setFont((float) height * 0.6f);
 
-            g.drawText((progress >= 0 ? "+ " : "- ") + juce::String(abs(progress) * 10, 2) + "s", textX, 0,
-                       textWidth, height, Justification::centred, false);
+            g.drawText((progress >= 0 ? "+ " : "- ")
+                           + juce::String(std::abs(progress) * 10.0, 2) + "s",
+                       textX, 0, textWidth, height, Justification::centred, false);
         } else {
             // spinning bar..
             g.setColour(background);

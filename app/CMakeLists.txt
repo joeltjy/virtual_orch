@@ -24,20 +24,28 @@ target_include_directories(${PROJECT_NAME}
 )
 target_link_directories(${PROJECT_NAME} PRIVATE ${ONNXRUNTIME_LIB_DIR})
 
+# Generate JUCE header
+juce_generate_juce_header(${PROJECT_NAME})
+
+juce_add_binary_data(VirtualOrchData
+    HEADER_NAME VirtualOrchBinaryData.h
+    NAMESPACE VirtualOrchBinaryData
+    SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/resources/general_midi_instruments.csv"
+)
+
 target_link_libraries(${PROJECT_NAME}
     PRIVATE
         juce::juce_audio_utils
         juce::juce_osc
         onnxruntime
         cmp_plot
+        VirtualOrchData
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags
 )
-
-# Generate JUCE header
-juce_generate_juce_header(${PROJECT_NAME})
 
 # Get all source files
 set(INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include/VirtualOrch")
@@ -83,6 +91,7 @@ target_link_libraries(VirtualOrchLibrary
         onnxruntime
         cmp_plot
     PUBLIC
+        VirtualOrchData
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags

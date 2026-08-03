@@ -4,25 +4,9 @@
 #include "VirtualOrch/ui/UiConstants.h"
 
 ConditioningPianoRollWidget::ConditioningPianoRollWidget(AppSession &sessionIn)
-    : WorkspaceWidget(UiConstants::workspaceConditioningPianoRollTitle,
-                      UiConstants::workspaceWidgetTypeConditioningPianoRoll),
-      session(sessionIn),
-      pianoRoll(sessionIn.clock) {
-    getContentComponent().addAndMakeVisible(pianoRoll);
-    refreshFromSession();
-    startTimer(UiConstants::pianoRollTimerIntervalMs);
-}
-
-ConditioningPianoRollWidget::~ConditioningPianoRollWidget() {
-    stopTimer();
-}
-
-auto ConditioningPianoRollWidget::resized() -> void {
-    WorkspaceWidget::resized();
-    pianoRoll.setBounds(getContentComponent().getLocalBounds());
-}
-
-auto ConditioningPianoRollWidget::timerCallback() -> void {
+    : SessionPianoRollWidget(sessionIn,
+                             UiConstants::workspaceConditioningPianoRollTitle,
+                             UiConstants::workspaceWidgetTypeConditioningPianoRoll) {
     refreshFromSession();
 }
 

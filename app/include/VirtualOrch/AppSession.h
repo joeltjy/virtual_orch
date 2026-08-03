@@ -9,6 +9,7 @@
 #include "VirtualOrch/MidiInputProcess.h"
 #include "VirtualOrch/MusicTransformer.h"
 #include "VirtualOrch/OSCBufferOutputProcessor.h"
+#include "VirtualOrch/OrchestrationTransformer.h"
 #include "VirtualOrch/OutputPlayback.h"
 #include "VirtualOrch/OutputProcessor.h"
 #include "VirtualOrch/PresetStore.h"
@@ -40,6 +41,7 @@ public:
     bool mtcClockActive = false;
 
     MusicTransformer musicTransformer;
+    OrchestrationTransformer orchestrationTransformer;
     std::unique_ptr<InputFilter> inputFilter;
     OutputPlayback outputPlayback;
     MidiInputProcess midiInputProcess;

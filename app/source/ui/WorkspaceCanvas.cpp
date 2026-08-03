@@ -2,8 +2,15 @@
 
 #include "VirtualOrch/AppSession.h"
 #include "VirtualOrch/ui/UiConstants.h"
+#include "VirtualOrch/views/DefaultView.h"
+#include "VirtualOrch/views/InputView.h"
+#include "VirtualOrch/views/OrchestrationDebugView.h"
+#include "VirtualOrch/widgets/ActiveInstrumentsWidget.h"
 #include "VirtualOrch/widgets/ConditioningPianoRollWidget.h"
 #include "VirtualOrch/widgets/GenerationWidget.h"
+#include "VirtualOrch/widgets/OrchestrationConditioningPianoRollWidget.h"
+#include "VirtualOrch/widgets/OrchestrationMidiPianoRollWidget.h"
+#include "VirtualOrch/widgets/OrchestrationReductionPianoRollWidget.h"
 #include "VirtualOrch/widgets/PromptWidget.h"
 #include "VirtualOrch/widgets/TokenInputPianoRollWidget.h"
 #include "VirtualOrch/widgets/TransportWidget.h"
@@ -88,6 +95,30 @@ auto WorkspaceCanvas::createWidgetForType(const juce::String &type) const
         return std::make_unique<ConditioningPianoRollWidget>(*session);
     }
 
+    if (type == UiConstants::workspaceWidgetTypeOrchestrationMidiPianoRoll) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<OrchestrationMidiPianoRollWidget>(*session);
+    }
+
+    if (type == UiConstants::workspaceWidgetTypeOrchestrationConditioningPianoRoll) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<OrchestrationConditioningPianoRollWidget>(*session);
+    }
+
+    if (type == UiConstants::workspaceWidgetTypeOrchestrationReductionPianoRoll) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<OrchestrationReductionPianoRollWidget>(*session);
+    }
+
+    if (type == UiConstants::workspaceWidgetTypeActiveInstruments) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<ActiveInstrumentsWidget>(*session);
+    }
+
     // Legacy views may still contain stubs.
     if (type == UiConstants::workspaceWidgetTypeStub)
         return std::make_unique<WorkspaceWidget>(UiConstants::workspaceStubWidgetTitle,
@@ -116,6 +147,24 @@ auto WorkspaceCanvas::addWidget(std::unique_ptr<WorkspaceWidget> widget,
     rebindInputDataCallback();
     refreshPromptWidgetsFromSession();
     notifyLayoutChanged();
+}
+
+auto WorkspaceCanvas::beginViewLayout() -> void {
+    suppressLayoutNotifications = true;
+    clearWidgets();
+}
+
+auto WorkspaceCanvas::endViewLayout() -> void {
+    suppressLayoutNotifications = false;
+    notifyLayoutChanged();
+}
+
+auto WorkspaceCanvas::placeWidgetOfType(const juce::String &type, juce::Rectangle<int> bounds)
+    -> void {
+    auto widget = createWidgetForType(type);
+    if (widget == nullptr)
+        return;
+    addWidget(std::move(widget), bounds);
 }
 
 auto WorkspaceCanvas::addPromptWidget() -> void {
@@ -151,47 +200,46 @@ auto WorkspaceCanvas::addConditioningPianoRollWidget() -> void {
     addWidget(std::move(widget), nextCascadedBounds());
 }
 
+auto WorkspaceCanvas::addOrchestrationMidiPianoRollWidget() -> void {
+    auto widget = createWidgetForType(UiConstants::workspaceWidgetTypeOrchestrationMidiPianoRoll);
+    if (widget == nullptr)
+        return;
+    addWidget(std::move(widget), nextCascadedBounds());
+}
+
+auto WorkspaceCanvas::addOrchestrationConditioningPianoRollWidget() -> void {
+    auto widget =
+        createWidgetForType(UiConstants::workspaceWidgetTypeOrchestrationConditioningPianoRoll);
+    if (widget == nullptr)
+        return;
+    addWidget(std::move(widget), nextCascadedBounds());
+}
+
+auto WorkspaceCanvas::addOrchestrationReductionPianoRollWidget() -> void {
+    auto widget =
+        createWidgetForType(UiConstants::workspaceWidgetTypeOrchestrationReductionPianoRoll);
+    if (widget == nullptr)
+        return;
+    addWidget(std::move(widget), nextCascadedBounds());
+}
+
+auto WorkspaceCanvas::addActiveInstrumentsWidget() -> void {
+    auto widget = createWidgetForType(UiConstants::workspaceWidgetTypeActiveInstruments);
+    if (widget == nullptr)
+        return;
+    addWidget(std::move(widget), nextCascadedBounds());
+}
+
 auto WorkspaceCanvas::addDefaultWidgets() -> void {
-    suppressLayoutNotifications = true;
-    clearWidgets();
-    addPromptWidget();
-    addGenerationWidget();
-    addTransportWidget();
-    suppressLayoutNotifications = false;
+    views::DefaultView::applyTo(*this);
 }
 
 auto WorkspaceCanvas::addInputViewWidgets() -> void {
-    suppressLayoutNotifications = true;
-    clearWidgets();
+    views::InputView::applyTo(*this);
+}
 
-    auto tokenRoll = createWidgetForType(UiConstants::workspaceWidgetTypeTokenPianoRoll);
-    if (tokenRoll != nullptr) {
-        addWidget(std::move(tokenRoll),
-                  {UiConstants::workspaceInputViewTokenRollX,
-                   UiConstants::workspaceInputViewTokenRollY,
-                   UiConstants::workspaceInputViewPianoRollWidth,
-                   UiConstants::workspaceInputViewPianoRollHeight});
-    }
-
-    auto conditioningRoll = createWidgetForType(UiConstants::workspaceWidgetTypeConditioningPianoRoll);
-    if (conditioningRoll != nullptr) {
-        addWidget(std::move(conditioningRoll),
-                  {UiConstants::workspaceInputViewConditioningRollX,
-                   UiConstants::workspaceInputViewConditioningRollY,
-                   UiConstants::workspaceInputViewPianoRollWidth,
-                   UiConstants::workspaceInputViewPianoRollHeight});
-    }
-
-    auto generation = createWidgetForType(UiConstants::workspaceWidgetTypeGeneration);
-    if (generation != nullptr) {
-        addWidget(std::move(generation),
-                  {UiConstants::workspaceInputViewGenerationX,
-                   UiConstants::workspaceInputViewGenerationY,
-                   UiConstants::workspaceInputViewGenerationWidth,
-                   UiConstants::workspaceInputViewGenerationHeight});
-    }
-
-    suppressLayoutNotifications = false;
+auto WorkspaceCanvas::addOrchestrationDebugViewWidgets() -> void {
+    views::OrchestrationDebugView::applyTo(*this);
 }
 
 auto WorkspaceCanvas::removeWidget(WorkspaceWidget *widget) -> void {

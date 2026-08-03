@@ -39,6 +39,8 @@ private:
 
     auto ensureInputView() -> void;
 
+    auto ensureOrchestrationDebugView() -> void;
+
     auto markDirty() -> void;
 
     auto clearDirty() -> void;

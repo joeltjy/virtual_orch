@@ -141,12 +141,17 @@ void MusicTransformer::threadRun() {
 auto MusicTransformer::applyQueuedInputToInputData() -> bool {
     Token discarded{-1, -1, -1};
     while (inputConditioningQueue.pull(discarded)) {
+        if (orchestrationConditioningIncoming != nullptr)
+            orchestrationConditioningIncoming->push(discarded);
     }
 
     bool inputApplied = false;
     Token inputToken = {-1, -1, -1};
 
     while (inputTokenQueue.pull(inputToken)) {
+        if (orchestrationMidiIncoming != nullptr)
+            orchestrationMidiIncoming->push(inputToken);
+
         DBG("input: " + inputToken.toUnderstandableString());
         // CLEARING FUTURE INPUT DATA IF FIRST TOKEN
         if (!inputApplied) {
@@ -211,6 +216,8 @@ auto MusicTransformer::applyUpdatesFromFilter() -> bool {
 
     bool changed = false;
     do {
+        if (orchestrationUpdatesIncoming != nullptr)
+            orchestrationUpdatesIncoming->push(update);
         if (applyTokenUpdateToHistory(history, update))
             changed = true;
     } while (updatesFromFilter.pull(update));

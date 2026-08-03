@@ -15,7 +15,14 @@ GenerationWidget::GenerationWidget(AppSession &sessionIn)
     body.addAndMakeVisible(stopButton);
 
     progressBar = std::make_unique<juce::ProgressBar>(session.outputPlayback.progress);
+    progressBar->setLookAndFeel(&progressBarLookAndFeel);
+    progressBar->setPercentageDisplay(false);
     body.addAndMakeVisible(*progressBar);
+}
+
+GenerationWidget::~GenerationWidget() {
+    if (progressBar != nullptr)
+        progressBar->setLookAndFeel(nullptr);
 }
 
 auto GenerationWidget::resized() -> void {

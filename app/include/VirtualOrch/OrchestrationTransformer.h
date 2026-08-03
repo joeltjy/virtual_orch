@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 
 #include <array>
+#include <set>
 #include <utility>
 #include <vector>
 
@@ -14,12 +15,36 @@ enum class OrchestrationMode : uint8_t {
     Jam
 };
 
-/** Token plus instrument id before packing into Token.note, for easier interpretation.*/
 using OrchestrationNote = std::pair<Token, int32_t>;
+
+enum class InstrumentUpdateTarget : uint8_t {
+    User,
+    Model
+};
+
+struct InstrumentUpdate {
+    int32_t instrumentId = 0;
+    int32_t requestTime = 0;
+    InstrumentUpdateTarget target = InstrumentUpdateTarget::User;
+};
+
+struct OrchestrationDebugSnapshot {
+    std::vector<Token> midiHistory;
+    std::vector<Token> midiPending;
+    std::vector<Token> conditioningHistory;
+    std::vector<Token> conditioningPending;
+    std::vector<Token> reductionHistory;
+    std::vector<Token> reductionPending;
+    std::set<int32_t> userInstruments;
+    std::set<int32_t> modelInstruments;
+};
 
 class OrchestrationTransformer : public juce::Thread {
 public:
     static constexpr size_t CONDITIONING_SIGNAL_DIM = 64;
+    static constexpr int32_t kNumInstruments = 128;
+    /** 0.1s at Config::TimeResolution (100 ticks/s). */
+    static constexpr int32_t kInstrumentUpdateDebounceTicks = Config::TimeResolution / 10;
     using ConditioningSignal = std::array<float, CONDITIONING_SIGNAL_DIM>;
 
     OrchestrationTransformer();
@@ -38,6 +63,12 @@ public:
     CircularFifo<Token> conditioningIncoming;
     CircularFifo<Token> reductionIncoming;
     CircularFifo<Token> outputTokenQueue;
+    CircularFifo<InstrumentUpdate> instrumentUpdates;
+    CircularFifo<TokenUpdate> updatesIncoming;
+
+    /** GM program ids in [0, 127] used by Edit/Jam and ActiveInstruments UI. */
+    std::set<int32_t> userInstruments;
+    std::set<int32_t> modelInstruments;
 
     OrchestrationMode mode = OrchestrationMode::Edit;
 
@@ -58,10 +89,27 @@ public:
     static auto tokenWithInstrument(Token token, int32_t instrument) -> Token;
     static auto sortTokensByTimeThenDuration(std::vector<Token> &tokens) -> void;
 
+    auto applyInstrumentUpdates() -> void;
+
+    /** Drain updatesIncoming; patch midiInputHistory and conditioningHistory. */
+    auto applyTokenUpdates() -> void;
+
+    auto publishDebugSnapshot(OrchestrationDebugSnapshot snapshot) -> void;
+
+    [[nodiscard]] auto getDebugSnapshot() const -> OrchestrationDebugSnapshot;
+
 private:
     std::vector<Token> midiInputHistory;
     std::vector<Token> conditioningHistory;
     std::vector<Token> reductionHistory;
+    std::array<int32_t, kNumInstruments> userInstrumentLastUpdateTime{};
+    std::array<int32_t, kNumInstruments> modelInstrumentLastUpdateTime{};
+
+    mutable juce::CriticalSection debugSnapshotLock;
+    OrchestrationDebugSnapshot debugSnapshot;
+
+    auto resetInstrumentLastUpdateTimes() -> void;
+    auto clearDebugSnapshot() -> void;
 
     auto getConditioningSignal(const std::vector<Token> &midiInput,
                                const std::vector<Token> &conditioning) -> ConditioningSignal;
@@ -100,6 +148,18 @@ private:
     auto clearOutputTokenQueue() -> void {
         Token t{};
         while (outputTokenQueue.pull(t)) {
+        }
+    }
+
+    auto clearInstrumentUpdates() -> void {
+        InstrumentUpdate u{};
+        while (instrumentUpdates.pull(u)) {
+        }
+    }
+
+    auto clearUpdatesIncoming() -> void {
+        TokenUpdate u{};
+        while (updatesIncoming.pull(u)) {
         }
     }
 

@@ -2,27 +2,17 @@
 
 #include <JuceHeader.h>
 
-#include "VirtualOrch/widgets/PianoRollView.h"
-#include "VirtualOrch/widgets/WorkspaceWidget.h"
+#include "VirtualOrch/widgets/SessionPianoRollWidget.h"
 
 class AppSession;
 
 /** Piano roll of InputFilter pastConditioning. */
-class ConditioningPianoRollWidget : public WorkspaceWidget, private juce::Timer {
+class ConditioningPianoRollWidget : public SessionPianoRollWidget {
 public:
     explicit ConditioningPianoRollWidget(AppSession &session);
 
-    ~ConditioningPianoRollWidget() override;
-
-    auto resized() -> void override;
-
-private:
-    auto timerCallback() -> void override;
-
-    auto refreshFromSession() -> void;
-
-    AppSession &session;
-    PianoRollView pianoRoll;
+protected:
+    auto refreshFromSession() -> void override;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ConditioningPianoRollWidget)
 };

@@ -32,11 +32,30 @@ public:
 
     auto addConditioningPianoRollWidget() -> void;
 
+    auto addOrchestrationMidiPianoRollWidget() -> void;
+
+    auto addOrchestrationConditioningPianoRollWidget() -> void;
+
+    auto addOrchestrationReductionPianoRollWidget() -> void;
+
+    auto addActiveInstrumentsWidget() -> void;
+
+    /** Clear canvas and suppress layout notifications while seeding a view. */
+    auto beginViewLayout() -> void;
+
+    auto endViewLayout() -> void;
+
+    /** Create + place a widget of the given type at bounds. No-op if type unknown. */
+    auto placeWidgetOfType(const juce::String &type, juce::Rectangle<int> bounds) -> void;
+
     /** Prompt + Generation + Transport widgets for Default view. */
     auto addDefaultWidgets() -> void;
 
     /** Token + Conditioning piano roll widgets for InputView. */
     auto addInputViewWidgets() -> void;
+
+    /** OT rolls + Active Instruments for OrchestrationDebug view. */
+    auto addOrchestrationDebugViewWidgets() -> void;
 
     auto getWidgetCount() const -> int { return (int) widgets.size(); }
 

@@ -69,7 +69,7 @@ void OutputPlayback::run() {
 
         for (auto it = nextTokens.begin(); it != nextTokens.end();) {
             if (it->time <= time) {
-                DBG("Playing note at " + std::to_string(time) + " : " + it->toUnderstandableString());
+                // DBG("Playing note at " + std::to_string(time) + " : " + it->toUnderstandableString());
                 handleNoteForOutput(*it, TokenNoteType::TokenNoteOn);
                 currentlyPlaying.insert(*it);
                 it = nextTokens.erase(it);

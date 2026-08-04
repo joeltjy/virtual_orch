@@ -5,6 +5,113 @@
 #include <algorithm>
 #include <iostream>
 
+namespace {
+
+/** Stored on MidiInputProcess as int: 0 unknown, 1 MK2, 2 Mini Mk3 / X. */
+enum class LaunchpadFamily : int { Unknown = 0, Mk2 = 1, MiniMk3OrX = 2 };
+
+auto detectLaunchpadFamily(const juce::String &name) -> LaunchpadFamily {
+    if (name.containsIgnoreCase("MK2"))
+        return LaunchpadFamily::Mk2;
+    if (name.containsIgnoreCase("Mini") || name.containsIgnoreCase("Launchpad X")
+        || name.containsIgnoreCase("LPX") || name.containsIgnoreCase("LPMini"))
+        return LaunchpadFamily::MiniMk3OrX;
+    return LaunchpadFamily::Unknown;
+}
+
+auto tryOpenOutput(const juce::String &identifier) -> std::unique_ptr<juce::MidiOutput> {
+    if (identifier.isEmpty())
+        return nullptr;
+    return juce::MidiOutput::openDevice(identifier);
+}
+
+auto openLaunchpadMidiOutputForInput(const juce::MidiDeviceInfo &inputInfo)
+    -> std::unique_ptr<juce::MidiOutput> {
+    // Prefer matching by name / Launchpad MIDI port. Opening with the *input* id first is
+    // unreliable on Linux (can return a non-null handle that does not drive LEDs).
+    const auto outputs = juce::MidiOutput::getAvailableDevices();
+    for (const auto &info : outputs)
+        juce::Logger::writeToLog("[launchpad] available MIDI out: \"" + info.name
+                                 + "\" id=" + info.identifier);
+
+    for (const auto &info : outputs) {
+        if (info.name == inputInfo.name)
+            if (auto out = tryOpenOutput(info.identifier))
+                return out;
+    }
+
+    juce::String midiPortId;
+    juce::String dawPortId;
+    juce::String anyLaunchpadId;
+    for (const auto &info : outputs) {
+        if (! info.name.containsIgnoreCase("Launchpad"))
+            continue;
+        if (anyLaunchpadId.isEmpty())
+            anyLaunchpadId = info.identifier;
+        const bool isDaw = info.name.containsIgnoreCase("DAW");
+        if (isDaw) {
+            if (dawPortId.isEmpty())
+                dawPortId = info.identifier;
+        } else if (midiPortId.isEmpty()) {
+            midiPortId = info.identifier;
+        }
+    }
+
+    if (auto out = tryOpenOutput(midiPortId))
+        return out;
+    if (auto out = tryOpenOutput(anyLaunchpadId))
+        return out;
+    if (auto out = tryOpenOutput(dawPortId))
+        return out;
+    if (auto out = tryOpenOutput(inputInfo.identifier))
+        return out;
+    return nullptr;
+}
+
+auto sendLaunchpadLed(juce::MidiOutput &output, LaunchpadFamily family, int midiNote,
+                      uint8_t paletteColour) -> void {
+    // Note-on ch1 / velocity=palette works on MK2 and Mini Mk3 Programmer mode.
+    output.sendMessageNow(
+        juce::MidiMessage::noteOn(1, midiNote, static_cast<juce::uint8>(paletteColour)));
+
+    const auto note7 = static_cast<uint8_t>(midiNote & 0x7f);
+
+    // SysEx lighting is more reliable across layouts (MK2 Session indices = note numbers).
+    if (family == LaunchpadFamily::Mk2 || family == LaunchpadFamily::Unknown) {
+        const uint8_t mk2[] = {0x00, 0x20, 0x29, 0x02, 0x18, 0x0A, note7, paletteColour};
+        output.sendMessageNow(juce::MidiMessage::createSysExMessage(mk2, (int) sizeof(mk2)));
+        if (family == LaunchpadFamily::Mk2)
+            return;
+    }
+
+    // Mini Mk3 / X: lighting type 0 (static palette), LED index, colour.
+    const uint8_t miniMk3[] = {0x00, 0x20, 0x29, 0x02, 0x0D, 0x03, 0x00, note7, paletteColour};
+    const uint8_t launchpadX[] = {0x00, 0x20, 0x29, 0x02, 0x0C, 0x03, 0x00, note7, paletteColour};
+    output.sendMessageNow(juce::MidiMessage::createSysExMessage(miniMk3, (int) sizeof(miniMk3)));
+    output.sendMessageNow(juce::MidiMessage::createSysExMessage(launchpadX, (int) sizeof(launchpadX)));
+}
+
+auto prepareLaunchpadForLeds(juce::MidiOutput &output, LaunchpadFamily family) -> void {
+    if (family == LaunchpadFamily::Mk2 || family == LaunchpadFamily::Unknown) {
+        // Brief all-pad flash so a bad out port is obvious immediately.
+        const uint8_t allOn[] = {0x00, 0x20, 0x29, 0x02, 0x18, 0x0E, 0x05};
+        const uint8_t allOff[] = {0x00, 0x20, 0x29, 0x02, 0x18, 0x0E, 0x00};
+        output.sendMessageNow(juce::MidiMessage::createSysExMessage(allOn, (int) sizeof(allOn)));
+        juce::Thread::sleep(120);
+        output.sendMessageNow(juce::MidiMessage::createSysExMessage(allOff, (int) sizeof(allOff)));
+        if (family == LaunchpadFamily::Mk2)
+            return;
+    }
+
+    // Mini Mk3 / X: enter Programmer layout (0x7F). Product bytes: Mini=0x0D, X=0x0C.
+    const uint8_t miniMk3[] = {0x00, 0x20, 0x29, 0x02, 0x0D, 0x00, 0x7F};
+    const uint8_t launchpadX[] = {0x00, 0x20, 0x29, 0x02, 0x0C, 0x00, 0x7F};
+    output.sendMessageNow(juce::MidiMessage::createSysExMessage(miniMk3, (int) sizeof(miniMk3)));
+    output.sendMessageNow(juce::MidiMessage::createSysExMessage(launchpadX, (int) sizeof(launchpadX)));
+}
+
+} // namespace
+
 MidiInputProcess::MidiInputProcess(Clock &clock,
                                    MusicTransformer &musicTransformer,
                                    ModelConfig &modelConfig,
@@ -23,6 +130,52 @@ MidiInputProcess::MidiInputProcess(Clock &clock,
       selectedLaunchpadMidiIdentifier(selectedLaunchpadMidiIdentifier),
       selectedMtcClockIdentifier(selectedMtcClockIdentifier),
       mtcClockActive(mtcClockActive) {
+    launchpadGrid.set_led = [this](int midiNote, uint8_t paletteColour) {
+        const juce::ScopedLock lock(launchpadMidiOutputLock);
+        if (launchpadMidiOutput == nullptr)
+            return;
+        sendLaunchpadLed(*launchpadMidiOutput,
+                         static_cast<LaunchpadFamily>(launchpadFamily),
+                         midiNote,
+                         paletteColour);
+    };
+}
+
+MidiInputProcess::~MidiInputProcess() {
+    const juce::ScopedLock lock(launchpadMidiOutputLock);
+    launchpadMidiOutput.reset();
+}
+
+auto MidiInputProcess::setLaunchpadMidiOutput(std::unique_ptr<juce::MidiOutput> output) -> void {
+    {
+        const juce::ScopedLock lock(launchpadMidiOutputLock);
+        launchpadMidiOutput = std::move(output);
+        if (launchpadMidiOutput != nullptr) {
+            const auto family = detectLaunchpadFamily(launchpadMidiOutput->getName());
+            launchpadFamily = static_cast<int>(family);
+            juce::Logger::writeToLog(
+                "[launchpad] family="
+                + juce::String(family == LaunchpadFamily::Mk2             ? "MK2"
+                               : family == LaunchpadFamily::MiniMk3OrX ? "MiniMk3/X"
+                                                                        : "unknown"));
+            prepareLaunchpadForLeds(*launchpadMidiOutput, family);
+        } else {
+            launchpadFamily = static_cast<int>(LaunchpadFamily::Unknown);
+        }
+    }
+    launchpadGrid.refreshAllLeds();
+}
+
+auto MidiInputProcess::setLaunchpadMidiOutputForInputDevice(const juce::MidiDeviceInfo &inputInfo) -> void {
+    auto output = openLaunchpadMidiOutputForInput(inputInfo);
+    if (output == nullptr) {
+        juce::Logger::writeToLog(
+            "[launchpad] failed to open MIDI output for LEDs (input name=\"" + inputInfo.name
+            + "\" id=" + inputInfo.identifier + ")");
+    } else {
+        juce::Logger::writeToLog("[launchpad] MIDI output opened for LEDs: " + output->getName());
+    }
+    setLaunchpadMidiOutput(std::move(output));
 }
 
 void MidiInputProcess::resetForStart() {
@@ -144,67 +297,39 @@ void MidiInputProcess::logIncomingMidiMessage(juce::MidiInput *source, const juc
     }();
 
     const juce::String line = juce::String(fromLaunchpad ? "[launchpad] " : "[midi] ") + description;
-    // Logger is safe from the MIDI thread; avoid std::cout here (can block under midiCallbackLock).
     juce::Logger::writeToLog(line);
-    juce::MessageManager::callAsync([line] {
-        std::cout << line << std::endl;
-    });
 }
 
 void MidiInputProcess::handleLaunchpadMessage(juce::MidiInput *source, const juce::MidiMessage &message) {
     juce::ignoreUnused(source);
 
-    // Keep MIDI thread work cheap; flip/log/callback on the message thread.
-    const auto postInput = [this](int row, int col, bool pressed) {
-        juce::MessageManager::callAsync([this, row, col, pressed] {
-            launchpadGrid.handleInput(row, col, pressed);
-        });
-    };
-    const auto postScene = [this](int idx) {
-        juce::MessageManager::callAsync([this, idx] {
-            launchpadGrid.handleSceneInput(idx);
-        });
-    };
-
+    // Handle on the MIDI callback thread (no callAsync).
     if (message.isNoteOn(true) || message.isNoteOff()) {
         const int note = message.getNoteNumber();
         const bool pressed = message.isNoteOn(true) && message.getVelocity() > 0;
 
         if (const auto pad = LaunchpadProgrammerMap::padFromNote(note)) {
-            postInput(pad->row, pad->col, pressed);
+            launchpadGrid.handleInput(pad->row, pad->col, pressed);
             return;
-        }
-
-        if (pressed) {
-            const juce::String line =
-                "[launchpad] unmapped note=" + juce::String(note)
-                + " (expected Programmer pads 11-88 or side 19/29/…/89)";
-            juce::Logger::writeToLog(line);
-            juce::MessageManager::callAsync([line] { std::cout << line << std::endl; });
         }
         return;
     }
 
     if (message.isController() && message.getControllerValue() > 0) {
         const int cc = message.getControllerNumber();
-        if (const auto idx = LaunchpadProgrammerMap::sceneIndexFromTopCc(cc)) {
-            postScene(*idx);
-            return;
-        }
-
-        const juce::String line = "[launchpad] unmapped cc=" + juce::String(cc)
-                                  + " (top scene expects CC 104-111)";
-        juce::Logger::writeToLog(line);
-        juce::MessageManager::callAsync([line] { std::cout << line << std::endl; });
+        if (const auto idx = LaunchpadProgrammerMap::sceneIndexFromTopCc(cc))
+            launchpadGrid.handleSceneInput(*idx);
     }
 }
 
 void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const juce::MidiMessage &message) {
+    const bool fromLaunchpad = source != nullptr
+                               && selectedLaunchpadMidiIdentifier.isNotEmpty()
+                               && source->getIdentifier() == selectedLaunchpadMidiIdentifier;
+
     logIncomingMidiMessage(source, message);
 
-    if (source != nullptr
-        && selectedLaunchpadMidiIdentifier.isNotEmpty()
-        && source->getIdentifier() == selectedLaunchpadMidiIdentifier) {
+    if (fromLaunchpad) {
         handleLaunchpadMessage(source, message);
         return;
     }

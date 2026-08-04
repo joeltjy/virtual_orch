@@ -1,6 +1,7 @@
 #include "VirtualOrch/widgets/ActiveInstrumentsView.h"
 
 #include "VirtualOrch/GeneralMidiInstruments.h"
+#include "VirtualOrch/InstrumentConstants.h"
 #include "VirtualOrch/ui/UiConstants.h"
 
 ActiveInstrumentsView::ActiveInstrumentsView() {
@@ -56,11 +57,20 @@ auto ActiveInstrumentsView::paintCell(juce::Graphics &g,
                                       bool /*rowIsSelected*/) -> void {
     juce::String text;
     if (columnId == userColumn && rowNumber >= 0
-        && static_cast<size_t>(rowNumber) < userIds.size())
-        text = GeneralMidiInstruments::nameForId(userIds[static_cast<size_t>(rowNumber)]);
-    else if (columnId == modelColumn && rowNumber >= 0
-             && static_cast<size_t>(rowNumber) < modelIds.size())
-        text = GeneralMidiInstruments::nameForId(modelIds[static_cast<size_t>(rowNumber)]);
+        && static_cast<size_t>(rowNumber) < userIds.size()) {
+        const auto localId = userIds[static_cast<size_t>(rowNumber)];
+        if (const auto gmId = InstrumentConstants::toGmInstrumentId(localId))
+            text = GeneralMidiInstruments::nameForId(*gmId);
+        else
+            text = "Local " + juce::String(localId);
+    } else if (columnId == modelColumn && rowNumber >= 0
+               && static_cast<size_t>(rowNumber) < modelIds.size()) {
+        const auto localId = modelIds[static_cast<size_t>(rowNumber)];
+        if (const auto gmId = InstrumentConstants::toGmInstrumentId(localId))
+            text = GeneralMidiInstruments::nameForId(*gmId);
+        else
+            text = "Local " + juce::String(localId);
+    }
 
     g.setColour(UiConstants::workspaceWidgetTitleTextColour);
     g.setFont(13.0f);

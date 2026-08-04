@@ -4,6 +4,7 @@
 
 #include <array>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -23,9 +24,9 @@ enum class InstrumentUpdateTarget : uint8_t {
 };
 
 struct InstrumentUpdate {
-    int32_t instrumentId = 0;
-    int32_t requestTime = 0;
+    int32_t localInstrumentId = 0;
     InstrumentUpdateTarget target = InstrumentUpdateTarget::User;
+    uint8_t state = 0; // 0 = clear, 1 = set
 };
 
 struct OrchestrationDebugSnapshot {
@@ -43,8 +44,6 @@ class OrchestrationTransformer : public juce::Thread {
 public:
     static constexpr size_t CONDITIONING_SIGNAL_DIM = 64;
     static constexpr int32_t kNumInstruments = 128;
-    /** 0.1s at Config::TimeResolution (100 ticks/s). */
-    static constexpr int32_t kInstrumentUpdateDebounceTicks = Config::TimeResolution / 10;
     using ConditioningSignal = std::array<float, CONDITIONING_SIGNAL_DIM>;
 
     OrchestrationTransformer();
@@ -66,7 +65,7 @@ public:
     CircularFifo<InstrumentUpdate> instrumentUpdates;
     CircularFifo<TokenUpdate> updatesIncoming;
 
-    /** GM program ids in [0, 127] used by Edit/Jam and ActiveInstruments UI. */
+    /** Local instrument ids used by Edit/Jam and ActiveInstruments UI. */
     std::set<int32_t> userInstruments;
     std::set<int32_t> modelInstruments;
 
@@ -102,13 +101,10 @@ private:
     std::vector<Token> midiInputHistory;
     std::vector<Token> conditioningHistory;
     std::vector<Token> reductionHistory;
-    std::array<int32_t, kNumInstruments> userInstrumentLastUpdateTime{};
-    std::array<int32_t, kNumInstruments> modelInstrumentLastUpdateTime{};
 
     mutable juce::CriticalSection debugSnapshotLock;
     OrchestrationDebugSnapshot debugSnapshot;
 
-    auto resetInstrumentLastUpdateTimes() -> void;
     auto clearDebugSnapshot() -> void;
 
     auto getConditioningSignal(const std::vector<Token> &midiInput,

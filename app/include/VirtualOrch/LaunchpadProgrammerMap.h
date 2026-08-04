@@ -18,6 +18,9 @@ struct Pad {
 /** Grid pad (col 0-7) or side note (col 9) from Note number. */
 [[nodiscard]] auto padFromNote(int noteNumber) -> std::optional<Pad>;
 
+/** Inverse of padFromNote for grid (col 0-7) or side (col 9). */
+[[nodiscard]] auto noteFromPad(int row, int col) -> std::optional<int>;
+
 /** Top-row CC → scene idx 0..7, or nullopt. */
 [[nodiscard]] auto sceneIndexFromTopCc(int controllerNumber) -> std::optional<int>;
 

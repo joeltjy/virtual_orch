@@ -994,6 +994,10 @@ void MainComponent::setMidiInput(int index, int idx) {
 
     deviceManager.addMidiInputDeviceCallback(newInput.identifier, &session.midiInputProcess);
     selectedForRole = newInput.identifier;
+
+    if (idx == 1) {
+        session.midiInputProcess.setLaunchpadMidiOutputForInputDevice(newInput);
+    }
 }
 
 void MainComponent::updateMtcClock() {

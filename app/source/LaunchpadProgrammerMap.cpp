@@ -34,6 +34,18 @@ auto padFromNote(int noteNumber) -> std::optional<Pad> {
     return std::nullopt;
 }
 
+auto noteFromPad(int row, int col) -> std::optional<int> {
+    if (row < 0 || row >= LaunchpadGrid::kRows)
+        return std::nullopt;
+
+    const int tens = 8 - row;
+    if (col >= 0 && col < LaunchpadGrid::kCols)
+        return tens * 10 + (col + 1);
+    if (col == LaunchpadGrid::kSideCol)
+        return tens * 10 + 9;
+    return std::nullopt;
+}
+
 auto sceneIndexFromTopCc(int controllerNumber) -> std::optional<int> {
     const int idx = controllerNumber - LaunchpadGrid::kTopCcBase;
     if (idx < 0 || idx >= LaunchpadGrid::kTopCcCount)

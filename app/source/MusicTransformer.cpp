@@ -1,6 +1,5 @@
 #include "VirtualOrch/MusicTransformer.h"
 #include <onnxruntime_cxx_api.h>
-#include <iostream>
 
 MusicTransformer::MusicTransformer(ModelConfig &modelConfig): Thread("Music Transformer"), modelConfig(modelConfig) {
 }
@@ -107,8 +106,6 @@ void MusicTransformer::threadRun() {
         Token newToken = {-1, -1, -1};
         // Generate new token
         newToken = generateNewToken(forceAtTime);
-        std::cout << "generated token: " << newToken.toUnderstandableString() << std::endl;
-        DBG("generating " + newToken.toUnderstandableString());
 
         // We set forceAtTime back to -1
         forceAtTime = -1;
@@ -127,14 +124,12 @@ void MusicTransformer::threadRun() {
         if (inputApplied) {
             Token clearToken = {Vocab::TimeOffset, Vocab::DurOffset, Vocab::ClearQueue};
             outputTokenQueue.push(clearToken);
-            DBG("output: " + clearToken.toUnderstandableString());
         }
 
         if (inputApplied) { inputApplied = false; }
 
         // Push new token to output queue
         outputTokenQueue.push(newToken);
-        DBG("output: " + newToken.toUnderstandableString());
     }
 }
 

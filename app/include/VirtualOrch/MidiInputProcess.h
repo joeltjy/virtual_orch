@@ -8,6 +8,7 @@
 #include <optional>
 
 #include "Clock.h"
+#include "Fifo.h"
 #include "MusicTransformer.h"
 #include "OutputProcessor.h"
 #include "VirtualOrch/InputFilter.h"
@@ -29,6 +30,8 @@ public:
                      juce::String &selectedMtcClockIdentifier,
                      bool &mtcClockActive);
 
+    ~MidiInputProcess() override;
+
     void handleIncomingMidiMessage(juce::MidiInput *source, const juce::MidiMessage &message) override;
 
     void timerCallback() override;
@@ -37,6 +40,14 @@ public:
     void resetForStart();
 
     void setInputThru(bool enabled) { inputThruEnabled = enabled; }
+
+    [[nodiscard]] auto getLaunchpadGrid() -> LaunchpadGrid & { return launchpadGrid; }
+
+    /** Open/replace MIDI out for Launchpad LEDs. */
+    auto setLaunchpadMidiOutput(std::unique_ptr<juce::MidiOutput> output) -> void;
+
+    /** Resolve MIDI out for a Launchpad input (ids often differ on Linux), enter programmer mode. */
+    auto setLaunchpadMidiOutputForInputDevice(const juce::MidiDeviceInfo &inputInfo) -> void;
 
 private:
     void sendTokensToMusicTransformer(std::optional<int32_t> atTime);
@@ -63,6 +74,10 @@ private:
     bool inputThruEnabled = false;
 
     LaunchpadGrid launchpadGrid;
+    std::unique_ptr<juce::MidiOutput> launchpadMidiOutput;
+    juce::CriticalSection launchpadMidiOutputLock;
+    /** 0 unknown, 1 MK2, 2 Mini Mk3 / X — set when MIDI out opens. */
+    int launchpadFamily = 0;
 
     struct HeldDirectNote {
         uint32_t onset = 0;

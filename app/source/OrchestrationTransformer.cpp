@@ -1,44 +1,34 @@
 #include "VirtualOrch/OrchestrationTransformer.h"
 
+#include "VirtualOrch/InstrumentConstants.h"
+
 #include <algorithm>
+#include <iostream>
 #include <set>
 
 OrchestrationTransformer::OrchestrationTransformer()
     : Thread("Orchestration Transformer") {
-    resetInstrumentLastUpdateTimes();
 }
 
 void OrchestrationTransformer::threadInit() {
 }
 
-auto OrchestrationTransformer::resetInstrumentLastUpdateTimes() -> void {
-    userInstrumentLastUpdateTime.fill(-kInstrumentUpdateDebounceTicks);
-    modelInstrumentLastUpdateTime.fill(-kInstrumentUpdateDebounceTicks);
-}
-
 auto OrchestrationTransformer::applyInstrumentUpdates() -> void {
     InstrumentUpdate update{};
     while (instrumentUpdates.pull(update)) {
-        if (update.instrumentId < 0 || update.instrumentId >= kNumInstruments)
+        if (! InstrumentConstants::isValidLocalInstrumentId(update.localInstrumentId))
             continue;
 
-        const auto index = static_cast<size_t>(update.instrumentId);
-        auto &lastUpdateTimes = update.target == InstrumentUpdateTarget::User
-                                    ? userInstrumentLastUpdateTime
-                                    : modelInstrumentLastUpdateTime;
+        if (update.state != 0 && update.state != 1)
+            continue;
+
         auto &instruments = update.target == InstrumentUpdateTarget::User ? userInstruments
                                                                           : modelInstruments;
 
-        const auto lastUpdate = lastUpdateTimes[index];
-        if (update.requestTime - lastUpdate < kInstrumentUpdateDebounceTicks)
-            continue;
-
-        lastUpdateTimes[index] = update.requestTime;
-
-        if (instruments.contains(update.instrumentId))
-            instruments.erase(update.instrumentId);
+        if (update.state == 0)
+            instruments.erase(update.localInstrumentId);
         else
-            instruments.insert(update.instrumentId);
+            instruments.insert(update.localInstrumentId);
     }
 }
 
@@ -141,10 +131,11 @@ void OrchestrationTransformer::threadRun() {
     clearOutputTokenQueue();
     clearInstrumentUpdates();
     clearUpdatesIncoming();
-    resetInstrumentLastUpdateTimes();
     clearDebugSnapshot();
 
     while (! threadShouldExit()) {
+        const double loopStartMs = juce::Time::getMillisecondCounterHiRes();
+
         applyInstrumentUpdates();
 
         const auto midiUpdate = drainIncoming(midiInputIncoming);
@@ -193,6 +184,12 @@ void OrchestrationTransformer::threadRun() {
         }
 
         packSortAndPushOutput(toOutput);
+
+        const double loopMs = juce::Time::getMillisecondCounterHiRes() - loopStartMs;
+        // std::cout << "OT loop: " << loopMs << " ms"
+        //           << " hist(m/c/r)=" << midiInputHistory.size() << '/'
+        //           << conditioningHistory.size() << '/' << reductionHistory.size()
+        //           << std::endl;
     }
 }
 

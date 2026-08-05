@@ -10,8 +10,7 @@ enum MidiOutputType : uint8_t {
 
 class MidiOutputProcessor : public OutputProcessor {
 public:
-    MidiOutputProcessor(MidiOutputType midiOutputType, const juce::String &midiOutputName,
-                        std::vector<int32_t> generatedInstruments);
+    MidiOutputProcessor(MidiOutputType midiOutputType, const juce::String &midiOutputName);
 
     ~MidiOutputProcessor() override;
 
@@ -26,6 +25,4 @@ public:
 private:
     MidiOutputType outputType;
     std::unique_ptr<juce::MidiOutput> midiOutput;
-
-    std::vector<int32_t> generatedInstruments;
 };

@@ -35,6 +35,10 @@ auto WorkspaceCanvas::paint(juce::Graphics &g) -> void {
     g.fillAll(UiConstants::workspaceCanvasBackground);
 }
 
+auto WorkspaceCanvas::resized() -> void {
+    applyDesignLayoutToCanvas();
+}
+
 auto WorkspaceCanvas::setSession(AppSession *sessionToUse) -> void {
     if (session != nullptr)
         session->musicTransformer.onInputDataChanged = nullptr;
@@ -50,10 +54,69 @@ auto WorkspaceCanvas::notifyLayoutChanged() -> void {
     onLayoutChanged();
 }
 
-auto WorkspaceCanvas::componentMovedOrResized(juce::Component &, bool wasMoved, bool wasResized)
-    -> void {
-    if (wasMoved || wasResized)
-        notifyLayoutChanged();
+auto WorkspaceCanvas::scaleDesignToCanvas(juce::Rectangle<int> design) const
+    -> juce::Rectangle<int> {
+    const int canvasW = getWidth();
+    const int canvasH = getHeight();
+    if (canvasW <= 0 || canvasH <= 0)
+        return design;
+
+    const float sx = (float) canvasW / (float) UiConstants::workspaceLayoutReferenceWidth;
+    const float sy = (float) canvasH / (float) UiConstants::workspaceLayoutReferenceHeight;
+
+    return {juce::roundToInt((float) design.getX() * sx),
+            juce::roundToInt((float) design.getY() * sy),
+            juce::jmax(1, juce::roundToInt((float) design.getWidth() * sx)),
+            juce::jmax(1, juce::roundToInt((float) design.getHeight() * sy))};
+}
+
+auto WorkspaceCanvas::scaleCanvasToDesign(juce::Rectangle<int> canvasBounds) const
+    -> juce::Rectangle<int> {
+    const int canvasW = getWidth();
+    const int canvasH = getHeight();
+    if (canvasW <= 0 || canvasH <= 0)
+        return canvasBounds;
+
+    const float sx = (float) UiConstants::workspaceLayoutReferenceWidth / (float) canvasW;
+    const float sy = (float) UiConstants::workspaceLayoutReferenceHeight / (float) canvasH;
+
+    return {juce::roundToInt((float) canvasBounds.getX() * sx),
+            juce::roundToInt((float) canvasBounds.getY() * sy),
+            juce::jmax(1, juce::roundToInt((float) canvasBounds.getWidth() * sx)),
+            juce::jmax(1, juce::roundToInt((float) canvasBounds.getHeight() * sy))};
+}
+
+auto WorkspaceCanvas::applyDesignLayoutToCanvas() -> void {
+    const bool wasSuppressed = suppressLayoutNotifications;
+    suppressLayoutNotifications = true;
+
+    for (size_t i = 0; i < widgets.size(); ++i)
+        widgets[i]->setBounds(scaleDesignToCanvas(designBounds[i]));
+
+    suppressLayoutNotifications = wasSuppressed;
+}
+
+auto WorkspaceCanvas::syncDesignBoundsFromWidget(WorkspaceWidget &widget) -> void {
+    for (size_t i = 0; i < widgets.size(); ++i) {
+        if (widgets[i].get() == &widget) {
+            designBounds[i] = scaleCanvasToDesign(widget.getBounds());
+            return;
+        }
+    }
+}
+
+auto WorkspaceCanvas::componentMovedOrResized(juce::Component &component, bool wasMoved,
+                                              bool wasResized) -> void {
+    if (suppressLayoutNotifications)
+        return;
+
+    if (! (wasMoved || wasResized))
+        return;
+
+    if (auto *widget = dynamic_cast<WorkspaceWidget *>(&component))
+        syncDesignBoundsFromWidget(*widget);
+
+    notifyLayoutChanged();
 }
 
 auto WorkspaceCanvas::bindWidget(WorkspaceWidget &widget) -> void {
@@ -145,8 +208,9 @@ auto WorkspaceCanvas::nextCascadedBounds() -> juce::Rectangle<int> {
 }
 
 auto WorkspaceCanvas::addWidget(std::unique_ptr<WorkspaceWidget> widget,
-                                juce::Rectangle<int> bounds) -> void {
-    widget->setBounds(bounds);
+                                juce::Rectangle<int> design) -> void {
+    designBounds.push_back(design);
+    widget->setBounds(scaleDesignToCanvas(design));
     bindWidget(*widget);
     addAndMakeVisible(widget.get());
     widget->toFront(false);
@@ -166,12 +230,12 @@ auto WorkspaceCanvas::endViewLayout() -> void {
     notifyLayoutChanged();
 }
 
-auto WorkspaceCanvas::placeWidgetOfType(const juce::String &type, juce::Rectangle<int> bounds)
+auto WorkspaceCanvas::placeWidgetOfType(const juce::String &type, juce::Rectangle<int> design)
     -> void {
     auto widget = createWidgetForType(type);
     if (widget == nullptr)
         return;
-    addWidget(std::move(widget), bounds);
+    addWidget(std::move(widget), design);
 }
 
 auto WorkspaceCanvas::addPromptWidget() -> void {
@@ -262,8 +326,11 @@ auto WorkspaceCanvas::removeWidget(WorkspaceWidget *widget) -> void {
     });
 
     if (it != widgets.end()) {
+        const auto index = (size_t) std::distance(widgets.begin(), it);
         (*it)->removeComponentListener(this);
         widgets.erase(it);
+        if (index < designBounds.size())
+            designBounds.erase(designBounds.begin() + (std::ptrdiff_t) index);
         rebindInputDataCallback();
         notifyLayoutChanged();
     }
@@ -273,6 +340,7 @@ auto WorkspaceCanvas::clearWidgets() -> void {
     for (auto &widget : widgets)
         widget->removeComponentListener(this);
     widgets.clear();
+    designBounds.clear();
     nextCascadeIndex = 0;
 }
 
@@ -307,8 +375,16 @@ auto WorkspaceCanvas::refreshPromptWidgetsFromSession() -> void {
 
 auto WorkspaceCanvas::toVar() const -> juce::var {
     juce::Array<juce::var> widgetArray;
-    for (const auto &widget : widgets)
-        widgetArray.add(widget->toVar());
+    for (size_t i = 0; i < widgets.size(); ++i) {
+        auto *obj = new juce::DynamicObject();
+        obj->setProperty("type", widgets[i]->getWidgetType());
+        const auto &b = designBounds[i];
+        obj->setProperty("x", b.getX());
+        obj->setProperty("y", b.getY());
+        obj->setProperty("w", b.getWidth());
+        obj->setProperty("h", b.getHeight());
+        widgetArray.add(juce::var(obj));
+    }
 
     auto *root = new juce::DynamicObject();
     root->setProperty("widgets", juce::var(widgetArray));
@@ -351,6 +427,7 @@ auto WorkspaceCanvas::fromVar(const juce::var &viewJson) -> bool {
     }
 
     nextCascadeIndex = (int) widgets.size();
+    applyDesignLayoutToCanvas();
     suppressLayoutNotifications = false;
     return true;
 }

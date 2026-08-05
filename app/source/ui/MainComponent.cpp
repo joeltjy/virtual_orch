@@ -990,17 +990,14 @@ void MainComponent::updateOutputProcessor() {
             break;
         case 1: // Virtual MIDI
             session.outputProcessor = std::make_unique<
-                MidiOutputProcessor>(MidiOutputType::VIRTUAL, "virtual-orch Virtual MIDI Output",
-                                     session.modelConfig.getOutputInstrumentsIds());
+                MidiOutputProcessor>(MidiOutputType::VIRTUAL, "virtual-orch Virtual MIDI Output");
 
             enableOscConfig = false;
             break;
         default: // Hardware MIDI
-            session.outputProcessor = std::make_unique<MidiOutputProcessor>(MidiOutputType::HARDWARE,
-                                                                    hardwareMidiOutputs[
-                                                                        outputList.getSelectedItemIndex() - 2].
-                                                                    identifier,
-                                                                    session.modelConfig.getOutputInstrumentsIds());
+            session.outputProcessor = std::make_unique<MidiOutputProcessor>(
+                MidiOutputType::HARDWARE,
+                hardwareMidiOutputs[outputList.getSelectedItemIndex() - 2].identifier);
 
             enableOscConfig = false;
             break;

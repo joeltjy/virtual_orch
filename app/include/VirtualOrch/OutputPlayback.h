@@ -4,17 +4,18 @@
 #include <memory>
 
 #include "Clock.h"
-#include "MusicTransformer.h"
 #include "OSCBufferOutputProcessor.h"
+#include "OrchestrationTransformer.h"
 #include "OutputProcessor.h"
+#include "orchestration-models/OrchestrationModel.h"
 
 /**
- * Anything in the MusicTransformer -> OutputProcessor pipeline.
+ * OrchestrationTransformer outputTokenQueue -> timed NoteOn/Off -> OutputProcessor.
  */
 class OutputPlayback : public juce::Thread {
 public:
     OutputPlayback(Clock &clock,
-                   MusicTransformer &musicTransformer,
+                   OrchestrationTransformer &orchestrationTransformer,
                    std::unique_ptr<OutputProcessor> &outputProcessor,
                    std::unique_ptr<OSCBufferOutputProcessor> &bufferOutputProcessor,
                    int32_t &visualizationBufferSize);
@@ -32,10 +33,10 @@ private:
         TokenNoteOff
     };
 
-    void handleNoteForOutput(Token token, TokenNoteType tokenEventType);
+    void handleNoteForOutput(const OrchestrationNote &note, TokenNoteType tokenEventType);
 
     Clock &clock;
-    MusicTransformer &musicTransformer;
+    OrchestrationTransformer &orchestrationTransformer;
     std::unique_ptr<OutputProcessor> &outputProcessor;
     std::unique_ptr<OSCBufferOutputProcessor> &bufferOutputProcessor;
     int32_t &visualizationBufferSize;

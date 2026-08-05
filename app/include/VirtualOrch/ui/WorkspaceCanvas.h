@@ -10,7 +10,8 @@
 class AppSession;
 
 /**
- * Hosts workspace widgets.
+ * Hosts workspace widgets. Widget positions are stored in a fixed design space
+ * (UiConstants::workspaceLayoutReference*) and scaled to the live canvas size.
  */
 class WorkspaceCanvas : public juce::Component, private juce::ComponentListener {
 public:
@@ -19,6 +20,8 @@ public:
     ~WorkspaceCanvas() override;
 
     auto paint(juce::Graphics &g) -> void override;
+
+    auto resized() -> void override;
 
     auto setSession(AppSession *sessionToUse) -> void;
 
@@ -47,8 +50,8 @@ public:
 
     auto endViewLayout() -> void;
 
-    /** Create + place a widget of the given type at bounds. No-op if type unknown. */
-    auto placeWidgetOfType(const juce::String &type, juce::Rectangle<int> bounds) -> void;
+    /** Create + place a widget; bounds are in design-space pixels. */
+    auto placeWidgetOfType(const juce::String &type, juce::Rectangle<int> designBounds) -> void;
 
     /** Prompt + Generation + Transport widgets for Default view. */
     auto addDefaultWidgets() -> void;
@@ -74,7 +77,8 @@ private:
 
     auto bindWidget(WorkspaceWidget &widget) -> void;
 
-    auto addWidget(std::unique_ptr<WorkspaceWidget> widget, juce::Rectangle<int> bounds) -> void;
+    auto addWidget(std::unique_ptr<WorkspaceWidget> widget, juce::Rectangle<int> designBounds)
+        -> void;
 
     auto nextCascadedBounds() -> juce::Rectangle<int>;
 
@@ -90,8 +94,19 @@ private:
     [[nodiscard]] auto createWidgetForType(const juce::String &type) const
         -> std::unique_ptr<WorkspaceWidget>;
 
+    [[nodiscard]] auto scaleDesignToCanvas(juce::Rectangle<int> designBounds) const
+        -> juce::Rectangle<int>;
+
+    [[nodiscard]] auto scaleCanvasToDesign(juce::Rectangle<int> canvasBounds) const
+        -> juce::Rectangle<int>;
+
+    auto applyDesignLayoutToCanvas() -> void;
+
+    auto syncDesignBoundsFromWidget(WorkspaceWidget &widget) -> void;
+
     AppSession *session = nullptr;
     std::vector<std::unique_ptr<WorkspaceWidget>> widgets;
+    std::vector<juce::Rectangle<int>> designBounds;
     int nextCascadeIndex = 0;
     bool suppressLayoutNotifications = false;
 

@@ -166,6 +166,9 @@ inline constexpr int workspaceWidgetMinVisibleEdge = 40;
 inline constexpr int workspaceWidgetCloseButtonWidth = 28;
 inline constexpr int workspaceWidgetCascadeOffsetX = 28;
 inline constexpr int workspaceWidgetCascadeOffsetY = 28;
+/** Design-space size for built-in / saved views; scaled to the live canvas. */
+inline constexpr int workspaceLayoutReferenceWidth = 1020;
+inline constexpr int workspaceLayoutReferenceHeight = 960;
 inline constexpr const char *workspaceStubWidgetTitle = "Stub Widget";
 inline constexpr const char *workspaceWidgetCloseButtonText = "X";
 

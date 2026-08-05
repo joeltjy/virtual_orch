@@ -1,10 +1,6 @@
 #include <JuceHeader.h>
 #include "VirtualOrch/ui/AppRootComponent.h"
 
-extern "C" {
-extern const char *BUILD_REV;
-}
-
 //==============================================================================
 class VirtualOrchApplication : public juce::JUCEApplication {
 public:
@@ -12,7 +8,7 @@ public:
     VirtualOrchApplication() {
     }
 
-    const juce::String getApplicationName() override { return ProjectInfo::projectName; }
+    const juce::String getApplicationName() override { return "Virtual Orchestra"; }
     const juce::String getApplicationVersion() override { return ProjectInfo::versionString; }
     bool moreThanOneInstanceAllowed() override { return true; }
 
@@ -50,7 +46,7 @@ public:
     class MainWindow : public juce::DocumentWindow {
     public:
         MainWindow(juce::String name)
-            : DocumentWindow(name + " - " + std::string(BUILD_REV),
+            : DocumentWindow(name,
                              juce::Desktop::getInstance().getDefaultLookAndFeel()
                              .findColour(juce::ResizableWindow::backgroundColourId),
                              DocumentWindow::allButtons) {

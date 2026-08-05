@@ -5,7 +5,9 @@
 #include <optional>
 #include <utility>
 
-/** 
+#include "VirtualOrch/GeneralMidiPitchRanges.h"
+
+/**
 Map between local instrument indices and General MIDI program IDs.
 
 Used because we aren't allowing that many instruments.
@@ -31,12 +33,72 @@ inline constexpr std::array<InstrumentPair, 19> kInstrumentMappings{{
     {11, 56}, // Trumpet
     {12, 57}, // Trombone
     {13, 58}, // Tuba
-    {14, 0}, // Piano   
+    {14, 0}, // Piano
     {15, 47}, // Timpani
     {16, 116}, // Snare Drum
     {17, 25}, // Acoustic guitar
     {18, 52}, // Choir
 }}; // TODO: add horn! How did i miss it
+
+/** Sentinel: local instrument is not routed to a MIDI output channel. */
+inline constexpr int32_t kNoOutputChannel = -1;
+
+/** Local id for String Ensemble 1 — routed by pitch to a solo string channel. */
+inline constexpr int32_t kStringEnsembleLocalId = 7;
+
+/** Solo strings, highest → lowest: violin, viola, cello, contrabass. */
+inline constexpr std::array<int32_t, 4> kSoloStringLocalIds{{0, 1, 2, 3}};
+
+/**
+ * 1-based MIDI output channel for each local instrument id [0, 18].
+ * kNoOutputChannel means do not send note on/off for that instrument
+ * (String Ensemble is resolved via pitch instead — see outputChannelForLocalInstrumentId).
+ */
+inline constexpr std::array<int32_t, 19> kLocalInstrumentOutputChannels{{
+    1,  2,  3,  4,  5,  6,  // 0–5
+    kNoOutputChannel, kNoOutputChannel, // 6–7 (harp; string ens. → pitch remap)
+    7,  8,  9, // 8–10
+    10, 11, 12, 13, // 11–14
+    kNoOutputChannel, // 15 (timpani)
+    14, 15, // 16–17
+    kNoOutputChannel, // 18 (choir)
+}};
+
+[[nodiscard]] inline auto gmIdForLocalInstrumentId(int32_t localInstrumentId) -> std::optional<int32_t> {
+    for (const auto &[localId, gmId]: kInstrumentMappings) {
+        if (localId == localInstrumentId)
+            return gmId;
+    }
+    return std::nullopt;
+}
+
+/**
+ * MIDI channel for a local instrument. For String Ensemble 1, picks the highest
+ * solo string (violin → viola → cello → bass) whose GM pitch range contains `pitch`.
+ */
+[[nodiscard]] inline auto outputChannelForLocalInstrumentId(int32_t localInstrumentId,
+                                                            int32_t pitch)
+    -> std::optional<int32_t> {
+    if (localInstrumentId == kStringEnsembleLocalId) {
+        for (const auto stringLocalId: kSoloStringLocalIds) {
+            const auto gmId = gmIdForLocalInstrumentId(stringLocalId);
+            if (! gmId.has_value())
+                continue;
+            const auto range = GeneralMidiPitchRanges::pitchRangeForId(*gmId);
+            if (pitch >= range.low && pitch <= range.high)
+                return kLocalInstrumentOutputChannels[static_cast<size_t>(stringLocalId)];
+        }
+        return std::nullopt;
+    }
+
+    if (localInstrumentId < 0
+        || localInstrumentId >= static_cast<int32_t>(kLocalInstrumentOutputChannels.size()))
+        return std::nullopt;
+    const auto channel = kLocalInstrumentOutputChannels[static_cast<size_t>(localInstrumentId)];
+    if (channel == kNoOutputChannel)
+        return std::nullopt;
+    return channel;
+}
 
 [[nodiscard]] auto toGmInstrumentId(int32_t localInstrumentId) -> std::optional<int32_t>;
 

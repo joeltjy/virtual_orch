@@ -37,6 +37,14 @@ auto OrchestrationTransformer::applyTokenUpdates() -> void {
     while (updatesIncoming.pull(update)) {
         applyTokenUpdateToHistory(midiInputHistory, update);
         applyTokenUpdateToHistory(conditioningHistory, update);
+
+        for (auto &note: outputHistory) {
+            if (tokenEquals(note.token, update.oldNote))
+                note.token = update.newNote;
+        }
+        
+        // for notes that were given the default duration.
+        outputDurationUpdates.push(update);
     }
 }
 
@@ -128,6 +136,7 @@ auto OrchestrationTransformer::packSortAndPushOutput(const std::vector<Orchestra
 }
 
 auto OrchestrationTransformer::pushOutputNote(const OrchestrationNote &note) -> void {
+    currentOTTime = note.token.time;
     outputTokenQueue.push(note);
     outputHistory.push_back(note);
 }
@@ -137,6 +146,7 @@ auto OrchestrationTransformer::clearOutputNotes() -> void {
     while (outputTokenQueue.pull(n)) {
     }
     outputHistory.clear();
+    currentOTTime = 0;
 }
 
 void OrchestrationTransformer::threadRun() {
@@ -149,6 +159,7 @@ void OrchestrationTransformer::threadRun() {
     clearOutputNotes();
     clearInstrumentUpdates();
     clearUpdatesIncoming();
+    clearOutputDurationUpdates();
     clearDebugSnapshot();
 
     while (! threadShouldExit()) {

@@ -13,7 +13,7 @@ AppSession::AppSession()
                                     musicTransformer.inputTokenQueue,
                                     musicTransformer.inputConditioningQueue,
                                     musicTransformer.updatesFromFilter)),
-      outputPlayback(clock, musicTransformer, outputProcessor, bufferOutputProcessor,
+      outputPlayback(clock, orchestrationTransformer, outputProcessor, bufferOutputProcessor,
                      visualizationBufferSize),
       midiInputProcess(clock, musicTransformer, modelConfig, outputProcessor, inputFilter,
                        selectedMidiInputIdentifier, selectedLaunchpadMidiIdentifier,
@@ -72,6 +72,9 @@ AppSession::~AppSession() {
     musicTransformer.stopThread(-1);
     orchestrationTransformer.stopThread(-1);
     outputPlayback.stopThread(-1);
+    // Silence hanging notes on quit (stopGeneration does this; destructor previously did not).
+    if (outputProcessor != nullptr)
+        outputProcessor->clear();
 }
 
 auto AppSession::rebuildInputFilter() -> void {

@@ -1,11 +1,8 @@
 #include "VirtualOrch/MidiOutputProcessor.h"
 
-#include <ranges>
-
 MidiOutputProcessor::MidiOutputProcessor(MidiOutputType midiOutputType,
-                                         const juce::String &midiOutputName,
-                                         std::vector<int32_t> generatedInstruments) : outputType(midiOutputType),
-    generatedInstruments(generatedInstruments) {
+                                         const juce::String &midiOutputName)
+    : outputType(midiOutputType) {
     switch (midiOutputType) {
         case VIRTUAL:
             midiOutput = juce::MidiOutput::createNewDevice(midiOutputName);
@@ -17,31 +14,24 @@ MidiOutputProcessor::MidiOutputProcessor(MidiOutputType midiOutputType,
 }
 
 MidiOutputProcessor::~MidiOutputProcessor() {
+    if (midiOutput != nullptr)
+        clear();
     midiOutput.reset();
 }
 
 void MidiOutputProcessor::send(const NoteOnEvent event) {
-    // Find the index of the instrument in the generated instruments
-    ptrdiff_t instrumentIndex = std::distance(generatedInstruments.begin(),
-                                              std::ranges::find(generatedInstruments, event.instrument));
-    // If the instrument is not found, use channel 16
-    if (instrumentIndex >= generatedInstruments.size()) {
-        instrumentIndex = 15;
-    }
-    // We add 1 to the instrument index because MIDI channels are 1-indexed
-    midiOutput->sendMessageNow(juce::MidiMessage::noteOn(instrumentIndex + 1, event.note, event.velocity));
+    const auto channel = channelForInstrument(event.instrument, event.note);
+    if (! channel.has_value() || midiOutput == nullptr)
+        return;
+    midiOutput->sendMessageNow(
+        juce::MidiMessage::noteOn(*channel, event.note, event.velocity));
 }
 
 void MidiOutputProcessor::send(const NoteOffEvent event) {
-    // Find the index of the instrument in the generated instruments
-    ptrdiff_t instrumentIndex = std::distance(generatedInstruments.begin(),
-                                              std::ranges::find(generatedInstruments, event.instrument));
-    // If the instrument is not found, use channel 16
-    if (instrumentIndex >= generatedInstruments.size()) {
-        instrumentIndex = 15;
-    }
-    // We add 1 to the instrument index because MIDI channels are 1-indexed
-    midiOutput->sendMessageNow(juce::MidiMessage::noteOff(instrumentIndex + 1, event.note));
+    const auto channel = channelForInstrument(event.instrument, event.note);
+    if (! channel.has_value() || midiOutput == nullptr)
+        return;
+    midiOutput->sendMessageNow(juce::MidiMessage::noteOff(*channel, event.note));
 }
 
 /**
@@ -55,6 +45,9 @@ void MidiOutputProcessor::relayMidi(const juce::MidiMessage &midiMessage) {
 }
 
 void MidiOutputProcessor::clear() {
+    OutputProcessor::clear();
+    if (midiOutput == nullptr)
+        return;
     // TODO Potentially use allNotesOff if supported by Omnisphere
     for (int32_t i = 0; i < 16; i++) {
         for (int32_t j = 0; j < 128; j++) {

@@ -64,6 +64,13 @@ public:
     CircularFifo<OrchestrationNote> outputTokenQueue;
     CircularFifo<InstrumentUpdate> instrumentUpdates;
     CircularFifo<TokenUpdate> updatesIncoming;
+    /** Duration/content corrections for notes already pushed to OutputPlayback. */
+    CircularFifo<TokenUpdate> outputDurationUpdates;
+
+    /** Latest processed orchestra note. */
+    int32_t currentOTTime = 0;
+
+    [[nodiscard]] auto getCurrentOTTime() const -> int32_t { return currentOTTime; }
 
     /** Local instrument ids used by Edit/Jam and ActiveInstruments UI. */
     std::set<int32_t> userInstruments;
@@ -158,6 +165,12 @@ private:
     auto clearUpdatesIncoming() -> void {
         TokenUpdate u{};
         while (updatesIncoming.pull(u)) {
+        }
+    }
+
+    auto clearOutputDurationUpdates() -> void {
+        TokenUpdate u{};
+        while (outputDurationUpdates.pull(u)) {
         }
     }
 

@@ -2,7 +2,53 @@
 #include "VirtualOrch/OrtEnv.h"
 
 #include <array>
+#include <cmath>
+#include <limits>
 #include <numeric>
+#include <unordered_set>
+
+namespace {
+
+constexpr float kMaskedLogit = -std::numeric_limits<float>::infinity();
+
+auto familyAllowedBits(const std::vector<int32_t> &instruments,
+                       int32_t familyIdOffset,
+                       int32_t familySize) -> int32_t {
+    int32_t bits = 0;
+    for (const int32_t id: instruments) {
+        const int32_t rel = id - familyIdOffset;
+        if (rel >= 0 && rel < familySize)
+            bits |= (1 << rel);
+    }
+    return bits;
+}
+
+auto combosFromAllowedBits(int32_t allowedBits, int32_t familySize) -> std::vector<int32_t> {
+    std::vector<int32_t> combos;
+    const int32_t limit = 1 << familySize;
+    for (int32_t combo = 0; combo < limit; ++combo) {
+        if ((combo & ~allowedBits) == 0)
+            combos.push_back(combo);
+    }
+    return combos;
+}
+
+auto maskRowToAllowed(std::vector<float> &logits,
+                      size_t row,
+                      size_t vocab,
+                      const std::vector<int32_t> &allowedTokens) -> void {
+    if (row * vocab + vocab > logits.size())
+        return;
+
+    std::unordered_set<int32_t> allowed(allowedTokens.begin(), allowedTokens.end());
+    float *rowData = logits.data() + row * vocab;
+    for (size_t v = 0; v < vocab; ++v) {
+        if (! allowed.contains(static_cast<int32_t>(v)))
+            rowData[v] = kMaskedLogit;
+    }
+}
+
+} // namespace
 
 InstrumentCombinations::InstrumentCombinations() = default;
 
@@ -139,9 +185,76 @@ auto InstrumentCombinations::runModelAndGetLogits(std::vector<int32_t> &tokens)
     return {};
 }
 
-auto InstrumentCombinations::maskLogits(std::vector<float> &logits, size_t numTokens, size_t vocab) const
-    -> void {
-    juce::ignoreUnused(logits, numTokens, vocab);
+auto InstrumentCombinations::allowedTokensForFamily(size_t familyIndex,
+                                                    const std::vector<int32_t> &instruments) const
+    -> std::vector<int32_t> {
+    static constexpr std::array<int32_t, 4> familySizes = {numStrings, numWoodwinds, numBrass, numOther};
+    static constexpr std::array<int32_t, 4> familyTokenOffsets = {
+        stringsOffset, woodwindOffset, brassOffset, otherOffset};
+    static constexpr std::array<int32_t, 4> familyIdOffsets = {
+        0,
+        numStrings,
+        numStrings + numWoodwinds,
+        numStrings + numWoodwinds + numBrass,
+    };
+
+    jassert(familyIndex < 4);
+    const int32_t familySize = familySizes[familyIndex];
+    const int32_t tokenOffset = familyTokenOffsets[familyIndex];
+    const int32_t idOffset = familyIdOffsets[familyIndex];
+    const int32_t allowedBits = familyAllowedBits(instruments, idOffset, familySize);
+
+    if (allowedBits == 0)
+        return {endNote};
+
+    std::vector<int32_t> tokens;
+    for (const int32_t combo: combosFromAllowedBits(allowedBits, familySize))
+        tokens.push_back(tokenOffset + combo);
+    return tokens;
+}
+
+auto InstrumentCombinations::allowedTokensForGroups(const std::vector<int32_t> &instruments) const
+    -> std::vector<int32_t> {
+    static constexpr int32_t numFamilies = 4;
+    static constexpr std::array<int32_t, 4> familySizes = {numStrings, numWoodwinds, numBrass, numOther};
+    static constexpr std::array<int32_t, 4> familyIdOffsets = {
+        0,
+        numStrings,
+        numStrings + numWoodwinds,
+        numStrings + numWoodwinds + numBrass,
+    };
+
+    int32_t activeFamilies = 0;
+    for (size_t family = 0; family < numFamilies; ++family) {
+        if (familyAllowedBits(instruments, familyIdOffsets[family], familySizes[family]) != 0)
+            activeFamilies |= (1 << static_cast<int32_t>(family));
+    }
+
+    std::vector<int32_t> tokens;
+    for (const int32_t combo: combosFromAllowedBits(activeFamilies, numFamilies))
+        tokens.push_back(groupsOffset + combo);
+    return tokens;
+}
+
+auto InstrumentCombinations::maskLogits(std::vector<float> &logits,
+                                        size_t numTokens,
+                                        size_t vocab,
+                                        const std::vector<int32_t> &instruments) const -> void {
+    if (numTokens == 0 || vocab == 0 || logits.size() != numTokens * vocab)
+        return;
+
+    const auto groupsAllowed = allowedTokensForGroups(instruments);
+    std::array<std::vector<int32_t>, 4> familyAllowed{};
+    for (size_t family = 0; family < 4; ++family)
+        familyAllowed[family] = allowedTokensForFamily(family, instruments);
+
+    const size_t numNotes = numTokens / static_cast<size_t>(tokensPerNote);
+    for (size_t note = 0; note < numNotes; ++note) {
+        const size_t base = note * static_cast<size_t>(tokensPerNote);
+        maskRowToAllowed(logits, base + 4, vocab, groupsAllowed);
+        for (size_t family = 0; family < 4; ++family)
+            maskRowToAllowed(logits, base + 5 + family, vocab, familyAllowed[family]);
+    }
 }
 
 auto InstrumentCombinations::sample(const std::vector<int32_t> &maskedTokens,
@@ -238,7 +351,7 @@ auto InstrumentCombinations::getOutput(const std::vector<Token> &incomingTokens,
                                        const std::vector<int32_t> &instruments,
                                        const ConditioningSignal &conditioningSignal)
     -> std::vector<OrchestrationNote> {
-    juce::ignoreUnused(instruments, conditioningSignal);
+    juce::ignoreUnused(conditioningSignal);
 
     if (incomingTokens.empty() || session == nullptr)
         return {};
@@ -260,7 +373,7 @@ auto InstrumentCombinations::getOutput(const std::vector<Token> &incomingTokens,
         logitsAll.end());
     jassert(logits.size() == newTokenCount * vocab);
 
-    maskLogits(logits, newTokenCount, vocab);
+    maskLogits(logits, newTokenCount, vocab, instruments);
     const auto sampled = sample(newTokens, logits, vocab);
     const auto result = encodedCombinationToInstruments(sampled);
     updateHistories(result, sampled);

@@ -44,6 +44,15 @@ public:
     [[nodiscard]] auto encodedCombinationToInstruments(const std::vector<int32_t> &sampledTokens) const
         -> std::vector<OrchestrationNote>;
 
+    /** Allowed vocab ids for family slot 0=strings..3=other given active local instruments. */
+    [[nodiscard]] auto allowedTokensForFamily(size_t familyIndex,
+                                              const std::vector<int32_t> &instruments) const
+        -> std::vector<int32_t>;
+
+    /** Allowed vocab ids for the groups slot (token index 4) given active local instruments. */
+    [[nodiscard]] auto allowedTokensForGroups(const std::vector<int32_t> &instruments) const
+        -> std::vector<int32_t>;
+
 private:
     [[nodiscard]] auto tokensToInput(const std::vector<Token> &incomingTokens) const
         -> std::vector<int32_t>;
@@ -54,8 +63,11 @@ private:
     auto runModelAndGetLogits(std::vector<int32_t> &tokens)
         -> std::pair<std::vector<float>, size_t>;
 
-    /** Stub: mask (9N, vocab) logits in-place. TBD. */
-    auto maskLogits(std::vector<float> &logits, size_t numTokens, size_t vocab) const -> void;
+    /** Mask combination slots (groups + 4 families) from the active instrument list. */
+    auto maskLogits(std::vector<float> &logits,
+                    size_t numTokens,
+                    size_t vocab,
+                    const std::vector<int32_t> &instruments) const -> void;
 
     [[nodiscard]] auto sample(const std::vector<int32_t> &maskedTokens,
                               std::vector<float> &logits,

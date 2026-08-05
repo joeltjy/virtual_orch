@@ -18,7 +18,7 @@ inline constexpr int32_t kGmInstrumentCount = 128;
 
 using InstrumentPair = std::pair<int32_t, int32_t>; // {local, gm}
 
-inline constexpr std::array<InstrumentPair, 19> kInstrumentMappings{{
+inline constexpr std::array<InstrumentPair, 20> kInstrumentMappings{{
     {0, 40}, // Violin
     {1, 41}, // Viola
     {2, 42}, // Cello
@@ -31,14 +31,15 @@ inline constexpr std::array<InstrumentPair, 19> kInstrumentMappings{{
     {9, 71}, // Clarinet
     {10, 70}, // Bassoon
     {11, 56}, // Trumpet
-    {12, 57}, // Trombone
-    {13, 58}, // Tuba
-    {14, 0}, // Piano
-    {15, 47}, // Timpani
-    {16, 116}, // Snare Drum
-    {17, 25}, // Acoustic guitar
-    {18, 52}, // Choir
-}}; // TODO: add horn! How did i miss it
+    {12, 60}, // French Horn
+    {13, 57}, // Trombone
+    {14, 58}, // Tuba
+    {15, 0}, // Piano
+    {16, 47}, // Timpani
+    {17, 116}, // Snare Drum
+    {18, 25}, // Acoustic guitar
+    {19, 52}, // Choir
+}};
 
 /** Sentinel: local instrument is not routed to a MIDI output channel. */
 inline constexpr int32_t kNoOutputChannel = -1;
@@ -50,18 +51,18 @@ inline constexpr int32_t kStringEnsembleLocalId = 7;
 inline constexpr std::array<int32_t, 4> kSoloStringLocalIds{{0, 1, 2, 3}};
 
 /**
- * 1-based MIDI output channel for each local instrument id [0, 18].
+ * 1-based MIDI output channel for each local instrument id [0, 19].
  * kNoOutputChannel means do not send note on/off for that instrument
  * (String Ensemble is resolved via pitch instead — see outputChannelForLocalInstrumentId).
  */
-inline constexpr std::array<int32_t, 19> kLocalInstrumentOutputChannels{{
+inline constexpr std::array<int32_t, 20> kLocalInstrumentOutputChannels{{
     1,  2,  3,  4,  5,  6,  // 0–5
     kNoOutputChannel, kNoOutputChannel, // 6–7 (harp; string ens. → pitch remap)
-    7,  8,  9, // 8–10
-    10, 11, 12, 13, // 11–14
-    kNoOutputChannel, // 15 (timpani)
-    14, 15, // 16–17
-    kNoOutputChannel, // 18 (choir)
+    7,  8,  9, // 8–10 woodwinds
+    10, 11, 12, 13, 14, // 11–15: trumpet, horn, trombone, tuba, piano
+    kNoOutputChannel, // 16 (timpani)
+    15, 16, // 17–18 snare, guitar
+    kNoOutputChannel, // 19 (choir)
 }};
 
 [[nodiscard]] inline auto gmIdForLocalInstrumentId(int32_t localInstrumentId) -> std::optional<int32_t> {

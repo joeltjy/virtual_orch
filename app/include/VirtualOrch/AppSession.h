@@ -5,6 +5,7 @@
 #include <memory>
 
 #include "VirtualOrch/Clock.h"
+#include "VirtualOrch/DenseMusicTransformer.h"
 #include "VirtualOrch/InputFilter.h"
 #include "VirtualOrch/MidiInputProcess.h"
 #include "VirtualOrch/MusicTransformer.h"
@@ -42,7 +43,9 @@ public:
     juce::String selectedMtcClockIdentifier;
     bool mtcClockActive = false;
 
+    MusicModelArch musicModelArch = MusicModelArch::Amt;
     MusicTransformer musicTransformer;
+    DenseMusicTransformer denseMusicTransformer;
     OrchestrationTransformer orchestrationTransformer;
     std::unique_ptr<OrchestrationModel> orchestrationModel;
     TestOrchestrationTransformerThread testOrchestrationTransformerThread;
@@ -51,6 +54,21 @@ public:
     MidiInputProcess midiInputProcess;
 
     auto rebuildInputFilter() -> void;
+
+    /** Point input filter + OT hooks at the active music backend. */
+    auto bindActiveMusicBackend() -> void;
+
+    auto setMusicModelArch(MusicModelArch arch) -> void;
+
+    [[nodiscard]] auto isMusicModelLoaded() const -> bool;
+
+    [[nodiscard]] auto isMusicThreadRunning() const -> bool;
+
+    auto getMusicDirectInputBlock() -> juce::Atomic<bool> &;
+
+    [[nodiscard]] auto getActiveInputData() const -> std::vector<int32_t>;
+
+    auto setOnInputDataChanged(std::function<void(std::vector<int32_t>)> callback) -> void;
 
     auto setOrchestrationModel(const juce::String &name) -> bool;
 

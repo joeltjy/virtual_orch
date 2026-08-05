@@ -28,7 +28,7 @@ WorkspaceCanvas::~WorkspaceCanvas() {
         widget->removeComponentListener(this);
 
     if (session != nullptr)
-        session->musicTransformer.onInputDataChanged = nullptr;
+        session->setOnInputDataChanged(nullptr);
 }
 
 auto WorkspaceCanvas::paint(juce::Graphics &g) -> void {
@@ -41,7 +41,7 @@ auto WorkspaceCanvas::resized() -> void {
 
 auto WorkspaceCanvas::setSession(AppSession *sessionToUse) -> void {
     if (session != nullptr)
-        session->musicTransformer.onInputDataChanged = nullptr;
+        session->setOnInputDataChanged(nullptr);
 
     session = sessionToUse;
     rebindInputDataCallback();
@@ -349,7 +349,7 @@ auto WorkspaceCanvas::rebindInputDataCallback() -> void {
         return;
 
     juce::Component::SafePointer<WorkspaceCanvas> safeThis(this);
-    session->musicTransformer.onInputDataChanged = [safeThis](std::vector<int32_t> data) {
+    session->setOnInputDataChanged([safeThis](std::vector<int32_t> data) {
         if (safeThis == nullptr)
             return;
 
@@ -359,14 +359,14 @@ auto WorkspaceCanvas::rebindInputDataCallback() -> void {
                 static_cast<PromptWidget *>(widget.get())->setInputData(data);
             }
         }
-    };
+    });
 }
 
 auto WorkspaceCanvas::refreshPromptWidgetsFromSession() -> void {
     if (session == nullptr)
         return;
 
-    const auto &data = session->musicTransformer.getInputData();
+    const auto data = session->getActiveInputData();
     for (auto &widget : widgets) {
         if (widget != nullptr && widget->getWidgetType() == UiConstants::workspaceWidgetTypePrompt)
             static_cast<PromptWidget *>(widget.get())->setInputData(data);

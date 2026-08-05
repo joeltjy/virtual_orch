@@ -100,10 +100,12 @@ target_link_libraries(VirtualOrchLibrary
 # Prevent GTK and curl dependencies
 target_compile_definitions(${PROJECT_NAME} PRIVATE
   JUCE_WEB_BROWSER=0
-  JUCE_USE_CURL=0)
+  JUCE_USE_CURL=0
+  VIRTUAL_ORCH_APP_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_definitions(VirtualOrchLibrary PRIVATE
   JUCE_WEB_BROWSER=0
-  JUCE_USE_CURL=0)
+  JUCE_USE_CURL=0
+  VIRTUAL_ORCH_APP_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_definitions(cmp_plot PRIVATE
   JUCE_WEB_BROWSER=0
   JUCE_USE_CURL=0)

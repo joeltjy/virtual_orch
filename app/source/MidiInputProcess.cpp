@@ -114,6 +114,8 @@ auto prepareLaunchpadForLeds(juce::MidiOutput &output, LaunchpadFamily family) -
 
 MidiInputProcess::MidiInputProcess(Clock &clock,
                                    MusicTransformer &musicTransformer,
+                                   DenseMusicTransformer &denseMusicTransformer,
+                                   MusicModelArch &musicModelArch,
                                    ModelConfig &modelConfig,
                                    std::unique_ptr<OutputProcessor> &outputProcessor,
                                    std::unique_ptr<InputFilter> &inputFilter,
@@ -123,6 +125,8 @@ MidiInputProcess::MidiInputProcess(Clock &clock,
                                    bool &mtcClockActive)
     : clock(clock),
       musicTransformer(musicTransformer),
+      denseMusicTransformer(denseMusicTransformer),
+      musicModelArch(musicModelArch),
       modelConfig(modelConfig),
       outputProcessor(outputProcessor),
       inputFilter(inputFilter),
@@ -139,6 +143,16 @@ MidiInputProcess::MidiInputProcess(Clock &clock,
                          midiNote,
                          paletteColour);
     };
+}
+
+auto MidiInputProcess::isMusicThreadRunning() const -> bool {
+    return musicModelArch == MusicModelArch::Dense ? denseMusicTransformer.isThreadRunning()
+                                                   : musicTransformer.isThreadRunning();
+}
+
+auto MidiInputProcess::musicDirectInputBlock() -> juce::Atomic<bool> & {
+    return musicModelArch == MusicModelArch::Dense ? denseMusicTransformer.directInputBlock
+                                                   : musicTransformer.directInputBlock;
 }
 
 MidiInputProcess::~MidiInputProcess() {
@@ -223,9 +237,9 @@ void MidiInputProcess::timerCallback() {
     }
 
     std::optional<int32_t> atTime;
-    if (modelConfig.directInputStartOnInput && musicTransformer.directInputBlock.get()) {
+    if (modelConfig.directInputStartOnInput && musicDirectInputBlock().get()) {
         atTime = static_cast<int32_t>(lastTokenAddedTime + modelConfig.directInputStartDelay);
-        musicTransformer.directInputBlock = false;
+        musicDirectInputBlock() = false;
     }
     const int32_t stamp = atTime.value_or(static_cast<int32_t>(lastTokenAddedTime));
     const int32_t defaultDur = static_cast<int32_t>(Vocab::DurOffset + modelConfig.inputDuration);
@@ -246,7 +260,8 @@ void MidiInputProcess::timerCallback() {
             .time = stamp,
             .duration = defaultDur,
             .note = static_cast<int32_t>(Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument
-                                         + pitch)
+                                         + pitch),
+            .velocity = note.velocity
         });
         note.flushedTime = stamp;
     }
@@ -371,9 +386,7 @@ void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const 
 }
 
 void MidiInputProcess::handleNoteOn(int midiNoteNumber, float velocity) {
-    juce::ignoreUnused(velocity);
-
-    if (!musicTransformer.isThreadRunning()) {
+    if (! isMusicThreadRunning()) {
         std::cout << "input token dropped: thread not running (note on)" << std::endl;
         return;
     }
@@ -383,10 +396,14 @@ void MidiInputProcess::handleNoteOn(int midiNoteNumber, float velocity) {
         return;
     }
 
+    const int32_t midiVelocity =
+        juce::jlimit(0, 127, juce::roundToInt(velocity));
+
     uint32_t time = clock.getTime();
     Token inputToken = {
         static_cast<int32_t>(time), static_cast<int32_t>(Vocab::DurOffset + modelConfig.inputDuration),
-        static_cast<int32_t>(Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument + midiNoteNumber)
+        static_cast<int32_t>(Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument + midiNoteNumber),
+        midiVelocity > 0 ? midiVelocity : 100
     };
 
     if (modelConfig.inputMode == InputMode::Direct) {
@@ -398,7 +415,8 @@ void MidiInputProcess::handleNoteOn(int midiNoteNumber, float velocity) {
             bassHeld = inputToken.note;
             DBG("Setting bass to " + std::to_string(bassHeld.value()));
         } else {
-            notesOnToSend[midiNoteNumber] = HeldDirectNote{.onset = time, .flushedTime = std::nullopt};
+            notesOnToSend[midiNoteNumber] = HeldDirectNote{
+                .onset = time, .flushedTime = std::nullopt, .velocity = inputToken.velocity};
         }
         lastTokenAddedTime = time;
         if (!isTimerRunning()) {
@@ -428,7 +446,7 @@ void MidiInputProcess::handleNoteOn(int midiNoteNumber, float velocity) {
 }
 
 void MidiInputProcess::handleNoteOff(int midiNoteNumber) {
-    if (!musicTransformer.isThreadRunning()) {
+    if (! isMusicThreadRunning()) {
         std::cout << "input token dropped: thread not running (note off)" << std::endl;
         return;
     }
@@ -457,13 +475,15 @@ void MidiInputProcess::handleNoteOff(int midiNoteNumber) {
 
         if (it->second.flushedTime.has_value()) {
             const int32_t stamp = *it->second.flushedTime;
+            const int32_t vel = it->second.velocity;
             inputFilter->updatesFromMain.push({
-                .oldNote = Token{stamp, defaultDur, noteId},
-                .newNote = Token{stamp, correctDur, noteId}
+                .oldNote = Token{stamp, defaultDur, noteId, vel},
+                .newNote = Token{stamp, correctDur, noteId, vel}
             });
             inputFilter->processUpdates();
         } else {
-            inputFilter->filter(Token{static_cast<int32_t>(onset), correctDur, noteId});
+            inputFilter->filter(
+                Token{static_cast<int32_t>(onset), correctDur, noteId, it->second.velocity});
         }
     }
 

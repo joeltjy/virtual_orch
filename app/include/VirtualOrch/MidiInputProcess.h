@@ -11,17 +11,20 @@
 #include "Fifo.h"
 #include "MusicTransformer.h"
 #include "OutputProcessor.h"
+#include "VirtualOrch/DenseMusicTransformer.h"
 #include "VirtualOrch/InputFilter.h"
 #include "VirtualOrch/LaunchpadGrid.h"
 
 /**
- * MIDI / MTC input → tokens into MusicTransformer via InputFilter.
+ * MIDI / MTC input → tokens into the active music backend via InputFilter.
  * Owns windowing, buffer/direct modes, and note collection state.
  */
 class MidiInputProcess : public juce::MidiInputCallback, public juce::Timer {
 public:
     MidiInputProcess(Clock &clock,
                      MusicTransformer &musicTransformer,
+                     DenseMusicTransformer &denseMusicTransformer,
+                     MusicModelArch &musicModelArch,
                      ModelConfig &modelConfig,
                      std::unique_ptr<OutputProcessor> &outputProcessor,
                      std::unique_ptr<InputFilter> &inputFilter,
@@ -60,8 +63,14 @@ private:
 
     void handleNoteOff(int midiNoteNumber);
 
+    [[nodiscard]] auto isMusicThreadRunning() const -> bool;
+
+    [[nodiscard]] auto musicDirectInputBlock() -> juce::Atomic<bool> &;
+
     Clock &clock;
     MusicTransformer &musicTransformer;
+    DenseMusicTransformer &denseMusicTransformer;
+    MusicModelArch &musicModelArch;
     ModelConfig &modelConfig;
     std::unique_ptr<OutputProcessor> &outputProcessor;
     std::unique_ptr<InputFilter> &inputFilter;
@@ -82,6 +91,7 @@ private:
     struct HeldDirectNote {
         uint32_t onset = 0;
         std::optional<int32_t> flushedTime;
+        int32_t velocity = 100;
     };
 
     std::deque<Token> tokensToSend;

@@ -7,6 +7,7 @@ AppSession::AppSession()
     : presetStore(modelConfig),
       clock(metrics),
       musicTransformer(modelConfig),
+      denseMusicTransformer(modelConfig),
       orchestrationModel(createOrchestrationModel("TestModel")),
       inputFilter(createInputFilter(modelConfig.inputFilterType,
                                     modelConfig,
@@ -15,13 +16,18 @@ AppSession::AppSession()
                                     musicTransformer.updatesFromFilter)),
       outputPlayback(clock, orchestrationTransformer, outputProcessor, bufferOutputProcessor,
                      visualizationBufferSize),
-      midiInputProcess(clock, musicTransformer, modelConfig, outputProcessor, inputFilter,
-                       selectedMidiInputIdentifier, selectedLaunchpadMidiIdentifier,
-                       selectedMtcClockIdentifier, mtcClockActive) {
-    musicTransformer.orchestrationMidiIncoming = &orchestrationTransformer.midiInputIncoming;
-    musicTransformer.orchestrationConditioningIncoming =
-        &orchestrationTransformer.conditioningIncoming;
-    musicTransformer.orchestrationUpdatesIncoming = &orchestrationTransformer.updatesIncoming;
+      midiInputProcess(clock,
+                       musicTransformer,
+                       denseMusicTransformer,
+                       musicModelArch,
+                       modelConfig,
+                       outputProcessor,
+                       inputFilter,
+                       selectedMidiInputIdentifier,
+                       selectedLaunchpadMidiIdentifier,
+                       selectedMtcClockIdentifier,
+                       mtcClockActive) {
+    bindActiveMusicBackend();
     midiInputProcess.getLaunchpadGrid().instrumentUpdates =
         &orchestrationTransformer.instrumentUpdates;
     auto &pads = midiInputProcess.getLaunchpadGrid().padInstruments;
@@ -70,19 +76,90 @@ AppSession::AppSession()
 AppSession::~AppSession() {
     testOrchestrationTransformerThread.stop();
     musicTransformer.stopThread(-1);
+    denseMusicTransformer.stopThread(-1);
     orchestrationTransformer.stopThread(-1);
     outputPlayback.stopThread(-1);
-    // Silence hanging notes on quit (stopGeneration does this; destructor previously did not).
     if (outputProcessor != nullptr)
         outputProcessor->clear();
 }
 
 auto AppSession::rebuildInputFilter() -> void {
-    inputFilter = createInputFilter(modelConfig.inputFilterType,
-                                    modelConfig,
-                                    musicTransformer.inputTokenQueue,
-                                    musicTransformer.inputConditioningQueue,
-                                    musicTransformer.updatesFromFilter);
+    if (musicModelArch == MusicModelArch::Dense) {
+        inputFilter = createInputFilter(modelConfig.inputFilterType,
+                                        modelConfig,
+                                        denseMusicTransformer.inputTokenQueue,
+                                        denseMusicTransformer.inputConditioningQueue,
+                                        denseMusicTransformer.updatesFromFilter);
+    } else {
+        inputFilter = createInputFilter(modelConfig.inputFilterType,
+                                        modelConfig,
+                                        musicTransformer.inputTokenQueue,
+                                        musicTransformer.inputConditioningQueue,
+                                        musicTransformer.updatesFromFilter);
+    }
+}
+
+auto AppSession::bindActiveMusicBackend() -> void {
+    musicTransformer.orchestrationMidiIncoming = nullptr;
+    musicTransformer.orchestrationConditioningIncoming = nullptr;
+    musicTransformer.orchestrationUpdatesIncoming = nullptr;
+    denseMusicTransformer.orchestrationMidiIncoming = nullptr;
+    denseMusicTransformer.orchestrationConditioningIncoming = nullptr;
+    denseMusicTransformer.orchestrationUpdatesIncoming = nullptr;
+
+    if (musicModelArch == MusicModelArch::Dense) {
+        denseMusicTransformer.orchestrationMidiIncoming = &orchestrationTransformer.midiInputIncoming;
+        denseMusicTransformer.orchestrationConditioningIncoming =
+            &orchestrationTransformer.conditioningIncoming;
+        denseMusicTransformer.orchestrationUpdatesIncoming =
+            &orchestrationTransformer.updatesIncoming;
+    } else {
+        musicTransformer.orchestrationMidiIncoming = &orchestrationTransformer.midiInputIncoming;
+        musicTransformer.orchestrationConditioningIncoming =
+            &orchestrationTransformer.conditioningIncoming;
+        musicTransformer.orchestrationUpdatesIncoming = &orchestrationTransformer.updatesIncoming;
+    }
+
+    rebuildInputFilter();
+}
+
+auto AppSession::setMusicModelArch(MusicModelArch arch) -> void {
+    auto callback = musicTransformer.onInputDataChanged;
+    if (callback == nullptr)
+        callback = denseMusicTransformer.onInputDataChanged;
+
+    musicModelArch = arch;
+    bindActiveMusicBackend();
+    setOnInputDataChanged(std::move(callback));
+}
+
+auto AppSession::isMusicModelLoaded() const -> bool {
+    return musicModelArch == MusicModelArch::Dense ? denseMusicTransformer.isModelLoaded()
+                                                   : musicTransformer.isModelLoaded();
+}
+
+auto AppSession::isMusicThreadRunning() const -> bool {
+    return musicModelArch == MusicModelArch::Dense ? denseMusicTransformer.isThreadRunning()
+                                                   : musicTransformer.isThreadRunning();
+}
+
+auto AppSession::getMusicDirectInputBlock() -> juce::Atomic<bool> & {
+    return musicModelArch == MusicModelArch::Dense ? denseMusicTransformer.directInputBlock
+                                                   : musicTransformer.directInputBlock;
+}
+
+auto AppSession::getActiveInputData() const -> std::vector<int32_t> {
+    return musicModelArch == MusicModelArch::Dense ? denseMusicTransformer.getInputData()
+                                                   : musicTransformer.getInputData();
+}
+
+auto AppSession::setOnInputDataChanged(std::function<void(std::vector<int32_t>)> callback) -> void {
+    musicTransformer.onInputDataChanged = nullptr;
+    denseMusicTransformer.onInputDataChanged = nullptr;
+    if (musicModelArch == MusicModelArch::Dense)
+        denseMusicTransformer.onInputDataChanged = std::move(callback);
+    else
+        musicTransformer.onInputDataChanged = std::move(callback);
 }
 
 auto AppSession::setOrchestrationModel(const juce::String &name) -> bool {
@@ -97,7 +174,7 @@ auto AppSession::setOrchestrationModel(const juce::String &name) -> bool {
 }
 
 auto AppSession::startGeneration() -> void {
-    if (! musicTransformer.isModelLoaded()) {
+    if (! isMusicModelLoaded()) {
         juce::AlertWindow::showMessageBoxAsync(
             juce::AlertWindow::WarningIcon,
             UiConstants::workspaceGenerationNoModelTitle,
@@ -105,17 +182,20 @@ auto AppSession::startGeneration() -> void {
         return;
     }
 
-    if (modelConfig.inputMode == InputMode::Direct && modelConfig.directInputStartOnInput) {
-        musicTransformer.directInputBlock = true;
-    } else {
-        musicTransformer.directInputBlock = false;
-    }
+    if (modelConfig.inputMode == InputMode::Direct && modelConfig.directInputStartOnInput)
+        getMusicDirectInputBlock() = true;
+    else
+        getMusicDirectInputBlock() = false;
 
     midiInputProcess.resetForStart();
     if (inputFilter != nullptr)
         inputFilter->reset();
 
-    musicTransformer.startThread();
+    if (musicModelArch == MusicModelArch::Dense)
+        denseMusicTransformer.startThread();
+    else
+        musicTransformer.startThread();
+
     orchestrationTransformer.startThread();
     outputPlayback.startThread();
     if (! mtcClockActive) {
@@ -130,10 +210,11 @@ auto AppSession::startGeneration() -> void {
 auto AppSession::stopGeneration() -> void {
     testOrchestrationTransformerThread.stop();
     musicTransformer.signalThreadShouldExit();
+    denseMusicTransformer.signalThreadShouldExit();
     orchestrationTransformer.signalThreadShouldExit();
     outputPlayback.signalThreadShouldExit();
-    // Join before callers replace the ORT session (e.g. updateModel).
     musicTransformer.stopThread(-1);
+    denseMusicTransformer.stopThread(-1);
     orchestrationTransformer.stopThread(-1);
     outputPlayback.stopThread(-1);
     clock.stop();

@@ -5,6 +5,7 @@
 #include "VirtualOrch/MidiOutputProcessor.h"
 #include "VirtualOrch/OSCOutputProcessor.h"
 #include "VirtualOrch/OSCController.h"
+#include "VirtualOrch/ProjectPaths.h"
 #include "VirtualOrch/orchestration-models/OrchestrationModels.h"
 
 //==============================================================================
@@ -317,9 +318,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
 
     addAndMakeVisible(modelList);
     modelList.setTextWhenNoChoicesAvailable("No Models Available");
-    juce::File modelsDir = juce::File::getSpecialLocation(juce::File::SpecialLocationType::userDocumentsDirectory)
-            .getChildFile("virtual-orch")
-            .getChildFile("Models");
+    juce::File modelsDir = projectModelsDir();
 
     juce::Array<juce::File> modelFiles;
     modelsDir.findChildFiles(modelFiles, juce::File::findFiles, false, "*.onnx");
@@ -613,7 +612,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
         if (outputStream->openedOk()) {
             outputStream->setPosition(0);
             outputStream->truncate();
-            for (const auto &token: session.musicTransformer.getInputData()) {
+            for (const auto &token: session.getActiveInputData()) {
                 outputStream->writeText(std::to_string(token) + " ", false, false, "\n");
             }
         }
@@ -809,33 +808,34 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
     }
 
     // Get Model Config File
-    juce::File modelsDir = juce::File::getSpecialLocation(juce::File::SpecialLocationType::userDocumentsDirectory)
-            .getChildFile("virtual-orch")
-            .getChildFile("Models");
+    juce::File modelsDir = projectModelsDir();
     const auto modelName = modelList.getItemText(modelList.getSelectedItemIndex());
     juce::File jsonFile(modelsDir.getChildFile(modelName + ".json"));
     juce::var parsedJson = juce::JSON::parse(jsonFile.loadFileAsString());
 
-    // MODEL CONFIG: Set Model Size
+    const juce::String arch = parsedJson.getProperty("arch", "amt").toString().toLowerCase();
+    const bool isDense = arch == "dense";
+
+    // MODEL CONFIG: Set Model Size (AMT only)
     ModelType modelType = ModelType::Small;
-    juce::String modelSize = parsedJson.getProperty("size", "").toString();
-    if (modelSize == "small") {
-        modelType = ModelType::Small;
-    } else if (modelSize == "medium") {
-        modelType = ModelType::Medium;
-    } else if (modelSize == "") {
-        juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Error",
-                                               "Model Config is invalid (size not given).");
-        modelList.setSelectedId(0, juce::dontSendNotification);
-
-
-        return;
-    } else {
-        juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Error",
-                                               "Model Config is invalid (size '" + modelSize +
-                                               "' is not valid).");
-        modelList.setSelectedId(0, juce::dontSendNotification);
-        return;
+    if (! isDense) {
+        juce::String modelSize = parsedJson.getProperty("size", "").toString();
+        if (modelSize == "small") {
+            modelType = ModelType::Small;
+        } else if (modelSize == "medium") {
+            modelType = ModelType::Medium;
+        } else if (modelSize == "") {
+            juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Error",
+                                                   "Model Config is invalid (size not given).");
+            modelList.setSelectedId(0, juce::dontSendNotification);
+            return;
+        } else {
+            juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Error",
+                                                   "Model Config is invalid (size '" + modelSize +
+                                                   "' is not valid).");
+            modelList.setSelectedId(0, juce::dontSendNotification);
+            return;
+        }
     }
 
     // MODEL CONFIG: Set Output Instruments
@@ -865,7 +865,13 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
     }
 
     const auto modelPath = modelsDir.getChildFile(modelName + ".onnx");
-    session.musicTransformer.init(modelPath.getFullPathName().toStdString().c_str(), modelType);
+    if (isDense) {
+        session.setMusicModelArch(MusicModelArch::Dense);
+        session.denseMusicTransformer.init(modelPath.getFullPathName().toStdString().c_str());
+    } else {
+        session.setMusicModelArch(MusicModelArch::Amt);
+        session.musicTransformer.init(modelPath.getFullPathName().toStdString().c_str(), modelType);
+    }
 
     // Send modelLoaded status to statusOutputProcessor
     if (statusOutputProcessor != nullptr) {

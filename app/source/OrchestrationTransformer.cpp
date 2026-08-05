@@ -107,8 +107,14 @@ auto OrchestrationTransformer::getEditOrchestrationOutput(
     if (orchestrationModel == nullptr)
         return {};
 
-    auto userNotes = orchestrationModel->getOutput(midiInput, userInstruments, signal);
-    auto modelNotes = orchestrationModel->getOutput(reductionInput, modelInstruments, signal);
+    std::vector<OrchestrationNote> userNotes;
+    if (! userInstruments.empty())
+        userNotes = orchestrationModel->getOutput(midiInput, userInstruments, signal);
+
+    std::vector<OrchestrationNote> modelNotes;
+    if (! modelInstruments.empty())
+        modelNotes = orchestrationModel->getOutput(reductionInput, modelInstruments, signal);
+
     return {std::move(userNotes), std::move(modelNotes)};
 }
 
@@ -116,7 +122,7 @@ auto OrchestrationTransformer::getJamOrchestrationOutput(
     const std::vector<Token> &orchestrationInput,
     const std::vector<int32_t> &orchestrationInstruments,
     const ConditioningSignal &signal) -> std::vector<OrchestrationNote> {
-    if (orchestrationModel == nullptr)
+    if (orchestrationModel == nullptr || orchestrationInstruments.empty())
         return {};
 
     return orchestrationModel->getOutput(orchestrationInput, orchestrationInstruments, signal);

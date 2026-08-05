@@ -128,6 +128,8 @@ struct Token {
     int32_t time;
     int32_t duration;
     int32_t note;
+    /** MIDI velocity 0–127. Default 100 matches AMT / orchestration when unset. */
+    int32_t velocity = 100;
 
     auto getRealDuration() const -> int32_t {
         return duration - Vocab::DurOffset;
@@ -142,7 +144,8 @@ struct Token {
     }
 
     std::string toString() const {
-        return "(" + std::to_string(time) + ", " + std::to_string(duration) + ", " + std::to_string(note) + ")";
+        return "(" + std::to_string(time) + ", " + std::to_string(duration) + ", "
+               + std::to_string(note) + ", " + std::to_string(velocity) + ")";
     }
 
     std::string toUnderstandableString() const {
@@ -156,7 +159,8 @@ struct Token {
         return "(" + std::to_string(time) + ", "
                + std::to_string(duration - Vocab::DurOffset) + ", "
                + std::to_string(getInstrument()) + " - "
-               + std::to_string(getPitch()) + ")";
+               + std::to_string(getPitch()) + ", vel "
+               + std::to_string(velocity) + ")";
     }
 
     juce::MemoryBlock toMemoryBlock() const {
@@ -196,7 +200,8 @@ inline bool operator<(const Token &lhs, const Token &rhs) {
 }
 
 inline auto tokenEquals(const Token &lhs, const Token &rhs) -> bool {
-    return lhs.time == rhs.time && lhs.duration == rhs.duration && lhs.note == rhs.note;
+    return lhs.time == rhs.time && lhs.duration == rhs.duration && lhs.note == rhs.note
+           && lhs.velocity == rhs.velocity;
 }
 
 inline auto tokenOrderLess(const Token &lhs, const Token &rhs) -> bool {
@@ -204,7 +209,9 @@ inline auto tokenOrderLess(const Token &lhs, const Token &rhs) -> bool {
         return lhs.time < rhs.time;
     if (lhs.duration != rhs.duration)
         return lhs.duration < rhs.duration;
-    return lhs.note < rhs.note;
+    if (lhs.note != rhs.note)
+        return lhs.note < rhs.note;
+    return lhs.velocity < rhs.velocity;
 }
 
 /** Replace a note. For example, when noteOffs come in. */
@@ -223,7 +230,8 @@ inline auto applyTokenUpdateToHistory(std::vector<Token> &history, const TokenUp
 
         const bool orderKeyChanged = update.newNote.time != update.oldNote.time
                                      || update.newNote.duration != update.oldNote.duration
-                                     || update.newNote.note != update.oldNote.note;
+                                     || update.newNote.note != update.oldNote.note
+                                     || update.newNote.velocity != update.oldNote.velocity;
 
         if (! orderKeyChanged) {
             *pos = update.newNote;

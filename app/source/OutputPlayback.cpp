@@ -46,9 +46,10 @@ void OutputPlayback::handleNoteForOutput(const OrchestrationNote &note, TokenNot
     const int32_t pitch = note.token.getPitch();
     switch (tokenEventType) {
         case TokenNoteOn: {
-            const float velocity =
-                note.velocity > 0 ? static_cast<float>(note.velocity) / 127.0f : 1.0f;
-            NoteOnEvent noteOnEvent = {.instrument = instrument, .note = pitch, .velocity = velocity};
+            const float midiVelocity =
+                note.velocity > 0 ? static_cast<float>(note.velocity) / 127.0f : 100.0f / 127.0f;
+            NoteOnEvent noteOnEvent = {
+                .instrument = instrument, .note = pitch, .velocity = midiVelocity};
             outputProcessor->send(noteOnEvent);
             break;
         }
@@ -95,7 +96,6 @@ void OutputPlayback::run() {
             nextTokens.insert(note);
         }
 
-        // Apply after ingesting new notes so same-loop duration corrections still match.
         TokenUpdate durationUpdate{};
         while (orchestrationTransformer.outputDurationUpdates.pull(durationUpdate)) {
             for (auto it = nextTokens.begin(); it != nextTokens.end();) {

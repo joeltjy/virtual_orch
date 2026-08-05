@@ -32,6 +32,11 @@ auto OrchestrationDebugView::applyTo(WorkspaceCanvas &canvas) -> void {
                               UiConstants::workspaceOrchestrationDebugActiveInstrumentsY,
                               UiConstants::workspaceOrchestrationDebugActiveInstrumentsWidth,
                               UiConstants::workspaceOrchestrationDebugActiveInstrumentsHeight});
+    canvas.placeWidgetOfType(UiConstants::workspaceWidgetTypeOrchestrationOutputVisualizer,
+                             {UiConstants::workspaceOrchestrationDebugOutputVisualizerX,
+                              UiConstants::workspaceOrchestrationDebugOutputVisualizerY,
+                              UiConstants::workspaceOrchestrationDebugOutputVisualizerWidth,
+                              UiConstants::workspaceOrchestrationDebugOutputVisualizerHeight});
     canvas.endViewLayout();
 }
 

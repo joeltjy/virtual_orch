@@ -43,6 +43,8 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
                      UiConstants::workspaceAddMenuOrchestrationReductionPianoRollItem);
         menu.addItem(UiConstants::workspaceAddMenuActiveInstrumentsItemId,
                      UiConstants::workspaceAddMenuActiveInstrumentsItem);
+        menu.addItem(UiConstants::workspaceAddMenuOrchestrationOutputVisualizerItemId,
+                     UiConstants::workspaceAddMenuOrchestrationOutputVisualizerItem);
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addButton),
                            [this](int result) {
                                if (result == UiConstants::workspaceAddMenuPromptItemId)
@@ -68,6 +70,10 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
                                    canvas.addOrchestrationReductionPianoRollWidget();
                                else if (result == UiConstants::workspaceAddMenuActiveInstrumentsItemId)
                                    canvas.addActiveInstrumentsWidget();
+                               else if (result
+                                        == UiConstants::
+                                            workspaceAddMenuOrchestrationOutputVisualizerItemId)
+                                   canvas.addOrchestrationOutputVisualizerWidget();
                            });
     };
     saveButton.onClick = [this] { saveCurrentView(); };

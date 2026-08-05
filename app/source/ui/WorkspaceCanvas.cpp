@@ -10,6 +10,7 @@
 #include "VirtualOrch/widgets/GenerationWidget.h"
 #include "VirtualOrch/widgets/OrchestrationConditioningPianoRollWidget.h"
 #include "VirtualOrch/widgets/OrchestrationMidiPianoRollWidget.h"
+#include "VirtualOrch/widgets/OrchestrationOutputVisualizerWidget.h"
 #include "VirtualOrch/widgets/OrchestrationReductionPianoRollWidget.h"
 #include "VirtualOrch/widgets/PromptWidget.h"
 #include "VirtualOrch/widgets/TokenInputPianoRollWidget.h"
@@ -119,6 +120,12 @@ auto WorkspaceCanvas::createWidgetForType(const juce::String &type) const
         return std::make_unique<ActiveInstrumentsWidget>(*session);
     }
 
+    if (type == UiConstants::workspaceWidgetTypeOrchestrationOutputVisualizer) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<OrchestrationOutputVisualizerWidget>(*session);
+    }
+
     // Legacy views may still contain stubs.
     if (type == UiConstants::workspaceWidgetTypeStub)
         return std::make_unique<WorkspaceWidget>(UiConstants::workspaceStubWidgetTitle,
@@ -225,6 +232,13 @@ auto WorkspaceCanvas::addOrchestrationReductionPianoRollWidget() -> void {
 
 auto WorkspaceCanvas::addActiveInstrumentsWidget() -> void {
     auto widget = createWidgetForType(UiConstants::workspaceWidgetTypeActiveInstruments);
+    if (widget == nullptr)
+        return;
+    addWidget(std::move(widget), nextCascadedBounds());
+}
+
+auto WorkspaceCanvas::addOrchestrationOutputVisualizerWidget() -> void {
+    auto widget = createWidgetForType(UiConstants::workspaceWidgetTypeOrchestrationOutputVisualizer);
     if (widget == nullptr)
         return;
     addWidget(std::move(widget), nextCascadedBounds());

@@ -96,29 +96,47 @@ auto OrchestrationTransformer::getEditOrchestrationOutput(
     const std::vector<int32_t> &modelInstruments,
     const ConditioningSignal &signal)
     -> std::pair<std::vector<OrchestrationNote>, std::vector<OrchestrationNote>> {
-    juce::ignoreUnused(midiInput, reductionInput, userInstruments, modelInstruments, signal);
-    return {};
+    if (orchestrationModel == nullptr)
+        return {};
+
+    auto userNotes = orchestrationModel->getOutput(midiInput, userInstruments, signal);
+    auto modelNotes = orchestrationModel->getOutput(reductionInput, modelInstruments, signal);
+    return {std::move(userNotes), std::move(modelNotes)};
 }
 
 auto OrchestrationTransformer::getJamOrchestrationOutput(
     const std::vector<Token> &orchestrationInput,
     const std::vector<int32_t> &orchestrationInstruments,
     const ConditioningSignal &signal) -> std::vector<OrchestrationNote> {
-    juce::ignoreUnused(orchestrationInput, orchestrationInstruments, signal);
-    return {};
+    if (orchestrationModel == nullptr)
+        return {};
+
+    return orchestrationModel->getOutput(orchestrationInput, orchestrationInstruments, signal);
 }
 
 auto OrchestrationTransformer::packSortAndPushOutput(const std::vector<OrchestrationNote> &notes)
     -> void {
-    std::vector<Token> packed;
-    packed.reserve(notes.size());
-    for (const auto &[token, instrument]: notes)
-        packed.push_back(tokenWithInstrument(token, instrument));
+    auto packed = notes;
+    std::ranges::sort(packed, [](const OrchestrationNote &a, const OrchestrationNote &b) {
+        if (a.token.time != b.token.time)
+            return a.token.time < b.token.time;
+        return a.token.duration < b.token.duration;
+    });
 
-    sortTokensByTimeThenDuration(packed);
+    for (const auto &note: packed)
+        pushOutputNote(note);
+}
 
-    for (const auto &token: packed)
-        outputTokenQueue.push(token);
+auto OrchestrationTransformer::pushOutputNote(const OrchestrationNote &note) -> void {
+    outputTokenQueue.push(note);
+    outputHistory.push_back(note);
+}
+
+auto OrchestrationTransformer::clearOutputNotes() -> void {
+    OrchestrationNote n{};
+    while (outputTokenQueue.pull(n)) {
+    }
+    outputHistory.clear();
 }
 
 void OrchestrationTransformer::threadRun() {
@@ -128,7 +146,7 @@ void OrchestrationTransformer::threadRun() {
     clearMidiInputIncoming();
     clearConditioningIncoming();
     clearReductionIncoming();
-    clearOutputTokenQueue();
+    clearOutputNotes();
     clearInstrumentUpdates();
     clearUpdatesIncoming();
     clearDebugSnapshot();
@@ -150,6 +168,7 @@ void OrchestrationTransformer::threadRun() {
             snapshot.conditioningPending = conditioningUpdate;
             snapshot.reductionHistory = reductionHistory;
             snapshot.reductionPending = reductionUpdate;
+            snapshot.outputHistory = outputHistory;
             snapshot.userInstruments = userInstruments;
             snapshot.modelInstruments = modelInstruments;
             publishDebugSnapshot(std::move(snapshot));

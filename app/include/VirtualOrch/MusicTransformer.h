@@ -313,7 +313,6 @@ private:
 
     Token generateNewToken(int32_t forceAtTime);
 
-    Ort::Env env;
     std::unique_ptr<Ort::Session> session;
     std::unique_ptr<ModelType> modelType;
     Ort::MemoryInfo memoryInfo = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault);

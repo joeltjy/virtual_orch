@@ -5,6 +5,7 @@
 #include "VirtualOrch/MidiOutputProcessor.h"
 #include "VirtualOrch/OSCOutputProcessor.h"
 #include "VirtualOrch/OSCController.h"
+#include "VirtualOrch/orchestration-models/OrchestrationModels.h"
 
 //==============================================================================
 MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
@@ -347,6 +348,37 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
             modelConfigurationWindow->toFront(true);
             modelConfigurationWindow->addChangeListener(this);
         }
+    };
+
+    /* ORCHESTRATION MODEL LIST */
+
+    addAndMakeVisible(orchestrationModelListLabel);
+    orchestrationModelListLabel.setText("Orchestration Model: ", juce::dontSendNotification);
+    orchestrationModelListLabel.attachToComponent(&orchestrationModelList, true);
+
+    addAndMakeVisible(orchestrationModelList);
+    orchestrationModelList.setTextWhenNoChoicesAvailable("No Orchestration Models Available");
+    {
+        const auto names = orchestrationModelNames();
+        const juce::String selectedName = session.orchestrationModel != nullptr
+                                              ? juce::String(session.orchestrationModel->getName())
+                                              : juce::String();
+        int selectedId = 0;
+        for (int i = 0; i < static_cast<int>(names.size()); ++i) {
+            const auto &name = names[static_cast<size_t>(i)];
+            orchestrationModelList.addItem(name, i + 1);
+            if (name == selectedName.toStdString())
+                selectedId = i + 1;
+        }
+        if (selectedId > 0)
+            orchestrationModelList.setSelectedId(selectedId, juce::dontSendNotification);
+        else if (orchestrationModelList.getNumItems() > 0)
+            orchestrationModelList.setSelectedItemIndex(0, juce::dontSendNotification);
+    }
+
+    orchestrationModelList.onChange = [this] {
+        stop();
+        session.setOrchestrationModel(orchestrationModelList.getText());
     };
 
     /* MIDI THROUGH */
@@ -768,6 +800,9 @@ void MainComponent::clearModel() {
 }
 
 void MainComponent::updateModel(const bool loadDefaultPreset) {
+    // Ensure generation threads are joined before replacing the ORT session.
+    stop();
+
     // Send modelLoading status to statusOutputProcessor
     if (statusOutputProcessor != nullptr) {
         statusOutputProcessor->modelLoading();
@@ -901,6 +936,8 @@ void MainComponent::resized() {
     auto modelConfigArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
     modelList.setBounds(modelConfigArea.removeFromLeft(getWidth() - 300).withTrimmedRight(20));
     modelConfigurationButton.setBounds(modelConfigArea);
+
+    orchestrationModelList.setBounds(area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8));
 
     outputList.setBounds(area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8));
 

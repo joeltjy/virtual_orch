@@ -25,6 +25,8 @@ inline constexpr const char *workspaceWidgetTypeOrchestrationConditioningPianoRo
 inline constexpr const char *workspaceWidgetTypeOrchestrationReductionPianoRoll =
     "orchestrationReductionPianoRoll";
 inline constexpr const char *workspaceWidgetTypeActiveInstruments = "activeInstruments";
+inline constexpr const char *workspaceWidgetTypeOrchestrationOutputVisualizer =
+    "orchestrationOutputVisualizer";
 inline constexpr const char *workspacePromptWidgetTitle = "Prompt";
 inline constexpr const char *workspaceGenerationWidgetTitle = "Generation";
 inline constexpr const char *workspaceTransportWidgetTitle = "Transport";
@@ -34,8 +36,14 @@ inline constexpr const char *workspaceOrchestrationMidiPianoRollTitle = "OT Midi
 inline constexpr const char *workspaceOrchestrationConditioningPianoRollTitle = "OT Conditioning";
 inline constexpr const char *workspaceOrchestrationReductionPianoRollTitle = "OT Reduction";
 inline constexpr const char *workspaceActiveInstrumentsTitle = "Active Instruments";
+inline constexpr const char *workspaceOrchestrationOutputVisualizerTitle = "OT Output";
 inline constexpr const char *workspaceOrchestrationDebugUserColumn = "User";
 inline constexpr const char *workspaceOrchestrationDebugModelColumn = "Model";
+inline constexpr const char *workspaceOrchestrationOutputOnsetColumn = "onset(s)";
+inline constexpr const char *workspaceOrchestrationOutputDurColumn = "dur(s)";
+inline constexpr const char *workspaceOrchestrationOutputPitchColumn = "pitch";
+inline constexpr const char *workspaceOrchestrationOutputVelocityColumn = "velocity";
+inline constexpr const char *workspaceOrchestrationOutputProgramColumn = "program";
 inline constexpr const char *workspacePromptEmptyText = "(empty)";
 inline constexpr const char *workspaceAddMenuPromptItem = "Prompt";
 inline constexpr const char *workspaceAddMenuGenerationItem = "Generation";
@@ -48,6 +56,7 @@ inline constexpr const char *workspaceAddMenuOrchestrationConditioningPianoRollI
 inline constexpr const char *workspaceAddMenuOrchestrationReductionPianoRollItem =
     "OT Reduction Piano Roll";
 inline constexpr const char *workspaceAddMenuActiveInstrumentsItem = "Active Instruments";
+inline constexpr const char *workspaceAddMenuOrchestrationOutputVisualizerItem = "OT Output Visualizer";
 inline constexpr int workspaceAddMenuPromptItemId = 1;
 inline constexpr int workspaceAddMenuGenerationItemId = 2;
 inline constexpr int workspaceAddMenuTransportItemId = 3;
@@ -57,6 +66,7 @@ inline constexpr int workspaceAddMenuOrchestrationMidiPianoRollItemId = 6;
 inline constexpr int workspaceAddMenuOrchestrationConditioningPianoRollItemId = 7;
 inline constexpr int workspaceAddMenuOrchestrationReductionPianoRollItemId = 8;
 inline constexpr int workspaceAddMenuActiveInstrumentsItemId = 9;
+inline constexpr int workspaceAddMenuOrchestrationOutputVisualizerItemId = 10;
 inline constexpr const char *workspaceInputViewName = "InputView";
 inline constexpr const char *workspaceOrchestrationDebugViewName = "OrchestrationDebug";
 inline constexpr int workspaceInputViewTokenRollX = 40;
@@ -85,6 +95,10 @@ inline constexpr int workspaceOrchestrationDebugGenerationX = 700;
 inline constexpr int workspaceOrchestrationDebugGenerationY = 40;
 inline constexpr int workspaceOrchestrationDebugGenerationWidth = 320;
 inline constexpr int workspaceOrchestrationDebugGenerationHeight = 160;
+inline constexpr int workspaceOrchestrationDebugOutputVisualizerX = 40;
+inline constexpr int workspaceOrchestrationDebugOutputVisualizerY = 700;
+inline constexpr int workspaceOrchestrationDebugOutputVisualizerWidth = 980;
+inline constexpr int workspaceOrchestrationDebugOutputVisualizerHeight = 240;
 inline constexpr int workspaceGenerationButtonWidth = 100;
 inline constexpr int workspaceGenerationButtonHeight = 28;
 inline constexpr int workspaceGenerationControlGap = 8;

@@ -1,11 +1,13 @@
 #include "VirtualOrch/AppSession.h"
 
+#include "VirtualOrch/orchestration-models/OrchestrationModels.h"
 #include "VirtualOrch/ui/UiConstants.h"
 
 AppSession::AppSession()
     : presetStore(modelConfig),
       clock(metrics),
       musicTransformer(modelConfig),
+      orchestrationModel(createOrchestrationModel("TestModel")),
       inputFilter(createInputFilter(modelConfig.inputFilterType,
                                     modelConfig,
                                     musicTransformer.inputTokenQueue,
@@ -61,9 +63,12 @@ AppSession::AppSession()
     pads[7][3] = 17;
     pads[7][4] = 6;
     pads[7][5] = 18;
+
+    orchestrationTransformer.orchestrationModel = orchestrationModel.get();
 }
 
 AppSession::~AppSession() {
+    testOrchestrationTransformerThread.stop();
     musicTransformer.stopThread(-1);
     orchestrationTransformer.stopThread(-1);
     outputPlayback.stopThread(-1);
@@ -75,6 +80,17 @@ auto AppSession::rebuildInputFilter() -> void {
                                     musicTransformer.inputTokenQueue,
                                     musicTransformer.inputConditioningQueue,
                                     musicTransformer.updatesFromFilter);
+}
+
+auto AppSession::setOrchestrationModel(const juce::String &name) -> bool {
+    auto model = createOrchestrationModel(name.toStdString());
+    if (model == nullptr)
+        return false;
+
+    testOrchestrationTransformerThread.stop();
+    orchestrationModel = std::move(model);
+    orchestrationTransformer.orchestrationModel = orchestrationModel.get();
+    return true;
 }
 
 auto AppSession::startGeneration() -> void {
@@ -104,12 +120,19 @@ auto AppSession::startGeneration() -> void {
     } else {
         clock.setMtcTime(0);
     }
+    if (orchestrationModel != nullptr && orchestrationModel->getName() == "TestModel")
+        testOrchestrationTransformerThread.start(clock, orchestrationTransformer);
 }
 
 auto AppSession::stopGeneration() -> void {
+    testOrchestrationTransformerThread.stop();
     musicTransformer.signalThreadShouldExit();
     orchestrationTransformer.signalThreadShouldExit();
     outputPlayback.signalThreadShouldExit();
+    // Join before callers replace the ORT session (e.g. updateModel).
+    musicTransformer.stopThread(-1);
+    orchestrationTransformer.stopThread(-1);
+    outputPlayback.stopThread(-1);
     clock.stop();
     outputPlayback.resetProgress();
     if (outputProcessor != nullptr)

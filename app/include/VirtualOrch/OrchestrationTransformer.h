@@ -10,13 +10,12 @@
 
 #include "Fifo.h"
 #include "VirtualOrch/MusicTransformer.h"
+#include "VirtualOrch/orchestration-models/OrchestrationModel.h"
 
 enum class OrchestrationMode : uint8_t {
     Edit,
     Jam
 };
-
-using OrchestrationNote = std::pair<Token, int32_t>;
 
 enum class InstrumentUpdateTarget : uint8_t {
     User,
@@ -36,6 +35,7 @@ struct OrchestrationDebugSnapshot {
     std::vector<Token> conditioningPending;
     std::vector<Token> reductionHistory;
     std::vector<Token> reductionPending;
+    std::vector<OrchestrationNote> outputHistory;
     std::set<int32_t> userInstruments;
     std::set<int32_t> modelInstruments;
 };
@@ -61,7 +61,7 @@ public:
     CircularFifo<Token> midiInputIncoming;
     CircularFifo<Token> conditioningIncoming;
     CircularFifo<Token> reductionIncoming;
-    CircularFifo<Token> outputTokenQueue;
+    CircularFifo<OrchestrationNote> outputTokenQueue;
     CircularFifo<InstrumentUpdate> instrumentUpdates;
     CircularFifo<TokenUpdate> updatesIncoming;
 
@@ -70,6 +70,8 @@ public:
     std::set<int32_t> modelInstruments;
 
     OrchestrationMode mode = OrchestrationMode::Edit;
+
+    OrchestrationModel *orchestrationModel = nullptr;
 
     [[nodiscard]] auto getMidiInputHistory() const -> const std::vector<Token> & {
         return midiInputHistory;
@@ -101,6 +103,7 @@ private:
     std::vector<Token> midiInputHistory;
     std::vector<Token> conditioningHistory;
     std::vector<Token> reductionHistory;
+    std::vector<OrchestrationNote> outputHistory;
 
     mutable juce::CriticalSection debugSnapshotLock;
     OrchestrationDebugSnapshot debugSnapshot;
@@ -123,6 +126,11 @@ private:
 
     auto packSortAndPushOutput(const std::vector<OrchestrationNote> &notes) -> void;
 
+    /** Push one note to outputTokenQueue and append to outputHistory together. */
+    auto pushOutputNote(const OrchestrationNote &note) -> void;
+
+    auto clearOutputNotes() -> void;
+
     auto clearMidiInputIncoming() -> void {
         Token t{};
         while (midiInputIncoming.pull(t)) {
@@ -138,12 +146,6 @@ private:
     auto clearReductionIncoming() -> void {
         Token t{};
         while (reductionIncoming.pull(t)) {
-        }
-    }
-
-    auto clearOutputTokenQueue() -> void {
-        Token t{};
-        while (outputTokenQueue.pull(t)) {
         }
     }
 

@@ -13,6 +13,8 @@
 #include "VirtualOrch/OutputPlayback.h"
 #include "VirtualOrch/OutputProcessor.h"
 #include "VirtualOrch/PresetStore.h"
+#include "VirtualOrch/orchestration-models/OrchestrationModel.h"
+#include "VirtualOrch/TestOrchestrationTransformerThread.h"
 #include "VirtualOrch/ui/ModelConfigurationComponent.h"
 
 /**
@@ -42,11 +44,15 @@ public:
 
     MusicTransformer musicTransformer;
     OrchestrationTransformer orchestrationTransformer;
+    std::unique_ptr<OrchestrationModel> orchestrationModel;
+    TestOrchestrationTransformerThread testOrchestrationTransformerThread;
     std::unique_ptr<InputFilter> inputFilter;
     OutputPlayback outputPlayback;
     MidiInputProcess midiInputProcess;
 
     auto rebuildInputFilter() -> void;
+
+    auto setOrchestrationModel(const juce::String &name) -> bool;
 
     auto startGeneration() -> void;
 

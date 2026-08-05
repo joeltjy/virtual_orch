@@ -40,6 +40,8 @@ public:
 
     auto addActiveInstrumentsWidget() -> void;
 
+    auto addOrchestrationOutputVisualizerWidget() -> void;
+
     /** Clear canvas and suppress layout notifications while seeding a view. */
     auto beginViewLayout() -> void;
 

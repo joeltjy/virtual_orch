@@ -1,4 +1,5 @@
 #include "VirtualOrch/MusicTransformer.h"
+#include "VirtualOrch/OrtEnv.h"
 #include <onnxruntime_cxx_api.h>
 
 MusicTransformer::MusicTransformer(ModelConfig &modelConfig): Thread("Music Transformer"), modelConfig(modelConfig) {
@@ -25,7 +26,7 @@ void MusicTransformer::init(const char *modelPath, ModelType newModelType) {
 #endif
 
     // Create session and set model typez
-    session = std::make_unique<Ort::Session>(env, modelPath, sessionOptions);
+    session = std::make_unique<Ort::Session>(sharedOrtEnv(), modelPath, sessionOptions);
     modelType = std::make_unique<ModelType>(newModelType);
 
     // Set Input and Output names
@@ -305,24 +306,39 @@ void MusicTransformer::durLogits(std::vector<float> &logits) {
 }
 
 void safeLogits(std::vector<float> &logits, const size_t idx) {
-    std::fill(logits.begin() + Vocab::ControlOffset, logits.begin() + Vocab::SpecialOffset,
+    // Model vocab must match the Anticipatory Music Transformer layout.
+    if (logits.size() < Vocab::VocabSize) {
+        DBG("safeLogits: logits size " + juce::String(static_cast<int>(logits.size()))
+            + " < VocabSize " + juce::String(static_cast<int>(Vocab::VocabSize)));
+        return;
+    }
+
+    std::fill(logits.begin() + static_cast<std::ptrdiff_t>(Vocab::ControlOffset),
+              logits.begin() + static_cast<std::ptrdiff_t>(Vocab::SpecialOffset),
               -std::numeric_limits<float>::infinity());
-    std::fill(logits.begin() + Vocab::SpecialOffset, logits.end(), -std::numeric_limits<float>::infinity());
+    std::fill(logits.begin() + static_cast<std::ptrdiff_t>(Vocab::SpecialOffset), logits.end(),
+              -std::numeric_limits<float>::infinity());
 
     if (idx % 3 == 0) {
-        std::fill(logits.begin() + Vocab::DurOffset, logits.begin() + Vocab::NoteOffset,
+        std::fill(logits.begin() + static_cast<std::ptrdiff_t>(Vocab::DurOffset),
+                  logits.begin() + static_cast<std::ptrdiff_t>(Vocab::NoteOffset),
                   -std::numeric_limits<float>::infinity());
-        std::fill(logits.begin() + Vocab::NoteOffset, logits.begin() + Vocab::ControlOffset,
+        std::fill(logits.begin() + static_cast<std::ptrdiff_t>(Vocab::NoteOffset),
+                  logits.begin() + static_cast<std::ptrdiff_t>(Vocab::ControlOffset),
                   -std::numeric_limits<float>::infinity());
     } else if (idx % 3 == 1) {
-        std::fill(logits.begin() + Vocab::TimeOffset, logits.begin() + Vocab::DurOffset,
+        std::fill(logits.begin() + static_cast<std::ptrdiff_t>(Vocab::TimeOffset),
+                  logits.begin() + static_cast<std::ptrdiff_t>(Vocab::DurOffset),
                   -std::numeric_limits<float>::infinity());
-        std::fill(logits.begin() + Vocab::NoteOffset, logits.begin() + Vocab::ControlOffset,
+        std::fill(logits.begin() + static_cast<std::ptrdiff_t>(Vocab::NoteOffset),
+                  logits.begin() + static_cast<std::ptrdiff_t>(Vocab::ControlOffset),
                   -std::numeric_limits<float>::infinity());
     } else if (idx % 3 == 2) {
-        std::fill(logits.begin() + Vocab::TimeOffset, logits.begin() + Vocab::DurOffset,
+        std::fill(logits.begin() + static_cast<std::ptrdiff_t>(Vocab::TimeOffset),
+                  logits.begin() + static_cast<std::ptrdiff_t>(Vocab::DurOffset),
                   -std::numeric_limits<float>::infinity());
-        std::fill(logits.begin() + Vocab::DurOffset, logits.begin() + Vocab::NoteOffset,
+        std::fill(logits.begin() + static_cast<std::ptrdiff_t>(Vocab::DurOffset),
+                  logits.begin() + static_cast<std::ptrdiff_t>(Vocab::NoteOffset),
                   -std::numeric_limits<float>::infinity());
     }
 }
@@ -372,19 +388,28 @@ std::vector<float> MusicTransformer::runModelAndGetLogits(std::vector<int32_t> &
         auto output_tensors = session->Run(Ort::RunOptions{nullptr}, inputNames.data(), input_tensors.data(),
                                            input_tensors.size(), outputNames.data(), outputNames.size());
 
-
-        // Get logits output tensor
         Ort::Value &logits_tensor = output_tensors.front();
+        const auto shape = logits_tensor.GetTensorTypeAndShapeInfo().GetShape();
+        if (shape.empty())
+            return {};
 
-        // Sort the logits tensor
-        std::vector scores(logits_tensor.GetTensorMutableData<float>() + (Vocab::VocabSize * (tokens.size() - 1)),
-                           logits_tensor.GetTensorMutableData<float>() + logits_tensor.GetTensorTypeAndShapeInfo().
-                           GetElementCount());
+        const auto vocab = static_cast<size_t>(shape.back());
+        if (vocab == 0)
+            return {};
 
-        return scores;
+        const size_t seq = tokens.size();
+        const auto elementCount = logits_tensor.GetTensorTypeAndShapeInfo().GetElementCount();
+        if (seq == 0 || vocab * seq > elementCount)
+            return {};
+
+        const float *data = logits_tensor.GetTensorMutableData<float>();
+        const float *last = data + vocab * (seq - 1);
+        return {last, last + vocab};
     } catch (const Ort::Exception &exception) {
         DBG("Error running model: " + juce::String(exception.what()));
     }
+
+    return {};
 }
 
 Token MusicTransformer::generateNewToken(int32_t forceAtTime) {
@@ -412,6 +437,11 @@ Token MusicTransformer::generateNewToken(int32_t forceAtTime) {
 
     for (int i = 0; i < 3; i++) {
         std::vector<float> scores = runModelAndGetLogits(history);
+        if (scores.size() < Vocab::VocabSize) {
+            DBG("generateNewToken: unexpected logits size "
+                + juce::String(static_cast<int>(scores.size())));
+            return {-1, -1, -1};
+        }
         safeLogits(scores, i % 3);
         if (i == 0) {
             // If forceAtTime is not -1, then pass it by removing the offset

@@ -59,11 +59,12 @@ private:
     void setMidiInput(int index, int idx);
 
     juce::AudioDeviceManager deviceManager;
-    juce::ComboBox presetList, mtcClockList, midiInputList, launchpadMidiList, modelList, outputList;
+    juce::ComboBox presetList, mtcClockList, midiInputList, launchpadMidiList, modelList,
+            orchestrationModelList, outputList;
     juce::TextButton leftPresetButton{"<"}, rightPresetButton{">"}, savePresetButton{"SAVE"};
     juce::ToggleButton autoConnect, mtcClock, inputThru;
     juce::Label presetListLabel, configLabel, mtcClockLabel, mtcClockOffsetLabel, controllerLabel,
-            midiInputListLabel, launchpadMidiListLabel, modelListLabel,
+            midiInputListLabel, launchpadMidiListLabel, modelListLabel, orchestrationModelListLabel,
             inputThruLabel, outputListLabel, oscIpLabel, oscPortLabel, bufferOutputOscIpLabel, bufferOutputOscPortLabel,
             statusOutputOscIpLabel, statusOutputOscPortLabel, generationLabel, visualizationBufferSizeLabel;
 

@@ -1,35 +1,15 @@
 # virtual-orch
 
-This is a repository for the VirtualOrch project. The version we used for the September, 21st concert is in the
-branch `september-concert-edits`.
+This is a repository for the VirtualOrch project, forked from the jam_bot (git repo jordanai).
 
-I am currently on developing ports of the model to GGML, PyTorch, and CoreML using this branch network:
+In a nutshell, this app feeds in input from a MIDI keyboard through the following pipeline:
 
-```
-- - - - - - main
-  | - - - - ggml-implementation
-    | - - - pytorch-implementation  
-        | - coreml-implementation
-```
+1. User input
+2. MusicTransformer (this outputs piano music as of now. Aim: to output piano reductions of orchestral music.)
+3. OrchestrationTransformer (this orchestrates the output from MusicTransformer)
+4. route to virtual output port
+5. which routes into Reaper.
 
-We'll have to rebase at some point.
+This hopefully will support live orchestration of the piano inputs on top of the MusicTransformer outputs.
 
-## Model Porting Instructions
-
-### PyTorch
-
-Run the following:
-
-```
-from transformers import GPT2LMHeadModel
-import torch
-
-model = GPT2LMHeadModel.from_pretrained("/Users/lancelotblanchard/Downloads/zdvi9mq4_2000", torchscript=True)
-traced = torch.jit.trace(model, tokens)
-torch.jit.save_jit_module_to_flatbuffer(traced, "bassAndChords.pt")
-```
-
-> [!IMPORTANT]
-> If exporting a model with `.to("mps")` or `.to("cuda")` for MPS or CUDA support, save it as `model.mps_pt`
-> or `model.cuda_pt`. Unfortunately, the tracing process also captures the logic of the device for every tensor being
-> created.
+The transformers and playback lie on different JUCE threads. Informatino is passed from a thread to another through queues (CircularFIFO).

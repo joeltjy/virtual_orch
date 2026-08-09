@@ -14,19 +14,7 @@ constexpr int denseLookbackInts = denseLookbackEvents * denseEventWidth;
 } // namespace
 
 DenseMusicTransformer::DenseMusicTransformer(ModelConfig &modelConfigIn)
-    : Thread("Dense Music Transformer"),
-      modelConfig(modelConfigIn) {
-}
-
-void DenseMusicTransformer::notifyInputDataChanged() {
-    auto callback = onInputDataChanged;
-    if (! callback)
-        return;
-    auto snapshot = inputData;
-    juce::MessageManager::callAsync(
-        [callback = std::move(callback), snapshot = std::move(snapshot)]() mutable {
-            callback(std::move(snapshot));
-        });
+    : ReductionTransformer("Dense Music Transformer", modelConfigIn) {
 }
 
 void DenseMusicTransformer::init(const char *modelPath) {
@@ -60,6 +48,7 @@ void DenseMusicTransformer::threadRun() {
     clearInputConditioningQueue();
     clearOutputTokenQueue();
     clearUpdatesFromFilter();
+    clearOutputHistory();
 
     currentTime = modelConfig.outputStartTime;
 
@@ -80,21 +69,40 @@ void DenseMusicTransformer::threadRun() {
     notifyInputDataChanged();
 
     bool inputApplied = false;
+    aheadThrottleUntilMs = 0;
 
     while (! threadShouldExit()) {
+        finishAheadThrottleIfDue();
+
         if (modelConfig.inputMode == InputMode::Direct && modelConfig.directInputStartOnInput
             && directInputBlock.value) {
+            wait(5);
             continue;
         }
 
         inputApplied = applyQueuedInputToInputData();
         applyUpdatesFromFilter();
 
+        if (paused.get()) {
+            if (inputApplied) {
+                const Token clearToken{static_cast<int32_t>(DenseVocab::TimeOffset),
+                                       static_cast<int32_t>(DenseVocab::DurOffset),
+                                       static_cast<int32_t>(Vocab::ClearQueue)};
+                pushOutputToken(clearToken);
+                inputApplied = false;
+            } else {
+                wait(5);
+            }
+            continue;
+        }
+
         Token newToken = generateNewToken(forceAtTime);
         forceAtTime = -1;
 
-        if (newToken.time < 0)
+        if (newToken.time < 0) {
+            wait(5);
             continue;
+        }
 
         inputData.push_back(newToken.time);
         inputData.push_back(newToken.duration);
@@ -106,14 +114,17 @@ void DenseMusicTransformer::threadRun() {
 
         if (inputApplied) {
             // Shared app marker so OutputPlayback recognizes clears when wired.
-            outputTokenQueue.push(
-                Token{static_cast<int32_t>(DenseVocab::TimeOffset),
-                      static_cast<int32_t>(DenseVocab::DurOffset),
-                      static_cast<int32_t>(Vocab::ClearQueue)});
+            const Token clearToken{static_cast<int32_t>(DenseVocab::TimeOffset),
+                                   static_cast<int32_t>(DenseVocab::DurOffset),
+                                   static_cast<int32_t>(Vocab::ClearQueue)};
+            pushOutputToken(clearToken);
             inputApplied = false;
         }
 
-        outputTokenQueue.push(newToken);
+        pushOutputToken(newToken);
+
+        if (isGeneratedTooFarAhead(newToken.time))
+            startAheadThrottle();
     }
 }
 
@@ -447,6 +458,9 @@ Token DenseMusicTransformer::generateNewToken(int32_t forceAtTime) {
     if (inputData.size() % denseEventWidth != 0)
         throw std::runtime_error("DenseMusicTransformer inputData must be a multiple of 4");
 
+    if (inputData.empty())
+        return {-1, -1, -1, DenseConfig::DefaultVelocity};
+
     const int lookback = std::max(static_cast<int>(inputData.size()) - denseLookbackInts, 0);
     std::vector history(inputData.begin() + lookback, inputData.end());
     int32_t offset = 0;
@@ -462,7 +476,8 @@ Token DenseMusicTransformer::generateNewToken(int32_t forceAtTime) {
         std::vector<float> scores = runModelAndGetLogits(history);
         if (scores.size() < DenseVocab::VocabSize) {
             DBG("DenseMusicTransformer::generateNewToken: unexpected logits size "
-                + juce::String(static_cast<int>(scores.size())));
+                + juce::String(static_cast<int>(scores.size()))
+                + " (historyInts=" + juce::String(static_cast<int>(history.size())) + ")");
             return {-1, -1, -1, DenseConfig::DefaultVelocity};
         }
 

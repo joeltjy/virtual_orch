@@ -45,6 +45,11 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
                      UiConstants::workspaceAddMenuActiveInstrumentsItem);
         menu.addItem(UiConstants::workspaceAddMenuOrchestrationOutputVisualizerItemId,
                      UiConstants::workspaceAddMenuOrchestrationOutputVisualizerItem);
+        menu.addItem(UiConstants::workspaceAddMenuPlaybackOutputItemId,
+                     UiConstants::workspaceAddMenuPlaybackOutputItem);
+        menu.addItem(UiConstants::workspaceAddMenuReductionTransformerOutputItemId,
+                     UiConstants::workspaceAddMenuReductionTransformerOutputItem);
+        menu.addItem(UiConstants::workspaceAddMenuModeItemId, UiConstants::workspaceAddMenuModeItem);
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addButton),
                            [this](int result) {
                                if (result == UiConstants::workspaceAddMenuPromptItemId)
@@ -74,15 +79,24 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
                                         == UiConstants::
                                             workspaceAddMenuOrchestrationOutputVisualizerItemId)
                                    canvas.addOrchestrationOutputVisualizerWidget();
+                               else if (result == UiConstants::workspaceAddMenuPlaybackOutputItemId)
+                                   canvas.addPlaybackOutputWidget();
+                               else if (result
+                                        == UiConstants::workspaceAddMenuReductionTransformerOutputItemId)
+                                   canvas.addReductionTransformerOutputWidget();
+                               else if (result == UiConstants::workspaceAddMenuModeItemId)
+                                   canvas.addModeWidget();
                            });
     };
     saveButton.onClick = [this] { saveCurrentView(); };
     saveAsButton.onClick = [this] { promptSaveAs(); };
+    setDefaultButton.onClick = [this] { setCurrentViewAsDefault(); };
 
     toolbar.addAndMakeVisible(addButton);
     toolbar.addAndMakeVisible(viewCombo);
     toolbar.addAndMakeVisible(saveButton);
     toolbar.addAndMakeVisible(saveAsButton);
+    toolbar.addAndMakeVisible(setDefaultButton);
 
     addAndMakeVisible(canvas);
 
@@ -91,16 +105,53 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
     ensureOrchestrationDebugView();
 
     auto names = viewStore.listViewNames();
-    juce::String initialName;
-    if (names.contains(UiConstants::workspaceDefaultViewName))
-        initialName = UiConstants::workspaceDefaultViewName;
-    else if (names.size() > 0)
-        initialName = names[0];
+    juce::String initialName = getStartupViewName();
+    if (! names.contains(initialName)) {
+        if (names.contains(UiConstants::workspaceDefaultViewName))
+            initialName = UiConstants::workspaceDefaultViewName;
+        else if (names.size() > 0)
+            initialName = names[0];
+        else
+            initialName = {};
+    }
 
     refreshViewCombo(initialName);
 
     if (initialName.isNotEmpty())
         loadSelectedView();
+}
+
+auto WorkspacePage::getStartupViewName() const -> juce::String {
+    const auto workspace = session.presetStore.settings.getChildWithName(
+        UiConstants::workspaceSettingsWorkspaceChild);
+    if (! workspace.isValid())
+        return UiConstants::workspaceDefaultViewName;
+
+    const auto name =
+        workspace.getProperty(UiConstants::workspaceSettingsDefaultViewProperty, {}).toString().trim();
+    return name.isNotEmpty() ? name : juce::String(UiConstants::workspaceDefaultViewName);
+}
+
+auto WorkspacePage::setCurrentViewAsDefault() -> void {
+    const auto name = currentViewName.isNotEmpty() ? currentViewName : getSelectedViewName();
+    if (name.isEmpty()) {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            UiConstants::workspaceSetDefaultViewTitle,
+            UiConstants::workspaceSetDefaultViewEmptyMessage);
+        return;
+    }
+
+    auto workspace = session.presetStore.settings.getOrCreateChildWithName(
+        UiConstants::workspaceSettingsWorkspaceChild, nullptr);
+    workspace.setProperty(UiConstants::workspaceSettingsDefaultViewProperty, name, nullptr);
+    session.presetStore.saveSettings();
+
+    juce::AlertWindow::showMessageBoxAsync(
+        juce::AlertWindow::InfoIcon,
+        UiConstants::workspaceSetDefaultViewTitle,
+        juce::String(UiConstants::workspaceSetDefaultViewMessagePrefix) + name
+            + UiConstants::workspaceSetDefaultViewMessageSuffix);
 }
 
 auto WorkspacePage::ensureDefaultView() -> void {
@@ -339,4 +390,6 @@ auto WorkspacePage::resized() -> void {
     saveButton.setBounds(bar.removeFromLeft(UiConstants::workspaceToolbarButtonWidth));
     bar.removeFromLeft(UiConstants::workspaceToolbarControlGap);
     saveAsButton.setBounds(bar.removeFromLeft(UiConstants::workspaceToolbarSaveAsButtonWidth));
+    bar.removeFromLeft(UiConstants::workspaceToolbarControlGap);
+    setDefaultButton.setBounds(bar.removeFromLeft(UiConstants::workspaceToolbarSetDefaultButtonWidth));
 }

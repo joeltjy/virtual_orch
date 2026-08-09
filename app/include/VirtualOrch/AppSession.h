@@ -14,6 +14,7 @@
 #include "VirtualOrch/OutputPlayback.h"
 #include "VirtualOrch/OutputProcessor.h"
 #include "VirtualOrch/PresetStore.h"
+#include "VirtualOrch/ReductionTransformer.h"
 #include "VirtualOrch/orchestration-models/OrchestrationModel.h"
 #include "VirtualOrch/TestOrchestrationTransformerThread.h"
 #include "VirtualOrch/ui/ModelConfigurationComponent.h"
@@ -53,6 +54,10 @@ public:
     OutputPlayback outputPlayback;
     MidiInputProcess midiInputProcess;
 
+    [[nodiscard]] auto activeReduction() -> ReductionTransformer &;
+
+    [[nodiscard]] auto activeReduction() const -> const ReductionTransformer &;
+
     auto rebuildInputFilter() -> void;
 
     /** Point input filter + OT hooks at the active music backend. */
@@ -75,6 +80,9 @@ public:
     auto startGeneration() -> void;
 
     auto stopGeneration() -> void;
+
+    /** Update Launchpad CC105/106 LEDs from current pause flags. */
+    auto syncPauseTopLeds() -> void;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AppSession)
 };

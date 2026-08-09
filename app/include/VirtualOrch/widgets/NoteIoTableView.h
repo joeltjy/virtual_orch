@@ -4,14 +4,16 @@
 
 #include <vector>
 
-#include "VirtualOrch/orchestration-models/OrchestrationModel.h"
+#include "VirtualOrch/widgets/NoteIoRow.h"
 
-/** Read-only table of OT output notes: onset, dur, pitch, velocity, program name. */
-class OrchestrationOutputVisualizerView : public juce::Component, private juce::TableListBoxModel {
+/**
+ * Read-only note table.
+ */
+class NoteIoTableView : public juce::Component, private juce::TableListBoxModel {
 public:
-    OrchestrationOutputVisualizerView();
+    explicit NoteIoTableView(bool showChannel);
 
-    auto setNotes(std::vector<OrchestrationNote> notes) -> void;
+    auto setRows(std::vector<NoteIoRow> rows) -> void;
 
     auto resized() -> void override;
 
@@ -21,7 +23,8 @@ private:
         durColumn = 2,
         pitchColumn = 3,
         velocityColumn = 4,
-        programColumn = 5
+        programColumn = 5,
+        channelColumn = 6
     };
 
     auto getNumRows() -> int override;
@@ -43,8 +46,9 @@ private:
 
     static auto programNameForLocalId(int32_t localInstrumentId) -> juce::String;
 
+    bool showChannel = false;
     juce::TableListBox table;
-    std::vector<OrchestrationNote> notes;
+    std::vector<NoteIoRow> rows;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OrchestrationOutputVisualizerView)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NoteIoTableView)
 };

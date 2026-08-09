@@ -8,11 +8,14 @@
 #include "VirtualOrch/widgets/ActiveInstrumentsWidget.h"
 #include "VirtualOrch/widgets/ConditioningPianoRollWidget.h"
 #include "VirtualOrch/widgets/GenerationWidget.h"
+#include "VirtualOrch/widgets/ModeWidget.h"
 #include "VirtualOrch/widgets/OrchestrationConditioningPianoRollWidget.h"
 #include "VirtualOrch/widgets/OrchestrationMidiPianoRollWidget.h"
 #include "VirtualOrch/widgets/OrchestrationOutputVisualizerWidget.h"
 #include "VirtualOrch/widgets/OrchestrationReductionPianoRollWidget.h"
+#include "VirtualOrch/widgets/PlaybackOutputWidget.h"
 #include "VirtualOrch/widgets/PromptWidget.h"
+#include "VirtualOrch/widgets/ReductionTransformerOutputWidget.h"
 #include "VirtualOrch/widgets/TokenInputPianoRollWidget.h"
 #include "VirtualOrch/widgets/TransportWidget.h"
 
@@ -189,6 +192,24 @@ auto WorkspaceCanvas::createWidgetForType(const juce::String &type) const
         return std::make_unique<OrchestrationOutputVisualizerWidget>(*session);
     }
 
+    if (type == UiConstants::workspaceWidgetTypePlaybackOutput) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<PlaybackOutputWidget>(*session);
+    }
+
+    if (type == UiConstants::workspaceWidgetTypeReductionTransformerOutput) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<ReductionTransformerOutputWidget>(*session);
+    }
+
+    if (type == UiConstants::workspaceWidgetTypeMode) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<ModeWidget>(*session);
+    }
+
     // Legacy views may still contain stubs.
     if (type == UiConstants::workspaceWidgetTypeStub)
         return std::make_unique<WorkspaceWidget>(UiConstants::workspaceStubWidgetTitle,
@@ -303,6 +324,27 @@ auto WorkspaceCanvas::addActiveInstrumentsWidget() -> void {
 
 auto WorkspaceCanvas::addOrchestrationOutputVisualizerWidget() -> void {
     auto widget = createWidgetForType(UiConstants::workspaceWidgetTypeOrchestrationOutputVisualizer);
+    if (widget == nullptr)
+        return;
+    addWidget(std::move(widget), nextCascadedBounds());
+}
+
+auto WorkspaceCanvas::addPlaybackOutputWidget() -> void {
+    auto widget = createWidgetForType(UiConstants::workspaceWidgetTypePlaybackOutput);
+    if (widget == nullptr)
+        return;
+    addWidget(std::move(widget), nextCascadedBounds());
+}
+
+auto WorkspaceCanvas::addReductionTransformerOutputWidget() -> void {
+    auto widget = createWidgetForType(UiConstants::workspaceWidgetTypeReductionTransformerOutput);
+    if (widget == nullptr)
+        return;
+    addWidget(std::move(widget), nextCascadedBounds());
+}
+
+auto WorkspaceCanvas::addModeWidget() -> void {
+    auto widget = createWidgetForType(UiConstants::workspaceWidgetTypeMode);
     if (widget == nullptr)
         return;
     addWidget(std::move(widget), nextCascadedBounds());

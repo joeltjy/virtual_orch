@@ -2,26 +2,16 @@
 
 #include <JuceHeader.h>
 
-#include "VirtualOrch/widgets/OrchestrationOutputVisualizerView.h"
-#include "VirtualOrch/widgets/WorkspaceWidget.h"
+#include "VirtualOrch/widgets/NoteIoWidget.h"
 
 class AppSession;
 
-class OrchestrationOutputVisualizerWidget : public WorkspaceWidget, private juce::Timer {
+class OrchestrationOutputVisualizerWidget : public NoteIoWidget {
 public:
     explicit OrchestrationOutputVisualizerWidget(AppSession &session);
 
-    ~OrchestrationOutputVisualizerWidget() override;
-
-    auto resized() -> void override;
-
-private:
-    auto timerCallback() -> void override;
-
-    auto refreshFromSession() -> void;
-
-    AppSession &session;
-    OrchestrationOutputVisualizerView table;
+protected:
+    auto refreshFromSession() -> void override;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OrchestrationOutputVisualizerWidget)
 };

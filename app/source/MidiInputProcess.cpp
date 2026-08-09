@@ -74,6 +74,13 @@ auto sendLaunchpadLed(juce::MidiOutput &output, LaunchpadFamily family, int midi
     output.sendMessageNow(
         juce::MidiMessage::noteOn(1, midiNote, static_cast<juce::uint8>(paletteColour)));
 
+    // Top-row scene buttons are CCs 104-111; CC lighting matches Programmer docs.
+    if (midiNote >= LaunchpadGrid::kTopCcBase
+        && midiNote < LaunchpadGrid::kTopCcBase + LaunchpadGrid::kTopCcCount) {
+        output.sendMessageNow(juce::MidiMessage::controllerEvent(
+            1, midiNote, static_cast<juce::uint8>(paletteColour)));
+    }
+
     const auto note7 = static_cast<uint8_t>(midiNote & 0x7f);
 
     // SysEx lighting is more reliable across layouts (MK2 Session indices = note numbers).
@@ -113,9 +120,7 @@ auto prepareLaunchpadForLeds(juce::MidiOutput &output, LaunchpadFamily family) -
 } // namespace
 
 MidiInputProcess::MidiInputProcess(Clock &clock,
-                                   MusicTransformer &musicTransformer,
-                                   DenseMusicTransformer &denseMusicTransformer,
-                                   MusicModelArch &musicModelArch,
+                                   std::function<ReductionTransformer &()> activeReductionIn,
                                    ModelConfig &modelConfig,
                                    std::unique_ptr<OutputProcessor> &outputProcessor,
                                    std::unique_ptr<InputFilter> &inputFilter,
@@ -124,9 +129,7 @@ MidiInputProcess::MidiInputProcess(Clock &clock,
                                    juce::String &selectedMtcClockIdentifier,
                                    bool &mtcClockActive)
     : clock(clock),
-      musicTransformer(musicTransformer),
-      denseMusicTransformer(denseMusicTransformer),
-      musicModelArch(musicModelArch),
+      activeReduction(std::move(activeReductionIn)),
       modelConfig(modelConfig),
       outputProcessor(outputProcessor),
       inputFilter(inputFilter),
@@ -146,13 +149,11 @@ MidiInputProcess::MidiInputProcess(Clock &clock,
 }
 
 auto MidiInputProcess::isMusicThreadRunning() const -> bool {
-    return musicModelArch == MusicModelArch::Dense ? denseMusicTransformer.isThreadRunning()
-                                                   : musicTransformer.isThreadRunning();
+    return activeReduction().isThreadRunning();
 }
 
 auto MidiInputProcess::musicDirectInputBlock() -> juce::Atomic<bool> & {
-    return musicModelArch == MusicModelArch::Dense ? denseMusicTransformer.directInputBlock
-                                                   : musicTransformer.directInputBlock;
+    return activeReduction().directInputBlock;
 }
 
 MidiInputProcess::~MidiInputProcess() {

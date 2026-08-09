@@ -1,0 +1,31 @@
+{
+  "model": "dumb_amt_dense",
+  "orchestrationModel": "InstrumentCombinations",
+  "inputMode": "direct",
+  "inputFilterType": "passthrough",
+  "directInputWindowLength": 10,
+  "directInputSendNoteOffs": true,
+  "directInputStartOnInput": false,
+  "directInputStartDelay": 0,
+  "directInputHoldBass": false,
+  "directInputBassLow": 24,
+  "directInputBassHigh": 36,
+  "directInputInitialBass": -1,
+  "inputInstrument": 0,
+  "inputLow": 36,
+  "inputHigh": 96,
+  "inputDuration": 100,
+  "inputInitialData": "",
+  "outputMinimumDuration": 1,
+  "outputMaximumDuration": 999,
+  "outputTemperatures": [0.9, 0.9, 0.9],
+  "outputStartTime": 0,
+  "outputForceStartTime": false,
+  "outputInstruments": [
+    { "id": 0, "active": true, "monophony": false, "low": 36, "high": 96 },
+    { "id": 1, "active": true, "monophony": false, "low": 36, "high": 96 },
+    { "id": 2, "active": true, "monophony": false, "low": 36, "high": 96 },
+    { "id": 3, "active": true, "monophony": false, "low": 36, "high": 96 },
+    { "id": 4, "active": true, "monophony": false, "low": 36, "high": 96 }
+  ]
+}

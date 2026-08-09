@@ -76,7 +76,16 @@ public:
     std::set<int32_t> userInstruments;
     std::set<int32_t> modelInstruments;
 
-    OrchestrationMode mode = OrchestrationMode::Edit;
+    [[nodiscard]] auto getMode() const -> OrchestrationMode {
+        return static_cast<OrchestrationMode>(modeStorage.get());
+    }
+
+    auto setMode(OrchestrationMode newMode) -> void {
+        modeStorage.set(static_cast<int>(newMode));
+    }
+
+    /** Soft pause (manual / Launchpad): drain/history/ClearQueue continue; skip getOutput. */
+    juce::Atomic<bool> paused{false};
 
     OrchestrationModel *orchestrationModel = nullptr;
 
@@ -97,6 +106,9 @@ public:
     static auto tokenWithInstrument(Token token, int32_t instrument) -> Token;
     static auto sortTokensByTimeThenDuration(std::vector<Token> &tokens) -> void;
 
+    /** Move ClearQueue tokens out of `tokens` into returned list (order preserved). */
+    static auto extractClearQueueTokens(std::vector<Token> &tokens) -> std::vector<Token>;
+
     auto applyInstrumentUpdates() -> void;
 
     /** Drain updatesIncoming; patch midiInputHistory and conditioningHistory. */
@@ -107,6 +119,8 @@ public:
     [[nodiscard]] auto getDebugSnapshot() const -> OrchestrationDebugSnapshot;
 
 private:
+    juce::Atomic<int> modeStorage{static_cast<int>(OrchestrationMode::Edit)};
+
     std::vector<Token> midiInputHistory;
     std::vector<Token> conditioningHistory;
     std::vector<Token> reductionHistory;

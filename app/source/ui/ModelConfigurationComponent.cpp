@@ -353,6 +353,29 @@ ModelConfigurationComponent::ModelConfigurationComponent(ModelConfig &modelConfi
         sendChangeMessage();
     };
 
+    /* OUTPUT MAX AHEAD SECONDS */
+    addAndMakeVisible(outputMaxAheadSecondsLabel);
+    outputMaxAheadSecondsLabel.setText("Max Ahead (s):", juce::dontSendNotification);
+    outputMaxAheadSecondsLabel.attachToComponent(&outputMaxAheadSeconds, true);
+
+    addAndMakeVisible(outputMaxAheadSeconds);
+    outputMaxAheadSeconds.setInputRestrictions(6, "0123456789");
+    outputMaxAheadSeconds.setText(juce::String(modelConfig.outputMaxAheadSeconds));
+    outputMaxAheadSeconds.onTextChange = [this] {
+        sendChangeMessage();
+    };
+
+    addAndMakeVisible(outputAheadThrottleSecondsLabel);
+    outputAheadThrottleSecondsLabel.setText("Ahead Throttle (s):", juce::dontSendNotification);
+    outputAheadThrottleSecondsLabel.attachToComponent(&outputAheadThrottleSeconds, true);
+
+    addAndMakeVisible(outputAheadThrottleSeconds);
+    outputAheadThrottleSeconds.setInputRestrictions(6, "0123456789");
+    outputAheadThrottleSeconds.setText(juce::String(modelConfig.outputAheadThrottleSeconds));
+    outputAheadThrottleSeconds.onTextChange = [this] {
+        sendChangeMessage();
+    };
+
     /* OUTPUT INSTRUMENTS */
     for (auto [instrumentId, instrument]: modelConfig.outputInstruments) {
         // Create instrument button
@@ -516,6 +539,10 @@ void ModelConfigurationComponent::resized() {
     outputStartTime.setBounds(outputStartTimeArea.removeFromLeft(150));
     outputForceStartTime.setBounds(outputStartTimeArea.withTrimmedLeft(40));
 
+    outputMaxAheadSeconds.setBounds(area.removeFromTop(36).removeFromRight(getWidth() - 250).reduced(8));
+    outputAheadThrottleSeconds.setBounds(
+        area.removeFromTop(36).removeFromRight(getWidth() - 250).reduced(8));
+
     for (int i = 0; i < outputInstruments.size(); i++) {
         auto instrumentButtonArea = area.removeFromTop(36).removeFromRight(getWidth() - 250).reduced(8);
         outputInstruments[i]->setBounds(instrumentButtonArea.removeFromLeft(60));
@@ -581,6 +608,8 @@ bool ModelConfigurationComponent::apply() {
     modelConfig.outputTemperatures[2] = outputTemperatureNote.getText().getFloatValue();
     modelConfig.outputStartTime = outputStartTime.getText().getIntValue();
     modelConfig.outputForceStartTime = outputForceStartTime.getToggleState();
+    modelConfig.outputMaxAheadSeconds = outputMaxAheadSeconds.getText().getIntValue();
+    modelConfig.outputAheadThrottleSeconds = outputAheadThrottleSeconds.getText().getIntValue();
 
     modelConfig.sortedActiveOutputInstruments.clear();
 

@@ -51,6 +51,8 @@ void OutputPlayback::handleNoteForOutput(const OrchestrationNote &note, TokenNot
             NoteOnEvent noteOnEvent = {
                 .instrument = instrument, .note = pitch, .velocity = midiVelocity};
             outputProcessor->send(noteOnEvent);
+            if (const auto channel = outputProcessor->channelForInstrument(instrument, pitch))
+                recordNoteOn(note, *channel);
             break;
         }
         case TokenNoteOff: {
@@ -61,7 +63,30 @@ void OutputPlayback::handleNoteForOutput(const OrchestrationNote &note, TokenNot
     }
 }
 
+auto OutputPlayback::recordNoteOn(const OrchestrationNote &note, int32_t channel) -> void {
+    PlaybackNoteOnRecord record;
+    record.time = clock.getTime();
+    record.pitch = note.token.getPitch();
+    record.velocity = note.velocity > 0 ? note.velocity : 100;
+    record.localInstrumentId = note.localInstrumentId;
+    record.channel = channel;
+    const juce::ScopedLock lock(noteOnHistoryLock);
+    noteOnHistory.push_back(record);
+}
+
+auto OutputPlayback::getNoteOnHistory() const -> std::vector<PlaybackNoteOnRecord> {
+    const juce::ScopedLock lock(noteOnHistoryLock);
+    return noteOnHistory;
+}
+
+auto OutputPlayback::clearNoteOnHistory() -> void {
+    const juce::ScopedLock lock(noteOnHistoryLock);
+    noteOnHistory.clear();
+}
+
 void OutputPlayback::run() {
+    clearNoteOnHistory();
+
     std::multiset<OrchestrationNote, decltype(&orchestrationNoteOnsetLess)> nextTokens(
         orchestrationNoteOnsetLess);
 
@@ -71,9 +96,14 @@ void OutputPlayback::run() {
     while (!threadShouldExit()) {
         bool clearedQueueThisRun = false;
         auto time = clock.getTime();
-        progress = (static_cast<double>(orchestrationTransformer.getCurrentOTTime())
-                    - static_cast<double>(time))
-                   / 1000.0;
+        const bool reductionPaused = isReductionPaused && isReductionPaused();
+        if (orchestrationTransformer.paused.get() || reductionPaused) {
+            progress = 0.0;
+        } else {
+            progress = (static_cast<double>(orchestrationTransformer.getCurrentOTTime())
+                        - static_cast<double>(time))
+                       / 1000.0;
+        }
 
         OrchestrationNote note{};
         while (orchestrationTransformer.outputTokenQueue.pull(note)) {

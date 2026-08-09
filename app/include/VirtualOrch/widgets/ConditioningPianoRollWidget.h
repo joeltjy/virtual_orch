@@ -2,12 +2,11 @@
 
 #include <JuceHeader.h>
 
-#include "VirtualOrch/widgets/SessionPianoRollWidget.h"
+#include "VirtualOrch/widgets/NoteIoWidget.h"
 
 class AppSession;
 
-/** Piano roll of InputFilter pastConditioning. */
-class ConditioningPianoRollWidget : public SessionPianoRollWidget {
+class ConditioningPianoRollWidget : public NoteIoWidget {
 public:
     explicit ConditioningPianoRollWidget(AppSession &session);
 

@@ -45,6 +45,12 @@ public:
 
     auto addOrchestrationOutputVisualizerWidget() -> void;
 
+    auto addPlaybackOutputWidget() -> void;
+
+    auto addReductionTransformerOutputWidget() -> void;
+
+    auto addModeWidget() -> void;
+
     /** Clear canvas and suppress layout notifications while seeding a view. */
     auto beginViewLayout() -> void;
 

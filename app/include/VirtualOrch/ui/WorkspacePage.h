@@ -41,6 +41,10 @@ private:
 
     auto ensureOrchestrationDebugView() -> void;
 
+    auto setCurrentViewAsDefault() -> void;
+
+    [[nodiscard]] auto getStartupViewName() const -> juce::String;
+
     auto markDirty() -> void;
 
     auto clearDirty() -> void;
@@ -55,6 +59,7 @@ private:
     juce::ComboBox viewCombo;
     juce::TextButton saveButton{"Save"};
     juce::TextButton saveAsButton{"Save As"};
+    juce::TextButton setDefaultButton{"Set Default"};
 
     ViewStore viewStore;
     WorkspaceCanvas canvas;

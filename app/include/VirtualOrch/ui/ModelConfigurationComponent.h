@@ -69,6 +69,8 @@ enum ModelConfigParameter : size_t {
     OUTPUT_TEMPERATURE_NOTE = compile_time_hash("outputTemperatureNote"),
     OUTPUT_START_TIME = compile_time_hash("outputStartTime"),
     OUTPUT_FORCE_START_TIME = compile_time_hash("outputForceStartTime"),
+    OUTPUT_MAX_AHEAD_SECONDS = compile_time_hash("outputMaxAheadSeconds"),
+    OUTPUT_AHEAD_THROTTLE_SECONDS = compile_time_hash("outputAheadThrottleSeconds"),
 
     OUTPUT_INSTRUMENT_ACTIVE = compile_time_hash("outputInstrumentActive"),
     OUTPUT_INSTRUMENT_MONOPHONY = compile_time_hash("outputInstrumentMonophony"),
@@ -147,6 +149,15 @@ struct ModelConfig {
 
     /** Force to start at start time */
     bool outputForceStartTime = false;
+
+    /**
+     * ReductionTransformer only: soft-pause generation when a note is more than
+     * this many seconds ahead of the clock (0 disables). Default 5.
+     */
+    int32_t outputMaxAheadSeconds = 5;
+
+    /** ReductionTransformer only: pause duration (seconds) when ahead. Default 2. */
+    int32_t outputAheadThrottleSeconds = 2;
 
     /** The instruments that the model can generate (indexed by MIDI id). */
     std::map<int32_t, OutputInstrumentConfig> outputInstruments{};
@@ -253,21 +264,28 @@ struct ModelConfig {
         // OUTPUT: Set force start time
         outputForceStartTime = parsedJson.getProperty("outputForceStartTime", false);
 
-        // OUTPUT: Set instruments
+        // OUTPUT: Max seconds ahead of clock before soft-pause throttle
+        outputMaxAheadSeconds = parsedJson.getProperty("outputMaxAheadSeconds", 5);
+
+        outputAheadThrottleSeconds = parsedJson.getProperty("outputAheadThrottleSeconds", 2);
+
+        // OUTPUT: Set instruments (optional in defaultPreset — empty {} must not crash)
         auto *jsonOutputInstruments = parsedJson.getProperty("outputInstruments", var()).getArray();
         sortedActiveOutputInstruments.clear();
-        for (auto &instrument: *jsonOutputInstruments) {
-            int32_t instrumentId = instrument.getProperty("id", 0);
-            if (!outputInstruments.contains(instrumentId)) {
-                DBG("Instrument " + std::to_string(instrumentId) + " is not available in the model config!");
-                continue;
-            }
-            outputInstruments[instrumentId].active = instrument.getProperty("active", false);
-            outputInstruments[instrumentId].monophony = instrument.getProperty("monophony", false);
-            outputInstruments[instrumentId].low = instrument.getProperty("low", 36);
-            outputInstruments[instrumentId].high = instrument.getProperty("high", 120);
-            if (outputInstruments[instrumentId].active) {
-                sortedActiveOutputInstruments.emplace(instrumentId);
+        if (jsonOutputInstruments != nullptr) {
+            for (auto &instrument: *jsonOutputInstruments) {
+                int32_t instrumentId = instrument.getProperty("id", 0);
+                if (!outputInstruments.contains(instrumentId)) {
+                    DBG("Instrument " + std::to_string(instrumentId) + " is not available in the model config!");
+                    continue;
+                }
+                outputInstruments[instrumentId].active = instrument.getProperty("active", false);
+                outputInstruments[instrumentId].monophony = instrument.getProperty("monophony", false);
+                outputInstruments[instrumentId].low = instrument.getProperty("low", 36);
+                outputInstruments[instrumentId].high = instrument.getProperty("high", 120);
+                if (outputInstruments[instrumentId].active) {
+                    sortedActiveOutputInstruments.emplace(instrumentId);
+                }
             }
         }
     }
@@ -318,9 +336,10 @@ private:
     juce::Label outputTitle, outputMinimumDurationLabel, outputMaximumDurationLabel,
             outputInstrumentsLabel,
             outputTemperatureTimeLabel, outputTemperatureDurationLabel, outputTemperatureNoteLabel,
-            outputStartTimeLabel;
+            outputStartTimeLabel, outputMaxAheadSecondsLabel, outputAheadThrottleSecondsLabel;
     juce::TextEditor outputMinimumDuration, outputMaximumDuration,
-            outputTemperatureTime, outputTemperatureDuration, outputTemperatureNote, outputStartTime;
+            outputTemperatureTime, outputTemperatureDuration, outputTemperatureNote, outputStartTime,
+            outputMaxAheadSeconds, outputAheadThrottleSeconds;
     juce::ToggleButton outputForceStartTime;
     juce::OwnedArray<juce::ToggleButton> outputInstruments;
     juce::OwnedArray<juce::ToggleButton> outputInstrumentsMonophony;

@@ -90,6 +90,21 @@ auto OrchestrationTransformer::sortTokensByTimeThenDuration(std::vector<Token> &
     });
 }
 
+auto OrchestrationTransformer::extractClearQueueTokens(std::vector<Token> &tokens)
+    -> std::vector<Token> {
+    std::vector<Token> clears;
+    std::vector<Token> notes;
+    notes.reserve(tokens.size());
+    for (const auto &token: tokens) {
+        if (token.note == static_cast<int32_t>(Vocab::ClearQueue))
+            clears.push_back(token);
+        else
+            notes.push_back(token);
+    }
+    tokens = std::move(notes);
+    return clears;
+}
+
 auto OrchestrationTransformer::getConditioningSignal(const std::vector<Token> &midiInput,
                                                      const std::vector<Token> &conditioning)
     -> ConditioningSignal {
@@ -173,9 +188,9 @@ void OrchestrationTransformer::threadRun() {
 
         applyInstrumentUpdates();
 
-        const auto midiUpdate = drainIncoming(midiInputIncoming);
+        auto midiUpdate = drainIncoming(midiInputIncoming);
         const auto conditioningUpdate = drainIncoming(conditioningIncoming);
-        const auto reductionUpdate = drainIncoming(reductionIncoming);
+        auto reductionUpdate = drainIncoming(reductionIncoming);
 
         {
             OrchestrationDebugSnapshot snapshot;
@@ -191,33 +206,51 @@ void OrchestrationTransformer::threadRun() {
             publishDebugSnapshot(std::move(snapshot));
         }
 
+        const auto clearFromMidi = extractClearQueueTokens(midiUpdate);
+        const auto clearFromReduction = extractClearQueueTokens(reductionUpdate);
+
         const auto signal = getConditioningSignal(midiUpdate, conditioningUpdate);
         appendToHistory(midiInputHistory, midiUpdate);
         appendToHistory(conditioningHistory, conditioningUpdate);
         appendToHistory(reductionHistory, reductionUpdate);
         applyTokenUpdates();
 
-        const std::vector<int32_t> userInstrumentList(userInstruments.begin(), userInstruments.end());
-        const std::vector<int32_t> modelInstrumentList(modelInstruments.begin(),
-                                                      modelInstruments.end());
-
         std::vector<OrchestrationNote> toOutput;
-        if (mode == OrchestrationMode::Edit) {
-            auto [userNotes, modelNotes] = getEditOrchestrationOutput(
-                midiUpdate, reductionUpdate, userInstrumentList, modelInstrumentList, signal);
-            toOutput.reserve(userNotes.size() + modelNotes.size());
-            toOutput.insert(toOutput.end(), userNotes.begin(), userNotes.end());
-            toOutput.insert(toOutput.end(), modelNotes.begin(), modelNotes.end());
-        } else if (mode == OrchestrationMode::Jam) {
-            std::set<int32_t> instrumentUnion = userInstruments;
-            instrumentUnion.insert(modelInstruments.begin(), modelInstruments.end());
-            const std::vector<int32_t> orchestrationInstruments(instrumentUnion.begin(),
-                                                                instrumentUnion.end());
-            toOutput = getJamOrchestrationOutput(reductionUpdate, orchestrationInstruments, signal);
+        if (! paused.get()) {
+            const std::vector<int32_t> userInstrumentList(userInstruments.begin(),
+                                                          userInstruments.end());
+            const std::vector<int32_t> modelInstrumentList(modelInstruments.begin(),
+                                                          modelInstruments.end());
+
+            const auto mode = getMode();
+            if (mode == OrchestrationMode::Edit) {
+                auto [userNotes, modelNotes] = getEditOrchestrationOutput(
+                    midiUpdate, reductionUpdate, userInstrumentList, modelInstrumentList, signal);
+                toOutput.reserve(userNotes.size() + modelNotes.size() + clearFromMidi.size()
+                                 + clearFromReduction.size());
+                toOutput.insert(toOutput.end(), userNotes.begin(), userNotes.end());
+                toOutput.insert(toOutput.end(), modelNotes.begin(), modelNotes.end());
+            } else if (mode == OrchestrationMode::Jam) {
+                std::set<int32_t> instrumentUnion = userInstruments;
+                instrumentUnion.insert(modelInstruments.begin(), modelInstruments.end());
+                const std::vector<int32_t> orchestrationInstruments(instrumentUnion.begin(),
+                                                                    instrumentUnion.end());
+                toOutput = getJamOrchestrationOutput(reductionUpdate, orchestrationInstruments,
+                                                     signal);
+                toOutput.reserve(toOutput.size() + clearFromMidi.size() + clearFromReduction.size());
+            } else {
+                juce::Logger::writeToLog("Invalid orchestration mode");
+                continue;
+            }
         } else {
-            juce::Logger::writeToLog("Invalid orchestration mode");
-            continue;
+            toOutput.reserve(clearFromMidi.size() + clearFromReduction.size());
         }
+
+        // Bypass orch model: ClearQueue must reach OutputPlayback as-is.
+        for (const auto &token: clearFromMidi)
+            toOutput.push_back(OrchestrationNote{.token = token, .velocity = 0, .localInstrumentId = 0});
+        for (const auto &token: clearFromReduction)
+            toOutput.push_back(OrchestrationNote{.token = token, .velocity = 0, .localInstrumentId = 0});
 
         packSortAndPushOutput(toOutput);
 

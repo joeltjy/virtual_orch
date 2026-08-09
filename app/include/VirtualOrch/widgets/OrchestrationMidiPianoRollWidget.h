@@ -2,11 +2,11 @@
 
 #include <JuceHeader.h>
 
-#include "VirtualOrch/widgets/SessionPianoRollWidget.h"
+#include "VirtualOrch/widgets/NoteIoWidget.h"
 
 class AppSession;
 
-class OrchestrationMidiPianoRollWidget : public SessionPianoRollWidget {
+class OrchestrationMidiPianoRollWidget : public NoteIoWidget {
 public:
     explicit OrchestrationMidiPianoRollWidget(AppSession &session);
 

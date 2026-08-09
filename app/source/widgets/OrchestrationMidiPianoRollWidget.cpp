@@ -4,17 +4,15 @@
 #include "VirtualOrch/ui/UiConstants.h"
 
 OrchestrationMidiPianoRollWidget::OrchestrationMidiPianoRollWidget(AppSession &sessionIn)
-    : SessionPianoRollWidget(sessionIn,
-                             UiConstants::workspaceOrchestrationMidiPianoRollTitle,
-                             UiConstants::workspaceWidgetTypeOrchestrationMidiPianoRoll) {
-    pianoRoll.setNoteColours(UiConstants::pianoRollHistoryNoteColour,
-                             UiConstants::pianoRollPendingNoteColour);
+    : NoteIoWidget(sessionIn,
+                   UiConstants::workspaceOrchestrationMidiPianoRollTitle,
+                   UiConstants::workspaceWidgetTypeOrchestrationMidiPianoRoll) {
+    setNoteColours(UiConstants::pianoRollHistoryNoteColour, UiConstants::pianoRollPendingNoteColour);
     refreshFromSession();
 }
 
 auto OrchestrationMidiPianoRollWidget::refreshFromSession() -> void {
-    pianoRoll.setPitchRange(session.modelConfig.inputLow, session.modelConfig.inputHigh);
+    setPitchRange(session.modelConfig.inputLow, session.modelConfig.inputHigh);
     const auto snap = session.orchestrationTransformer.getDebugSnapshot();
-    pianoRoll.setNotes(snap.midiHistory);
-    pianoRoll.setPendingNotes(snap.midiPending);
+    presentTokens(snap.midiHistory, snap.midiPending);
 }

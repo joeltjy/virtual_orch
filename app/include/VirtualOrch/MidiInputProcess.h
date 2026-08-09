@@ -3,17 +3,18 @@
 #include <JuceHeader.h>
 
 #include <deque>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
 
 #include "Clock.h"
 #include "Fifo.h"
-#include "MusicTransformer.h"
 #include "OutputProcessor.h"
-#include "VirtualOrch/DenseMusicTransformer.h"
 #include "VirtualOrch/InputFilter.h"
 #include "VirtualOrch/LaunchpadGrid.h"
+#include "VirtualOrch/ReductionTransformer.h"
+#include "VirtualOrch/ui/ModelConfigurationComponent.h"
 
 /**
  * MIDI / MTC input → tokens into the active music backend via InputFilter.
@@ -22,9 +23,7 @@
 class MidiInputProcess : public juce::MidiInputCallback, public juce::Timer {
 public:
     MidiInputProcess(Clock &clock,
-                     MusicTransformer &musicTransformer,
-                     DenseMusicTransformer &denseMusicTransformer,
-                     MusicModelArch &musicModelArch,
+                     std::function<ReductionTransformer &()> activeReduction,
                      ModelConfig &modelConfig,
                      std::unique_ptr<OutputProcessor> &outputProcessor,
                      std::unique_ptr<InputFilter> &inputFilter,
@@ -68,9 +67,7 @@ private:
     [[nodiscard]] auto musicDirectInputBlock() -> juce::Atomic<bool> &;
 
     Clock &clock;
-    MusicTransformer &musicTransformer;
-    DenseMusicTransformer &denseMusicTransformer;
-    MusicModelArch &musicModelArch;
+    std::function<ReductionTransformer &()> activeReduction;
     ModelConfig &modelConfig;
     std::unique_ptr<OutputProcessor> &outputProcessor;
     std::unique_ptr<InputFilter> &inputFilter;

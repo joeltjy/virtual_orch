@@ -26,7 +26,8 @@ auto familyAllowedBits(const std::vector<int32_t> &instruments,
 auto combosFromAllowedBits(int32_t allowedBits, int32_t familySize) -> std::vector<int32_t> {
     std::vector<int32_t> combos;
     const int32_t limit = 1 << familySize;
-    for (int32_t combo = 0; combo < limit; ++combo) {
+    // Skip combo 0 (empty set) for groups and within-family bitmasks.
+    for (int32_t combo = 1; combo < limit; ++combo) {
         if ((combo & ~allowedBits) == 0)
             combos.push_back(combo);
     }
@@ -91,23 +92,30 @@ auto InstrumentCombinations::tokensToInput(const std::vector<Token> &incomingTok
 
 auto InstrumentCombinations::prependHistoryToInput(const std::vector<int32_t> &newTokens) const
     -> std::vector<int32_t> {
-    const size_t n = newTokens.size() / static_cast<size_t>(tokensPerNote);
+    const size_t perNote = static_cast<size_t>(tokensPerNote);
+    const size_t maxAligned =
+        (static_cast<size_t>(maxContextLength) / perNote) * perNote;
+    jassert(newTokens.size() % perNote == 0);
+
     std::vector<int32_t> context;
-
-    if (static_cast<int32_t>(newTokens.size()) < maxContextLength) {
-        const size_t maxNotes = static_cast<size_t>(maxContextLength) / static_cast<size_t>(tokensPerNote);
-        const size_t historyNotes = maxNotes > n ? maxNotes - n : 0;
-        const size_t historyTokens = historyNotes * static_cast<size_t>(tokensPerNote);
-
-        if (tokenHistorySequence.size() >= historyTokens) {
-            context.insert(context.end(),
-                           tokenHistorySequence.end() - static_cast<std::ptrdiff_t>(historyTokens),
-                           tokenHistorySequence.end());
-        } else {
-            context.insert(context.end(), tokenHistorySequence.begin(), tokenHistorySequence.end());
-            const size_t rem = context.size() % static_cast<size_t>(tokensPerNote);
-            if (rem != 0)
-                context.erase(context.begin(), context.begin() + static_cast<std::ptrdiff_t>(rem));
+    if (newTokens.size() < maxAligned) {
+        const size_t room = maxAligned - newTokens.size();
+        const size_t historyTokens = (room / perNote) * perNote;
+        if (historyTokens > 0) {
+            if (tokenHistorySequence.size() >= historyTokens) {
+                context.insert(context.end(),
+                               tokenHistorySequence.end()
+                                   - static_cast<std::ptrdiff_t>(historyTokens),
+                               tokenHistorySequence.end());
+            } else {
+                context.insert(context.end(),
+                               tokenHistorySequence.begin(),
+                               tokenHistorySequence.end());
+                const size_t rem = context.size() % perNote;
+                if (rem != 0)
+                    context.erase(context.begin(),
+                                  context.begin() + static_cast<std::ptrdiff_t>(rem));
+            }
         }
 
         for (const int32_t token: context)
@@ -115,14 +123,9 @@ auto InstrumentCombinations::prependHistoryToInput(const std::vector<int32_t> &n
     }
 
     context.insert(context.end(), newTokens.begin(), newTokens.end());
-    if (context.size() > static_cast<size_t>(maxContextLength)) {
-        context.erase(context.begin(),
-                      context.end() - static_cast<std::ptrdiff_t>(maxContextLength));
-        const size_t rem = context.size() % static_cast<size_t>(tokensPerNote);
-        if (rem != 0)
-            context.erase(context.begin(), context.begin() + static_cast<std::ptrdiff_t>(rem));
-    }
-
+    // Invariant: full new batch is always retained at the end.
+    jassert(context.size() >= newTokens.size());
+    jassert(context.size() % perNote == 0);
     return context;
 }
 
@@ -356,22 +359,29 @@ auto InstrumentCombinations::getOutput(const std::vector<Token> &incomingTokens,
     if (incomingTokens.empty() || session == nullptr)
         return {};
 
-    const auto newTokens = tokensToInput(incomingTokens);
+    auto newTokens = tokensToInput(incomingTokens);
+    const size_t perNote = static_cast<size_t>(tokensPerNote);
+    const size_t maxAligned =
+        (static_cast<size_t>(maxContextLength) / perNote) * perNote;
+    if (newTokens.size() > maxAligned) {
+        newTokens.erase(newTokens.begin(),
+                        newTokens.end() - static_cast<std::ptrdiff_t>(maxAligned));
+    }
+
     auto context = prependHistoryToInput(newTokens);
 
     auto [logitsAll, vocab] = runModelAndGetLogits(context);
     if (logitsAll.empty() || vocab == 0 || logitsAll.size() != context.size() * vocab)
         return {};
 
-    // Drop first 9M history rows; keep (9N, vocab).
     const size_t newTokenCount = newTokens.size();
-    jassert(newTokenCount == incomingTokens.size() * static_cast<size_t>(tokensPerNote));
     jassert(context.size() >= newTokenCount);
     const size_t historyTokenCount = context.size() - newTokenCount;
     std::vector<float> logits(
         logitsAll.begin() + static_cast<std::ptrdiff_t>(historyTokenCount * vocab),
         logitsAll.end());
-    jassert(logits.size() == newTokenCount * vocab);
+    if (logits.size() != newTokenCount * vocab)
+        return {};
 
     maskLogits(logits, newTokenCount, vocab, instruments);
     const auto sampled = sample(newTokens, logits, vocab);

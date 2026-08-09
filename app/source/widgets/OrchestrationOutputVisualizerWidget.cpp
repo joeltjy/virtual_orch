@@ -4,28 +4,15 @@
 #include "VirtualOrch/ui/UiConstants.h"
 
 OrchestrationOutputVisualizerWidget::OrchestrationOutputVisualizerWidget(AppSession &sessionIn)
-    : WorkspaceWidget(UiConstants::workspaceOrchestrationOutputVisualizerTitle,
-                      UiConstants::workspaceWidgetTypeOrchestrationOutputVisualizer),
-      session(sessionIn) {
-    getContentComponent().addAndMakeVisible(table);
-    refreshFromSession();
-    startTimer(UiConstants::pianoRollTimerIntervalMs);
-}
-
-OrchestrationOutputVisualizerWidget::~OrchestrationOutputVisualizerWidget() {
-    stopTimer();
-}
-
-auto OrchestrationOutputVisualizerWidget::resized() -> void {
-    WorkspaceWidget::resized();
-    table.setBounds(getContentComponent().getLocalBounds());
-}
-
-auto OrchestrationOutputVisualizerWidget::timerCallback() -> void {
+    : NoteIoWidget(sessionIn,
+                   UiConstants::workspaceOrchestrationOutputVisualizerTitle,
+                   UiConstants::workspaceWidgetTypeOrchestrationOutputVisualizer) {
+    setNoteColours(UiConstants::pianoRollHistoryNoteColour, UiConstants::pianoRollPendingNoteColour);
     refreshFromSession();
 }
 
 auto OrchestrationOutputVisualizerWidget::refreshFromSession() -> void {
+    setPitchRange(session.modelConfig.inputLow, session.modelConfig.inputHigh);
     const auto snap = session.orchestrationTransformer.getDebugSnapshot();
-    table.setNotes(snap.outputHistory);
+    presentOrchestrationNotes(snap.outputHistory);
 }

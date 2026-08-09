@@ -3,16 +3,15 @@
 #include <JuceHeader.h>
 #include <onnxruntime_cxx_api.h>
 
-#include <functional>
+#include <memory>
 #include <vector>
 
-#include "Fifo.h"
-#include "VirtualOrch/MusicTransformer.h"
-#include "VirtualOrch/ui/ModelConfigurationComponent.h"
+#include "VirtualOrch/MusicToken.h"
+#include "VirtualOrch/ReductionTransformer.h"
 
 /**
  * Dense AMT-style vocab (time, duration, note, velocity).
- * Parallel to Config/Vocab in MusicTransformer.h — do not mix offsets.
+ * Parallel to Config/Vocab in MusicToken.h — do not mix offsets.
  *
  * note = NoteOffset + MaxPitch * instrument + pitch, instrument in [0, MaxInstr).
  * velocity token = VelocityOffset + v, v in [0, MaxVelocity).
@@ -43,16 +42,11 @@ inline constexpr size_t VelocityOffset = NoteOffset + DenseConfig::MaxNote; // 1
 inline constexpr size_t VocabSize = VelocityOffset + DenseConfig::MaxVelocity; // 11768
 } // namespace DenseVocab
 
-enum class MusicModelArch : uint8_t {
-    Amt,
-    Dense
-};
-
 /**
  * Dense Music Transformer: 4-wide events (time, dur, note, velocity).
  * ONNX: input_ids -> logits (no past KV / anticipate).
  */
-class DenseMusicTransformer : public juce::Thread {
+class DenseMusicTransformer : public ReductionTransformer {
 public:
     explicit DenseMusicTransformer(ModelConfig &modelConfig);
 
@@ -64,7 +58,7 @@ public:
 
     void init(const char *modelPath);
 
-    [[nodiscard]] auto isModelLoaded() const -> bool { return session != nullptr; }
+    [[nodiscard]] auto isModelLoaded() const -> bool override { return session != nullptr; }
 
     void threadInit();
 
@@ -72,26 +66,7 @@ public:
 
     void threadStop();
 
-    CircularFifo<Token> inputTokenQueue;
-    CircularFifo<Token> inputConditioningQueue;
-    CircularFifo<Token> outputTokenQueue;
-    CircularFifo<TokenUpdate> updatesFromFilter;
-
-    CircularFifo<Token> *orchestrationMidiIncoming = nullptr;
-    CircularFifo<Token> *orchestrationConditioningIncoming = nullptr;
-    CircularFifo<TokenUpdate> *orchestrationUpdatesIncoming = nullptr;
-
-    auto getInputData() const -> std::vector<int32_t> { return inputData; }
-
-    auto getCurrentTime() const -> int32_t { return currentTime; }
-
-    std::function<void(std::vector<int32_t>)> onInputDataChanged;
-
-    juce::Atomic<bool> directInputBlock = false;
-
 private:
-    void notifyInputDataChanged();
-
     auto applyQueuedInputToInputData() -> bool;
 
     auto applyUpdatesFromFilter() -> bool;
@@ -112,43 +87,11 @@ private:
 
     static auto denseMinTime(std::vector<int32_t> &tokens) -> int32_t;
 
-    ModelConfig &modelConfig;
-
     std::unique_ptr<Ort::Session> session;
     Ort::MemoryInfo memoryInfo = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault);
-
-    std::vector<int32_t> inputData;
-
-    int32_t currentTime = 0;
 
     std::vector<std::string> allocatedInputNames;
     std::vector<std::string> allocatedOutputNames;
 
-    auto clearInputTokenQueue() -> void {
-        Token t{.time = -1, .duration = -1, .note = -1};
-        while (inputTokenQueue.pull(t)) {
-        }
-    }
-
-    auto clearInputConditioningQueue() -> void {
-        Token t{.time = -1, .duration = -1, .note = -1};
-        while (inputConditioningQueue.pull(t)) {
-        }
-    }
-
-    auto clearOutputTokenQueue() -> void {
-        Token t{.time = -1, .duration = -1, .note = -1};
-        while (outputTokenQueue.pull(t)) {
-        }
-    }
-
-    auto clearUpdatesFromFilter() -> void {
-        TokenUpdate u{};
-        while (updatesFromFilter.pull(u)) {
-        }
-    }
-
     const int32_t maximumFuture = 200;
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DenseMusicTransformer)
 };

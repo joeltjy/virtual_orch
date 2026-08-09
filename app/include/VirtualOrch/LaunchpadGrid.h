@@ -24,6 +24,9 @@
  *  LEDs: mapped 8x8 pads follow effective state (row colours); unmapped pads stay off.
  *  Side: muted=red, unmuted=off.
  *  Top-row CCs use `scene_callback(idx)` with idx = cc - 104 (0..7).
+ *  App wiring: 0 (CC104) Edit/Jam toggle, 1 (CC105) Reduction pause,
+ *  2 (CC106) Orchestration pause; 3..7 unused.
+ *  Pause buttons light red via setTopLed while paused.
  */
 class LaunchpadGrid {
 public:
@@ -96,12 +99,28 @@ public:
         set_led(*note, LaunchpadLighting::colourForSide(sideUnmuted[static_cast<size_t>(rowIdx)]));
     }
 
+    auto refreshTopLed(int idx) -> void {
+        if (! set_led || idx < 0 || idx >= kTopCcCount)
+            return;
+        set_led(kTopCcBase + idx, topLedColours[static_cast<size_t>(idx)]);
+    }
+
+    /** Persist and light a top-row button (CC 104+idx). */
+    auto setTopLed(int idx, uint8_t paletteColour) -> void {
+        if (idx < 0 || idx >= kTopCcCount)
+            return;
+        topLedColours[static_cast<size_t>(idx)] = paletteColour;
+        refreshTopLed(idx);
+    }
+
     auto refreshAllLeds() -> void {
         for (int row = 0; row < kRows; ++row) {
             refreshSideLed(row);
             for (int col = 0; col < kCols; ++col)
                 refreshPadLed(row, col);
         }
+        for (int idx = 0; idx < kTopCcCount; ++idx)
+            refreshTopLed(idx);
     }
 
     /** MIDI press/release. Only presses toggle/emit. Optional nowMs for tests. */
@@ -146,7 +165,7 @@ public:
         }
     }
 
-    /** Top-row scene CC press: scene_callback(idx), idx in 0..7. */
+    /** Top-row CC press: scene_callback(idx), idx in 0..7 (cc - 104). */
     auto handleSceneInput(int idx) -> void {
         if (idx < 0 || idx >= kTopCcCount)
             return;
@@ -198,4 +217,5 @@ private:
 
     std::array<std::array<uint32_t, kCols>, kRows> gridLastAcceptMs{};
     std::array<uint32_t, kRows> sideLastAcceptMs{};
+    std::array<uint8_t, kTopCcCount> topLedColours{};
 };

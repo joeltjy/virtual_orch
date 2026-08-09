@@ -144,6 +144,14 @@ void ModelConfig::updateParameter(const juce::String &parameterName, const int32
             DBG("CGB: outputForceStartTime set to " + std::to_string(parameterValue));
             outputForceStartTime = parameterValue;
             break;
+        case ModelConfigParameter::OUTPUT_MAX_AHEAD_SECONDS:
+            DBG("CGB: outputMaxAheadSeconds set to " + std::to_string(parameterValue));
+            outputMaxAheadSeconds = parameterValue;
+            break;
+        case ModelConfigParameter::OUTPUT_AHEAD_THROTTLE_SECONDS:
+            DBG("CGB: outputAheadThrottleSeconds set to " + std::to_string(parameterValue));
+            outputAheadThrottleSeconds = parameterValue;
+            break;
 
         default:
             throw std::runtime_error("Unknown bool/int32 parameter: " + parameterName.toStdString());

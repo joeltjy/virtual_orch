@@ -26,18 +26,28 @@ public:
     auto paint(juce::Graphics &g) -> void override;
 
 private:
+    struct TimeWindow {
+        int32_t leftTime = 0;
+        int32_t rightTime = 1;
+        int32_t nowTime = 0;
+    };
+
     auto timerCallback() -> void override;
 
-    [[nodiscard]] auto timeToX(int32_t time, int32_t nowTime, float width) const -> float;
+    [[nodiscard]] auto isDrawableNote(const Token &token) const -> bool;
+
+    [[nodiscard]] auto computeTimeWindow() const -> TimeWindow;
+
+    [[nodiscard]] auto timeToX(int32_t time, const TimeWindow &window, float width) const -> float;
 
     [[nodiscard]] auto pitchToY(int32_t pitch, float height) const -> float;
 
-    [[nodiscard]] auto nowBarX(float width) const -> float;
+    [[nodiscard]] auto nowBarX(const TimeWindow &window, float width) const -> float;
 
     auto paintNotes(juce::Graphics &g,
                     const std::vector<Token> &tokens,
                     juce::Colour colour,
-                    int32_t nowTime,
+                    const TimeWindow &window,
                     float width,
                     float height,
                     float noteHeight) const -> void;

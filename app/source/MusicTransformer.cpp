@@ -2,31 +2,20 @@
 #include "VirtualOrch/OrtEnv.h"
 #include <onnxruntime_cxx_api.h>
 
-MusicTransformer::MusicTransformer(ModelConfig &modelConfig): Thread("Music Transformer"), modelConfig(modelConfig) {
-}
-
-void MusicTransformer::notifyInputDataChanged() {
-    auto callback = onInputDataChanged;
-    if (!callback) {
-        return;
-    }
-    auto snapshot = inputData;
-    juce::MessageManager::callAsync([callback = std::move(callback), snapshot = std::move(snapshot)]() mutable {
-        callback(std::move(snapshot));
-    });
+MusicTransformer::MusicTransformer(ModelConfig &modelConfig)
+    : ReductionTransformer("Music Transformer", modelConfig) {
 }
 
 void MusicTransformer::init(const char *modelPath, ModelType newModelType) {
     Ort::SessionOptions sessionOptions;
 
-    // If on Linux, use CUDA
 #ifdef __linux__
     OrtCUDAProviderOptions cudaOptions{};
     sessionOptions.AppendExecutionProvider_CUDA(cudaOptions);
 #endif
 
-    // Create session and set model typez
     session = std::make_unique<Ort::Session>(sharedOrtEnv(), modelPath, sessionOptions);
+
     modelType = std::make_unique<ModelType>(newModelType);
 
     // Set Input and Output names
@@ -65,6 +54,7 @@ void MusicTransformer::threadRun() {
     clearInputConditioningQueue();
     clearOutputTokenQueue();
     clearUpdatesFromFilter();
+    clearOutputHistory();
 
     currentTime = modelConfig.outputStartTime;
 
@@ -91,9 +81,12 @@ void MusicTransformer::threadRun() {
 
     // Whether this iteration applied live token-queue input (triggers ClearQueue on output).
     bool inputApplied = false;
+    aheadThrottleUntilMs = 0;
 
     // Until thread is not stopped
     while (!threadShouldExit()) {
+        finishAheadThrottleIfDue();
+
         // DIRECT INPUT: WAIT FOR INPUT BLOCK
         if (modelConfig.inputMode == InputMode::Direct && modelConfig.directInputStartOnInput
             && directInputBlock.value) {
@@ -102,6 +95,17 @@ void MusicTransformer::threadRun() {
 
         inputApplied = applyQueuedInputToInputData();
         applyUpdatesFromFilter();
+
+        if (paused.get()) {
+            if (inputApplied) {
+                const Token clearToken{Vocab::TimeOffset, Vocab::DurOffset, Vocab::ClearQueue};
+                pushOutputToken(clearToken);
+                inputApplied = false;
+            } else {
+                wait(5);
+            }
+            continue;
+        }
 
         // GENERATE NEW TOKEN (OR REST)
         Token newToken = {-1, -1, -1};
@@ -124,13 +128,16 @@ void MusicTransformer::threadRun() {
         // We do it here to ensure we can push the new token right after, and not have a moment without any token
         if (inputApplied) {
             Token clearToken = {Vocab::TimeOffset, Vocab::DurOffset, Vocab::ClearQueue};
-            outputTokenQueue.push(clearToken);
+            pushOutputToken(clearToken);
         }
 
         if (inputApplied) { inputApplied = false; }
 
         // Push new token to output queue
-        outputTokenQueue.push(newToken);
+        pushOutputToken(newToken);
+
+        if (newToken.time >= 0 && isGeneratedTooFarAhead(newToken.time))
+            startAheadThrottle();
     }
 }
 

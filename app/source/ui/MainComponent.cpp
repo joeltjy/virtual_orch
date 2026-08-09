@@ -14,11 +14,9 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
 
     setWantsKeyboardFocus(true);
 
-    session.presetStore.setModelNameProvider([this] {
-        if (modelList.getSelectedId() == 0) {
-            return juce::String();
-        }
-        return modelList.getItemText(modelList.getSelectedItemIndex());
+    session.presetStore.setModelNameProvider([this] { return selectedCheckpointName(); });
+    session.presetStore.setOrchestrationModelNameProvider([this] {
+        return orchestrationModelList.getText();
     });
     session.presetStore.setOnPresetSaved([this](const juce::String &presetName) {
         presetList.addItem(presetName, presetList.getNumItems() + 1);
@@ -168,8 +166,14 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
         session.presetStore.settings.getChildWithName("mtcClock").setProperty(
             "active", mtcClock.getToggleState(), nullptr);
     };
-    bool savedMtcClockStatus = session.presetStore.settings.getOrCreateChildWithName("mtcClock", nullptr).getProperty("active", false);
-    mtcClock.setToggleState(savedMtcClockStatus, juce::sendNotification);
+    auto mtcClockSettings =
+        session.presetStore.settings.getOrCreateChildWithName("mtcClock", nullptr);
+    // Default off: internal clock unless the user explicitly enables MTC.
+    if (! mtcClockSettings.hasProperty("active"))
+        mtcClockSettings.setProperty("active", false, nullptr);
+    const bool savedMtcClockStatus = static_cast<bool>(mtcClockSettings.getProperty("active", false));
+    mtcClock.setToggleState(savedMtcClockStatus, juce::dontSendNotification);
+    session.mtcClockActive = savedMtcClockStatus;
 
     juce::StringArray midiInputNames;
 
@@ -208,6 +212,8 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
         DBG("No saved MTC Clock, setting to first input.");
         mtcClockList.setSelectedItemIndex(0);
     }
+    // Apply MTC routing after the device list is filled (toggle restore uses dontSendNotification).
+    updateMtcClock();
 
     addAndMakeVisible(mtcClockOffsetLabel);
     mtcClockOffsetLabel.setText("Offset: ", juce::dontSendNotification);
@@ -310,29 +316,32 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
         launchpadMidiList.setSelectedItemIndex(0);
     }
 
-    /* MODEL LIST */
+    /* REDUCTION TYPE + CHECKPOINT */
 
-    addAndMakeVisible(modelListLabel);
-    modelListLabel.setText("Model: ", juce::dontSendNotification);
-    modelListLabel.attachToComponent(&modelList, true);
+    addAndMakeVisible(reductionTypeListLabel);
+    reductionTypeListLabel.setText("Reduction: ", juce::dontSendNotification);
+    reductionTypeListLabel.attachToComponent(&reductionTypeList, true);
 
-    addAndMakeVisible(modelList);
-    modelList.setTextWhenNoChoicesAvailable("No Models Available");
-    juce::File modelsDir = projectModelsDir();
+    addAndMakeVisible(reductionTypeList);
+    reductionTypeList.addItem("MusicTransformer", 1);
+    reductionTypeList.addItem("DenseMusicTransformer", 2);
+    reductionTypeList.setSelectedId(1, juce::dontSendNotification);
+    reductionTypeList.onChange = [this] {
+        stop();
+        refreshCheckpointList();
+        clearModel();
+    };
 
-    juce::Array<juce::File> modelFiles;
-    modelsDir.findChildFiles(modelFiles, juce::File::findFiles, false, "*.onnx");
+    addAndMakeVisible(checkpointListLabel);
+    checkpointListLabel.setText("Checkpoint: ", juce::dontSendNotification);
+    checkpointListLabel.attachToComponent(&checkpointList, true);
 
-    for (const auto &file: modelFiles) {
-        // Don't add if associated .json doesn't exist
-        if (!modelsDir.getChildFile(file.getFileNameWithoutExtension() + ".json").exists()) {
-            continue;
-        }
-
-        modelList.addItem(file.getFileNameWithoutExtension(), modelFiles.indexOf(file) + 1);
-    }
-
-    modelList.onChange = [this] {
+    addAndMakeVisible(checkpointList);
+    checkpointList.setTextWhenNoChoicesAvailable("No Checkpoints Available");
+    refreshCheckpointList();
+    checkpointList.onChange = [this] {
+        if (checkpointList.getSelectedId() == 0)
+            return;
         stop();
         updateModel(true);
     };
@@ -377,7 +386,13 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
 
     orchestrationModelList.onChange = [this] {
         stop();
-        session.setOrchestrationModel(orchestrationModelList.getText());
+        const auto name = orchestrationModelList.getText();
+        if (! session.setOrchestrationModel(name)) {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon,
+                "Error",
+                "Failed to load orchestration model '" + name + "'.");
+        }
     };
 
     /* MIDI THROUGH */
@@ -745,25 +760,62 @@ void MainComponent::loadPresetFromName(const juce::String &presetName) {
         presetList.setSelectedId(1, juce::dontSendNotification);
         return;
     }
-    if (modelName != modelList.getItemText(modelList.getSelectedItemIndex())) {
-        int modelIndex = -1;
-        for (int i = 0; i < modelList.getNumItems(); i++) {
-            if (modelList.getItemText(i) == modelName) {
-                modelIndex = i;
+
+    const auto checkpoint = findModelCheckpoint(modelName);
+    if (! checkpoint.has_value()) {
+        juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Error",
+                                               "Model " + modelName + " not found.");
+        presetList.setSelectedId(1, juce::dontSendNotification);
+        return;
+    }
+
+    if (modelName != selectedCheckpointName()
+        || selectedReductionIsDense() != checkpoint->isDense) {
+        stop();
+        reductionTypeList.setSelectedId(checkpoint->isDense ? 2 : 1, juce::dontSendNotification);
+        refreshCheckpointList();
+        int checkpointId = 0;
+        for (int i = 0; i < checkpointList.getNumItems(); ++i) {
+            if (checkpointList.getItemText(i) == modelName) {
+                checkpointId = checkpointList.getItemId(i);
                 break;
             }
         }
-        if (modelIndex == -1) {
+        if (checkpointId == 0) {
             juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Error",
-                                                   "Model " + modelName + " not found.");
+                                                   "Model " + modelName + " not found for selected type.");
             presetList.setSelectedId(1, juce::dontSendNotification);
             return;
         }
-        stop();
-
-        modelList.setSelectedId(modelIndex + 1, juce::dontSendNotification);
+        checkpointList.setSelectedId(checkpointId, juce::dontSendNotification);
         updateModel(false);
     }
+
+    const juce::String orchName = preset.getProperty("orchestrationModel", "").toString();
+    if (orchName.isNotEmpty()) {
+        bool found = false;
+        for (int i = 0; i < orchestrationModelList.getNumItems(); ++i) {
+            if (orchestrationModelList.getItemText(i) == orchName) {
+                orchestrationModelList.setSelectedItemIndex(i, juce::dontSendNotification);
+                found = true;
+                break;
+            }
+        }
+        if (found) {
+            if (! session.setOrchestrationModel(orchName)) {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::AlertWindow::WarningIcon,
+                    "Error",
+                    "Failed to load orchestration model '" + orchName + "'.");
+            }
+        } else {
+            juce::AlertWindow::showMessageBoxAsync(
+                juce::AlertWindow::WarningIcon,
+                "Error",
+                "Orchestration model '" + orchName + "' not found.");
+        }
+    }
+
     session.presetStore.applyPreset(preset);
     session.rebuildInputFilter();
     resized();
@@ -791,11 +843,31 @@ void MainComponent::moveToRightPreset() {
 
 
 void MainComponent::clearModel() {
-    modelList.setSelectedId(0, juce::dontSendNotification);
+    checkpointList.setSelectedId(0, juce::dontSendNotification);
     stop();
-    // We resize to remove the `modelConfigurationButton`
     modelConfigurationButton.setEnabled(false);
     resized();
+}
+
+auto MainComponent::selectedReductionIsDense() const -> bool {
+    return reductionTypeList.getSelectedId() == 2;
+}
+
+auto MainComponent::selectedCheckpointName() const -> juce::String {
+    if (checkpointList.getSelectedId() == 0)
+        return {};
+    return checkpointList.getItemText(checkpointList.getSelectedItemIndex());
+}
+
+auto MainComponent::refreshCheckpointList() -> void {
+    const bool wantDense = selectedReductionIsDense();
+    checkpointList.clear(juce::dontSendNotification);
+    int nextId = 1;
+    for (const auto &cp: listModelCheckpoints()) {
+        if (cp.isDense != wantDense)
+            continue;
+        checkpointList.addItem(cp.name, nextId++);
+    }
 }
 
 void MainComponent::updateModel(const bool loadDefaultPreset) {
@@ -807,14 +879,31 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
         statusOutputProcessor->modelLoading();
     }
 
-    // Get Model Config File
-    juce::File modelsDir = projectModelsDir();
-    const auto modelName = modelList.getItemText(modelList.getSelectedItemIndex());
-    juce::File jsonFile(modelsDir.getChildFile(modelName + ".json"));
-    juce::var parsedJson = juce::JSON::parse(jsonFile.loadFileAsString());
+    const auto modelName = selectedCheckpointName();
+    if (modelName.isEmpty()) {
+        modelConfigurationButton.setEnabled(false);
+        return;
+    }
 
-    const juce::String arch = parsedJson.getProperty("arch", "amt").toString().toLowerCase();
-    const bool isDense = arch == "dense";
+    const auto checkpoint = findModelCheckpoint(modelName);
+    if (! checkpoint.has_value()) {
+        juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Error",
+                                               "Model " + modelName + " not found.");
+        checkpointList.setSelectedId(0, juce::dontSendNotification);
+        return;
+    }
+
+    if (checkpoint->isDense != selectedReductionIsDense()) {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Error",
+            "Checkpoint '" + modelName + "' does not match the selected reduction type.");
+        checkpointList.setSelectedId(0, juce::dontSendNotification);
+        return;
+    }
+
+    juce::var parsedJson = juce::JSON::parse(checkpoint->jsonFile.loadFileAsString());
+    const bool isDense = checkpoint->isDense;
 
     // MODEL CONFIG: Set Model Size (AMT only)
     ModelType modelType = ModelType::Small;
@@ -827,13 +916,13 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
         } else if (modelSize == "") {
             juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Error",
                                                    "Model Config is invalid (size not given).");
-            modelList.setSelectedId(0, juce::dontSendNotification);
+            checkpointList.setSelectedId(0, juce::dontSendNotification);
             return;
         } else {
             juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Error",
                                                    "Model Config is invalid (size '" + modelSize +
                                                    "' is not valid).");
-            modelList.setSelectedId(0, juce::dontSendNotification);
+            checkpointList.setSelectedId(0, juce::dontSendNotification);
             return;
         }
     }
@@ -850,7 +939,7 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
     } else {
         juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Error",
                                                "Model Config is invalid (no output instrument).");
-        modelList.setSelectedId(0, juce::dontSendNotification);
+        checkpointList.setSelectedId(0, juce::dontSendNotification);
         return;
     }
 
@@ -864,13 +953,25 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
         markPresetAsEdited();
     }
 
-    const auto modelPath = modelsDir.getChildFile(modelName + ".onnx");
-    if (isDense) {
-        session.setMusicModelArch(MusicModelArch::Dense);
-        session.denseMusicTransformer.init(modelPath.getFullPathName().toStdString().c_str());
-    } else {
-        session.setMusicModelArch(MusicModelArch::Amt);
-        session.musicTransformer.init(modelPath.getFullPathName().toStdString().c_str(), modelType);
+    const juce::String modelPathStr = checkpoint->onnxFile.getFullPathName();
+    try {
+        if (isDense) {
+            session.setMusicModelArch(MusicModelArch::Dense);
+            session.denseMusicTransformer.init(modelPathStr.toRawUTF8());
+        } else {
+            session.setMusicModelArch(MusicModelArch::Amt);
+            session.musicTransformer.init(modelPathStr.toRawUTF8(), modelType);
+        }
+    } catch (const Ort::Exception &exception) {
+        DBG("Music model CUDA/ORT init failed: " + juce::String(exception.what()));
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::AlertWindow::WarningIcon,
+            "Error",
+            "Failed to load model '" + modelName + "' on GPU.\n"
+            "Check that the NVIDIA driver is loaded (/dev/nvidia* present, nvidia-smi works).\n\n"
+            + juce::String(exception.what()));
+        checkpointList.setSelectedId(0, juce::dontSendNotification);
+        return;
     }
 
     // Send modelLoaded status to statusOutputProcessor
@@ -939,8 +1040,11 @@ void MainComponent::resized() {
     auto launchpadMidiArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
     launchpadMidiList.setBounds(launchpadMidiArea);
 
+    auto reductionTypeArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
+    reductionTypeList.setBounds(reductionTypeArea);
+
     auto modelConfigArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
-    modelList.setBounds(modelConfigArea.removeFromLeft(getWidth() - 300).withTrimmedRight(20));
+    checkpointList.setBounds(modelConfigArea.removeFromLeft(getWidth() - 300).withTrimmedRight(20));
     modelConfigurationButton.setBounds(modelConfigArea);
 
     orchestrationModelList.setBounds(area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8));

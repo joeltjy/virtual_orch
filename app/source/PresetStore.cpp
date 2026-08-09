@@ -1,5 +1,7 @@
 #include "VirtualOrch/PresetStore.h"
 
+#include "VirtualOrch/ProjectPaths.h"
+
 PresetStore::PresetStore(ModelConfig &modelConfig)
     : modelConfig(modelConfig),
       appDataDir(juce::File::getSpecialLocation(juce::File::SpecialLocationType::userDocumentsDirectory)
@@ -7,9 +9,26 @@ PresetStore::PresetStore(ModelConfig &modelConfig)
       presetsDir(appDataDir.getChildFile("Presets")),
       settingsFile(appDataDir.getChildFile("settings.xml")) {
     presetsDir.createDirectory();
+    installBundledPresets();
+}
+
+auto PresetStore::installBundledPresets() -> void {
+    const auto bundled = projectModelsDir().getChildFile("presets");
+    if (! bundled.isDirectory())
+        return;
+
+    juce::Array<juce::File> files;
+    bundled.findChildFiles(files, juce::File::findFiles, false, "*.json");
+    for (const auto &src: files) {
+        const auto dest = presetsDir.getChildFile(src.getFileName());
+        if (! dest.existsAsFile())
+            src.copyFileTo(dest);
+    }
 }
 
 auto PresetStore::loadSettings() -> void {
+    installBundledPresets();
+
     if (!settingsFile.exists()) {
         settingsFile.create();
         settings = juce::ValueTree("settings");
@@ -64,6 +83,11 @@ auto PresetStore::applyPreset(const juce::var &parsedJson) -> void {
 auto PresetStore::buildPresetJson(const juce::String &modelName) const -> juce::var {
     juce::var presetJson(new juce::DynamicObject());
     presetJson.getDynamicObject()->setProperty("model", modelName);
+    if (orchestrationModelNameProvider) {
+        const auto orchName = orchestrationModelNameProvider();
+        if (orchName.isNotEmpty())
+            presetJson.getDynamicObject()->setProperty("orchestrationModel", orchName);
+    }
 
     switch (modelConfig.inputMode) {
         case InputMode::Direct:
@@ -106,6 +130,9 @@ auto PresetStore::buildPresetJson(const juce::String &modelName) const -> juce::
     presetJson.getDynamicObject()->setProperty("outputTemperatures", outputTemperatures);
     presetJson.getDynamicObject()->setProperty("outputStartTime", modelConfig.outputStartTime);
     presetJson.getDynamicObject()->setProperty("outputForceStartTime", modelConfig.outputForceStartTime);
+    presetJson.getDynamicObject()->setProperty("outputMaxAheadSeconds", modelConfig.outputMaxAheadSeconds);
+    presetJson.getDynamicObject()->setProperty("outputAheadThrottleSeconds",
+                                               modelConfig.outputAheadThrottleSeconds);
 
     juce::var outputInstruments;
     for (const auto &[id, instrument]: modelConfig.outputInstruments) {

@@ -17,9 +17,7 @@ AppSession::AppSession()
       outputPlayback(clock, orchestrationTransformer, outputProcessor, bufferOutputProcessor,
                      visualizationBufferSize),
       midiInputProcess(clock,
-                       musicTransformer,
-                       denseMusicTransformer,
-                       musicModelArch,
+                       [this]() -> ReductionTransformer & { return activeReduction(); },
                        modelConfig,
                        outputProcessor,
                        inputFilter,
@@ -30,6 +28,21 @@ AppSession::AppSession()
     bindActiveMusicBackend();
     midiInputProcess.getLaunchpadGrid().instrumentUpdates =
         &orchestrationTransformer.instrumentUpdates;
+    midiInputProcess.getLaunchpadGrid().scene_callback = [this](int idx) {
+        if (idx == 0) {
+            const auto mode = orchestrationTransformer.getMode();
+            orchestrationTransformer.setMode(mode == OrchestrationMode::Edit
+                                                 ? OrchestrationMode::Jam
+                                                 : OrchestrationMode::Edit);
+        } else if (idx == 1) {
+            auto &reduction = activeReduction();
+            reduction.paused.set(! reduction.paused.get());
+        } else if (idx == 2) {
+            orchestrationTransformer.paused.set(! orchestrationTransformer.paused.get());
+        }
+
+        syncPauseTopLeds();
+    };
     auto &pads = midiInputProcess.getLaunchpadGrid().padInstruments;
     pads[0][0] = 0;
     pads[0][1] = 1;
@@ -71,6 +84,14 @@ AppSession::AppSession()
     pads[7][5] = 18;
 
     orchestrationTransformer.orchestrationModel = orchestrationModel.get();
+    outputPlayback.isReductionPaused = [this] { return activeReduction().paused.get(); };
+
+    musicTransformer.clock = &clock;
+    denseMusicTransformer.clock = &clock;
+
+    const auto syncLeds = [this] { syncPauseTopLeds(); };
+    musicTransformer.onPausedChanged = syncLeds;
+    denseMusicTransformer.onPausedChanged = syncLeds;
 }
 
 AppSession::~AppSession() {
@@ -83,50 +104,48 @@ AppSession::~AppSession() {
         outputProcessor->clear();
 }
 
+auto AppSession::activeReduction() -> ReductionTransformer & {
+    return musicModelArch == MusicModelArch::Dense
+               ? static_cast<ReductionTransformer &>(denseMusicTransformer)
+               : static_cast<ReductionTransformer &>(musicTransformer);
+}
+
+auto AppSession::activeReduction() const -> const ReductionTransformer & {
+    return musicModelArch == MusicModelArch::Dense
+               ? static_cast<const ReductionTransformer &>(denseMusicTransformer)
+               : static_cast<const ReductionTransformer &>(musicTransformer);
+}
+
 auto AppSession::rebuildInputFilter() -> void {
-    if (musicModelArch == MusicModelArch::Dense) {
-        inputFilter = createInputFilter(modelConfig.inputFilterType,
-                                        modelConfig,
-                                        denseMusicTransformer.inputTokenQueue,
-                                        denseMusicTransformer.inputConditioningQueue,
-                                        denseMusicTransformer.updatesFromFilter);
-    } else {
-        inputFilter = createInputFilter(modelConfig.inputFilterType,
-                                        modelConfig,
-                                        musicTransformer.inputTokenQueue,
-                                        musicTransformer.inputConditioningQueue,
-                                        musicTransformer.updatesFromFilter);
-    }
+    auto &reduction = activeReduction();
+    inputFilter = createInputFilter(modelConfig.inputFilterType,
+                                    modelConfig,
+                                    reduction.inputTokenQueue,
+                                    reduction.inputConditioningQueue,
+                                    reduction.updatesFromFilter);
 }
 
 auto AppSession::bindActiveMusicBackend() -> void {
     musicTransformer.orchestrationMidiIncoming = nullptr;
     musicTransformer.orchestrationConditioningIncoming = nullptr;
+    musicTransformer.orchestrationReductionIncoming = nullptr;
     musicTransformer.orchestrationUpdatesIncoming = nullptr;
     denseMusicTransformer.orchestrationMidiIncoming = nullptr;
     denseMusicTransformer.orchestrationConditioningIncoming = nullptr;
+    denseMusicTransformer.orchestrationReductionIncoming = nullptr;
     denseMusicTransformer.orchestrationUpdatesIncoming = nullptr;
 
-    if (musicModelArch == MusicModelArch::Dense) {
-        denseMusicTransformer.orchestrationMidiIncoming = &orchestrationTransformer.midiInputIncoming;
-        denseMusicTransformer.orchestrationConditioningIncoming =
-            &orchestrationTransformer.conditioningIncoming;
-        denseMusicTransformer.orchestrationUpdatesIncoming =
-            &orchestrationTransformer.updatesIncoming;
-    } else {
-        musicTransformer.orchestrationMidiIncoming = &orchestrationTransformer.midiInputIncoming;
-        musicTransformer.orchestrationConditioningIncoming =
-            &orchestrationTransformer.conditioningIncoming;
-        musicTransformer.orchestrationUpdatesIncoming = &orchestrationTransformer.updatesIncoming;
-    }
+    auto &reduction = activeReduction();
+    reduction.orchestrationMidiIncoming = &orchestrationTransformer.midiInputIncoming;
+    reduction.orchestrationConditioningIncoming = &orchestrationTransformer.conditioningIncoming;
+    reduction.orchestrationReductionIncoming = &orchestrationTransformer.reductionIncoming;
+    reduction.orchestrationUpdatesIncoming = &orchestrationTransformer.updatesIncoming;
 
     rebuildInputFilter();
 }
 
 auto AppSession::setMusicModelArch(MusicModelArch arch) -> void {
-    auto callback = musicTransformer.onInputDataChanged;
-    if (callback == nullptr)
-        callback = denseMusicTransformer.onInputDataChanged;
+    auto callback = activeReduction().onInputDataChanged;
 
     musicModelArch = arch;
     bindActiveMusicBackend();
@@ -134,32 +153,25 @@ auto AppSession::setMusicModelArch(MusicModelArch arch) -> void {
 }
 
 auto AppSession::isMusicModelLoaded() const -> bool {
-    return musicModelArch == MusicModelArch::Dense ? denseMusicTransformer.isModelLoaded()
-                                                   : musicTransformer.isModelLoaded();
+    return activeReduction().isModelLoaded();
 }
 
 auto AppSession::isMusicThreadRunning() const -> bool {
-    return musicModelArch == MusicModelArch::Dense ? denseMusicTransformer.isThreadRunning()
-                                                   : musicTransformer.isThreadRunning();
+    return activeReduction().isThreadRunning();
 }
 
 auto AppSession::getMusicDirectInputBlock() -> juce::Atomic<bool> & {
-    return musicModelArch == MusicModelArch::Dense ? denseMusicTransformer.directInputBlock
-                                                   : musicTransformer.directInputBlock;
+    return activeReduction().directInputBlock;
 }
 
 auto AppSession::getActiveInputData() const -> std::vector<int32_t> {
-    return musicModelArch == MusicModelArch::Dense ? denseMusicTransformer.getInputData()
-                                                   : musicTransformer.getInputData();
+    return activeReduction().getInputData();
 }
 
 auto AppSession::setOnInputDataChanged(std::function<void(std::vector<int32_t>)> callback) -> void {
     musicTransformer.onInputDataChanged = nullptr;
     denseMusicTransformer.onInputDataChanged = nullptr;
-    if (musicModelArch == MusicModelArch::Dense)
-        denseMusicTransformer.onInputDataChanged = std::move(callback);
-    else
-        musicTransformer.onInputDataChanged = std::move(callback);
+    activeReduction().onInputDataChanged = std::move(callback);
 }
 
 auto AppSession::setOrchestrationModel(const juce::String &name) -> bool {
@@ -191,10 +203,7 @@ auto AppSession::startGeneration() -> void {
     if (inputFilter != nullptr)
         inputFilter->reset();
 
-    if (musicModelArch == MusicModelArch::Dense)
-        denseMusicTransformer.startThread();
-    else
-        musicTransformer.startThread();
+    activeReduction().startThread();
 
     orchestrationTransformer.startThread();
     outputPlayback.startThread();
@@ -219,6 +228,17 @@ auto AppSession::stopGeneration() -> void {
     outputPlayback.stopThread(-1);
     clock.stop();
     outputPlayback.resetProgress();
+    outputPlayback.clearNoteOnHistory();
+    musicTransformer.clearOutputHistory();
+    denseMusicTransformer.clearOutputHistory();
     if (outputProcessor != nullptr)
         outputProcessor->clear();
+}
+
+auto AppSession::syncPauseTopLeds() -> void {
+    auto &grid = midiInputProcess.getLaunchpadGrid();
+    grid.setTopLed(1, activeReduction().paused.get() ? LaunchpadLighting::kRed
+                                                     : LaunchpadLighting::kOff);
+    grid.setTopLed(2, orchestrationTransformer.paused.get() ? LaunchpadLighting::kRed
+                                                            : LaunchpadLighting::kOff);
 }

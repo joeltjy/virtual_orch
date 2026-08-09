@@ -27,6 +27,11 @@ auto OrchestrationDebugView::applyTo(WorkspaceCanvas &canvas) -> void {
                               UiConstants::workspaceOrchestrationDebugGenerationY,
                               UiConstants::workspaceOrchestrationDebugGenerationWidth,
                               UiConstants::workspaceOrchestrationDebugGenerationHeight});
+    canvas.placeWidgetOfType(UiConstants::workspaceWidgetTypeMode,
+                             {UiConstants::workspaceOrchestrationDebugModeX,
+                              UiConstants::workspaceOrchestrationDebugModeY,
+                              UiConstants::workspaceOrchestrationDebugModeWidth,
+                              UiConstants::workspaceOrchestrationDebugModeHeight});
     canvas.placeWidgetOfType(UiConstants::workspaceWidgetTypeActiveInstruments,
                              {UiConstants::workspaceOrchestrationDebugActiveInstrumentsX,
                               UiConstants::workspaceOrchestrationDebugActiveInstrumentsY,
@@ -37,6 +42,16 @@ auto OrchestrationDebugView::applyTo(WorkspaceCanvas &canvas) -> void {
                               UiConstants::workspaceOrchestrationDebugOutputVisualizerY,
                               UiConstants::workspaceOrchestrationDebugOutputVisualizerWidth,
                               UiConstants::workspaceOrchestrationDebugOutputVisualizerHeight});
+    canvas.placeWidgetOfType(UiConstants::workspaceWidgetTypePlaybackOutput,
+                             {UiConstants::workspaceOrchestrationDebugPlaybackOutputX,
+                              UiConstants::workspaceOrchestrationDebugPlaybackOutputY,
+                              UiConstants::workspaceOrchestrationDebugPlaybackOutputWidth,
+                              UiConstants::workspaceOrchestrationDebugPlaybackOutputHeight});
+    canvas.placeWidgetOfType(UiConstants::workspaceWidgetTypeReductionTransformerOutput,
+                             {UiConstants::workspaceOrchestrationDebugReductionTransformerOutputX,
+                              UiConstants::workspaceOrchestrationDebugReductionTransformerOutputY,
+                              UiConstants::workspaceOrchestrationDebugReductionTransformerOutputWidth,
+                              UiConstants::workspaceOrchestrationDebugReductionTransformerOutputHeight});
     canvas.endViewLayout();
 }
 

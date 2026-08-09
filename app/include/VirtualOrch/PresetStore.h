@@ -20,6 +20,9 @@ public:
 
     auto saveSettings() -> void;
 
+    /** Copy checked-in app/presets/*.json into Documents if missing. */
+    auto installBundledPresets() -> void;
+
     [[nodiscard]] auto getPresetsDir() const -> const juce::File & { return presetsDir; }
 
     [[nodiscard]] auto listPresetNames() const -> juce::StringArray;
@@ -34,6 +37,10 @@ public:
         modelNameProvider = std::move(provider);
     }
 
+    auto setOrchestrationModelNameProvider(std::function<juce::String()> provider) -> void {
+        orchestrationModelNameProvider = std::move(provider);
+    }
+
     auto setOnPresetSaved(std::function<void(const juce::String &)> callback) -> void {
         onPresetSaved = std::move(callback);
     }
@@ -45,6 +52,7 @@ private:
     juce::File settingsFile;
 
     std::function<juce::String()> modelNameProvider;
+    std::function<juce::String()> orchestrationModelNameProvider;
     std::function<void(const juce::String &)> onPresetSaved;
 
     [[nodiscard]] auto buildPresetJson(const juce::String &modelName) const -> juce::var;

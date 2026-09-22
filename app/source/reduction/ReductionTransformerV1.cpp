@@ -1,5 +1,9 @@
-#include "VirtualOrch/DenseMusicTransformer.h"
+#include "VirtualOrch/reduction/ReductionTransformerV1.h"
+#include "VirtualOrch/InstrumentConstants.h"
+#include "VirtualOrch/NoteWindow.h"
 #include "VirtualOrch/OrtEnv.h"
+#include "VirtualOrch/SamplingRelativeTime.h"
+#include "VirtualOrch/vocsep/VoiceSeparation.h"
 
 #include <algorithm>
 #include <limits>
@@ -8,16 +12,31 @@
 namespace {
 
 constexpr int denseEventWidth = 4;
-constexpr int denseLookbackEvents = 40;
-constexpr int denseLookbackInts = denseLookbackEvents * denseEventWidth;
+
+/**
+ * Nearest-rank percentile of `values` (ceil(q * n)-th smallest); 0 when empty.
+ * e.g. q = 0.75 over 15 values is the 12th smallest.
+ */
+auto percentileOf(std::vector<int32_t> values, float quantile) -> int32_t {
+    if (values.empty())
+        return 0;
+
+    const auto count = static_cast<float>(values.size());
+    const auto rank = static_cast<size_t>(std::ceil(juce::jlimit(0.0f, 1.0f, quantile) * count));
+    const size_t index = juce::jlimit<size_t>(0, values.size() - 1, rank == 0 ? 0 : rank - 1);
+
+    std::nth_element(values.begin(), values.begin() + static_cast<std::ptrdiff_t>(index),
+                     values.end());
+    return values[index];
+}
 
 } // namespace
 
-DenseMusicTransformer::DenseMusicTransformer(ModelConfig &modelConfigIn)
-    : ReductionTransformer("Dense Music Transformer", modelConfigIn) {
+ReductionTransformerV1::ReductionTransformerV1(ModelConfig &modelConfigIn)
+    : ReductionTransformer("Reduction Transformer V1", modelConfigIn) {
 }
 
-void DenseMusicTransformer::init(const char *modelPath) {
+void ReductionTransformerV1::init(const char *modelPath) {
     Ort::SessionOptions sessionOptions;
 
 #ifdef __linux__
@@ -36,12 +55,15 @@ void DenseMusicTransformer::init(const char *modelPath) {
         allocatedOutputNames.emplace_back(session->GetOutputNameAllocated(i, allocator).get());
 }
 
-void DenseMusicTransformer::threadInit() {
+void ReductionTransformerV1::threadInit() {
 }
 
-void DenseMusicTransformer::threadRun() {
+void ReductionTransformerV1::threadRun() {
     if (session == nullptr)
         return;
+
+    if (voiceSeparation != nullptr)
+        voiceSeparation->reset();
 
     inputData.clear();
     clearInputTokenQueue();
@@ -69,79 +91,105 @@ void DenseMusicTransformer::threadRun() {
     notifyInputDataChanged();
 
     bool inputApplied = false;
-    aheadThrottleUntilMs = 0;
+    resetAheadThrottle();
+    resetLoopTiming();
 
     while (! threadShouldExit()) {
+        const double loopStartMs = juce::Time::getMillisecondCounterHiRes();
+        ReductionLoopStepMs step{};
+        loopAccum = {};
+
         finishAheadThrottleIfDue();
 
         if (modelConfig.inputMode == InputMode::Direct && modelConfig.directInputStartOnInput
             && directInputBlock.value) {
             wait(5);
+            recordThreadLoopMs(loopStartMs);
             continue;
         }
 
-        inputApplied = applyQueuedInputToInputData();
-        applyUpdatesFromFilter();
+        {
+            const ScopedMs drainMs(&step.drain);
+            inputApplied = applyQueuedInputToInputData();
+            applyUpdatesFromFilter();
+        }
 
-        if (paused.get()) {
+        if (isGenerationStopped()) {
+            maybeEmitGenerationPauseSoftStopClear();
+            // overflowPause + live input: soft-stop clear (now + 1 s), same as manual
+            // generationPause — avoids wiping Out: RT schedule with ClearQueue at time 0.
+            if (inputApplied && ! generationPause.get() && clock != nullptr) {
+                const auto clearAt =
+                    static_cast<int32_t>(clock->getTime()) + Config::TimeResolution;
+                const Token clearToken{clearAt, static_cast<int32_t>(DenseVocab::DurOffset),
+                                       static_cast<int32_t>(Vocab::ClearQueue)};
+                pushOutputToken(clearToken);
+            } else if (! inputApplied) {
+                wait(5);
+            }
+            inputApplied = false;
+            recordThreadLoopMs(loopStartMs);
+            continue;
+        }
+
+        wasGenerationPaused = false;
+
+        Token newToken = generateNewToken(forceAtTime);
+        forceAtTime = -1;
+        step.prep = loopAccum.prep;
+        step.onnx = loopAccum.onnx;
+        step.logits = loopAccum.logits;
+        step.mask = loopAccum.mask;
+        step.sample = loopAccum.sample;
+        step.contextTokens = loopAccum.contextTokens;
+        step.onnxCalls = loopAccum.onnxCalls;
+
+        if (newToken.time < 0) {
+            wait(5);
+            recordThreadLoopMs(loopStartMs);
+            continue;
+        }
+
+        {
+            const ScopedMs pushMs(&step.push);
+            inputData.push_back(newToken.time);
+            inputData.push_back(newToken.duration);
+            inputData.push_back(newToken.note);
+            inputData.push_back(static_cast<int32_t>(DenseVocab::VelocityOffset + newToken.velocity));
+            notifyInputDataChanged();
+
+            currentTime = newToken.time;
+
             if (inputApplied) {
                 const Token clearToken{static_cast<int32_t>(DenseVocab::TimeOffset),
                                        static_cast<int32_t>(DenseVocab::DurOffset),
                                        static_cast<int32_t>(Vocab::ClearQueue)};
                 pushOutputToken(clearToken);
                 inputApplied = false;
-            } else {
-                wait(5);
             }
-            continue;
+
+            pushOutputToken(newToken);
+
+            if (isGeneratedTooFarAhead(newToken.time))
+                startAheadThrottle();
         }
 
-        Token newToken = generateNewToken(forceAtTime);
-        forceAtTime = -1;
-
-        if (newToken.time < 0) {
-            wait(5);
-            continue;
-        }
-
-        inputData.push_back(newToken.time);
-        inputData.push_back(newToken.duration);
-        inputData.push_back(newToken.note);
-        inputData.push_back(static_cast<int32_t>(DenseVocab::VelocityOffset + newToken.velocity));
-        notifyInputDataChanged();
-
-        currentTime = newToken.time;
-
-        if (inputApplied) {
-            // Shared app marker so OutputPlayback recognizes clears when wired.
-            const Token clearToken{static_cast<int32_t>(DenseVocab::TimeOffset),
-                                   static_cast<int32_t>(DenseVocab::DurOffset),
-                                   static_cast<int32_t>(Vocab::ClearQueue)};
-            pushOutputToken(clearToken);
-            inputApplied = false;
-        }
-
-        pushOutputToken(newToken);
-
-        if (isGeneratedTooFarAhead(newToken.time))
-            startAheadThrottle();
+        step.total =
+            static_cast<float>(juce::Time::getMillisecondCounterHiRes() - loopStartMs);
+        recordThreadLoopMs(loopStartMs);
+        publishBusyReductionProfile(step);
     }
 }
 
-auto DenseMusicTransformer::applyQueuedInputToInputData() -> bool {
+auto ReductionTransformerV1::applyQueuedInputToInputData() -> bool {
     Token discarded{-1, -1, -1};
     while (inputConditioningQueue.pull(discarded)) {
-        if (orchestrationConditioningIncoming != nullptr)
-            orchestrationConditioningIncoming->push(discarded);
     }
 
     bool inputApplied = false;
     Token inputToken{-1, -1, -1};
 
     while (inputTokenQueue.pull(inputToken)) {
-        if (orchestrationMidiIncoming != nullptr)
-            orchestrationMidiIncoming->push(inputToken);
-
         if (! inputApplied) {
             for (size_t i = 0; i + 3 < inputData.size(); i += denseEventWidth) {
                 if (inputData[i] > inputToken.time) {
@@ -155,16 +203,21 @@ auto DenseMusicTransformer::applyQueuedInputToInputData() -> bool {
             juce::jlimit(0, DenseConfig::MaxVelocity - 1,
                          inputToken.velocity > 0 ? inputToken.velocity : DenseConfig::DefaultVelocity);
 
+        // Dense vocab MaxInstr == 5; always ingest as instrument 0 + pitch.
+        const int32_t denseNote = static_cast<int32_t>(
+            DenseVocab::NoteOffset + inputToken.getPitch());
+
         if (modelConfig.inputMode != InputMode::Buffer) {
             inputData.push_back(inputToken.time);
             inputData.push_back(inputToken.duration);
-            inputData.push_back(inputToken.note);
+            inputData.push_back(denseNote);
             inputData.push_back(static_cast<int32_t>(DenseVocab::VelocityOffset + velocity));
         } else {
             const int32_t pitchClass = inputToken.getPitch() % 12;
             const int32_t instrBase =
                 static_cast<int32_t>(DenseVocab::NoteOffset
-                                    + DenseConfig::MaxPitch * modelConfig.inputInstrument);
+                                    + DenseConfig::MaxPitch
+                                          * InstrumentConstants::kReductionInputLocalInstrumentId);
             if (! inputApplied) {
                 inputData.push_back(inputToken.time);
                 inputData.push_back(inputToken.duration);
@@ -192,7 +245,7 @@ auto DenseMusicTransformer::applyQueuedInputToInputData() -> bool {
     return inputApplied;
 }
 
-auto DenseMusicTransformer::applyUpdatesFromFilter() -> bool {
+auto ReductionTransformerV1::applyUpdatesFromFilter() -> bool {
     TokenUpdate update{};
     if (! updatesFromFilter.pull(update))
         return false;
@@ -232,10 +285,10 @@ auto DenseMusicTransformer::applyUpdatesFromFilter() -> bool {
     return true;
 }
 
-void DenseMusicTransformer::threadStop() {
+void ReductionTransformerV1::threadStop() {
 }
 
-void DenseMusicTransformer::instrLogits(std::vector<float> &logits) {
+void ReductionTransformerV1::instrLogits(std::vector<float> &logits) {
     auto it = modelConfig.sortedActiveOutputInstruments.begin();
     auto end = modelConfig.sortedActiveOutputInstruments.end();
 
@@ -294,7 +347,7 @@ void DenseMusicTransformer::instrLogits(std::vector<float> &logits) {
               -std::numeric_limits<float>::infinity());
 }
 
-void DenseMusicTransformer::futureLogits(std::vector<float> &logits, const int curTime,
+void ReductionTransformerV1::futureLogits(std::vector<float> &logits, const int curTime,
                                          int32_t forceAtTime) {
     if (forceAtTime != -1 && forceAtTime < DenseConfig::MaxTime) {
         std::fill_n(logits.begin() + static_cast<std::ptrdiff_t>(DenseVocab::TimeOffset), forceAtTime,
@@ -319,27 +372,65 @@ void DenseMusicTransformer::futureLogits(std::vector<float> &logits, const int c
     }
 }
 
-void DenseMusicTransformer::durLogits(std::vector<float> &logits) {
+auto ReductionTransformerV1::samplingForStep(int stepIdx) const -> FieldSampling {
+    if (stepIdx % denseEventWidth == 1)
+        return {DenseSampling::DurationTopP, getDurationTemperature()};
+    if (stepIdx % denseEventWidth == 2)
+        return {DenseSampling::NoteTopP, getNoteTemperature()};
+    if (stepIdx % denseEventWidth == 3)
+        return {DenseSampling::VelocityTopP, getVelocityTemperature()};
+    return {DenseSampling::OnsetTopP, getOnsetTemperature()};
+}
+
+auto ReductionTransformerV1::durationCeilingCs(const std::vector<int32_t> &denseInputData)
+    -> int32_t {
+    const size_t noteCount = denseInputData.size() / static_cast<size_t>(denseEventWidth);
+    const size_t take =
+        std::min(noteCount, static_cast<size_t>(DenseSampling::CeilingRecentNotes));
+
+    std::vector<int32_t> durations;
+    durations.reserve(take);
+    for (size_t note = noteCount - take; note < noteCount; ++note) {
+        const size_t base = note * static_cast<size_t>(denseEventWidth);
+        durations.push_back(juce::jmax(0, denseInputData[base + 1]
+                                              - static_cast<int32_t>(DenseVocab::DurOffset)));
+    }
+
+    const int32_t recentDuration =
+        juce::jmax(percentileOf(std::move(durations), DenseSampling::CeilingDurationPercentile),
+                   DenseSampling::CeilingMinDurationCs);
+
+    return DenseSampling::CeilingMultiplier * recentDuration;
+}
+
+void ReductionTransformerV1::durLogits(std::vector<float> &logits) {
+    const int32_t lowest =
+        juce::jlimit(0, DenseConfig::MaxDur - 1, modelConfig.outputMinimumDuration);
+    const int32_t highest =
+        juce::jlimit(lowest, DenseConfig::MaxDur - 1,
+                     juce::jmin(modelConfig.outputMaximumDuration,
+                                durationCeilingCs(inputData)));
+
     std::fill_n(logits.begin() + static_cast<std::ptrdiff_t>(DenseVocab::DurOffset),
-                modelConfig.outputMinimumDuration,
+                lowest,
                 -std::numeric_limits<float>::infinity());
-    std::fill(logits.begin()
-                  + static_cast<std::ptrdiff_t>(DenseVocab::DurOffset
-                                                + modelConfig.outputMaximumDuration + 1),
+    std::fill(logits.begin() + static_cast<std::ptrdiff_t>(DenseVocab::DurOffset + highest + 1),
               logits.begin() + static_cast<std::ptrdiff_t>(DenseVocab::NoteOffset),
               -std::numeric_limits<float>::infinity());
 }
 
-void DenseMusicTransformer::velocityLogits(std::vector<float> &logits) {
+void ReductionTransformerV1::velocityLogits(std::vector<float> &logits) {
     // Allow full velocity band; mask everything else via safeLogits.
     juce::ignoreUnused(logits);
 }
 
-void DenseMusicTransformer::safeLogits(std::vector<float> &logits, size_t stepIdx) {
+void ReductionTransformerV1::safeLogits(std::vector<float> &logits, size_t stepIdx) {
     if (logits.size() < DenseVocab::VocabSize) {
-        DBG("DenseMusicTransformer::safeLogits: logits size "
-            + juce::String(static_cast<int>(logits.size())) + " < VocabSize "
-            + juce::String(static_cast<int>(DenseVocab::VocabSize)));
+        const auto detail = "logits size " + juce::String(static_cast<int>(logits.size()))
+                            + " < VocabSize "
+                            + juce::String(static_cast<int>(DenseVocab::VocabSize));
+        DBG("ReductionTransformerV1::safeLogits: " + detail);
+        reportSamplingError(detail);
         return;
     }
 
@@ -396,7 +487,7 @@ void DenseMusicTransformer::safeLogits(std::vector<float> &logits, size_t stepId
     }
 }
 
-std::vector<float> DenseMusicTransformer::runModelAndGetLogits(std::vector<int32_t> &tokens) {
+std::vector<float> ReductionTransformerV1::runModelAndGetLogits(std::vector<int32_t> &tokens) {
     if (session == nullptr || tokens.empty())
         return {};
 
@@ -411,16 +502,36 @@ std::vector<float> DenseMusicTransformer::runModelAndGetLogits(std::vector<int32
     input_tensors.push_back(std::move(input_tensor));
 
     std::vector<const char *> inputNames;
-    std::vector<const char *> outputNames;
     for (auto &name : allocatedInputNames)
         inputNames.push_back(name.c_str());
-    for (auto &name : allocatedOutputNames)
-        outputNames.push_back(name.c_str());
+
+    // Only logits are consumed; asking for KV-cache outputs is wasted work (and on
+    // checkpoint-36500 that is dozens of tensors per call).
+    std::vector<const char *> outputNames;
+    {
+        const char *logitsName = nullptr;
+        for (const auto &name : allocatedOutputNames) {
+            if (name == "logits") {
+                logitsName = name.c_str();
+                break;
+            }
+        }
+        if (logitsName == nullptr && ! allocatedOutputNames.empty())
+            logitsName = allocatedOutputNames.front().c_str();
+        if (logitsName == nullptr)
+            return {};
+        outputNames.push_back(logitsName);
+    }
 
     try {
-        auto output_tensors = session->Run(Ort::RunOptions{nullptr}, inputNames.data(),
-                                           input_tensors.data(), input_tensors.size(),
-                                           outputNames.data(), outputNames.size());
+        std::vector<Ort::Value> output_tensors;
+        {
+            const ScopedMs onnxMs(&loopAccum.onnx);
+            output_tensors = session->Run(Ort::RunOptions{nullptr}, inputNames.data(),
+                                          input_tensors.data(), input_tensors.size(),
+                                          outputNames.data(), outputNames.size());
+        }
+        ++loopAccum.onnxCalls;
 
         Ort::Value &logits_tensor = output_tensors.front();
         const auto shape = logits_tensor.GetTensorTypeAndShapeInfo().GetShape();
@@ -436,66 +547,78 @@ std::vector<float> DenseMusicTransformer::runModelAndGetLogits(std::vector<int32
         if (seq == 0 || vocab * seq > elementCount)
             return {};
 
+        const ScopedMs logitsMs(&loopAccum.logits);
         const float *data = logits_tensor.GetTensorMutableData<float>();
         const float *last = data + vocab * (seq - 1);
         return {last, last + vocab};
     } catch (const Ort::Exception &exception) {
-        DBG("DenseMusicTransformer ORT error: " + juce::String(exception.what()));
+        const auto detail = juce::String(exception.what());
+        DBG("ReductionTransformerV1 ORT error: " + detail);
+        reportSamplingError(detail);
     }
 
     return {};
 }
 
-auto DenseMusicTransformer::denseMinTime(std::vector<int32_t> &tokens) -> int32_t {
-    int32_t minT = INT_MAX;
-    for (size_t i = 0; i + 3 < tokens.size(); i += denseEventWidth) {
-        minT = std::min(minT, tokens[i] - static_cast<int32_t>(DenseVocab::TimeOffset));
-    }
-    return minT == INT_MAX ? 0 : minT;
+auto ReductionTransformerV1::denseMinTime(std::vector<int32_t> &tokens) -> int32_t {
+    return SamplingRelativeTime::minStridedOnset(tokens, static_cast<size_t>(denseEventWidth));
 }
 
-Token DenseMusicTransformer::generateNewToken(int32_t forceAtTime) {
+Token ReductionTransformerV1::generateNewToken(int32_t forceAtTime) {
     if (inputData.size() % denseEventWidth != 0)
-        throw std::runtime_error("DenseMusicTransformer inputData must be a multiple of 4");
+        throw std::runtime_error("ReductionTransformerV1 inputData must be a multiple of 4");
 
     if (inputData.empty())
         return {-1, -1, -1, DenseConfig::DefaultVelocity};
 
-    const int lookback = std::max(static_cast<int>(inputData.size()) - denseLookbackInts, 0);
-    std::vector history(inputData.begin() + lookback, inputData.end());
+    std::vector<int32_t> history;
     int32_t offset = 0;
-    if (! history.empty())
-        offset = denseMinTime(history);
-
-    for (size_t i = 0; i < history.size(); i += denseEventWidth)
-        history[i] -= offset;
+    {
+        const ScopedMs prepMs(&loopAccum.prep);
+        const int lookbackInts = DenseSampling::ContextNotes * denseEventWidth;
+        const int lookback = std::max(static_cast<int>(inputData.size()) - lookbackInts, 0);
+        history.assign(inputData.begin() + lookback, inputData.end());
+        NoteWindow::sortStridedByOnset(history, static_cast<size_t>(denseEventWidth));
+        offset = history.empty() ? 0 : denseMinTime(history);
+        SamplingRelativeTime::relativizeStridedOnsets(history, static_cast<size_t>(denseEventWidth),
+                                                       offset);
+        loopAccum.contextTokens =
+            juce::jmax(loopAccum.contextTokens, static_cast<int>(history.size()));
+    }
 
     Token newToken{-1, -1, -1, DenseConfig::DefaultVelocity};
 
     for (int i = 0; i < denseEventWidth; ++i) {
         std::vector<float> scores = runModelAndGetLogits(history);
         if (scores.size() < DenseVocab::VocabSize) {
-            DBG("DenseMusicTransformer::generateNewToken: unexpected logits size "
-                + juce::String(static_cast<int>(scores.size()))
-                + " (historyInts=" + juce::String(static_cast<int>(history.size())) + ")");
+            const auto detail =
+                "unexpected logits size " + juce::String(static_cast<int>(scores.size()))
+                + " (historyInts=" + juce::String(static_cast<int>(history.size())) + ")";
+            DBG("ReductionTransformerV1::generateNewToken: " + detail);
+            reportSamplingError(detail);
             return {-1, -1, -1, DenseConfig::DefaultVelocity};
         }
 
-        safeLogits(scores, static_cast<size_t>(i));
-        if (i == 0)
-            futureLogits(scores, currentTime - offset,
-                         forceAtTime != -1 ? forceAtTime - offset : -1);
-        else if (i == 1)
-            durLogits(scores);
-        else if (i == 2)
-            instrLogits(scores);
-        else
-            velocityLogits(scores);
+        {
+            const ScopedMs maskMs(&loopAccum.mask);
+            safeLogits(scores, static_cast<size_t>(i));
+            if (i == 0)
+                futureLogits(scores, currentTime - offset,
+                             forceAtTime != -1 ? forceAtTime - offset : -1);
+            else if (i == 1)
+                durLogits(scores);
+            else if (i == 2)
+                instrLogits(scores);
+            else
+                velocityLogits(scores);
+        }
 
-        const float temperature =
-            i < 3 ? static_cast<float>(modelConfig.outputTemperatures[static_cast<size_t>(i)])
-                  : static_cast<float>(modelConfig.outputTemperatures[2]);
-        const int32_t token = sampleTopP(scores, 0.9f, temperature);
+        const auto fieldSampling = samplingForStep(i);
+        int32_t token = 0;
+        {
+            const ScopedMs sampleMs(&loopAccum.sample);
+            token = sampleTopP(scores, fieldSampling.topP, fieldSampling.temperature);
+        }
         history.push_back(token);
 
         if (i == 0)

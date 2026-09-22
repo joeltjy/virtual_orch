@@ -17,9 +17,12 @@ public:
 
     auto resized() -> void override;
 
-    auto setInputData(const std::vector<int32_t> &data) -> void;
+    auto setInputData(const std::vector<int32_t> &data, size_t tokenStride = 3) -> void;
 
 private:
+    /** Tail length rendered; keeps refresh cost independent of session length. */
+    static constexpr size_t maxDisplayedTokens = 200;
+
     juce::TextEditor display;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PromptWidget)

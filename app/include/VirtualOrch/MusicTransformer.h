@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "VirtualOrch/MusicToken.h"
-#include "VirtualOrch/ReductionTransformer.h"
+#include "VirtualOrch/reduction/ReductionTransformer.h"
 
 class MusicTransformer : public ReductionTransformer {
 public:

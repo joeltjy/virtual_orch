@@ -18,6 +18,16 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     session.presetStore.setOrchestrationModelNameProvider([this] {
         return orchestrationModelList.getText();
     });
+    session.presetStore.setReductionTypeProvider([this]() -> juce::String {
+        switch (reductionTypeList.getSelectedId()) {
+            case 3:
+                return "v2";
+            case 2:
+                return "v1";
+            default:
+                return "amt";
+        }
+    });
     session.presetStore.setOnPresetSaved([this](const juce::String &presetName) {
         presetList.addItem(presetName, presetList.getNumItems() + 1);
         presetList.setSelectedId(presetList.getNumItems(), juce::dontSendNotification);
@@ -49,15 +59,22 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
         }
     }
     presetList.onChange = [this] {
+        // Id 0 means custom/invalid text (e.g. after appending '*'); ignore.
+        if (presetList.getSelectedId() <= 0)
+            return;
         if (presetList.getSelectedId() == 1) {
             clearModel();
         } else {
             juce::String presetName = presetList.getItemText(presetList.getSelectedItemIndex());
+            if (presetName.isEmpty() || presetName.endsWithChar('*'))
+                presetName = presetName.upToLastOccurrenceOf("*", false, false);
+            if (presetName.isEmpty())
+                return;
             loadPresetFromName(presetName);
         }
         savePresetButton.setEnabled(false);
     };
-    presetList.setSelectedId(1);
+    presetList.setSelectedId(1, juce::dontSendNotification);
 
     /* PRESET BUTTONS */
     addAndMakeVisible(leftPresetButton);
@@ -162,18 +179,20 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     addAndMakeVisible(mtcClock);
     mtcClock.onClick = [this] {
         updateMtcClock();
-        DBG("Saving MTC Clock Status: " + std::to_string(mtcClock.getToggleState()));
-        session.presetStore.settings.getChildWithName("mtcClock").setProperty(
-            "active", mtcClock.getToggleState(), nullptr);
+        // Switching to the internal clock must take effect now: MTC leaves the clock
+        // parked at its last quarter frame, and nothing else would restart it.
+        if (! mtcClock.getToggleState())
+            session.clock.startFreeRunning();
+        DBG("MTC Clock Status (session only): " + std::to_string(mtcClock.getToggleState()));
+        // Do not persist "active": MTC is opt-in per session so a saved on-flag
+        // cannot leave the transport parked waiting on a silent DAW after restart.
     };
     auto mtcClockSettings =
         session.presetStore.settings.getOrCreateChildWithName("mtcClock", nullptr);
-    // Default off: internal clock unless the user explicitly enables MTC.
-    if (! mtcClockSettings.hasProperty("active"))
-        mtcClockSettings.setProperty("active", false, nullptr);
-    const bool savedMtcClockStatus = static_cast<bool>(mtcClockSettings.getProperty("active", false));
-    mtcClock.setToggleState(savedMtcClockStatus, juce::dontSendNotification);
-    session.mtcClockActive = savedMtcClockStatus;
+    mtcClockSettings.setProperty("active", false, nullptr);
+    mtcClock.setToggleState(false, juce::dontSendNotification);
+    session.mtcClockActive = false;
+    session.presetStore.saveSettings();
 
     juce::StringArray midiInputNames;
 
@@ -324,12 +343,16 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
 
     addAndMakeVisible(reductionTypeList);
     reductionTypeList.addItem("MusicTransformer", 1);
-    reductionTypeList.addItem("DenseMusicTransformer", 2);
-    reductionTypeList.setSelectedId(1, juce::dontSendNotification);
+    reductionTypeList.addItem("V1 (initial version)", 2);
+    reductionTypeList.addItem("V2 (smart sampling)", 3);
+    reductionTypeList.setSelectedId(2, juce::dontSendNotification);
     reductionTypeList.onChange = [this] {
         stop();
         refreshCheckpointList();
-        clearModel();
+        if (selectPreferredCheckpointForCurrentReduction())
+            updateModel(true);
+        else
+            clearModel();
     };
 
     addAndMakeVisible(checkpointListLabel);
@@ -395,13 +418,43 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
         }
     };
 
+    /* ORCHESTRATION PROPORTION BIAS */
+    addAndMakeVisible(proportionBiasLabel);
+    proportionBiasLabel.setText("Proportion Bias:", juce::dontSendNotification);
+    proportionBiasLabel.attachToComponent(&proportionBias, true);
+
+    addAndMakeVisible(proportionBias);
+    auto orchestrationSettings =
+        session.presetStore.settings.getOrCreateChildWithName("orchestration", nullptr);
+    const bool savedProportionBias = orchestrationSettings.hasProperty("proportionBias")
+                                         ? static_cast<bool>(
+                                               orchestrationSettings.getProperty("proportionBias"))
+                                         : true;
+    if (! orchestrationSettings.hasProperty("proportionBias"))
+        orchestrationSettings.setProperty("proportionBias", true, nullptr);
+    proportionBias.setToggleState(savedProportionBias, juce::dontSendNotification);
+    session.orchestrationTransformer.proportionBiasEnabled.set(savedProportionBias);
+    proportionBias.onClick = [this] {
+        const bool enabled = proportionBias.getToggleState();
+        DBG("Saving proportion bias: " + std::to_string(enabled));
+        session.presetStore.settings.getOrCreateChildWithName("orchestration", nullptr)
+            .setProperty("proportionBias", enabled, nullptr);
+        session.orchestrationTransformer.proportionBiasEnabled.set(enabled);
+    };
+
     /* MIDI THROUGH */
     addAndMakeVisible(inputThruLabel);
     inputThruLabel.setText("Input Thru:", juce::dontSendNotification);
     inputThruLabel.attachToComponent(&inputThru, true);
 
     addAndMakeVisible(inputThru);
-    bool savedInputThru = session.presetStore.settings.getOrCreateChildWithName("input", nullptr).getProperty("thru", false);
+    auto inputSettings =
+        session.presetStore.settings.getOrCreateChildWithName("input", nullptr);
+    const bool savedInputThru = inputSettings.hasProperty("thru")
+                                    ? static_cast<bool>(inputSettings.getProperty("thru"))
+                                    : true;
+    if (! inputSettings.hasProperty("thru"))
+        inputSettings.setProperty("thru", true, nullptr);
     inputThru.setToggleState(savedInputThru, juce::dontSendNotification);
     session.midiInputProcess.setInputThru(savedInputThru);
     inputThru.onClick = [this] {
@@ -711,9 +764,14 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
                 .setProperty("visualizationBufferSize", text, nullptr);
     };
 
+    // Prefer the checkpoint for the current reduction type when present.
+    // Must run after UI children exist — updateModel() calls resized().
+    {
+        if (selectPreferredCheckpointForCurrentReduction())
+            updateModel(true);
+    }
+
     setSize(700, 800);
-
-
 
 }
 
@@ -769,10 +827,20 @@ void MainComponent::loadPresetFromName(const juce::String &presetName) {
         return;
     }
 
+    const juce::String reductionKey =
+        preset.getProperty("reduction", checkpoint->isDense ? "v1" : "amt").toString().toLowerCase();
+    int desiredReductionId = 1;
+    if (reductionKey == "v2")
+        desiredReductionId = 3;
+    else if (reductionKey == "v1")
+        desiredReductionId = 2;
+    else
+        desiredReductionId = checkpoint->isDense ? 2 : 1;
+
     if (modelName != selectedCheckpointName()
-        || selectedReductionIsDense() != checkpoint->isDense) {
+        || reductionTypeList.getSelectedId() != desiredReductionId) {
         stop();
-        reductionTypeList.setSelectedId(checkpoint->isDense ? 2 : 1, juce::dontSendNotification);
+        reductionTypeList.setSelectedId(desiredReductionId, juce::dontSendNotification);
         refreshCheckpointList();
         int checkpointId = 0;
         for (int i = 0; i < checkpointList.getNumItems(); ++i) {
@@ -850,7 +918,8 @@ void MainComponent::clearModel() {
 }
 
 auto MainComponent::selectedReductionIsDense() const -> bool {
-    return reductionTypeList.getSelectedId() == 2;
+    const auto id = reductionTypeList.getSelectedId();
+    return id == 2 || id == 3;
 }
 
 auto MainComponent::selectedCheckpointName() const -> juce::String {
@@ -868,6 +937,33 @@ auto MainComponent::refreshCheckpointList() -> void {
             continue;
         checkpointList.addItem(cp.name, nextId++);
     }
+}
+
+auto MainComponent::selectPreferredCheckpointForCurrentReduction() -> bool {
+    juce::String preferred;
+    switch (reductionTypeList.getSelectedId()) {
+        case 2: // V1 (initial version)
+            preferred = "amt_dense_checkpoint-36500";
+            break;
+        case 3: // V2 (smart sampling)
+            preferred = "amt_causal";
+            break;
+        default:
+            // AMT: leave first listed checkpoint if any.
+            if (checkpointList.getNumItems() > 0) {
+                checkpointList.setSelectedItemIndex(0, juce::dontSendNotification);
+                return true;
+            }
+            return false;
+    }
+
+    for (int i = 0; i < checkpointList.getNumItems(); ++i) {
+        if (checkpointList.getItemText(i) == preferred) {
+            checkpointList.setSelectedId(checkpointList.getItemId(i), juce::dontSendNotification);
+            return true;
+        }
+    }
+    return false;
 }
 
 void MainComponent::updateModel(const bool loadDefaultPreset) {
@@ -953,11 +1049,19 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
         markPresetAsEdited();
     }
 
+    session.modelConfig.reductionContextNotes = juce::jmax(
+        1, static_cast<int32_t>(parsedJson.getProperty("contextNotes", 160)));
+
     const juce::String modelPathStr = checkpoint->onnxFile.getFullPathName();
     try {
         if (isDense) {
-            session.setMusicModelArch(MusicModelArch::Dense);
-            session.denseMusicTransformer.init(modelPathStr.toRawUTF8());
+            const auto reductionId = reductionTypeList.getSelectedId();
+            session.setMusicModelArch(reductionId == 3 ? MusicModelArch::DenseV2
+                                                      : MusicModelArch::DenseV1);
+            if (reductionId == 3)
+                session.reductionTransformerV2.init(modelPathStr.toRawUTF8());
+            else
+                session.reductionTransformerV1.init(modelPathStr.toRawUTF8());
         } else {
             session.setMusicModelArch(MusicModelArch::Amt);
             session.musicTransformer.init(modelPathStr.toRawUTF8(), modelType);
@@ -994,10 +1098,22 @@ void MainComponent::stop() {
 }
 
 void MainComponent::markPresetAsEdited() {
-    if (presetList.getText().getLastCharacter() != '*') {
-        presetList.setText(presetList.getText() + "*", juce::dontSendNotification);
-    }
     savePresetButton.setEnabled(true);
+
+    // Prefer changeItemText over setText: setText("…*") is not a list item, clears the
+    // selection (id 0), and a pending ComboBox onChange can then call loadPresetFromName("").
+    const int id = presetList.getSelectedId();
+    if (id <= 1)
+        return;
+
+    const int index = presetList.getSelectedItemIndex();
+    if (index < 0)
+        return;
+
+    auto text = presetList.getItemText(index);
+    if (text.getLastCharacter() == '*')
+        return;
+    presetList.changeItemText(id, text + "*");
 }
 
 
@@ -1049,6 +1165,9 @@ void MainComponent::resized() {
 
     orchestrationModelList.setBounds(area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8));
 
+    auto proportionBiasArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
+    proportionBias.setBounds(proportionBiasArea.withTrimmedLeft(80));
+
     outputList.setBounds(area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8));
 
     if (enableOscConfig) {
@@ -1077,7 +1196,10 @@ void MainComponent::resized() {
 
     generationLabel.setBounds(area.removeFromTop(60).withTrimmedTop(20).reduced(8));
 
-    generationStatusProgressBar->setBounds(area.removeFromTop(60).reduced(8).withTrimmedTop(20));
+    if (generationStatusProgressBar != nullptr)
+        generationStatusProgressBar->setBounds(area.removeFromTop(60).reduced(8).withTrimmedTop(20));
+    else
+        area.removeFromTop(60);
 
     auto transportButtonsArea = area.removeFromTop(80);
     startButton.setBounds(transportButtonsArea.removeFromLeft(getWidth() / 2).reduced(20));

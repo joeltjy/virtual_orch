@@ -1,5 +1,6 @@
 #include "VirtualOrch/ui/ModelConfigurationComponent.h"
 
+#include "VirtualOrch/InstrumentConstants.h"
 
 ModelConfigurationComponent::ModelConfigurationComponent(ModelConfig &modelConfig) : modelConfig(modelConfig) {
     Component::setName("Model Configuration");
@@ -65,15 +66,15 @@ ModelConfigurationComponent::ModelConfigurationComponent(ModelConfig &modelConfi
 
     /* INPUT INSTRUMENT */
     addAndMakeVisible(inputInstrumentLabel);
-    inputInstrumentLabel.setText("Input Instrument:", juce::dontSendNotification);
+    inputInstrumentLabel.setText("Input Instrument (model id 0; OT shows piano):",
+                                 juce::dontSendNotification);
     inputInstrumentLabel.attachToComponent(&inputInstrument, true);
 
     addAndMakeVisible(inputInstrument);
     inputInstrument.setInputRestrictions(10, "0123456789");
-    inputInstrument.setText(juce::String(modelConfig.inputInstrument));
-    inputInstrument.onTextChange = [this] {
-        sendChangeMessage();
-    };
+    inputInstrument.setText(juce::String(InstrumentConstants::kReductionInputLocalInstrumentId));
+    inputInstrument.setEnabled(false);
+    inputInstrument.onTextChange = nullptr;
 
     /* INPUT RANGE */
     addAndMakeVisible(inputLowLabel);
@@ -581,7 +582,7 @@ bool ModelConfigurationComponent::apply() {
 
     modelConfig.inputMode = static_cast<InputMode>(inputMode.getSelectedId() - 1);
     modelConfig.inputFilterType = static_cast<InputFilterType>(inputFilterType.getSelectedId() - 1);
-    modelConfig.inputInstrument = inputInstrument.getText().getIntValue();
+    modelConfig.inputInstrument = InstrumentConstants::kReductionInputLocalInstrumentId;
     modelConfig.inputLow = inputLow.getText().getIntValue();
     modelConfig.inputHigh = inputHigh.getText().getIntValue();
     modelConfig.inputDuration = inputDuration.getText().getIntValue();

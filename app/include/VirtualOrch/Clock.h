@@ -14,6 +14,12 @@ public:
 
     auto startAtTime(uint32_t newTime) -> void;
 
+    /**
+     * Leave MTC slaving: cancel the stall watchdog and run freely from the current
+     * time, so a clock parked by a missing MTC feed resumes without a restart.
+     */
+    auto startFreeRunning() -> void;
+
     auto stop() -> void;
 
     auto setTime(uint32_t newTime) -> void;

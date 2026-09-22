@@ -1,5 +1,6 @@
 #include "VirtualOrch/PresetStore.h"
 
+#include "VirtualOrch/InstrumentConstants.h"
 #include "VirtualOrch/ProjectPaths.h"
 
 PresetStore::PresetStore(ModelConfig &modelConfig)
@@ -60,8 +61,11 @@ auto PresetStore::listPresetNames() const -> juce::StringArray {
 }
 
 auto PresetStore::readPreset(const juce::String &presetName) const -> juce::var {
+    if (presetName.isEmpty())
+        return {};
+
     const juce::File presetFile(presetsDir.getChildFile(presetName + ".json"));
-    if (!presetFile.exists()) {
+    if (!presetFile.existsAsFile()) {
         juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Error",
                                                "Preset file does not exist.");
         return {};
@@ -87,6 +91,11 @@ auto PresetStore::buildPresetJson(const juce::String &modelName) const -> juce::
         const auto orchName = orchestrationModelNameProvider();
         if (orchName.isNotEmpty())
             presetJson.getDynamicObject()->setProperty("orchestrationModel", orchName);
+    }
+    if (reductionTypeProvider) {
+        const auto reduction = reductionTypeProvider();
+        if (reduction.isNotEmpty())
+            presetJson.getDynamicObject()->setProperty("reduction", reduction);
     }
 
     switch (modelConfig.inputMode) {
@@ -115,11 +124,13 @@ auto PresetStore::buildPresetJson(const juce::String &modelName) const -> juce::
             break;
     }
 
-    presetJson.getDynamicObject()->setProperty("inputInstrument", modelConfig.inputInstrument);
+    presetJson.getDynamicObject()->setProperty(
+        "inputInstrument", InstrumentConstants::kReductionInputLocalInstrumentId);
     presetJson.getDynamicObject()->setProperty("inputLow", modelConfig.inputLow);
     presetJson.getDynamicObject()->setProperty("inputHigh", modelConfig.inputHigh);
     presetJson.getDynamicObject()->setProperty("inputDuration", modelConfig.inputDuration);
     presetJson.getDynamicObject()->setProperty("inputInitialData", modelConfig.inputInitialData);
+    presetJson.getDynamicObject()->setProperty("contextNotes", modelConfig.reductionContextNotes);
 
     presetJson.getDynamicObject()->setProperty("outputMinimumDuration", modelConfig.outputMinimumDuration);
     presetJson.getDynamicObject()->setProperty("outputMaximumDuration", modelConfig.outputMaximumDuration);

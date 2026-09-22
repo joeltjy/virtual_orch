@@ -49,6 +49,8 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
                      UiConstants::workspaceAddMenuPlaybackOutputItem);
         menu.addItem(UiConstants::workspaceAddMenuReductionTransformerOutputItemId,
                      UiConstants::workspaceAddMenuReductionTransformerOutputItem);
+        menu.addItem(UiConstants::workspaceAddMenuReductionModelInputItemId,
+                     UiConstants::workspaceAddMenuReductionModelInputItem);
         menu.addItem(UiConstants::workspaceAddMenuModeItemId, UiConstants::workspaceAddMenuModeItem);
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addButton),
                            [this](int result) {
@@ -84,6 +86,9 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
                                else if (result
                                         == UiConstants::workspaceAddMenuReductionTransformerOutputItemId)
                                    canvas.addReductionTransformerOutputWidget();
+                               else if (result
+                                        == UiConstants::workspaceAddMenuReductionModelInputItemId)
+                                   canvas.addReductionModelInputWidget();
                                else if (result == UiConstants::workspaceAddMenuModeItemId)
                                    canvas.addModeWidget();
                            });
@@ -107,7 +112,9 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
     auto names = viewStore.listViewNames();
     juce::String initialName = getStartupViewName();
     if (! names.contains(initialName)) {
-        if (names.contains(UiConstants::workspaceDefaultViewName))
+        if (names.contains(UiConstants::workspaceOrchestrationDebugViewName))
+            initialName = UiConstants::workspaceOrchestrationDebugViewName;
+        else if (names.contains(UiConstants::workspaceDefaultViewName))
             initialName = UiConstants::workspaceDefaultViewName;
         else if (names.size() > 0)
             initialName = names[0];
@@ -125,11 +132,12 @@ auto WorkspacePage::getStartupViewName() const -> juce::String {
     const auto workspace = session.presetStore.settings.getChildWithName(
         UiConstants::workspaceSettingsWorkspaceChild);
     if (! workspace.isValid())
-        return UiConstants::workspaceDefaultViewName;
+        return UiConstants::workspaceOrchestrationDebugViewName;
 
     const auto name =
         workspace.getProperty(UiConstants::workspaceSettingsDefaultViewProperty, {}).toString().trim();
-    return name.isNotEmpty() ? name : juce::String(UiConstants::workspaceDefaultViewName);
+    return name.isNotEmpty() ? name
+                             : juce::String(UiConstants::workspaceOrchestrationDebugViewName);
 }
 
 auto WorkspacePage::setCurrentViewAsDefault() -> void {

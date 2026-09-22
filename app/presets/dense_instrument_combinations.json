@@ -1,5 +1,5 @@
 {
-  "model": "dumb_amt_dense",
+  "model": "amt_dense_checkpoint-36500",
   "orchestrationModel": "InstrumentCombinations",
   "inputMode": "direct",
   "inputFilterType": "passthrough",
@@ -17,15 +17,49 @@
   "inputDuration": 100,
   "inputInitialData": "",
   "outputMinimumDuration": 1,
-  "outputMaximumDuration": 999,
-  "outputTemperatures": [0.9, 0.9, 0.9],
+  "outputMaximumDuration": 200,
+  "outputTemperatures": [
+    0.9,
+    0.9,
+    0.9
+  ],
   "outputStartTime": 0,
   "outputForceStartTime": false,
   "outputInstruments": [
-    { "id": 0, "active": true, "monophony": false, "low": 36, "high": 96 },
-    { "id": 1, "active": true, "monophony": false, "low": 36, "high": 96 },
-    { "id": 2, "active": true, "monophony": false, "low": 36, "high": 96 },
-    { "id": 3, "active": true, "monophony": false, "low": 36, "high": 96 },
-    { "id": 4, "active": true, "monophony": false, "low": 36, "high": 96 }
+    {
+      "id": 0,
+      "active": true,
+      "monophony": false,
+      "low": 36,
+      "high": 96
+    },
+    {
+      "id": 1,
+      "active": true,
+      "monophony": false,
+      "low": 36,
+      "high": 96
+    },
+    {
+      "id": 2,
+      "active": true,
+      "monophony": false,
+      "low": 36,
+      "high": 96
+    },
+    {
+      "id": 3,
+      "active": true,
+      "monophony": false,
+      "low": 36,
+      "high": 96
+    },
+    {
+      "id": 4,
+      "active": true,
+      "monophony": false,
+      "low": 36,
+      "high": 96
+    }
   ]
 }

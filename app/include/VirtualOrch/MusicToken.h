@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <numeric>
@@ -69,34 +70,97 @@ static void softmax(T &input, const float temperature) {
     }
 }
 
+/** Non-owning logit row for in-place sampleTopP (avoids copying full vocab). */
+struct LogitSpan {
+    float *ptr = nullptr;
+    size_t len = 0;
+
+    [[nodiscard]] auto begin() -> float * { return ptr; }
+    [[nodiscard]] auto end() -> float * { return ptr + len; }
+    [[nodiscard]] auto begin() const -> const float * { return ptr; }
+    [[nodiscard]] auto end() const -> const float * { return ptr + len; }
+    [[nodiscard]] auto size() const -> size_t { return len; }
+    auto operator[](size_t i) -> float & { return ptr[i]; }
+    auto operator[](size_t i) const -> float { return ptr[i]; }
+    [[nodiscard]] auto data() -> float * { return ptr; }
+    [[nodiscard]] auto data() const -> const float * { return ptr; }
+};
+
+/**
+ * Nucleus then temperature (amt_causal / offline generate_sample order):
+ * 1. Softmax at T=1 over finite logits → build nucleus (smallest prefix of
+ *    descending mass with cumulative prob >= p; if p >= 1 keep all).
+ * 2. Softmax(/temperature) on that truncated set only.
+ * 3. Multinomial.
+ * Ranking by raw logit matches T=1 softmax order. temperature <= 0 → argmax
+ * on the nucleus (or all finite if p >= 1).
+ */
 template<typename T>
 static int32_t sampleTopP(T &scores, const float p, const float temperature) {
-    std::uniform_real_distribution<float> dis(0, p);
-    std::random_device dev;
-    std::mt19937 gen_(dev());
-    gen_.seed(std::random_device()());
-    softmax(scores, temperature);
+    thread_local std::mt19937 gen{std::random_device{}()};
 
-    // Sort an array of indices into the scores
-    std::vector<int32_t> indices(scores.size());
-    std::iota(indices.begin(), indices.end(), 0);
-    std::sort(indices.begin(), indices.end(), [scores = scores.data()](const int32_t i, const int32_t j) {
-        return scores[i] > scores[j];
+    std::vector<int32_t> finite;
+    finite.reserve(256);
+    for (size_t i = 0; i < scores.size(); ++i) {
+        if (std::isfinite(scores[i]))
+            finite.push_back(static_cast<int32_t>(i));
+    }
+    if (finite.empty())
+        return 0;
+
+    std::sort(finite.begin(), finite.end(), [&](const int32_t a, const int32_t b) {
+        return scores[static_cast<size_t>(a)] > scores[static_cast<size_t>(b)];
     });
 
-    float threshold = dis(gen_);
-    int32_t token = 0;
-    // Find the first token where the cumulative probability exceeds the threshold
-    for (size_t i = 0; i < scores.size(); i++) {
-        threshold -= scores[indices[i]];
-        if (threshold > 0) {
-            continue;
+    const float rowmax = scores[static_cast<size_t>(finite.front())];
+    std::vector<float> untemp(finite.size());
+    float sumU = 0.0f;
+    for (size_t k = 0; k < finite.size(); ++k) {
+        untemp[k] = std::exp(scores[static_cast<size_t>(finite[k])] - rowmax);
+        sumU += untemp[k];
+    }
+    if (!(sumU > 0.0f) || ! std::isfinite(sumU))
+        return finite.front();
+    for (float &u: untemp)
+        u /= sumU;
+
+    size_t keep = finite.size();
+    if (p < 1.0f) {
+        float cum = 0.0f;
+        keep = 0;
+        for (; keep < finite.size(); ++keep) {
+            cum += untemp[keep];
+            if (cum >= p) {
+                ++keep;
+                break;
+            }
         }
-        token = indices[i];
-        break;
+        if (keep == 0)
+            keep = 1;
     }
 
-    return token;
+    if (temperature <= 0.0f)
+        return finite.front();
+
+    std::vector<float> probs(keep);
+    float sum = 0.0f;
+    for (size_t k = 0; k < keep; ++k) {
+        probs[k] = std::exp((scores[static_cast<size_t>(finite[k])] - rowmax) / temperature);
+        sum += probs[k];
+    }
+    if (!(sum > 0.0f) || ! std::isfinite(sum))
+        return finite.front();
+    for (float &prob: probs)
+        prob /= sum;
+
+    std::uniform_real_distribution<float> dis(0.0f, 1.0f);
+    float threshold = dis(gen);
+    for (size_t k = 0; k < keep; ++k) {
+        threshold -= probs[k];
+        if (threshold <= 0.0f)
+            return finite[k];
+    }
+    return finite[keep - 1];
 }
 
 static int32_t minTime(std::vector<int32_t> &tokens) {
@@ -128,6 +192,11 @@ struct Token {
     int32_t note;
     /** MIDI velocity 0–127. Default 100 matches AMT / orchestration when unset. */
     int32_t velocity = 100;
+    /**
+     * Stable vocsep voice label for OT / VocsepOutput.
+     * -1 = unset / vocsep off / non-note; >= 0 inherits from parent or is newly allocated.
+     */
+    int32_t voiceId = -1;
 
     auto getRealDuration() const -> int32_t {
         return duration - Vocab::DurOffset;
@@ -139,6 +208,17 @@ struct Token {
 
     auto getPitch() const -> int32_t {
         return (note - Vocab::NoteOffset) % Config::MaxPitch;
+    }
+
+    /** Re-encode pitch with a local instrument id (preserves time/duration/velocity). */
+    auto withInstrument(int32_t localInstrumentId) const -> Token {
+        Token out = *this;
+        if (note >= static_cast<int32_t>(Vocab::NoteOffset)
+            && note < static_cast<int32_t>(Vocab::Rest)) {
+            out.note = static_cast<int32_t>(Vocab::NoteOffset
+                                           + Config::MaxPitch * localInstrumentId + getPitch());
+        }
+        return out;
     }
 
     std::string toString() const {
@@ -200,6 +280,19 @@ inline bool operator<(const Token &lhs, const Token &rhs) {
 inline auto tokenEquals(const Token &lhs, const Token &rhs) -> bool {
     return lhs.time == rhs.time && lhs.duration == rhs.duration && lhs.note == rhs.note
            && lhs.velocity == rhs.velocity;
+}
+
+/** Match onset/dur/vel/pitch, ignoring local-instrument embedding in `note`. */
+inline auto tokenEqualsByOnsetPitch(const Token &lhs, const Token &rhs) -> bool {
+    if (lhs.time != rhs.time || lhs.duration != rhs.duration || lhs.velocity != rhs.velocity)
+        return false;
+    const bool lhsNote = lhs.note >= static_cast<int32_t>(Vocab::NoteOffset)
+                         && lhs.note < static_cast<int32_t>(Vocab::Rest);
+    const bool rhsNote = rhs.note >= static_cast<int32_t>(Vocab::NoteOffset)
+                         && rhs.note < static_cast<int32_t>(Vocab::Rest);
+    if (! lhsNote || ! rhsNote)
+        return lhs.note == rhs.note;
+    return lhs.getPitch() == rhs.getPitch();
 }
 
 inline auto tokenOrderLess(const Token &lhs, const Token &rhs) -> bool {

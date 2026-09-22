@@ -1,5 +1,7 @@
 #include "VirtualOrch/MidiOutputProcessor.h"
 
+#include "VirtualOrch/InstrumentConstants.h"
+
 MidiOutputProcessor::MidiOutputProcessor(MidiOutputType midiOutputType,
                                          const juce::String &midiOutputName)
     : outputType(midiOutputType) {
@@ -40,7 +42,7 @@ void MidiOutputProcessor::send(const NoteOffEvent event) {
  */
 void MidiOutputProcessor::relayMidi(const juce::MidiMessage &midiMessage) {
     juce::MidiMessage newMessage = midiMessage;
-    newMessage.setChannel(16);
+    newMessage.setChannel(InstrumentConstants::kReductionMonitorMidiChannel);
     midiOutput->sendMessageNow(newMessage);
 }
 

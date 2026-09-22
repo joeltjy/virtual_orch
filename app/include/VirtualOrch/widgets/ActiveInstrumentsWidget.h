@@ -21,7 +21,7 @@ private:
     auto refreshFromSession() -> void;
 
     AppSession &session;
-    ActiveInstrumentsView table;
+    ActiveInstrumentsView grid;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ActiveInstrumentsWidget)
 };

@@ -43,7 +43,7 @@ inline constexpr std::array<PitchRange, kNumInstruments> kPitchRanges{{
     /* 22  Harmonica              */ {},
     /* 23  Tango Accordion        */ {},
     /* 24  Acoustic Guitar (nylon)*/ {},
-    /* 25  Acoustic Guitar (steel)*/ {.low = 40, .high = 88}, // E2–E6
+    /* 25  Acoustic Guitar (steel)*/ {.low = 28, .high = 88}, // E1–E6
     /* 26  Electric Guitar (jazz) */ {},
     /* 27  Electric Guitar (clean)*/ {},
     /* 28  Electric Guitar (muted)*/ {},
@@ -58,27 +58,27 @@ inline constexpr std::array<PitchRange, kNumInstruments> kPitchRanges{{
     /* 37  Slap Bass 2            */ {},
     /* 38  Synth Bass 1           */ {},
     /* 39  Synth Bass 2           */ {},
-    /* 40  Violin                 */ {.low = 55, .high = 100}, // G3–E7
-    /* 41  Viola                  */ {.low = 48, .high = 88}, // C3–E6
-    /* 42  Cello                  */ {.low = 36, .high = 76}, // C2–E5
-    /* 43  Contrabass             */ {.low = 28, .high = 55}, // E1–G3
-    /* 44  Tremolo Strings        */ {.low = 36, .high = 96}, // C2–C7 (section)
+    /* 40  Violin                 */ {.low = 55, .high = 103}, // G3–G7
+    /* 41  Viola                  */ {.low = 48, .high = 91}, // C3–G6
+    /* 42  Cello                  */ {.low = 36, .high = 79}, // C2–G5
+    /* 43  Contrabass             */ {.low = 28, .high = 60}, // E1–C4
+    /* 44  Tremolo Strings        */ {.low = 36, .high = 103}, // C2–G7 (section)
     /* 45  Pizzicato Strings      */ {.low = 36, .high = 96}, // C2–C7 (section)
-    /* 46  Orchestral Harp        */ {.low = 23, .high = 103}, // B0–G7
-    /* 47  Timpani                */ {.low = 36, .high = 60}, // C2–C4
-    /* 48  String Ensemble 1      */ {.low = 36, .high = 96}, // C2–C7
+    /* 46  Orchestral Harp        */ {.low = 23, .high = 103}, // B0–G7 (not in taxonomy)
+    /* 47  Timpani                */ {.low = 38, .high = 57}, // D2–A3
+    /* 48  String Ensemble 1      */ {.low = 28, .high = 103}, // E1–G7
     /* 49  String Ensemble 2      */ {},
     /* 50  Synth Strings 1        */ {},
     /* 51  Synth Strings 2        */ {},
-    /* 52  Choir Aahs             */ {.low = 48, .high = 84}, // C3–C6
+    /* 52  Choir Aahs             */ {.low = 45, .high = 91}, // A2–G6
     /* 53  Voice Oohs             */ {},
     /* 54  Synth Voice            */ {},
     /* 55  Orchestra Hit          */ {},
-    /* 56  Trumpet                */ {.low = 52, .high = 82}, // E3–A#5
-    /* 57  Trombone               */ {.low = 40, .high = 72}, // E2–C5
-    /* 58  Tuba                   */ {.low = 26, .high = 60}, // D1–C4
+    /* 56  Trumpet                */ {.low = 52, .high = 84}, // E3–C6
+    /* 57  Trombone               */ {.low = 34, .high = 82}, // A#1–A5
+    /* 58  Tuba                   */ {.low = 22, .high = 65}, // A#0–F4
     /* 59  Muted Trumpet          */ {},
-    /* 60  French Horn            */ {.low = 34, .high = 77}, // Bb1–F5
+    /* 60  French Horn            */ {.low = 34, .high = 84}, // A#1–C6
     /* 61  Brass Section          */ {},
     /* 62  Synth Brass 1          */ {},
     /* 63  Synth Brass 2          */ {},
@@ -86,12 +86,12 @@ inline constexpr std::array<PitchRange, kNumInstruments> kPitchRanges{{
     /* 65  Alto Sax               */ {},
     /* 66  Tenor Sax              */ {},
     /* 67  Baritone Sax           */ {},
-    /* 68  Oboe                   */ {},
+    /* 68  Oboe                   */ {.low = 58, .high = 93}, // A#3–A6
     /* 69  English Horn           */ {},
-    /* 70  Bassoon                */ {.low = 34, .high = 75}, // Bb1–Eb5
-    /* 71  Clarinet               */ {.low = 50, .high = 91}, // D3–G6
+    /* 70  Bassoon                */ {.low = 34, .high = 77}, // A#1–F5
+    /* 71  Clarinet               */ {.low = 38, .high = 96}, // D2–C7
     /* 72  Piccolo                */ {},
-    /* 73  Flute                  */ {.low = 60, .high = 96}, // C4–C7
+    /* 73  Flute                  */ {.low = 60, .high = 108}, // C4–C8
 
     /* 74  Recorder               */ {},
     /* 75  Pan Flute              */ {},

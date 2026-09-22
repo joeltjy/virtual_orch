@@ -1,6 +1,7 @@
 #include "VirtualOrch/widgets/TokenInputPianoRollWidget.h"
 
 #include "VirtualOrch/AppSession.h"
+#include "VirtualOrch/NoteWindow.h"
 #include "VirtualOrch/ui/UiConstants.h"
 
 TokenInputPianoRollWidget::TokenInputPianoRollWidget(AppSession &sessionIn)
@@ -13,7 +14,8 @@ TokenInputPianoRollWidget::TokenInputPianoRollWidget(AppSession &sessionIn)
 auto TokenInputPianoRollWidget::refreshFromSession() -> void {
     setPitchRange(session.modelConfig.inputLow, session.modelConfig.inputHigh);
     if (session.inputFilter != nullptr)
-        presentTokens(session.inputFilter->getPastInput());
+        presentTokens(
+            NoteWindow::filteredTokens(session.inputFilter->getPastInput(), windowCutoffCs()));
     else
         presentTokens({});
 }

@@ -85,7 +85,7 @@ struct ModelConfig {
     /** How MIDI tokens are split into token vs conditioning queues. */
     InputFilterType inputFilterType = InputFilterType::Passthrough;
 
-    /** The MIDI instrument used to condition the model. */
+    /** Fixed reduction-model instrument embedding (0). OT retags keyboard as piano (15). */
     int32_t inputInstrument = 0;
 
     /** The range of the input */
@@ -97,6 +97,9 @@ struct ModelConfig {
 
     /** The initial input data */
     juce::String inputInitialData = "";
+
+    /** Notes of reduction history fed to AMT/Dense ONNX (not OT; OT uses maxContextLength, default 256). */
+    int32_t reductionContextNotes = 160;
 
     /** PitchRangeSplit: pitches in [low, high) go to conditioning. */
     int32_t filterConditioningLow = 24;
@@ -139,7 +142,7 @@ struct ModelConfig {
     int32_t outputMinimumDuration = 1;
 
     /** The maximum length (1/100s) of each generated note. */
-    int32_t outputMaximumDuration = 999;
+    int32_t outputMaximumDuration = 200;
 
     /** The temperature of the model */
     std::array<double, 3> outputTemperatures{0.2, 0.2, 0.2};
@@ -189,8 +192,8 @@ struct ModelConfig {
             inputFilterType = InputFilterType::Passthrough;
         }
 
-        // INPUT: Set instrument
-        inputInstrument = parsedJson.getProperty("inputInstrument", 0);
+        // Reduction model input instrument is always 0 (dense MaxInstr=5). OT labels keyboard as piano.
+        inputInstrument = 0;
 
         // INPUT: Set Input's low range
         inputLow = parsedJson.getProperty("inputLow", 36);
@@ -203,6 +206,9 @@ struct ModelConfig {
 
         // INPUT: Set initial data
         inputInitialData = parsedJson.getProperty("inputInitialData", "");
+
+        reductionContextNotes = juce::jmax(
+            1, static_cast<int32_t>(parsedJson.getProperty("contextNotes", 160)));
 
         filterConditioningLow = parsedJson.getProperty("filterConditioningLow", 24);
         filterConditioningHigh = parsedJson.getProperty("filterConditioningHigh", 36);
@@ -250,7 +256,7 @@ struct ModelConfig {
         outputMinimumDuration = parsedJson.getProperty("outputMinimumDuration", 1);
 
         // OUTPUT: Set maximum duration
-        outputMaximumDuration = parsedJson.getProperty("outputMaximumDuration", 999);
+        outputMaximumDuration = parsedJson.getProperty("outputMaximumDuration", 200);
 
         // OUTPUT: Set temperatures
         auto jsonOutputTemperatures = parsedJson.getProperty("outputTemperatures", juce::Array<var>{.2, .2, .2});

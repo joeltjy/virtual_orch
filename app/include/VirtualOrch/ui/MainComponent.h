@@ -47,6 +47,9 @@ private:
 
     auto refreshCheckpointList() -> void;
 
+    /** Select V1→36500 / V2→amt_causal / AMT first item when present. Returns true if selected. */
+    [[nodiscard]] auto selectPreferredCheckpointForCurrentReduction() -> bool;
+
     [[nodiscard]] auto selectedReductionIsDense() const -> bool;
 
     [[nodiscard]] auto selectedCheckpointName() const -> juce::String;
@@ -68,10 +71,10 @@ private:
     juce::ComboBox presetList, mtcClockList, midiInputList, launchpadMidiList, reductionTypeList,
             checkpointList, orchestrationModelList, outputList;
     juce::TextButton leftPresetButton{"<"}, rightPresetButton{">"}, savePresetButton{"SAVE"};
-    juce::ToggleButton autoConnect, mtcClock, inputThru;
+    juce::ToggleButton autoConnect, mtcClock, inputThru, proportionBias;
     juce::Label presetListLabel, configLabel, mtcClockLabel, mtcClockOffsetLabel, controllerLabel,
             midiInputListLabel, launchpadMidiListLabel, reductionTypeListLabel, checkpointListLabel,
-            orchestrationModelListLabel, inputThruLabel, outputListLabel, oscIpLabel, oscPortLabel,
+            orchestrationModelListLabel, inputThruLabel, proportionBiasLabel, outputListLabel, oscIpLabel, oscPortLabel,
             bufferOutputOscIpLabel, bufferOutputOscPortLabel, statusOutputOscIpLabel,
             statusOutputOscPortLabel, generationLabel, visualizationBufferSizeLabel;
 

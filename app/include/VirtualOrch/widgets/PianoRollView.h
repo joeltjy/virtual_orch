@@ -13,11 +13,11 @@ public:
 
     ~PianoRollView() override;
 
-    /** History / committed notes (drawn first). */
-    auto setNotes(std::vector<Token> notes) -> void;
+    /** History / committed notes (drawn first). Optional per-note colours (same size). */
+    auto setNotes(std::vector<Token> notes, std::vector<juce::Colour> colours = {}) -> void;
 
-    /** Just-drained / pending notes (drawn on top of history). */
-    auto setPendingNotes(std::vector<Token> notes) -> void;
+    /** Just-drained / pending notes (drawn on top of history). Optional per-note colours. */
+    auto setPendingNotes(std::vector<Token> notes, std::vector<juce::Colour> colours = {}) -> void;
 
     auto setNoteColours(juce::Colour history, juce::Colour pending) -> void;
 
@@ -46,7 +46,8 @@ private:
 
     auto paintNotes(juce::Graphics &g,
                     const std::vector<Token> &tokens,
-                    juce::Colour colour,
+                    const std::vector<juce::Colour> &colours,
+                    juce::Colour fallbackColour,
                     const TimeWindow &window,
                     float width,
                     float height,
@@ -55,6 +56,8 @@ private:
     Clock &clock;
     std::vector<Token> notes;
     std::vector<Token> pendingNotes;
+    std::vector<juce::Colour> noteColours;
+    std::vector<juce::Colour> pendingNoteColours;
     juce::Colour historyNoteColour;
     juce::Colour pendingNoteColour;
     int32_t pitchLow = 36;

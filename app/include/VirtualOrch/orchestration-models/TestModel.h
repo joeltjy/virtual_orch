@@ -21,9 +21,12 @@ public:
 
     [[nodiscard]] auto tokenHistory() const -> const std::vector<OrchestrationNote> & override;
 
-    [[nodiscard]] auto getOutput(const std::vector<Token> &incomingTokens,
-                                 const std::vector<int32_t> &instruments,
-                                 const ConditioningSignal &conditioningSignal)
+    [[nodiscard]] auto getOutput(
+        const std::vector<Token> &incomingTokens,
+        const std::vector<int32_t> &instruments,
+        const ConditioningSignal &conditioningSignal,
+        OrchestrationBalanceTracker *balance = nullptr,
+        const OrchestrationBalanceTracker::BiasView *bias = nullptr)
         -> std::vector<OrchestrationNote> override;
 
 private:

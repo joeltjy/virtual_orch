@@ -1,10 +1,19 @@
 #include "VirtualOrch/OrchestrationTransformer.h"
 
 #include "VirtualOrch/InstrumentConstants.h"
+#include "VirtualOrch/NoteWindow.h"
 
 #include <algorithm>
 #include <iostream>
 #include <set>
+
+namespace {
+
+auto snapshotHasValidLogit(const InstrumentLogitSnapshot &snap) -> bool {
+    return std::any_of(snap.valid.begin(), snap.valid.end(), [](bool v) { return v; });
+}
+
+} // namespace
 
 OrchestrationTransformer::OrchestrationTransformer()
     : Thread("Orchestration Transformer") {
@@ -13,38 +22,79 @@ OrchestrationTransformer::OrchestrationTransformer()
 void OrchestrationTransformer::threadInit() {
 }
 
+auto OrchestrationTransformer::applyOneInstrumentUpdate(const InstrumentUpdate &update) -> void {
+    if (! InstrumentConstants::isValidLocalInstrumentId(update.localInstrumentId))
+        return;
+    if (update.state != 0 && update.state != 1)
+        return;
+
+    const juce::ScopedLock lock(instrumentsLock);
+    const bool isUser = update.target == InstrumentUpdateTarget::User;
+    auto &instruments = isUser ? userInstruments : modelInstruments;
+    auto &balance = isUser ? userBalance : modelBalance;
+
+    if (update.state == 0) {
+        instruments.erase(update.localInstrumentId);
+        balance.onInstrumentRemoved(update.localInstrumentId);
+    } else {
+        instruments.insert(update.localInstrumentId);
+        balance.onInstrumentAdded(update.localInstrumentId);
+    }
+}
+
 auto OrchestrationTransformer::applyInstrumentUpdates() -> void {
     InstrumentUpdate update{};
-    while (instrumentUpdates.pull(update)) {
-        if (! InstrumentConstants::isValidLocalInstrumentId(update.localInstrumentId))
-            continue;
+    while (instrumentUpdates.pull(update))
+        applyOneInstrumentUpdate(update);
+}
 
-        if (update.state != 0 && update.state != 1)
-            continue;
+auto OrchestrationTransformer::replaceInstrumentSets(std::set<int32_t> user,
+                                                     std::set<int32_t> model) -> void {
+    const juce::ScopedLock lock(instrumentsLock);
+    userInstruments = std::move(user);
+    modelInstruments = std::move(model);
+}
 
-        auto &instruments = update.target == InstrumentUpdateTarget::User ? userInstruments
-                                                                          : modelInstruments;
-
-        if (update.state == 0)
-            instruments.erase(update.localInstrumentId);
-        else
-            instruments.insert(update.localInstrumentId);
-    }
+auto OrchestrationTransformer::copyInstrumentLists() const
+    -> std::pair<std::vector<int32_t>, std::vector<int32_t>> {
+    const juce::ScopedLock lock(instrumentsLock);
+    return {{userInstruments.begin(), userInstruments.end()},
+            {modelInstruments.begin(), modelInstruments.end()}};
 }
 
 auto OrchestrationTransformer::applyTokenUpdates() -> void {
     TokenUpdate update{};
     while (updatesIncoming.pull(update)) {
-        applyTokenUpdateToHistory(midiInputHistory, update);
-        applyTokenUpdateToHistory(conditioningHistory, update);
-
         for (auto &note: outputHistory) {
-            if (tokenEquals(note.token, update.oldNote))
-                note.token = update.newNote;
+            // Orch notes store pitch-only note ids; keyboard updates embed instrument.
+            if (! tokenEqualsByOnsetPitch(note.token, update.oldNote))
+                continue;
+            note.token.duration = update.newNote.duration;
+            note.token.velocity = update.newNote.velocity;
         }
-        
-        // for notes that were given the default duration.
-        outputDurationUpdates.push(update);
+
+        // OT midi history is retagged as piano (15); note-off updates use reduction instr 0.
+        {
+            TokenUpdate midiUpdate = update;
+            if (update.oldNote.note >= static_cast<int32_t>(Vocab::NoteOffset)
+                && update.oldNote.note < static_cast<int32_t>(Vocab::Rest)) {
+                midiUpdate.oldNote =
+                    update.oldNote.withInstrument(InstrumentConstants::kKeyboardLocalInstrumentId);
+                midiUpdate.newNote =
+                    update.newNote.withInstrument(InstrumentConstants::kKeyboardLocalInstrumentId);
+            }
+            applyTokenUpdateToHistory(midiInputHistory, midiUpdate);
+            applyTokenUpdateToHistory(conditioningHistory, midiUpdate);
+        }
+
+        // Playback queue also holds pitch-only orch tokens — strip instrument for match.
+        TokenUpdate playbackUpdate = update;
+        if (update.oldNote.note >= static_cast<int32_t>(Vocab::NoteOffset)
+            && update.oldNote.note < static_cast<int32_t>(Vocab::Rest)) {
+            playbackUpdate.oldNote = update.oldNote.withInstrument(0);
+            playbackUpdate.newNote = update.newNote.withInstrument(0);
+        }
+        outputDurationUpdates.push(playbackUpdate);
     }
 }
 
@@ -58,9 +108,57 @@ auto OrchestrationTransformer::getDebugSnapshot() const -> OrchestrationDebugSna
     return debugSnapshot;
 }
 
+auto OrchestrationTransformer::getDebugSnapshotSince(int32_t cutoffCs) const
+    -> OrchestrationDebugSnapshot {
+    const juce::ScopedLock lock(debugSnapshotLock);
+    OrchestrationDebugSnapshot trimmed;
+    trimmed.midiHistory = NoteWindow::filteredTokens(debugSnapshot.midiHistory, cutoffCs);
+    trimmed.midiPending = NoteWindow::filteredTokens(debugSnapshot.midiPending, cutoffCs);
+    trimmed.conditioningHistory =
+        NoteWindow::filteredTokens(debugSnapshot.conditioningHistory, cutoffCs);
+    trimmed.conditioningPending =
+        NoteWindow::filteredTokens(debugSnapshot.conditioningPending, cutoffCs);
+    trimmed.reductionHistory = NoteWindow::filteredTokens(debugSnapshot.reductionHistory, cutoffCs);
+    trimmed.reductionPending = NoteWindow::filteredTokens(debugSnapshot.reductionPending, cutoffCs);
+    trimmed.outputHistory =
+        NoteWindow::filtered(debugSnapshot.outputHistory, cutoffCs, [](const OrchestrationNote &n) {
+            return std::pair<int32_t, int32_t>{n.token.time, n.token.getRealDuration()};
+        });
+    trimmed.userInstruments = debugSnapshot.userInstruments;
+    trimmed.modelInstruments = debugSnapshot.modelInstruments;
+    return trimmed;
+}
+
+auto OrchestrationTransformer::publishInstrumentLogits(InstrumentLogitSnapshot snapshot) -> void {
+    const juce::ScopedLock lock(instrumentLogitLock);
+    snapshot.sequence = instrumentLogitSnapshot.sequence + 1;
+    instrumentLogitSnapshot = std::move(snapshot);
+}
+
+auto OrchestrationTransformer::getInstrumentLogitSnapshot() const -> InstrumentLogitSnapshot {
+    const juce::ScopedLock lock(instrumentLogitLock);
+    return instrumentLogitSnapshot;
+}
+
 auto OrchestrationTransformer::clearDebugSnapshot() -> void {
     const juce::ScopedLock lock(debugSnapshotLock);
     debugSnapshot = {};
+}
+
+auto OrchestrationTransformer::resetOrchProfile() -> void {
+    getOutputAccum = {};
+    const juce::ScopedLock lock(orchProfileLock);
+    orchProfile = {};
+}
+
+auto OrchestrationTransformer::publishBusyOrchProfile(OrchLoopStepMs step) -> void {
+    const juce::ScopedLock lock(orchProfileLock);
+    orchProfile.publishBusy(step);
+}
+
+auto OrchestrationTransformer::getLastOrchProfile() const -> OrchLoopProfile {
+    const juce::ScopedLock lock(orchProfileLock);
+    return orchProfile;
 }
 
 auto OrchestrationTransformer::drainIncoming(CircularFifo<Token> &incoming) -> std::vector<Token> {
@@ -74,6 +172,7 @@ auto OrchestrationTransformer::drainIncoming(CircularFifo<Token> &incoming) -> s
 auto OrchestrationTransformer::appendToHistory(std::vector<Token> &history,
                                                const std::vector<Token> &batch) -> void {
     history.insert(history.end(), batch.begin(), batch.end());
+    NoteWindow::trimToLastNotes(history);
 }
 
 auto OrchestrationTransformer::tokenWithInstrument(Token token, int32_t instrument) -> Token {
@@ -122,13 +221,39 @@ auto OrchestrationTransformer::getEditOrchestrationOutput(
     if (orchestrationModel == nullptr)
         return {};
 
+    const bool applyBias = proportionBiasEnabled.get();
+    const auto nowMs = juce::Time::getMillisecondCounter();
+
     std::vector<OrchestrationNote> userNotes;
-    if (! userInstruments.empty())
-        userNotes = orchestrationModel->getOutput(midiInput, userInstruments, signal);
+    if (! userInstruments.empty()) {
+        const auto userBias = userBalance.makeBiasView(applyBias, nowMs);
+        InstrumentLogitSnapshot logitScratch;
+        orchestrationModel->instrumentLogitSink = &logitScratch;
+        userNotes = orchestrationModel->getOutput(midiInput,
+                                                  userInstruments,
+                                                  signal,
+                                                  &userBalance,
+                                                  &userBias);
+        orchestrationModel->instrumentLogitSink = nullptr;
+        if (snapshotHasValidLogit(logitScratch))
+            publishInstrumentLogits(std::move(logitScratch));
+    }
 
     std::vector<OrchestrationNote> modelNotes;
-    if (! modelInstruments.empty())
-        modelNotes = orchestrationModel->getOutput(reductionInput, modelInstruments, signal);
+    if (! modelInstruments.empty()) {
+        const auto modelBias = modelBalance.makeBiasView(applyBias, nowMs);
+        InstrumentLogitSnapshot logitScratch;
+        orchestrationModel->instrumentLogitSink = &logitScratch;
+        modelNotes = orchestrationModel->getOutput(reductionInput,
+                                                   modelInstruments,
+                                                   signal,
+                                                   &modelBalance,
+                                                   &modelBias);
+        orchestrationModel->instrumentLogitSink = nullptr;
+        // Prefer model stream for the bar chart when both run.
+        if (snapshotHasValidLogit(logitScratch))
+            publishInstrumentLogits(std::move(logitScratch));
+    }
 
     return {std::move(userNotes), std::move(modelNotes)};
 }
@@ -140,7 +265,35 @@ auto OrchestrationTransformer::getJamOrchestrationOutput(
     if (orchestrationModel == nullptr || orchestrationInstruments.empty())
         return {};
 
-    return orchestrationModel->getOutput(orchestrationInput, orchestrationInstruments, signal);
+    const bool applyBias = proportionBiasEnabled.get();
+    const auto nowMs = juce::Time::getMillisecondCounter();
+    std::set<int32_t> userSnap;
+    std::set<int32_t> modelSnap;
+    {
+        const juce::ScopedLock lock(instrumentsLock);
+        userSnap = userInstruments;
+        modelSnap = modelInstruments;
+    }
+    // Jam counts live on modelBalance (reduction stream); τ comes from the owning pad set.
+    auto &counts = modelSnap.empty() ? userBalance : modelBalance;
+    const auto jamBias = OrchestrationBalanceTracker::makeJamBiasView(userBalance,
+                                                                      modelBalance,
+                                                                      counts,
+                                                                      userSnap,
+                                                                      modelSnap,
+                                                                      applyBias,
+                                                                      nowMs);
+    InstrumentLogitSnapshot logitScratch;
+    orchestrationModel->instrumentLogitSink = &logitScratch;
+    auto notes = orchestrationModel->getOutput(orchestrationInput,
+                                               orchestrationInstruments,
+                                               signal,
+                                               &counts,
+                                               &jamBias);
+    orchestrationModel->instrumentLogitSink = nullptr;
+    if (snapshotHasValidLogit(logitScratch))
+        publishInstrumentLogits(std::move(logitScratch));
+    return notes;
 }
 
 auto OrchestrationTransformer::packSortAndPushOutput(const std::vector<OrchestrationNote> &notes)
@@ -160,6 +313,7 @@ auto OrchestrationTransformer::pushOutputNote(const OrchestrationNote &note) -> 
     currentOTTime = note.token.time;
     outputTokenQueue.push(note);
     outputHistory.push_back(note);
+    NoteWindow::trimToLastNotes(outputHistory);
 }
 
 auto OrchestrationTransformer::clearOutputNotes() -> void {
@@ -182,17 +336,47 @@ void OrchestrationTransformer::threadRun() {
     clearUpdatesIncoming();
     clearOutputDurationUpdates();
     clearDebugSnapshot();
+    {
+        const juce::ScopedLock lock(instrumentLogitLock);
+        instrumentLogitSnapshot = {};
+    }
+    // Prefer Launchpad effective pads as source of truth. Clearing the FIFO without
+    // applying would drop pad/side changes made while generation was stopped.
+    clearInstrumentUpdates();
+    if (rebuildInstrumentsFromPads)
+        rebuildInstrumentsFromPads();
+    userBalance.reset();
+    modelBalance.reset();
+    {
+        const juce::ScopedLock lock(instrumentsLock);
+        userBalance.syncActive(userInstruments);
+        modelBalance.syncActive(modelInstruments);
+    }
+    resetOrchProfile();
+    if (orchestrationModel != nullptr)
+        orchestrationModel->getOutputTimings = &getOutputAccum;
 
     while (! threadShouldExit()) {
         const double loopStartMs = juce::Time::getMillisecondCounterHiRes();
+        OrchLoopStepMs step{};
+        getOutputAccum = {};
 
         applyInstrumentUpdates();
 
-        auto midiUpdate = drainIncoming(midiInputIncoming);
-        const auto conditioningUpdate = drainIncoming(conditioningIncoming);
-        auto reductionUpdate = drainIncoming(reductionIncoming);
+        std::vector<Token> midiUpdate;
+        std::vector<Token> conditioningUpdate;
+        std::vector<Token> reductionUpdate;
+        {
+            const ScopedMs drainMs(&step.drain);
+            midiUpdate = drainIncoming(midiInputIncoming);
+            conditioningUpdate = drainIncoming(conditioningIncoming);
+            reductionUpdate = drainIncoming(reductionIncoming);
+        }
+        step.midiIn = static_cast<int>(midiUpdate.size());
+        step.reductionIn = static_cast<int>(reductionUpdate.size());
 
         {
+            const ScopedMs snapMs(&step.snap);
             OrchestrationDebugSnapshot snapshot;
             snapshot.midiHistory = midiInputHistory;
             snapshot.midiPending = midiUpdate;
@@ -201,29 +385,34 @@ void OrchestrationTransformer::threadRun() {
             snapshot.reductionHistory = reductionHistory;
             snapshot.reductionPending = reductionUpdate;
             snapshot.outputHistory = outputHistory;
-            snapshot.userInstruments = userInstruments;
-            snapshot.modelInstruments = modelInstruments;
+            {
+                const juce::ScopedLock lock(instrumentsLock);
+                snapshot.userInstruments = userInstruments;
+                snapshot.modelInstruments = modelInstruments;
+            }
             publishDebugSnapshot(std::move(snapshot));
         }
 
-        const auto clearFromMidi = extractClearQueueTokens(midiUpdate);
-        const auto clearFromReduction = extractClearQueueTokens(reductionUpdate);
-
-        const auto signal = getConditioningSignal(midiUpdate, conditioningUpdate);
-        appendToHistory(midiInputHistory, midiUpdate);
-        appendToHistory(conditioningHistory, conditioningUpdate);
-        appendToHistory(reductionHistory, reductionUpdate);
-        applyTokenUpdates();
+        std::vector<Token> clearFromMidi;
+        std::vector<Token> clearFromReduction;
+        OrchestrationTransformer::ConditioningSignal signal{};
+        {
+            const ScopedMs histMs(&step.hist);
+            clearFromMidi = extractClearQueueTokens(midiUpdate);
+            clearFromReduction = extractClearQueueTokens(reductionUpdate);
+            signal = getConditioningSignal(midiUpdate, conditioningUpdate);
+            appendToHistory(midiInputHistory, midiUpdate);
+            appendToHistory(conditioningHistory, conditioningUpdate);
+            appendToHistory(reductionHistory, reductionUpdate);
+        }
 
         std::vector<OrchestrationNote> toOutput;
         if (! paused.get()) {
-            const std::vector<int32_t> userInstrumentList(userInstruments.begin(),
-                                                          userInstruments.end());
-            const std::vector<int32_t> modelInstrumentList(modelInstruments.begin(),
-                                                          modelInstruments.end());
+            const auto [userInstrumentList, modelInstrumentList] = copyInstrumentLists();
 
             const auto mode = getMode();
             if (mode == OrchestrationMode::Edit) {
+                const ScopedMs modelMs(&step.model);
                 auto [userNotes, modelNotes] = getEditOrchestrationOutput(
                     midiUpdate, reductionUpdate, userInstrumentList, modelInstrumentList, signal);
                 toOutput.reserve(userNotes.size() + modelNotes.size() + clearFromMidi.size()
@@ -231,8 +420,10 @@ void OrchestrationTransformer::threadRun() {
                 toOutput.insert(toOutput.end(), userNotes.begin(), userNotes.end());
                 toOutput.insert(toOutput.end(), modelNotes.begin(), modelNotes.end());
             } else if (mode == OrchestrationMode::Jam) {
-                std::set<int32_t> instrumentUnion = userInstruments;
-                instrumentUnion.insert(modelInstruments.begin(), modelInstruments.end());
+                const ScopedMs modelMs(&step.model);
+                std::set<int32_t> instrumentUnion(userInstrumentList.begin(),
+                                                  userInstrumentList.end());
+                instrumentUnion.insert(modelInstrumentList.begin(), modelInstrumentList.end());
                 const std::vector<int32_t> orchestrationInstruments(instrumentUnion.begin(),
                                                                     instrumentUnion.end());
                 toOutput = getJamOrchestrationOutput(reductionUpdate, orchestrationInstruments,
@@ -240,25 +431,56 @@ void OrchestrationTransformer::threadRun() {
                 toOutput.reserve(toOutput.size() + clearFromMidi.size() + clearFromReduction.size());
             } else {
                 juce::Logger::writeToLog("Invalid orchestration mode");
+                step.total = static_cast<float>(
+                    juce::Time::getMillisecondCounterHiRes() - loopStartMs);
+                lastThreadLoopMs.store(step.total, std::memory_order_relaxed);
                 continue;
             }
         } else {
             toOutput.reserve(clearFromMidi.size() + clearFromReduction.size());
         }
 
-        // Bypass orch model: ClearQueue must reach OutputPlayback as-is.
-        for (const auto &token: clearFromMidi)
-            toOutput.push_back(OrchestrationNote{.token = token, .velocity = 0, .localInstrumentId = 0});
-        for (const auto &token: clearFromReduction)
-            toOutput.push_back(OrchestrationNote{.token = token, .velocity = 0, .localInstrumentId = 0});
+        step.prep = getOutputAccum.prep;
+        step.onnx = getOutputAccum.onnx;
+        step.logits = getOutputAccum.logits;
+        step.mask = getOutputAccum.mask;
+        step.sample = getOutputAccum.sample;
+        step.decode = getOutputAccum.decode;
+        step.getOutputCalls = getOutputAccum.getOutputCalls;
+        step.contextTokens = getOutputAccum.contextTokens;
 
-        packSortAndPushOutput(toOutput);
+        {
+            const ScopedMs packMs(&step.pack);
+            // Bypass orch model: ClearQueue must reach OutputPlayback as-is.
+            for (const auto &token: clearFromMidi)
+                toOutput.push_back(OrchestrationNote{
+                    .token = token,
+                    .velocity = 0,
+                    .localInstrumentId = InstrumentConstants::kReductionPlaybackLocalId});
+            for (const auto &token: clearFromReduction)
+                toOutput.push_back(OrchestrationNote{
+                    .token = token,
+                    .velocity = 0,
+                    .localInstrumentId = InstrumentConstants::kReductionPlaybackLocalId});
 
-        const double loopMs = juce::Time::getMillisecondCounterHiRes() - loopStartMs;
-        // std::cout << "OT loop: " << loopMs << " ms"
-        //           << " hist(m/c/r)=" << midiInputHistory.size() << '/'
-        //           << conditioningHistory.size() << '/' << reductionHistory.size()
-        //           << std::endl;
+            packSortAndPushOutput(toOutput);
+        }
+
+        // After notes are queued so OutputPlayback cannot drain a duration update
+        // before the matching note exists (same-loop note-on + note-off race).
+        {
+            const ScopedMs updMs(&step.upd);
+            applyTokenUpdates();
+        }
+
+        step.total =
+            static_cast<float>(juce::Time::getMillisecondCounterHiRes() - loopStartMs);
+        lastThreadLoopMs.store(step.total, std::memory_order_relaxed);
+
+        const bool busy = step.midiIn > 0 || step.reductionIn > 0 || step.getOutputCalls > 0
+                          || ! conditioningUpdate.empty();
+        if (busy)
+            publishBusyOrchProfile(step);
     }
 }
 

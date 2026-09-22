@@ -35,8 +35,9 @@ void ModelConfig::updateParameter(const juce::String &parameterName, const int32
     switch (compile_time_hash(parameterName.toStdString().c_str())) {
         // ===== INPUT =====
         case ModelConfigParameter::INPUT_INSTRUMENT:
-            DBG("CGB: inputInstrument set to " + std::to_string(parameterValue));
-            inputInstrument = parameterValue;
+            // Reduction vocab requires instrument 0; OT retags keyboard as piano separately.
+            DBG("CGB: inputInstrument forced to reduction input id (0)");
+            inputInstrument = 0;
             break;
         case ModelConfigParameter::INPUT_LOW:
             DBG("CGB: inputLow set to " + std::to_string(parameterValue));

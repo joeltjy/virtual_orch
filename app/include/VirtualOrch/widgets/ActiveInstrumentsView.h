@@ -2,43 +2,46 @@
 
 #include <JuceHeader.h>
 
+#include <array>
 #include <cstdint>
-#include <set>
-#include <vector>
+#include <optional>
 
-/** Read-only two-column table: User | Model GM instrument names. */
-class ActiveInstrumentsView : public juce::Component, private juce::TableListBoxModel {
+#include "VirtualOrch/LaunchpadGrid.h"
+
+/** Launchpad view on UI. */
+class ActiveInstrumentsView : public juce::Component {
 public:
     ActiveInstrumentsView();
 
-    auto setInstruments(std::set<int32_t> user, std::set<int32_t> model) -> void;
+    auto setFromLaunchpad(const LaunchpadGrid &grid) -> void;
 
+    auto paint(juce::Graphics &g) -> void override;
     auto resized() -> void override;
 
+    [[nodiscard]] static auto shortNameForLocal(int32_t localId) -> juce::String;
+
 private:
-    enum ColumnIds : int {
-        userColumn = 1,
-        modelColumn = 2
+    static constexpr int kUiRows = 9;
+    static constexpr int kUiCols = 9;
+    static constexpr int kLabelStripWidth = 64;
+
+    struct CellState {
+        juce::String label;
+        juce::Colour fill = juce::Colours::transparentBlack;
+        bool hasContent = false;
     };
 
-    auto getNumRows() -> int override;
+    [[nodiscard]] static auto colourForPalette(uint8_t palette) -> juce::Colour;
 
-    auto paintRowBackground(juce::Graphics &g,
-                            int rowNumber,
-                            int width,
-                            int height,
-                            bool rowIsSelected) -> void override;
+    auto rebuildCells(const LaunchpadGrid &grid) -> void;
+    auto paintGroupBracket(juce::Graphics &g,
+                           juce::Rectangle<float> labelArea,
+                           const juce::String &text) const -> void;
 
-    auto paintCell(juce::Graphics &g,
-                   int rowNumber,
-                   int columnId,
-                   int width,
-                   int height,
-                   bool rowIsSelected) -> void override;
-
-    juce::TableListBox table;
-    std::vector<int32_t> userIds;
-    std::vector<int32_t> modelIds;
+    std::array<std::array<CellState, kUiCols>, kUiRows> cells{};
+    juce::Rectangle<float> gridBounds;
+    juce::Rectangle<float> userLabelBounds;
+    juce::Rectangle<float> modelLabelBounds;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ActiveInstrumentsView)
 };

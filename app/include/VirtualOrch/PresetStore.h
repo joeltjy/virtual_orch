@@ -41,6 +41,11 @@ public:
         orchestrationModelNameProvider = std::move(provider);
     }
 
+    /** Returns "amt", "v1", or "v2" for the Reduction dropdown. */
+    auto setReductionTypeProvider(std::function<juce::String()> provider) -> void {
+        reductionTypeProvider = std::move(provider);
+    }
+
     auto setOnPresetSaved(std::function<void(const juce::String &)> callback) -> void {
         onPresetSaved = std::move(callback);
     }
@@ -53,6 +58,7 @@ private:
 
     std::function<juce::String()> modelNameProvider;
     std::function<juce::String()> orchestrationModelNameProvider;
+    std::function<juce::String()> reductionTypeProvider;
     std::function<void(const juce::String &)> onPresetSaved;
 
     [[nodiscard]] auto buildPresetJson(const juce::String &modelName) const -> juce::var;

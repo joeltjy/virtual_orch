@@ -1,5 +1,6 @@
 #include "VirtualOrch/orchestration-models/TestModel.h"
 #include "VirtualOrch/OrtEnv.h"
+#include "VirtualOrch/SamplingRelativeTime.h"
 
 #include <numeric>
 
@@ -7,6 +8,12 @@ TestModel::TestModel() = default;
 
 auto TestModel::init(const char *modelPath) -> void {
     Ort::SessionOptions sessionOptions;
+
+#ifdef __linux__
+    OrtCUDAProviderOptions cudaOptions{};
+    sessionOptions.AppendExecutionProvider_CUDA(cudaOptions);
+#endif
+
     session = std::make_unique<Ort::Session>(sharedOrtEnv(), modelPath, sessionOptions);
 
     allocatedInputNames.clear();
@@ -98,19 +105,26 @@ auto TestModel::runModelAndGetLogits(std::vector<int32_t> &tokens) -> std::vecto
         outputNames.push_back(allocatedOutputName.c_str());
 
     try {
-        auto output_tensors = session->Run(Ort::RunOptions{nullptr},
-                                           inputNames.data(),
-                                           input_tensors.data(),
-                                           input_tensors.size(),
-                                           outputNames.data(),
-                                           outputNames.size());
+        std::vector<Ort::Value> output_tensors;
+        {
+            const ScopedMs onnxMs(getOutputTimings != nullptr ? &getOutputTimings->onnx : nullptr);
+            output_tensors = session->Run(Ort::RunOptions{nullptr},
+                                          inputNames.data(),
+                                          input_tensors.data(),
+                                          input_tensors.size(),
+                                          outputNames.data(),
+                                          outputNames.size());
+        }
 
+        const ScopedMs logitsMs(getOutputTimings != nullptr ? &getOutputTimings->logits : nullptr);
         Ort::Value &logits_tensor = output_tensors.front();
         const auto count = logits_tensor.GetTensorTypeAndShapeInfo().GetElementCount();
         const float *data = logits_tensor.GetTensorMutableData<float>();
         return {data, data + count};
     } catch (const Ort::Exception &exception) {
-        DBG("Error running model: " + juce::String(exception.what()));
+        const auto detail = juce::String(exception.what());
+        DBG("Error running model: " + detail);
+        reportSamplingError(detail);
     }
 
     return {};
@@ -152,15 +166,34 @@ auto TestModel::updateHistories(const std::vector<OrchestrationNote> &notes,
 
 auto TestModel::getOutput(const std::vector<Token> &incomingTokens,
                           const std::vector<int32_t> &instruments,
-                          const ConditioningSignal &conditioningSignal)
+                          const ConditioningSignal &conditioningSignal,
+                          OrchestrationBalanceTracker *balance,
+                          const OrchestrationBalanceTracker::BiasView *bias)
     -> std::vector<OrchestrationNote> {
-    juce::ignoreUnused(instruments, conditioningSignal);
+    juce::ignoreUnused(instruments, conditioningSignal, balance, bias);
 
     if (incomingTokens.empty() || session == nullptr)
         return {};
 
-    const auto newTokens = tokensToInput(incomingTokens);
-    auto context = prependHistoryToInput(newTokens);
+    if (getOutputTimings != nullptr)
+        ++getOutputTimings->getOutputCalls;
+
+    std::vector<int32_t> newTokens;
+    std::vector<int32_t> context;
+    {
+        const ScopedMs prepMs(getOutputTimings != nullptr ? &getOutputTimings->prep : nullptr);
+        newTokens = tokensToInput(incomingTokens);
+        context = prependHistoryToInput(newTokens);
+
+        // Model sees relative onsets; sample() keeps absolute times from incomingTokens.
+        static constexpr size_t tokensPerNote = 4;
+        const int32_t timeOffset =
+            SamplingRelativeTime::minStridedOnset(context, tokensPerNote);
+        SamplingRelativeTime::relativizeStridedOnsets(context, tokensPerNote, timeOffset);
+        if (getOutputTimings != nullptr)
+            getOutputTimings->contextTokens =
+                juce::jmax(getOutputTimings->contextTokens, static_cast<int>(context.size()));
+    }
 
     auto logitsFlat = runModelAndGetLogits(context);
     if (logitsFlat.empty())
@@ -173,12 +206,28 @@ auto TestModel::getOutput(const std::vector<Token> &incomingTokens,
 
     const size_t numInstruments = logitsFlat.size() / numNotesInContext;
     const size_t firstNewNote = numNotesInContext - n;
-    std::vector<float> newNoteLogits(
-        logitsFlat.begin() + static_cast<std::ptrdiff_t>(firstNewNote * numInstruments),
-        logitsFlat.end());
+    std::vector<float> newNoteLogits;
+    {
+        const ScopedMs logitsMs(getOutputTimings != nullptr ? &getOutputTimings->logits : nullptr);
+        newNoteLogits.assign(
+            logitsFlat.begin() + static_cast<std::ptrdiff_t>(firstNewNote * numInstruments),
+            logitsFlat.end());
+    }
 
-    maskLogits(newNoteLogits, n, numInstruments);
-    const auto result = sample(incomingTokens, newNoteLogits, numInstruments);
-    updateHistories(result, newTokens);
+    {
+        const ScopedMs maskMs(getOutputTimings != nullptr ? &getOutputTimings->mask : nullptr);
+        maskLogits(newNoteLogits, n, numInstruments);
+    }
+
+    std::vector<OrchestrationNote> result;
+    {
+        const ScopedMs sampleMs(getOutputTimings != nullptr ? &getOutputTimings->sample : nullptr);
+        result = sample(incomingTokens, newNoteLogits, numInstruments);
+    }
+
+    {
+        const ScopedMs decodeMs(getOutputTimings != nullptr ? &getOutputTimings->decode : nullptr);
+        updateHistories(result, newTokens);
+    }
     return result;
 }

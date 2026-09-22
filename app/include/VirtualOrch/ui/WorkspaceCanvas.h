@@ -49,7 +49,11 @@ public:
 
     auto addReductionTransformerOutputWidget() -> void;
 
+    auto addReductionModelInputWidget() -> void;
+
     auto addModeWidget() -> void;
+
+    auto addInstrumentLogitsWidget() -> void;
 
     /** Clear canvas and suppress layout notifications while seeding a view. */
     auto beginViewLayout() -> void;

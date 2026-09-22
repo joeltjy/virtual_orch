@@ -2,6 +2,7 @@
 
 #include "VirtualOrch/GeneralMidiInstruments.h"
 #include "VirtualOrch/InstrumentConstants.h"
+#include "VirtualOrch/InstrumentUiColours.h"
 #include "VirtualOrch/ui/UiConstants.h"
 
 NoteIoTableView::NoteIoTableView(bool showChannelIn)
@@ -121,7 +122,8 @@ auto NoteIoTableView::paintCell(juce::Graphics &g,
             break;
     }
 
-    g.setColour(UiConstants::workspaceWidgetTitleTextColour);
+    g.setColour(columnId == programColumn ? InstrumentUiColours::forLocalInstrument(row.localInstrumentId)
+                                          : UiConstants::workspaceWidgetTitleTextColour);
     g.setFont(13.0f);
     g.drawText(text, 4, 0, width - 8, height, juce::Justification::centredLeft, true);
 }

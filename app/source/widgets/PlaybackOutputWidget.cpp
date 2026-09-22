@@ -14,5 +14,5 @@ PlaybackOutputWidget::PlaybackOutputWidget(AppSession &sessionIn)
 
 auto PlaybackOutputWidget::refreshFromSession() -> void {
     setPitchRange(session.modelConfig.inputLow, session.modelConfig.inputHigh);
-    presentPlaybackRecords(session.outputPlayback.getNoteOnHistory());
+    presentPlaybackRecords(session.outputPlayback.getNoteOnHistorySince(windowCutoffCs()));
 }

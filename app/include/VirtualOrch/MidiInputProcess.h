@@ -12,8 +12,9 @@
 #include "Fifo.h"
 #include "OutputProcessor.h"
 #include "VirtualOrch/InputFilter.h"
+#include "VirtualOrch/InstrumentConstants.h"
 #include "VirtualOrch/LaunchpadGrid.h"
-#include "VirtualOrch/ReductionTransformer.h"
+#include "VirtualOrch/reduction/ReductionTransformer.h"
 #include "VirtualOrch/ui/ModelConfigurationComponent.h"
 
 /**
@@ -42,6 +43,9 @@ public:
     void resetForStart();
 
     void setInputThru(bool enabled) { inputThruEnabled = enabled; }
+
+    /** When set, input thru only relays if this returns true (e.g. Jam mode). */
+    std::function<bool()> allowInputThru;
 
     [[nodiscard]] auto getLaunchpadGrid() -> LaunchpadGrid & { return launchpadGrid; }
 
@@ -77,7 +81,7 @@ private:
     juce::String &selectedMtcClockIdentifier;
     bool &mtcClockActive;
 
-    bool inputThruEnabled = false;
+    bool inputThruEnabled = true;
 
     LaunchpadGrid launchpadGrid;
     std::unique_ptr<juce::MidiOutput> launchpadMidiOutput;

@@ -1,21 +1,65 @@
 #include "VirtualOrch/AppSession.h"
 
 #include "VirtualOrch/orchestration-models/OrchestrationModels.h"
+#include "VirtualOrch/ProjectPaths.h"
 #include "VirtualOrch/ui/UiConstants.h"
+#include "onnxruntime_cxx_api.h"
+
+#include <atomic>
+#include <iostream>
+#include <thread>
+
+namespace {
+
+/**
+ * Joins happen off the message thread when stopping from the UI, so a stuck worker
+ * cannot freeze Stop. Destructor still joins with this timeout.
+ */
+constexpr int threadStopTimeoutMs = 5000;
+
+std::atomic<bool> stopJoinInFlight{false};
+
+auto reportThreadProblem(ModelSamplingAlert &alert, const juce::String &detail) -> void {
+    alert.report("Threads", detail);
+    // Also to the console: the alert line is easy to miss and gets overwritten.
+    std::cerr << "[threads] " << detail << std::endl;
+}
+
+auto stopThreadOrReport(juce::Thread &thread, ModelSamplingAlert &alert) -> void {
+    if (thread.stopThread(threadStopTimeoutMs))
+        return;
+    reportThreadProblem(alert,
+                        thread.getThreadName() + " did not exit within "
+                            + juce::String(threadStopTimeoutMs) + " ms");
+}
+
+/** startThread() is a no-op on a running thread, which silently yields a dead session. */
+auto startThreadOrReport(juce::Thread &thread, ModelSamplingAlert &alert) -> void {
+    if (thread.isThreadRunning()) {
+        reportThreadProblem(alert,
+                            thread.getThreadName()
+                                + " was still running at start; generation will not restart");
+        return;
+    }
+    thread.startThread();
+}
+
+} // namespace
 
 AppSession::AppSession()
     : presetStore(modelConfig),
       clock(metrics),
       musicTransformer(modelConfig),
-      denseMusicTransformer(modelConfig),
-      orchestrationModel(createOrchestrationModel("TestModel")),
+      reductionTransformerV1(modelConfig),
+      reductionTransformerV2(modelConfig),
+      orchestrationModel(createOrchestrationModel("InstrumentCombinations")),
       inputFilter(createInputFilter(modelConfig.inputFilterType,
                                     modelConfig,
                                     musicTransformer.inputTokenQueue,
                                     musicTransformer.inputConditioningQueue,
                                     musicTransformer.updatesFromFilter)),
       outputPlayback(clock, orchestrationTransformer, outputProcessor, bufferOutputProcessor,
-                     visualizationBufferSize),
+                     visualizationBufferSize, playbackSource),
       midiInputProcess(clock,
                        [this]() -> ReductionTransformer & { return activeReduction(); },
                        modelConfig,
@@ -25,9 +69,46 @@ AppSession::AppSession()
                        selectedLaunchpadMidiIdentifier,
                        selectedMtcClockIdentifier,
                        mtcClockActive) {
+    if (const auto vocsep = findModelCheckpoint("vocsep_reduction_best")) {
+        try {
+            voiceSeparation.init(vocsep->onnxFile.getFullPathName().toRawUTF8());
+        } catch (const Ort::Exception &e) {
+            std::cerr << "[vocsep] failed to load: " << e.what() << std::endl;
+        } catch (const std::exception &e) {
+            std::cerr << "[vocsep] failed to load: " << e.what() << std::endl;
+        }
+    }
+
     bindActiveMusicBackend();
+    midiInputProcess.allowInputThru = [this] {
+        return orchestrationTransformer.getMode() == OrchestrationMode::Jam;
+    };
     midiInputProcess.getLaunchpadGrid().instrumentUpdates =
         &orchestrationTransformer.instrumentUpdates;
+    midiInputProcess.getLaunchpadGrid().onInstrumentUpdate =
+        [this](const InstrumentUpdate &update) {
+            orchestrationTransformer.applyOneInstrumentUpdate(update);
+        };
+    orchestrationTransformer.rebuildInstrumentsFromPads = [this] {
+        std::set<int32_t> user;
+        std::set<int32_t> model;
+        auto &grid = midiInputProcess.getLaunchpadGrid();
+        for (int row = 0; row < LaunchpadGrid::kRows; ++row) {
+            for (int col = 0; col < LaunchpadGrid::kCols; ++col) {
+                if (grid.getEffectiveState(row, col) == 0)
+                    continue;
+                const auto &mapped =
+                    grid.padInstruments[static_cast<size_t>(row)][static_cast<size_t>(col)];
+                if (! mapped.has_value())
+                    continue;
+                if (row < 4)
+                    user.insert(*mapped);
+                else
+                    model.insert(*mapped);
+            }
+        }
+        orchestrationTransformer.replaceInstrumentSets(std::move(user), std::move(model));
+    };
     midiInputProcess.getLaunchpadGrid().scene_callback = [this](int idx) {
         if (idx == 0) {
             const auto mode = orchestrationTransformer.getMode();
@@ -36,84 +117,93 @@ AppSession::AppSession()
                                                  : OrchestrationMode::Edit);
         } else if (idx == 1) {
             auto &reduction = activeReduction();
-            reduction.paused.set(! reduction.paused.get());
+            reduction.setGenerationPause(! reduction.generationPause.get());
         } else if (idx == 2) {
             orchestrationTransformer.paused.set(! orchestrationTransformer.paused.get());
         }
 
         syncPauseTopLeds();
     };
+    // One family per row (taxonomy order): strings 0–6, woodwind 7–10, brass 11–14,
+    // other 15–19. Rows 0–3 are User, rows 4–7 mirror them for Model.
     auto &pads = midiInputProcess.getLaunchpadGrid().padInstruments;
-    pads[0][0] = 0;
-    pads[0][1] = 1;
-    pads[0][2] = 2;
-    pads[0][3] = 3;
-    pads[0][4] = 4;
-    pads[0][5] = 5;
-    pads[0][6] = 7;
-    pads[1][0] = 8;
-    pads[1][1] = 9;
-    pads[1][2] = 10;
-    pads[2][0] = 11;
-    pads[2][1] = 12;
-    pads[2][2] = 13;
-    pads[3][0] = 14;
-    pads[3][1] = 15;
-    pads[3][2] = 16;
-    pads[3][3] = 17;
-    pads[3][4] = 6;
-    pads[3][5] = 18;
-    pads[4][0] = 0;
-    pads[4][1] = 1;
-    pads[4][2] = 2;
-    pads[4][3] = 3;
-    pads[4][4] = 4;
-    pads[4][5] = 5;
-    pads[4][6] = 7;
-    pads[5][0] = 8;
-    pads[5][1] = 9;
-    pads[5][2] = 10;
-    pads[6][0] = 11;
-    pads[6][1] = 12;
-    pads[6][2] = 13;
-    pads[7][0] = 14;
-    pads[7][1] = 15;
-    pads[7][2] = 16;
-    pads[7][3] = 17;
-    pads[7][4] = 6;
-    pads[7][5] = 18;
+    for (int block = 0; block < 2; ++block) {
+        const int base = block * 4;
+        for (int col = 0; col < 7; ++col)
+            pads[base + 0][col] = col; // strings 0–6
+        for (int col = 0; col < 4; ++col)
+            pads[base + 1][col] = 7 + col; // woodwind 7–10
+        for (int col = 0; col < 4; ++col)
+            pads[base + 2][col] = 11 + col; // brass 11–14
+        for (int col = 0; col < 5; ++col)
+            pads[base + 3][col] = 15 + col; // other 15–19
+    }
+
+    // Default: all pads off; user/model instrument sets start empty.
+    orchestrationTransformer.userInstruments.clear();
+    orchestrationTransformer.modelInstruments.clear();
 
     orchestrationTransformer.orchestrationModel = orchestrationModel.get();
-    outputPlayback.isReductionPaused = [this] { return activeReduction().paused.get(); };
+    outputPlayback.isReductionPaused = [this] {
+        return activeReduction().isGenerationStopped();
+    };
+    outputPlayback.getReductionOutputHistory = [this] {
+        return activeReduction().getOutputHistory();
+    };
 
     musicTransformer.clock = &clock;
-    denseMusicTransformer.clock = &clock;
+    reductionTransformerV1.clock = &clock;
+    reductionTransformerV2.clock = &clock;
+    musicTransformer.samplingAlert = &modelSamplingAlert;
+    reductionTransformerV1.samplingAlert = &modelSamplingAlert;
+    reductionTransformerV2.samplingAlert = &modelSamplingAlert;
+    if (orchestrationModel != nullptr) {
+        orchestrationModel->samplingAlert = &modelSamplingAlert;
+        orchestrationModel->getOutputTimings = &orchestrationTransformer.getOutputAccum;
+    }
 
     const auto syncLeds = [this] { syncPauseTopLeds(); };
     musicTransformer.onPausedChanged = syncLeds;
-    denseMusicTransformer.onPausedChanged = syncLeds;
+    reductionTransformerV1.onPausedChanged = syncLeds;
+    reductionTransformerV2.onPausedChanged = syncLeds;
 }
 
 AppSession::~AppSession() {
     testOrchestrationTransformerThread.stop();
-    musicTransformer.stopThread(-1);
-    denseMusicTransformer.stopThread(-1);
-    orchestrationTransformer.stopThread(-1);
-    outputPlayback.stopThread(-1);
+    // Ensure any detached stop join finished before members are destroyed.
+    while (stopJoinInFlight.load(std::memory_order_acquire))
+        juce::Thread::sleep(10);
+    musicTransformer.stopThread(threadStopTimeoutMs);
+    reductionTransformerV1.stopThread(threadStopTimeoutMs);
+    reductionTransformerV2.stopThread(threadStopTimeoutMs);
+    orchestrationTransformer.stopThread(threadStopTimeoutMs);
+    outputPlayback.stopThread(threadStopTimeoutMs);
     if (outputProcessor != nullptr)
         outputProcessor->clear();
 }
 
 auto AppSession::activeReduction() -> ReductionTransformer & {
-    return musicModelArch == MusicModelArch::Dense
-               ? static_cast<ReductionTransformer &>(denseMusicTransformer)
-               : static_cast<ReductionTransformer &>(musicTransformer);
+    switch (musicModelArch) {
+        case MusicModelArch::DenseV1:
+            return reductionTransformerV1;
+        case MusicModelArch::DenseV2:
+            return reductionTransformerV2;
+        case MusicModelArch::Amt:
+            return musicTransformer;
+    }
+    return musicTransformer;
 }
 
 auto AppSession::activeReduction() const -> const ReductionTransformer & {
-    return musicModelArch == MusicModelArch::Dense
-               ? static_cast<const ReductionTransformer &>(denseMusicTransformer)
-               : static_cast<const ReductionTransformer &>(musicTransformer);
+    switch (musicModelArch) {
+        case MusicModelArch::DenseV1:
+            return reductionTransformerV1;
+        case MusicModelArch::DenseV2:
+            return reductionTransformerV2;
+        case MusicModelArch::Amt:
+            return musicTransformer;
+    }
+    return musicTransformer;
 }
 
 auto AppSession::rebuildInputFilter() -> void {
@@ -123,23 +213,29 @@ auto AppSession::rebuildInputFilter() -> void {
                                     reduction.inputTokenQueue,
                                     reduction.inputConditioningQueue,
                                     reduction.updatesFromFilter);
+    inputFilter->orchestrationMidiOutgoing = &orchestrationTransformer.midiInputIncoming;
+    inputFilter->orchestrationConditioningOutgoing =
+        &orchestrationTransformer.conditioningIncoming;
 }
 
 auto AppSession::bindActiveMusicBackend() -> void {
-    musicTransformer.orchestrationMidiIncoming = nullptr;
-    musicTransformer.orchestrationConditioningIncoming = nullptr;
     musicTransformer.orchestrationReductionIncoming = nullptr;
     musicTransformer.orchestrationUpdatesIncoming = nullptr;
-    denseMusicTransformer.orchestrationMidiIncoming = nullptr;
-    denseMusicTransformer.orchestrationConditioningIncoming = nullptr;
-    denseMusicTransformer.orchestrationReductionIncoming = nullptr;
-    denseMusicTransformer.orchestrationUpdatesIncoming = nullptr;
+    reductionTransformerV1.orchestrationReductionIncoming = nullptr;
+    reductionTransformerV1.orchestrationUpdatesIncoming = nullptr;
+    reductionTransformerV2.orchestrationReductionIncoming = nullptr;
+    reductionTransformerV2.orchestrationUpdatesIncoming = nullptr;
 
     auto &reduction = activeReduction();
-    reduction.orchestrationMidiIncoming = &orchestrationTransformer.midiInputIncoming;
-    reduction.orchestrationConditioningIncoming = &orchestrationTransformer.conditioningIncoming;
     reduction.orchestrationReductionIncoming = &orchestrationTransformer.reductionIncoming;
     reduction.orchestrationUpdatesIncoming = &orchestrationTransformer.updatesIncoming;
+
+    musicTransformer.voiceSeparation = nullptr;
+    reductionTransformerV1.voiceSeparation = nullptr;
+    reductionTransformerV2.voiceSeparation = nullptr;
+    reduction.voiceSeparation = voiceSeparation.isLoaded() ? &voiceSeparation : nullptr;
+
+    outputPlayback.reductionOutputQueue = &reduction.outputTokenQueue;
 
     rebuildInputFilter();
 }
@@ -170,7 +266,8 @@ auto AppSession::getActiveInputData() const -> std::vector<int32_t> {
 
 auto AppSession::setOnInputDataChanged(std::function<void(std::vector<int32_t>)> callback) -> void {
     musicTransformer.onInputDataChanged = nullptr;
-    denseMusicTransformer.onInputDataChanged = nullptr;
+    reductionTransformerV1.onInputDataChanged = nullptr;
+    reductionTransformerV2.onInputDataChanged = nullptr;
     activeReduction().onInputDataChanged = std::move(callback);
 }
 
@@ -181,6 +278,8 @@ auto AppSession::setOrchestrationModel(const juce::String &name) -> bool {
 
     testOrchestrationTransformerThread.stop();
     orchestrationModel = std::move(model);
+    orchestrationModel->samplingAlert = &modelSamplingAlert;
+    orchestrationModel->getOutputTimings = &orchestrationTransformer.getOutputAccum;
     orchestrationTransformer.orchestrationModel = orchestrationModel.get();
     return true;
 }
@@ -194,6 +293,12 @@ auto AppSession::startGeneration() -> void {
         return;
     }
 
+    if (stopJoinInFlight.load(std::memory_order_acquire)) {
+        reportThreadProblem(modelSamplingAlert,
+                            "Previous stop is still joining workers; wait a moment and Start again");
+        return;
+    }
+
     if (modelConfig.inputMode == InputMode::Direct && modelConfig.directInputStartOnInput)
         getMusicDirectInputBlock() = true;
     else
@@ -203,10 +308,9 @@ auto AppSession::startGeneration() -> void {
     if (inputFilter != nullptr)
         inputFilter->reset();
 
-    activeReduction().startThread();
-
-    orchestrationTransformer.startThread();
-    outputPlayback.startThread();
+    startThreadOrReport(activeReduction(), modelSamplingAlert);
+    startThreadOrReport(orchestrationTransformer, modelSamplingAlert);
+    startThreadOrReport(outputPlayback, modelSamplingAlert);
     if (! mtcClockActive) {
         clock.startAtTime(0);
     } else {
@@ -219,26 +323,42 @@ auto AppSession::startGeneration() -> void {
 auto AppSession::stopGeneration() -> void {
     testOrchestrationTransformerThread.stop();
     musicTransformer.signalThreadShouldExit();
-    denseMusicTransformer.signalThreadShouldExit();
+    reductionTransformerV1.signalThreadShouldExit();
+    reductionTransformerV2.signalThreadShouldExit();
     orchestrationTransformer.signalThreadShouldExit();
     outputPlayback.signalThreadShouldExit();
-    musicTransformer.stopThread(-1);
-    denseMusicTransformer.stopThread(-1);
-    orchestrationTransformer.stopThread(-1);
-    outputPlayback.stopThread(-1);
+
+    // Unblock the UI immediately: clock/audio clear must not wait on ORT joins.
+    musicTransformer.resetAheadThrottle();
+    reductionTransformerV1.resetAheadThrottle();
+    reductionTransformerV2.resetAheadThrottle();
     clock.stop();
     outputPlayback.resetProgress();
     outputPlayback.clearNoteOnHistory();
     musicTransformer.clearOutputHistory();
-    denseMusicTransformer.clearOutputHistory();
+    reductionTransformerV1.clearOutputHistory();
+    reductionTransformerV2.clearOutputHistory();
     if (outputProcessor != nullptr)
         outputProcessor->clear();
+
+    if (stopJoinInFlight.exchange(true, std::memory_order_acq_rel))
+        return;
+
+    // Join workers off the message thread so Stop stays responsive while Dense/IC finish ORT.
+    std::thread([this] {
+        stopThreadOrReport(musicTransformer, modelSamplingAlert);
+        stopThreadOrReport(reductionTransformerV1, modelSamplingAlert);
+        stopThreadOrReport(reductionTransformerV2, modelSamplingAlert);
+        stopThreadOrReport(orchestrationTransformer, modelSamplingAlert);
+        stopThreadOrReport(outputPlayback, modelSamplingAlert);
+        stopJoinInFlight.store(false, std::memory_order_release);
+    }).detach();
 }
 
 auto AppSession::syncPauseTopLeds() -> void {
     auto &grid = midiInputProcess.getLaunchpadGrid();
-    grid.setTopLed(1, activeReduction().paused.get() ? LaunchpadLighting::kRed
-                                                     : LaunchpadLighting::kOff);
+    grid.setTopLed(1, activeReduction().generationPause.get() ? LaunchpadLighting::kRed
+                                                              : LaunchpadLighting::kOff);
     grid.setTopLed(2, orchestrationTransformer.paused.get() ? LaunchpadLighting::kRed
                                                             : LaunchpadLighting::kOff);
 }

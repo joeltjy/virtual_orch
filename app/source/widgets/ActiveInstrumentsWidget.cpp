@@ -7,7 +7,7 @@ ActiveInstrumentsWidget::ActiveInstrumentsWidget(AppSession &sessionIn)
     : WorkspaceWidget(UiConstants::workspaceActiveInstrumentsTitle,
                       UiConstants::workspaceWidgetTypeActiveInstruments),
       session(sessionIn) {
-    getContentComponent().addAndMakeVisible(table);
+    getContentComponent().addAndMakeVisible(grid);
     refreshFromSession();
     startTimer(UiConstants::pianoRollTimerIntervalMs);
 }
@@ -18,7 +18,7 @@ ActiveInstrumentsWidget::~ActiveInstrumentsWidget() {
 
 auto ActiveInstrumentsWidget::resized() -> void {
     WorkspaceWidget::resized();
-    table.setBounds(getContentComponent().getLocalBounds());
+    grid.setBounds(getContentComponent().getLocalBounds());
 }
 
 auto ActiveInstrumentsWidget::timerCallback() -> void {
@@ -26,6 +26,5 @@ auto ActiveInstrumentsWidget::timerCallback() -> void {
 }
 
 auto ActiveInstrumentsWidget::refreshFromSession() -> void {
-    const auto snap = session.orchestrationTransformer.getDebugSnapshot();
-    table.setInstruments(snap.userInstruments, snap.modelInstruments);
+    grid.setFromLaunchpad(session.midiInputProcess.getLaunchpadGrid());
 }

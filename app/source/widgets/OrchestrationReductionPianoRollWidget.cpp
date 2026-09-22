@@ -13,6 +13,6 @@ OrchestrationReductionPianoRollWidget::OrchestrationReductionPianoRollWidget(App
 
 auto OrchestrationReductionPianoRollWidget::refreshFromSession() -> void {
     setPitchRange(session.modelConfig.inputLow, session.modelConfig.inputHigh);
-    const auto snap = session.orchestrationTransformer.getDebugSnapshot();
+    const auto snap = session.orchestrationTransformer.getDebugSnapshotSince(windowCutoffCs());
     presentTokens(snap.reductionHistory, snap.reductionPending);
 }

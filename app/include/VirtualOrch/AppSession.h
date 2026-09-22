@@ -2,22 +2,26 @@
 
 #include <JuceHeader.h>
 
+#include <atomic>
 #include <memory>
 
 #include "VirtualOrch/Clock.h"
-#include "VirtualOrch/DenseMusicTransformer.h"
 #include "VirtualOrch/InputFilter.h"
 #include "VirtualOrch/MidiInputProcess.h"
+#include "VirtualOrch/ModelSamplingAlert.h"
 #include "VirtualOrch/MusicTransformer.h"
 #include "VirtualOrch/OSCBufferOutputProcessor.h"
 #include "VirtualOrch/OrchestrationTransformer.h"
 #include "VirtualOrch/OutputPlayback.h"
 #include "VirtualOrch/OutputProcessor.h"
 #include "VirtualOrch/PresetStore.h"
-#include "VirtualOrch/ReductionTransformer.h"
+#include "VirtualOrch/reduction/ReductionTransformer.h"
+#include "VirtualOrch/reduction/ReductionTransformerV1.h"
+#include "VirtualOrch/reduction/ReductionTransformerV2.h"
 #include "VirtualOrch/orchestration-models/OrchestrationModel.h"
 #include "VirtualOrch/TestOrchestrationTransformerThread.h"
 #include "VirtualOrch/ui/ModelConfigurationComponent.h"
+#include "VirtualOrch/vocsep/VoiceSeparation.h"
 
 /**
  * Shared runtime owned by AppRootComponent and used by Settings + Workspace.
@@ -44,13 +48,17 @@ public:
     juce::String selectedMtcClockIdentifier;
     bool mtcClockActive = false;
 
-    MusicModelArch musicModelArch = MusicModelArch::Amt;
+    MusicModelArch musicModelArch = MusicModelArch::DenseV1;
+    ModelSamplingAlert modelSamplingAlert;
     MusicTransformer musicTransformer;
-    DenseMusicTransformer denseMusicTransformer;
+    ReductionTransformerV1 reductionTransformerV1;
+    ReductionTransformerV2 reductionTransformerV2;
     OrchestrationTransformer orchestrationTransformer;
+    VoiceSeparation voiceSeparation;
     std::unique_ptr<OrchestrationModel> orchestrationModel;
     TestOrchestrationTransformerThread testOrchestrationTransformerThread;
     std::unique_ptr<InputFilter> inputFilter;
+    std::atomic<PlaybackSource> playbackSource{PlaybackSource::Orchestration};
     OutputPlayback outputPlayback;
     MidiInputProcess midiInputProcess;
 
@@ -83,6 +91,14 @@ public:
 
     /** Update Launchpad CC105/106 LEDs from current pause flags. */
     auto syncPauseTopLeds() -> void;
+
+    [[nodiscard]] auto getPlaybackSource() const -> PlaybackSource {
+        return playbackSource.load(std::memory_order_relaxed);
+    }
+
+    auto setPlaybackSource(PlaybackSource source) -> void {
+        playbackSource.store(source, std::memory_order_relaxed);
+    }
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AppSession)
 };

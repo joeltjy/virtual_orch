@@ -1,6 +1,7 @@
 #include "VirtualOrch/widgets/ConditioningPianoRollWidget.h"
 
 #include "VirtualOrch/AppSession.h"
+#include "VirtualOrch/NoteWindow.h"
 #include "VirtualOrch/ui/UiConstants.h"
 
 ConditioningPianoRollWidget::ConditioningPianoRollWidget(AppSession &sessionIn)
@@ -18,7 +19,8 @@ auto ConditioningPianoRollWidget::refreshFromSession() -> void {
         setPitchRange(session.modelConfig.inputLow, session.modelConfig.inputHigh);
 
     if (session.inputFilter != nullptr)
-        presentTokens(session.inputFilter->getPastConditioning());
+        presentTokens(NoteWindow::filteredTokens(session.inputFilter->getPastConditioning(),
+                                                 windowCutoffCs()));
     else
         presentTokens({});
 }

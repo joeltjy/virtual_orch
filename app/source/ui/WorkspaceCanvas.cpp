@@ -8,6 +8,9 @@
 #include "VirtualOrch/widgets/ActiveInstrumentsWidget.h"
 #include "VirtualOrch/widgets/ConditioningPianoRollWidget.h"
 #include "VirtualOrch/widgets/GenerationWidget.h"
+#include "VirtualOrch/widgets/InstrumentLogitsWidget.h"
+#include "VirtualOrch/widgets/ReductionTemperatureWidget.h"
+#include "VirtualOrch/widgets/ReductionTauWidget.h"
 #include "VirtualOrch/widgets/ModeWidget.h"
 #include "VirtualOrch/widgets/OrchestrationConditioningPianoRollWidget.h"
 #include "VirtualOrch/widgets/OrchestrationMidiPianoRollWidget.h"
@@ -16,8 +19,10 @@
 #include "VirtualOrch/widgets/PlaybackOutputWidget.h"
 #include "VirtualOrch/widgets/PromptWidget.h"
 #include "VirtualOrch/widgets/ReductionTransformerOutputWidget.h"
+#include "VirtualOrch/widgets/ReductionModelInputWidget.h"
 #include "VirtualOrch/widgets/TokenInputPianoRollWidget.h"
 #include "VirtualOrch/widgets/TransportWidget.h"
+#include "VirtualOrch/widgets/VocsepOutputWidget.h"
 
 #include <algorithm>
 
@@ -204,10 +209,40 @@ auto WorkspaceCanvas::createWidgetForType(const juce::String &type) const
         return std::make_unique<ReductionTransformerOutputWidget>(*session);
     }
 
+    if (type == UiConstants::workspaceWidgetTypeReductionModelInput) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<ReductionModelInputWidget>(*session);
+    }
+
+    if (type == UiConstants::workspaceWidgetTypeVocsepOutput) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<VocsepOutputWidget>(*session);
+    }
+
     if (type == UiConstants::workspaceWidgetTypeMode) {
         if (session == nullptr)
             return nullptr;
         return std::make_unique<ModeWidget>(*session);
+    }
+
+    if (type == UiConstants::workspaceWidgetTypeInstrumentLogits) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<InstrumentLogitsWidget>(*session);
+    }
+
+    if (type == UiConstants::workspaceWidgetTypeReductionTemperature) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<ReductionTemperatureWidget>(*session);
+    }
+
+    if (type == UiConstants::workspaceWidgetTypeReductionTau) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<ReductionTauWidget>(*session);
     }
 
     // Legacy views may still contain stubs.
@@ -343,8 +378,22 @@ auto WorkspaceCanvas::addReductionTransformerOutputWidget() -> void {
     addWidget(std::move(widget), nextCascadedBounds());
 }
 
+auto WorkspaceCanvas::addReductionModelInputWidget() -> void {
+    auto widget = createWidgetForType(UiConstants::workspaceWidgetTypeReductionModelInput);
+    if (widget == nullptr)
+        return;
+    addWidget(std::move(widget), nextCascadedBounds());
+}
+
 auto WorkspaceCanvas::addModeWidget() -> void {
     auto widget = createWidgetForType(UiConstants::workspaceWidgetTypeMode);
+    if (widget == nullptr)
+        return;
+    addWidget(std::move(widget), nextCascadedBounds());
+}
+
+auto WorkspaceCanvas::addInstrumentLogitsWidget() -> void {
+    auto widget = createWidgetForType(UiConstants::workspaceWidgetTypeInstrumentLogits);
     if (widget == nullptr)
         return;
     addWidget(std::move(widget), nextCascadedBounds());
@@ -395,10 +444,13 @@ auto WorkspaceCanvas::rebindInputDataCallback() -> void {
         if (safeThis == nullptr)
             return;
 
+        const size_t stride = isDenseMusicArch(safeThis->session->musicModelArch)
+                                  ? size_t{4}
+                                  : size_t{3};
         for (auto &widget : safeThis->widgets) {
             if (widget != nullptr
                 && widget->getWidgetType() == UiConstants::workspaceWidgetTypePrompt) {
-                static_cast<PromptWidget *>(widget.get())->setInputData(data);
+                static_cast<PromptWidget *>(widget.get())->setInputData(data, stride);
             }
         }
     });
@@ -409,9 +461,11 @@ auto WorkspaceCanvas::refreshPromptWidgetsFromSession() -> void {
         return;
 
     const auto data = session->getActiveInputData();
+    const size_t stride =
+        isDenseMusicArch(session->musicModelArch) ? size_t{4} : size_t{3};
     for (auto &widget : widgets) {
         if (widget != nullptr && widget->getWidgetType() == UiConstants::workspaceWidgetTypePrompt)
-            static_cast<PromptWidget *>(widget.get())->setInputData(data);
+            static_cast<PromptWidget *>(widget.get())->setInputData(data, stride);
     }
 }
 

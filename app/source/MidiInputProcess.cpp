@@ -260,7 +260,7 @@ void MidiInputProcess::timerCallback() {
         tokensToSend.push_back({
             .time = stamp,
             .duration = defaultDur,
-            .note = static_cast<int32_t>(Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument
+            .note = static_cast<int32_t>(Vocab::NoteOffset + Config::MaxPitch * InstrumentConstants::kReductionInputLocalInstrumentId
                                          + pitch),
             .velocity = note.velocity
         });
@@ -351,8 +351,17 @@ void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const 
     }
 
     if (inputThruEnabled && source->getIdentifier() == selectedMidiInputIdentifier
-        && outputProcessor != nullptr) {
+        && outputProcessor != nullptr
+        && (! allowInputThru || allowInputThru())) {
         outputProcessor->relayMidi(message);
+    }
+
+    // Sustain pedal (CC64): down → RT generationPause, up → resume.
+    if (message.isController()
+        && source != nullptr
+        && source->getIdentifier() == selectedMidiInputIdentifier
+        && message.getControllerNumber() == 64) {
+        activeReduction().setGenerationPause(message.getControllerValue() >= 64);
     }
 
     if (mtcClockActive && source->getIdentifier() == selectedMtcClockIdentifier && message.isQuarterFrame()) {
@@ -403,15 +412,15 @@ void MidiInputProcess::handleNoteOn(int midiNoteNumber, float velocity) {
     uint32_t time = clock.getTime();
     Token inputToken = {
         static_cast<int32_t>(time), static_cast<int32_t>(Vocab::DurOffset + modelConfig.inputDuration),
-        static_cast<int32_t>(Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument + midiNoteNumber),
+        static_cast<int32_t>(Vocab::NoteOffset + Config::MaxPitch * InstrumentConstants::kReductionInputLocalInstrumentId + midiNoteNumber),
         midiVelocity > 0 ? midiVelocity : 100
     };
 
     if (modelConfig.inputMode == InputMode::Direct) {
         if (modelConfig.directInputHoldBass &&
-            (inputToken.note >= Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument +
+            (inputToken.note >= Vocab::NoteOffset + Config::MaxPitch * InstrumentConstants::kReductionInputLocalInstrumentId +
              modelConfig.directInputBassLow
-             && inputToken.note < Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument +
+             && inputToken.note < Vocab::NoteOffset + Config::MaxPitch * InstrumentConstants::kReductionInputLocalInstrumentId +
              modelConfig.directInputBassHigh)) {
             bassHeld = inputToken.note;
             DBG("Setting bass to " + std::to_string(bassHeld.value()));
@@ -427,15 +436,15 @@ void MidiInputProcess::handleNoteOn(int midiNoteNumber, float velocity) {
             std::cout << "timer not started" << std::endl;
         }
     } else if (modelConfig.inputMode == InputMode::Buffer) {
-        if (inputToken.note >= Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument +
+        if (inputToken.note >= Vocab::NoteOffset + Config::MaxPitch * InstrumentConstants::kReductionInputLocalInstrumentId +
             modelConfig.bufferInputBassLow
-            && inputToken.note < Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument +
+            && inputToken.note < Vocab::NoteOffset + Config::MaxPitch * InstrumentConstants::kReductionInputLocalInstrumentId +
             modelConfig.bufferInputBassHigh) {
             tokensToSend.push_front(inputToken);
             sendTokensToMusicTransformer(std::nullopt);
-        } else if (inputToken.note >= Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument +
+        } else if (inputToken.note >= Vocab::NoteOffset + Config::MaxPitch * InstrumentConstants::kReductionInputLocalInstrumentId +
                    modelConfig.bufferInputLow
-                   && inputToken.note < Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument +
+                   && inputToken.note < Vocab::NoteOffset + Config::MaxPitch * InstrumentConstants::kReductionInputLocalInstrumentId +
                    modelConfig.bufferInputHigh) {
             tokensToSend.push_back(inputToken);
         }
@@ -469,7 +478,7 @@ void MidiInputProcess::handleNoteOff(int midiNoteNumber) {
     if (modelConfig.directInputSendNoteOffs && inputFilter != nullptr) {
         const auto onset = it->second.onset;
         const int32_t noteId = static_cast<int32_t>(
-            Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument + midiNoteNumber);
+            Vocab::NoteOffset + Config::MaxPitch * InstrumentConstants::kReductionInputLocalInstrumentId + midiNoteNumber);
         const int32_t heldDur = std::max<int32_t>(1, static_cast<int32_t>(time - onset));
         const int32_t defaultDur = static_cast<int32_t>(Vocab::DurOffset + modelConfig.inputDuration);
         const int32_t correctDur = static_cast<int32_t>(Vocab::DurOffset + heldDur);

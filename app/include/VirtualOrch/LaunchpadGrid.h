@@ -24,8 +24,8 @@
  *  LEDs: mapped 8x8 pads follow effective state (row colours); unmapped pads stay off.
  *  Side: muted=red, unmuted=off.
  *  Top-row CCs use `scene_callback(idx)` with idx = cc - 104 (0..7).
- *  App wiring: 0 (CC104) Edit/Jam toggle, 1 (CC105) Reduction pause,
- *  2 (CC106) Orchestration pause; 3..7 unused.
+ *  App wiring: 0 (CC104) Edit/Jam toggle, 1 (CC105) RT pause,
+ *  2 (CC106) OT pause; 3..7 unused.
  *  Pause buttons light red via setTopLed while paused.
  */
 class LaunchpadGrid {
@@ -53,6 +53,12 @@ public:
     std::array<std::array<std::optional<int32_t>, kCols>, kRows> padInstruments{};
 
     CircularFifo<InstrumentUpdate> *instrumentUpdates = nullptr;
+
+    /**
+     * Invoked synchronously from emitPadUpdate (MIDI thread) so OT allowed sets update
+     * without waiting for the next orchestration loop / ONNX return.
+     */
+    std::function<void(const InstrumentUpdate &)> onInstrumentUpdate;
 
     [[nodiscard]] auto getGridState(int rowIdx, int colIdx) const -> bool {
         if (! isGridPad(rowIdx, colIdx))
@@ -113,6 +119,12 @@ public:
         refreshTopLed(idx);
     }
 
+    [[nodiscard]] auto getTopLedColour(int idx) const -> uint8_t {
+        if (idx < 0 || idx >= kTopCcCount)
+            return LaunchpadLighting::kOff;
+        return topLedColours[static_cast<size_t>(idx)];
+    }
+
     auto refreshAllLeds() -> void {
         for (int row = 0; row < kRows; ++row) {
             refreshSideLed(row);
@@ -121,6 +133,22 @@ public:
         }
         for (int idx = 0; idx < kTopCcCount; ++idx)
             refreshTopLed(idx);
+    }
+
+    /** Set pad on/off (not a toggle). Emits InstrumentUpdate and refreshes LED. */
+    auto setPadOn(int rowIdx, int colIdx, bool on) -> void {
+        if (! isGridPad(rowIdx, colIdx))
+            return;
+
+        auto &state = gridState[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
+        if (state == on)
+            return;
+        state = on;
+
+        emitPadUpdate(rowIdx, colIdx);
+        refreshPadLed(rowIdx, colIdx);
+        if (grid_callback)
+            grid_callback(rowIdx, colIdx, on);
     }
 
     /** MIDI press/release. Only presses toggle/emit. Optional nowMs for tests. */
@@ -194,7 +222,7 @@ private:
     }
 
     auto emitPadUpdate(int rowIdx, int colIdx) -> void {
-        if (instrumentUpdates == nullptr || ! isGridPad(rowIdx, colIdx))
+        if (! isGridPad(rowIdx, colIdx))
             return;
 
         const auto &instrument = padInstruments[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
@@ -205,7 +233,10 @@ private:
         update.localInstrumentId = *instrument;
         update.target = targetForRow(rowIdx);
         update.state = getEffectiveState(rowIdx, colIdx);
-        instrumentUpdates->push(update);
+        if (instrumentUpdates != nullptr)
+            instrumentUpdates->push(update);
+        if (onInstrumentUpdate)
+            onInstrumentUpdate(update);
     }
 
     std::array<std::array<bool, kCols>, kRows> gridState{};

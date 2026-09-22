@@ -41,6 +41,9 @@ protected:
 
     auto setNoteColours(juce::Colour history, juce::Colour pending) -> void;
 
+    /** Earliest time still drawable on this roll; histories are trimmed to it before copying. */
+    [[nodiscard]] auto windowCutoffCs() const -> int32_t;
+
     AppSession &session;
     NoteIoTableView table;
     PianoRollView pianoRoll;

@@ -1,5 +1,6 @@
 {
   "arch": "dense",
+  "contextNotes": 160,
   "outputInstruments": [0, 1, 2, 3, 4],
   "defaultPreset": {}
 }

@@ -7,9 +7,9 @@
 #include "VirtualOrch/MusicTransformer.h"
 
 /**
- * Routes incoming tokens into MusicTransformer's token / conditioning queues.
+ * Routes incoming tokens into the reduction queues and optionally OT fifos.
  * Owns history copies for UI and future history-aware filters.
- * This comes BEFORE the transformer thread: tokensToSend -> inputFilter -> transformer thread.
+ * MIDI/message-thread path: tokensToSend -> inputFilter -> reduction (+ OT).
  */
 class InputFilter {
 public:
@@ -34,6 +34,12 @@ public:
     }
 
     CircularFifo<TokenUpdate> updatesFromMain;
+
+    /** Optional: live keyboard tokens for OT (retagged as piano). */
+    CircularFifo<Token> *orchestrationMidiOutgoing = nullptr;
+
+    /** Optional: conditioning tokens for OT. */
+    CircularFifo<Token> *orchestrationConditioningOutgoing = nullptr;
 
 protected:
     void pushToken(const Token &token);

@@ -1,5 +1,7 @@
 #include "VirtualOrch/InputFilter.h"
 
+#include "VirtualOrch/InstrumentConstants.h"
+
 InputFilter::InputFilter(CircularFifo<Token> &inputTokenQueueIn,
                          CircularFifo<Token> &inputConditioningQueueIn,
                          CircularFifo<TokenUpdate> &updatesFromFilterIn)
@@ -33,11 +35,16 @@ auto InputFilter::processUpdates() -> int {
 void InputFilter::pushToken(const Token &token) {
     inputTokenQueue.push(token);
     pastInput.push_back(token);
+    if (orchestrationMidiOutgoing != nullptr)
+        orchestrationMidiOutgoing->push(
+            token.withInstrument(InstrumentConstants::kKeyboardLocalInstrumentId));
 }
 
 void InputFilter::pushConditioning(const Token &token) {
     inputConditioningQueue.push(token);
     pastConditioning.push_back(token);
+    if (orchestrationConditioningOutgoing != nullptr)
+        orchestrationConditioningOutgoing->push(token);
 }
 
 void PassthroughInputFilter::filter(const Token &current) {

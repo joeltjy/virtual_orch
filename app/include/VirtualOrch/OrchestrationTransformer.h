@@ -3,13 +3,17 @@
 #include <JuceHeader.h>
 
 #include <array>
+#include <atomic>
 #include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "Fifo.h"
+#include "VirtualOrch/InstrumentLogitSnapshot.h"
 #include "VirtualOrch/MusicTransformer.h"
+#include "VirtualOrch/OrchestrationBalanceTracker.h"
+#include "VirtualOrch/OrchLoopProfile.h"
 #include "VirtualOrch/orchestration-models/OrchestrationModel.h"
 
 enum class OrchestrationMode : uint8_t {
@@ -76,6 +80,22 @@ public:
     std::set<int32_t> userInstruments;
     std::set<int32_t> modelInstruments;
 
+    /**
+     * Apply one Launchpad pad/side update immediately (MIDI thread safe).
+     * Prefer this over waiting for the OT loop — ONNX can block applyInstrumentUpdates
+     * for hundreds of ms.
+     */
+    auto applyOneInstrumentUpdate(const InstrumentUpdate &update) -> void;
+
+    /** Drain instrumentUpdates FIFO into applyOneInstrumentUpdate. */
+    auto applyInstrumentUpdates() -> void;
+
+    /** Replace both sets under lock (generation-start resync from Launchpad). */
+    auto replaceInstrumentSets(std::set<int32_t> user, std::set<int32_t> model) -> void;
+
+    /** Optional: rebuild user/model sets from Launchpad effective pads at thread start. */
+    std::function<void()> rebuildInstrumentsFromPads;
+
     [[nodiscard]] auto getMode() const -> OrchestrationMode {
         return static_cast<OrchestrationMode>(modeStorage.get());
     }
@@ -86,6 +106,29 @@ public:
 
     /** Soft pause (manual / Launchpad): drain/history/ClearQueue continue; skip getOutput. */
     juce::Atomic<bool> paused{false};
+
+    /**
+     * When true, IC family-combo logits get the proportion diversity bias
+     * (settings toggle; default on).
+     */
+    juce::Atomic<bool> proportionBiasEnabled{true};
+
+    OrchestrationBalanceTracker userBalance;
+    OrchestrationBalanceTracker modelBalance;
+
+    /** Latest post-bias singleton logits (model stream preferred in Edit). */
+    [[nodiscard]] auto getInstrumentLogitSnapshot() const -> InstrumentLogitSnapshot;
+
+    /** Most recent threadRun iteration duration in milliseconds. */
+    [[nodiscard]] auto getLastThreadLoopMs() const -> float {
+        return lastThreadLoopMs.load(std::memory_order_relaxed);
+    }
+
+    /** Last busy OT iteration + running max (Mode widget). */
+    [[nodiscard]] auto getLastOrchProfile() const -> OrchLoopProfile;
+
+    /** Written by OrchestrationModel::getOutput during the current OT iteration. */
+    OrchLoopStepMs getOutputAccum;
 
     OrchestrationModel *orchestrationModel = nullptr;
 
@@ -109,8 +152,6 @@ public:
     /** Move ClearQueue tokens out of `tokens` into returned list (order preserved). */
     static auto extractClearQueueTokens(std::vector<Token> &tokens) -> std::vector<Token>;
 
-    auto applyInstrumentUpdates() -> void;
-
     /** Drain updatesIncoming; patch midiInputHistory and conditioningHistory. */
     auto applyTokenUpdates() -> void;
 
@@ -118,8 +159,18 @@ public:
 
     [[nodiscard]] auto getDebugSnapshot() const -> OrchestrationDebugSnapshot;
 
+    /** Snapshot with every history trimmed to what reaches cutoffCs (UI refresh path). */
+    [[nodiscard]] auto getDebugSnapshotSince(int32_t cutoffCs) const -> OrchestrationDebugSnapshot;
+
 private:
     juce::Atomic<int> modeStorage{static_cast<int>(OrchestrationMode::Edit)};
+    std::atomic<float> lastThreadLoopMs{0.0f};
+
+    mutable juce::CriticalSection orchProfileLock;
+    OrchLoopProfile orchProfile;
+
+    auto resetOrchProfile() -> void;
+    auto publishBusyOrchProfile(OrchLoopStepMs step) -> void;
 
     std::vector<Token> midiInputHistory;
     std::vector<Token> conditioningHistory;
@@ -129,7 +180,17 @@ private:
     mutable juce::CriticalSection debugSnapshotLock;
     OrchestrationDebugSnapshot debugSnapshot;
 
+    mutable juce::CriticalSection instrumentLogitLock;
+    InstrumentLogitSnapshot instrumentLogitSnapshot;
+
     auto clearDebugSnapshot() -> void;
+
+    auto publishInstrumentLogits(InstrumentLogitSnapshot snapshot) -> void;
+
+    mutable juce::CriticalSection instrumentsLock;
+
+    [[nodiscard]] auto copyInstrumentLists() const
+        -> std::pair<std::vector<int32_t>, std::vector<int32_t>>;
 
     auto getConditioningSignal(const std::vector<Token> &midiInput,
                                const std::vector<Token> &conditioning) -> ConditioningSignal;

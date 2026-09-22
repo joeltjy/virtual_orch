@@ -19,6 +19,12 @@ auto Clock::startAtTime(uint32_t newTime) -> void {
     isOn.set(true);
 }
 
+auto Clock::startFreeRunning() -> void {
+    /* Blocks until any in-flight watchdog callback finishes, so it cannot stop us after. */
+    stopTimer();
+    startAtTime(getTime());
+}
+
 auto Clock::stop() -> void {
     savedLastTime.set(getTime());
     isOn.set(false);

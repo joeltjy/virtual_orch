@@ -13,6 +13,6 @@ OrchestrationMidiPianoRollWidget::OrchestrationMidiPianoRollWidget(AppSession &s
 
 auto OrchestrationMidiPianoRollWidget::refreshFromSession() -> void {
     setPitchRange(session.modelConfig.inputLow, session.modelConfig.inputHigh);
-    const auto snap = session.orchestrationTransformer.getDebugSnapshot();
+    const auto snap = session.orchestrationTransformer.getDebugSnapshotSince(windowCutoffCs());
     presentTokens(snap.midiHistory, snap.midiPending);
 }

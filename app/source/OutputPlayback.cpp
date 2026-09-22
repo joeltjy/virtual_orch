@@ -1,5 +1,8 @@
 #include "VirtualOrch/OutputPlayback.h"
 
+#include "VirtualOrch/InstrumentConstants.h"
+#include "VirtualOrch/NoteWindow.h"
+
 #include <set>
 
 namespace {
@@ -22,19 +25,58 @@ auto orchestrationNoteEndLess(const OrchestrationNote &a, const OrchestrationNot
     return orchestrationNoteOnsetLess(a, b);
 }
 
+[[nodiscard]] auto isClearQueueToken(const Token &token) -> bool {
+    return token.note == static_cast<int32_t>(Vocab::ClearQueue);
+}
+
+[[nodiscard]] auto isRestToken(const Token &token) -> bool {
+    return token.note == static_cast<int32_t>(Vocab::Rest);
+}
+
+[[nodiscard]] auto isSoundingNoteToken(const Token &token) -> bool {
+    return token.note != static_cast<int32_t>(Vocab::BarSeparator)
+           && token.note >= static_cast<int32_t>(Vocab::NoteOffset)
+           && token.note < static_cast<int32_t>(Vocab::Rest)
+           && ! isRestToken(token);
+}
+
+[[nodiscard]] auto reductionMonitorNote(const Token &token) -> OrchestrationNote {
+    auto scheduled = token;
+    // Avoid instant note-on/note-off in the same tick (inaudible in many hosts).
+    if (scheduled.getRealDuration() <= 0)
+        scheduled.duration = static_cast<int32_t>(Vocab::DurOffset + 1);
+    return OrchestrationNote{
+        .token = scheduled,
+        .velocity = token.velocity > 0 ? token.velocity : 100,
+        .localInstrumentId = InstrumentConstants::kReductionPlaybackLocalId,
+    };
+}
+
+auto applyClearQueue(std::multiset<OrchestrationNote, decltype(&orchestrationNoteOnsetLess)> &nextTokens,
+                     int32_t clearTime) -> void {
+    for (auto it = nextTokens.begin(); it != nextTokens.end();) {
+        if (it->token.time >= clearTime)
+            it = nextTokens.erase(it);
+        else
+            ++it;
+    }
+}
+
 } // namespace
 
 OutputPlayback::OutputPlayback(Clock &clock,
                                OrchestrationTransformer &orchestrationTransformer,
                                std::unique_ptr<OutputProcessor> &outputProcessor,
                                std::unique_ptr<OSCBufferOutputProcessor> &bufferOutputProcessor,
-                               int32_t &visualizationBufferSize)
+                               int32_t &visualizationBufferSize,
+                               std::atomic<PlaybackSource> &playbackSourceIn)
     : Thread("Output Playback"),
       clock(clock),
       orchestrationTransformer(orchestrationTransformer),
       outputProcessor(outputProcessor),
       bufferOutputProcessor(bufferOutputProcessor),
-      visualizationBufferSize(visualizationBufferSize) {
+      visualizationBufferSize(visualizationBufferSize),
+      playbackSource(playbackSourceIn) {
 }
 
 void OutputPlayback::handleNoteForOutput(const OrchestrationNote &note, TokenNoteType tokenEventType) {
@@ -66,17 +108,43 @@ void OutputPlayback::handleNoteForOutput(const OrchestrationNote &note, TokenNot
 auto OutputPlayback::recordNoteOn(const OrchestrationNote &note, int32_t channel) -> void {
     PlaybackNoteOnRecord record;
     record.time = clock.getTime();
+    record.onsetCs = note.token.time;
+    record.durationCs = note.token.getRealDuration();
     record.pitch = note.token.getPitch();
     record.velocity = note.velocity > 0 ? note.velocity : 100;
     record.localInstrumentId = note.localInstrumentId;
     record.channel = channel;
     const juce::ScopedLock lock(noteOnHistoryLock);
     noteOnHistory.push_back(record);
+    NoteWindow::trimToLastNotes(noteOnHistory);
+}
+
+auto OutputPlayback::updateNoteOnHistoryDuration(const Token &oldNote, const Token &newNote) -> void {
+    if (oldNote.note < static_cast<int32_t>(Vocab::NoteOffset)
+        || oldNote.note >= static_cast<int32_t>(Vocab::Rest))
+        return;
+
+    const auto oldDur = oldNote.getRealDuration();
+    const auto newDur = newNote.getRealDuration();
+    const auto pitch = oldNote.getPitch();
+    const juce::ScopedLock lock(noteOnHistoryLock);
+    for (auto &record: noteOnHistory) {
+        if (record.onsetCs == oldNote.time && record.pitch == pitch && record.durationCs == oldDur)
+            record.durationCs = newDur;
+    }
 }
 
 auto OutputPlayback::getNoteOnHistory() const -> std::vector<PlaybackNoteOnRecord> {
     const juce::ScopedLock lock(noteOnHistoryLock);
     return noteOnHistory;
+}
+
+auto OutputPlayback::getNoteOnHistorySince(int32_t cutoffCs) const
+    -> std::vector<PlaybackNoteOnRecord> {
+    const juce::ScopedLock lock(noteOnHistoryLock);
+    return NoteWindow::filtered(noteOnHistory, cutoffCs, [](const PlaybackNoteOnRecord &record) {
+        return std::pair<int32_t, int32_t>{record.onsetCs, record.durationCs};
+    });
 }
 
 auto OutputPlayback::clearNoteOnHistory() -> void {
@@ -93,9 +161,63 @@ void OutputPlayback::run() {
     std::multiset<OrchestrationNote, decltype(&orchestrationNoteEndLess)> currentlyPlaying(
         orchestrationNoteEndLess);
 
-    while (!threadShouldExit()) {
+    // Unmatched duration updates retry until the note appears or its default end has passed.
+    std::vector<TokenUpdate> pendingDurationUpdates;
+    int32_t playbackTime = 0;
+    auto lastSource = playbackSource.load(std::memory_order_relaxed);
+
+    auto flushModelSchedule = [&]() {
+        for (const auto &playing: currentlyPlaying)
+            handleNoteForOutput(playing, TokenNoteType::TokenNoteOff);
+        currentlyPlaying.clear();
+        nextTokens.clear();
+        pendingDurationUpdates.clear();
+    };
+
+    auto scheduleNote = [&](const OrchestrationNote &note) {
+        if (outputProcessor != nullptr)
+            outputProcessor->ensureInstrument(note.localInstrumentId);
+        nextTokens.insert(note);
+    };
+
+    auto applyOneDurationUpdate = [&](const TokenUpdate &durationUpdate) -> int {
+        int matched = 0;
+        for (auto it = nextTokens.begin(); it != nextTokens.end();) {
+            if (! tokenEqualsByOnsetPitch(it->token, durationUpdate.oldNote)) {
+                ++it;
+                continue;
+            }
+            ++matched;
+            OrchestrationNote revised = *it;
+            revised.token.duration = durationUpdate.newNote.duration;
+            revised.token.velocity = durationUpdate.newNote.velocity;
+            it = nextTokens.erase(it);
+            nextTokens.insert(revised);
+        }
+
+        for (auto it = currentlyPlaying.begin(); it != currentlyPlaying.end();) {
+            if (! tokenEqualsByOnsetPitch(it->token, durationUpdate.oldNote)) {
+                ++it;
+                continue;
+            }
+            ++matched;
+            OrchestrationNote revised = *it;
+            revised.token.duration = durationUpdate.newNote.duration;
+            revised.token.velocity = durationUpdate.newNote.velocity;
+            it = currentlyPlaying.erase(it);
+
+            if (revised.token.time + revised.token.getRealDuration() <= playbackTime)
+                handleNoteForOutput(revised, TokenNoteType::TokenNoteOff);
+            else
+                currentlyPlaying.insert(revised);
+        }
+        return matched;
+    };
+
+    while (! threadShouldExit()) {
         bool clearedQueueThisRun = false;
-        auto time = clock.getTime();
+        playbackTime = clock.getTime();
+        const auto time = playbackTime;
         const bool reductionPaused = isReductionPaused && isReductionPaused();
         if (orchestrationTransformer.paused.get() || reductionPaused) {
             progress = 0.0;
@@ -105,53 +227,79 @@ void OutputPlayback::run() {
                        / 1000.0;
         }
 
+        const auto source = playbackSource.load(std::memory_order_relaxed);
+        if (source != lastSource) {
+            flushModelSchedule();
+            lastSource = source;
+            // While Out: OT is selected, RT FIFO tokens are drained and discarded. Seed from
+            // outputHistory so Out: RT is not silent until the ahead-throttle window ends.
+            if (source == PlaybackSource::Reduction && getReductionOutputHistory) {
+                for (const auto &histToken: getReductionOutputHistory()) {
+                    if (! isSoundingNoteToken(histToken))
+                        continue;
+                    if (histToken.time + histToken.getRealDuration() <= time)
+                        continue;
+                    scheduleNote(reductionMonitorNote(histToken));
+                }
+            }
+        }
+
+        // Always drain OT output (schedule only when Orchestration is selected).
         OrchestrationNote note{};
         while (orchestrationTransformer.outputTokenQueue.pull(note)) {
-            if (note.token.note == Vocab::Rest) {
+            if (source != PlaybackSource::Orchestration)
                 continue;
-            }
-
-            if (note.token.note == Vocab::ClearQueue) {
+            if (isRestToken(note.token))
+                continue;
+            if (isClearQueueToken(note.token)) {
                 clearedQueueThisRun = true;
-                DBG("Clearing queue!");
-                while (!nextTokens.empty() && nextTokens.begin()->token.time >= note.token.time) {
-                    nextTokens.erase(nextTokens.begin());
-                }
+                DBG("Clearing queue at time " + juce::String(note.token.time));
+                applyClearQueue(nextTokens, note.token.time);
                 continue;
             }
+            scheduleNote(note);
+        }
 
-            if (outputProcessor != nullptr)
-                outputProcessor->ensureInstrument(note.localInstrumentId);
+        // Always drain RT outputTokenQueue (not OT reductionIncoming).
+        if (reductionOutputQueue != nullptr) {
+            Token rtToken{};
+            while (reductionOutputQueue->pull(rtToken)) {
+                if (source != PlaybackSource::Reduction)
+                    continue;
+                if (isRestToken(rtToken))
+                    continue;
+                if (isClearQueueToken(rtToken)) {
+                    clearedQueueThisRun = true;
+                    DBG("Clearing RT monitor queue at time " + juce::String(rtToken.time));
+                    applyClearQueue(nextTokens, rtToken.time);
+                    continue;
+                }
+                if (! isSoundingNoteToken(rtToken))
+                    continue;
 
-            nextTokens.insert(note);
+                scheduleNote(reductionMonitorNote(rtToken));
+            }
         }
 
         TokenUpdate durationUpdate{};
         while (orchestrationTransformer.outputDurationUpdates.pull(durationUpdate)) {
-            for (auto it = nextTokens.begin(); it != nextTokens.end();) {
-                if (! tokenEquals(it->token, durationUpdate.oldNote)) {
-                    ++it;
-                    continue;
-                }
-                OrchestrationNote revised = *it;
-                revised.token = durationUpdate.newNote;
-                it = nextTokens.erase(it);
-                nextTokens.insert(revised);
-            }
+            if (source == PlaybackSource::Orchestration)
+                pendingDurationUpdates.push_back(durationUpdate);
+        }
 
-            for (auto it = currentlyPlaying.begin(); it != currentlyPlaying.end();) {
-                if (! tokenEquals(it->token, durationUpdate.oldNote)) {
-                    ++it;
-                    continue;
-                }
-                OrchestrationNote revised = *it;
-                revised.token = durationUpdate.newNote;
-                it = currentlyPlaying.erase(it);
+        if (source == PlaybackSource::Orchestration) {
+            for (auto it = pendingDurationUpdates.begin(); it != pendingDurationUpdates.end();) {
+                const int matched = applyOneDurationUpdate(*it);
 
-                if (revised.token.time + revised.token.getRealDuration() <= time)
-                    handleNoteForOutput(revised, TokenNoteType::TokenNoteOff);
-                else
-                    currentlyPlaying.insert(revised);
+                const auto defaultEnd = it->oldNote.time + it->oldNote.getRealDuration();
+                if (matched > 0) {
+                    updateNoteOnHistoryDuration(it->oldNote, it->newNote);
+                    it = pendingDurationUpdates.erase(it);
+                } else if (time > defaultEnd) {
+                    it = pendingDurationUpdates.erase(it);
+                } else {
+                    ++it;
+                }
             }
         }
 

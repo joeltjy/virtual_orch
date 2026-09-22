@@ -1,5 +1,8 @@
 #include "VirtualOrch/MusicTransformer.h"
+#include "VirtualOrch/InstrumentConstants.h"
+#include "VirtualOrch/NoteWindow.h"
 #include "VirtualOrch/OrtEnv.h"
+#include "VirtualOrch/vocsep/VoiceSeparation.h"
 #include <onnxruntime_cxx_api.h>
 
 MusicTransformer::MusicTransformer(ModelConfig &modelConfig)
@@ -49,6 +52,9 @@ void MusicTransformer::threadRun() {
         return;
     }
 
+    if (voiceSeparation != nullptr)
+        voiceSeparation->reset();
+
     inputData.clear();
     clearInputTokenQueue();
     clearInputConditioningQueue();
@@ -81,80 +87,98 @@ void MusicTransformer::threadRun() {
 
     // Whether this iteration applied live token-queue input (triggers ClearQueue on output).
     bool inputApplied = false;
-    aheadThrottleUntilMs = 0;
+    resetAheadThrottle();
+    resetLoopTiming();
 
     // Until thread is not stopped
     while (!threadShouldExit()) {
+        const double loopStartMs = juce::Time::getMillisecondCounterHiRes();
+        ReductionLoopStepMs step{};
+        loopAccum = {};
+
         finishAheadThrottleIfDue();
 
         // DIRECT INPUT: WAIT FOR INPUT BLOCK
         if (modelConfig.inputMode == InputMode::Direct && modelConfig.directInputStartOnInput
             && directInputBlock.value) {
+            recordThreadLoopMs(loopStartMs);
             continue;
         }
 
-        inputApplied = applyQueuedInputToInputData();
-        applyUpdatesFromFilter();
+        {
+            const ScopedMs drainMs(&step.drain);
+            inputApplied = applyQueuedInputToInputData();
+            applyUpdatesFromFilter();
+        }
 
-        if (paused.get()) {
+        if (isGenerationStopped()) {
+            maybeEmitGenerationPauseSoftStopClear();
+            // overflowPause + live input: soft-stop clear (now + 1 s), same as manual
+            // generationPause — avoids wiping Out: RT schedule with ClearQueue at time 0.
+            if (inputApplied && ! generationPause.get() && clock != nullptr) {
+                const auto clearAt =
+                    static_cast<int32_t>(clock->getTime()) + Config::TimeResolution;
+                const Token clearToken{clearAt, static_cast<int32_t>(Vocab::DurOffset),
+                                       static_cast<int32_t>(Vocab::ClearQueue)};
+                pushOutputToken(clearToken);
+            } else if (! inputApplied) {
+                wait(5);
+            }
+            inputApplied = false;
+            recordThreadLoopMs(loopStartMs);
+            continue;
+        }
+
+        wasGenerationPaused = false;
+
+        Token newToken = generateNewToken(forceAtTime);
+        forceAtTime = -1;
+        step.prep = loopAccum.prep;
+        step.onnx = loopAccum.onnx;
+        step.logits = loopAccum.logits;
+        step.mask = loopAccum.mask;
+        step.sample = loopAccum.sample;
+        step.contextTokens = loopAccum.contextTokens;
+        step.onnxCalls = loopAccum.onnxCalls;
+
+        {
+            const ScopedMs pushMs(&step.push);
+            inputData.push_back(newToken.time);
+            inputData.push_back(newToken.duration);
+            inputData.push_back(newToken.note);
+            notifyInputDataChanged();
+
+            currentTime = newToken.time;
+
             if (inputApplied) {
                 const Token clearToken{Vocab::TimeOffset, Vocab::DurOffset, Vocab::ClearQueue};
                 pushOutputToken(clearToken);
                 inputApplied = false;
-            } else {
-                wait(5);
             }
-            continue;
+
+            pushOutputToken(newToken);
+
+            if (newToken.time >= 0 && isGeneratedTooFarAhead(newToken.time))
+                startAheadThrottle();
         }
 
-        // GENERATE NEW TOKEN (OR REST)
-        Token newToken = {-1, -1, -1};
-        // Generate new token
-        newToken = generateNewToken(forceAtTime);
-
-        // We set forceAtTime back to -1
-        forceAtTime = -1;
-
-        // Add the token to inputData
-        inputData.push_back(newToken.time);
-        inputData.push_back(newToken.duration);
-        inputData.push_back(newToken.note);
-        notifyInputDataChanged();
-
-        // Update current time
-        currentTime = newToken.time;
-
-        // If we need to clear the queue, send a clear queue token
-        // We do it here to ensure we can push the new token right after, and not have a moment without any token
-        if (inputApplied) {
-            Token clearToken = {Vocab::TimeOffset, Vocab::DurOffset, Vocab::ClearQueue};
-            pushOutputToken(clearToken);
-        }
-
-        if (inputApplied) { inputApplied = false; }
-
-        // Push new token to output queue
-        pushOutputToken(newToken);
-
-        if (newToken.time >= 0 && isGeneratedTooFarAhead(newToken.time))
-            startAheadThrottle();
+        step.total =
+            static_cast<float>(juce::Time::getMillisecondCounterHiRes() - loopStartMs);
+        recordThreadLoopMs(loopStartMs);
+        if (newToken.time >= 0)
+            publishBusyReductionProfile(step);
     }
 }
 
 auto MusicTransformer::applyQueuedInputToInputData() -> bool {
     Token discarded{-1, -1, -1};
     while (inputConditioningQueue.pull(discarded)) {
-        if (orchestrationConditioningIncoming != nullptr)
-            orchestrationConditioningIncoming->push(discarded);
     }
 
     bool inputApplied = false;
     Token inputToken = {-1, -1, -1};
 
     while (inputTokenQueue.pull(inputToken)) {
-        if (orchestrationMidiIncoming != nullptr)
-            orchestrationMidiIncoming->push(inputToken);
-
         DBG("input: " + inputToken.toUnderstandableString());
         // CLEARING FUTURE INPUT DATA IF FIRST TOKEN
         if (!inputApplied) {
@@ -178,16 +202,16 @@ auto MusicTransformer::applyQueuedInputToInputData() -> bool {
             if (!inputApplied) {
                 inputData.push_back(inputToken.time);
                 inputData.push_back(inputToken.duration);
-                inputData.push_back(Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument
+                inputData.push_back(Vocab::NoteOffset + Config::MaxPitch * InstrumentConstants::kReductionInputLocalInstrumentId
                                     + 36 + (inputToken.getPitch() % 12));
                 inputData.push_back(inputToken.time);
                 inputData.push_back(inputToken.duration);
-                inputData.push_back(Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument
+                inputData.push_back(Vocab::NoteOffset + Config::MaxPitch * InstrumentConstants::kReductionInputLocalInstrumentId
                                     + 48 + (inputToken.getPitch() % 12));
             } else {
                 inputData.push_back(inputToken.time);
                 inputData.push_back(inputToken.duration);
-                inputData.push_back(Vocab::NoteOffset + Config::MaxPitch * modelConfig.inputInstrument
+                inputData.push_back(Vocab::NoteOffset + Config::MaxPitch * InstrumentConstants::kReductionInputLocalInstrumentId
                                     + 60 + (inputToken.getPitch() % 12));
             }
         }
@@ -392,8 +416,14 @@ std::vector<float> MusicTransformer::runModelAndGetLogits(std::vector<int32_t> &
 
     // Run inference
     try {
-        auto output_tensors = session->Run(Ort::RunOptions{nullptr}, inputNames.data(), input_tensors.data(),
-                                           input_tensors.size(), outputNames.data(), outputNames.size());
+        std::vector<Ort::Value> output_tensors;
+        {
+            const ScopedMs onnxMs(&loopAccum.onnx);
+            output_tensors = session->Run(Ort::RunOptions{nullptr}, inputNames.data(),
+                                          input_tensors.data(), input_tensors.size(),
+                                          outputNames.data(), outputNames.size());
+        }
+        ++loopAccum.onnxCalls;
 
         Ort::Value &logits_tensor = output_tensors.front();
         const auto shape = logits_tensor.GetTensorTypeAndShapeInfo().GetShape();
@@ -409,11 +439,14 @@ std::vector<float> MusicTransformer::runModelAndGetLogits(std::vector<int32_t> &
         if (seq == 0 || vocab * seq > elementCount)
             return {};
 
+        const ScopedMs logitsMs(&loopAccum.logits);
         const float *data = logits_tensor.GetTensorMutableData<float>();
         const float *last = data + vocab * (seq - 1);
         return {last, last + vocab};
     } catch (const Ort::Exception &exception) {
-        DBG("Error running model: " + juce::String(exception.what()));
+        const auto detail = juce::String(exception.what());
+        DBG("Error running model: " + detail);
+        reportSamplingError(detail);
     }
 
     return {};
@@ -424,51 +457,63 @@ Token MusicTransformer::generateNewToken(int32_t forceAtTime) {
         throw std::runtime_error("inputData must be a multiple of 3");
     }
 
-    const int lookback = std::max(static_cast<int>(inputData.size() - 120), 0);
-    std::vector history(inputData.begin() + lookback, inputData.end());
+    std::vector<int32_t> history;
     int32_t offset = 0;
-    if (!history.empty()) {
-        offset = minTime(history);
-    }
+    {
+        const ScopedMs prepMs(&loopAccum.prep);
+        const int lookbackInts = std::max(1, modelConfig.reductionContextNotes) * 3;
+        const int lookback = std::max(static_cast<int>(inputData.size()) - lookbackInts, 0);
+        history.assign(inputData.begin() + lookback, inputData.end());
+        NoteWindow::sortStridedByOnset(history, 3);
+        if (! history.empty())
+            offset = minTime(history);
 
-    // Relativize time in the history buffer
-    for (size_t i = 0; i < history.size(); i++) {
-        if (i % 3 == 0) {
-            history[i] -= offset;
+        for (size_t i = 0; i < history.size(); i++) {
+            if (i % 3 == 0)
+                history[i] -= offset;
         }
-    }
 
-    history.insert(history.begin(), Vocab::Anticipate);
+        history.insert(history.begin(), Vocab::Anticipate);
+        loopAccum.contextTokens =
+            juce::jmax(loopAccum.contextTokens, static_cast<int>(history.size()));
+    }
 
     Token newToken{-1, -1, -1};
 
     for (int i = 0; i < 3; i++) {
         std::vector<float> scores = runModelAndGetLogits(history);
         if (scores.size() < Vocab::VocabSize) {
-            DBG("generateNewToken: unexpected logits size "
-                + juce::String(static_cast<int>(scores.size())));
+            const auto detail =
+                "unexpected logits size " + juce::String(static_cast<int>(scores.size()));
+            DBG("generateNewToken: " + detail);
+            reportSamplingError(detail);
             return {-1, -1, -1};
         }
-        safeLogits(scores, i % 3);
-        if (i == 0) {
-            // If forceAtTime is not -1, then pass it by removing the offset
-            futureLogits(scores, currentTime - offset, forceAtTime != -1 ? forceAtTime - offset : -1);
-        } else if (i == 1) {
-            durLogits(scores);
-        } else if (i == 2) {
-            instrLogits(scores);
+        {
+            const ScopedMs maskMs(&loopAccum.mask);
+            safeLogits(scores, i % 3);
+            if (i == 0)
+                futureLogits(scores, currentTime - offset,
+                             forceAtTime != -1 ? forceAtTime - offset : -1);
+            else if (i == 1)
+                durLogits(scores);
+            else
+                instrLogits(scores);
         }
-        int32_t token = sampleTopP(scores, 0.9, modelConfig.outputTemperatures[i]);
+        int32_t token = 0;
+        {
+            const ScopedMs sampleMs(&loopAccum.sample);
+            token = sampleTopP(scores, 0.9, modelConfig.outputTemperatures[i]);
+        }
 
         history.push_back(token);
 
-        if (i == 0) {
+        if (i == 0)
             newToken.time = token + offset;
-        } else if (i == 1) {
+        else if (i == 1)
             newToken.duration = token;
-        } else if (i == 2) {
+        else
             newToken.note = token;
-        }
     }
 
     return newToken;

@@ -13,5 +13,5 @@ ReductionTransformerOutputWidget::ReductionTransformerOutputWidget(AppSession &s
 
 auto ReductionTransformerOutputWidget::refreshFromSession() -> void {
     setPitchRange(session.modelConfig.inputLow, session.modelConfig.inputHigh);
-    presentTokens(session.activeReduction().getOutputHistory());
+    presentTokens(session.activeReduction().getOutputHistorySince(windowCutoffCs()));
 }

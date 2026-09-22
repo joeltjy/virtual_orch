@@ -1,12 +1,22 @@
 #include "VirtualOrch/widgets/NoteIoWidget.h"
 
 #include "VirtualOrch/AppSession.h"
+#include "VirtualOrch/InstrumentUiColours.h"
 #include "VirtualOrch/MusicToken.h"
+#include "VirtualOrch/NoteWindow.h"
 #include "VirtualOrch/ui/UiConstants.h"
 
 namespace {
 
 constexpr float noteIoTableWidthFraction = 1.0f / 3.0f;
+
+auto coloursForLocalIds(const std::vector<int32_t> &localIds) -> std::vector<juce::Colour> {
+    std::vector<juce::Colour> colours;
+    colours.reserve(localIds.size());
+    for (const auto id: localIds)
+        colours.push_back(InstrumentUiColours::forLocalInstrument(id));
+    return colours;
+}
 
 } // namespace
 
@@ -20,7 +30,7 @@ NoteIoWidget::NoteIoWidget(AppSession &sessionIn,
       pianoRoll(sessionIn.clock) {
     getContentComponent().addAndMakeVisible(table);
     getContentComponent().addAndMakeVisible(pianoRoll);
-    startTimer(UiConstants::pianoRollTimerIntervalMs);
+    startTimer(UiConstants::noteIoWidgetTimerIntervalMs);
 }
 
 NoteIoWidget::~NoteIoWidget() {
@@ -38,6 +48,10 @@ auto NoteIoWidget::resized() -> void {
 
 auto NoteIoWidget::timerCallback() -> void {
     refreshFromSession();
+}
+
+auto NoteIoWidget::windowCutoffCs() const -> int32_t {
+    return NoteWindow::cutoffCs(static_cast<int32_t>(session.clock.getTime()));
 }
 
 auto NoteIoWidget::setPitchRange(int32_t low, int32_t high) -> void {
@@ -64,8 +78,8 @@ auto NoteIoWidget::rowFromToken(const Token &token) -> NoteIoRow {
 
 auto NoteIoWidget::tokenFromPlaybackRecord(const PlaybackNoteOnRecord &record) -> Token {
     return Token{
-        .time = record.time,
-        .duration = static_cast<int32_t>(Vocab::DurOffset + 10),
+        .time = record.onsetCs,
+        .duration = static_cast<int32_t>(Vocab::DurOffset + juce::jmax(0, record.durationCs)),
         .note = static_cast<int32_t>(Vocab::NoteOffset
                                     + Config::MaxPitch
                                           * juce::jmax(0, record.localInstrumentId)
@@ -89,8 +103,10 @@ auto NoteIoWidget::presentTokens(std::vector<Token> history, std::vector<Token> 
 auto NoteIoWidget::presentOrchestrationNotes(std::vector<OrchestrationNote> notes) -> void {
     std::vector<NoteIoRow> rows;
     std::vector<Token> tokens;
+    std::vector<int32_t> localIds;
     rows.reserve(notes.size());
     tokens.reserve(notes.size());
+    localIds.reserve(notes.size());
     for (const auto &note: notes) {
         NoteIoRow row;
         row.onset = note.token.time;
@@ -100,29 +116,35 @@ auto NoteIoWidget::presentOrchestrationNotes(std::vector<OrchestrationNote> note
         row.localInstrumentId = note.localInstrumentId;
         rows.push_back(row);
         tokens.push_back(note.token);
+        localIds.push_back(note.localInstrumentId);
     }
+    auto colours = coloursForLocalIds(localIds);
     table.setRows(std::move(rows));
-    pianoRoll.setNotes(std::move(tokens));
+    pianoRoll.setNotes(std::move(tokens), std::move(colours));
     pianoRoll.setPendingNotes({});
 }
 
 auto NoteIoWidget::presentPlaybackRecords(std::vector<PlaybackNoteOnRecord> records) -> void {
     std::vector<NoteIoRow> rows;
     std::vector<Token> tokens;
+    std::vector<int32_t> localIds;
     rows.reserve(records.size());
     tokens.reserve(records.size());
+    localIds.reserve(records.size());
     for (const auto &record: records) {
         NoteIoRow row;
-        row.onset = record.time;
-        row.durationCs = -1;
+        row.onset = record.onsetCs;
+        row.durationCs = record.durationCs;
         row.pitch = record.pitch;
         row.velocity = record.velocity;
         row.localInstrumentId = record.localInstrumentId;
         row.channel = record.channel;
         rows.push_back(row);
         tokens.push_back(tokenFromPlaybackRecord(record));
+        localIds.push_back(record.localInstrumentId);
     }
+    auto colours = coloursForLocalIds(localIds);
     table.setRows(std::move(rows));
-    pianoRoll.setNotes(std::move(tokens));
+    pianoRoll.setNotes(std::move(tokens), std::move(colours));
     pianoRoll.setPendingNotes({});
 }

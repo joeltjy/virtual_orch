@@ -1,0 +1,6 @@
+{
+  "arch": "vocsep",
+  "in_feats": 43,
+  "tau": 0.5,
+  "notes": "Pairs with Documents/onnx_export_091426/vocsep_reduction_best.onnx. Voice-separation GNN over last-40 reduction notes."
+}

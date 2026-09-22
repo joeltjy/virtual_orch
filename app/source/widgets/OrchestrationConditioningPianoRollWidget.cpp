@@ -19,6 +19,6 @@ auto OrchestrationConditioningPianoRollWidget::refreshFromSession() -> void {
     else
         setPitchRange(session.modelConfig.inputLow, session.modelConfig.inputHigh);
 
-    const auto snap = session.orchestrationTransformer.getDebugSnapshot();
+    const auto snap = session.orchestrationTransformer.getDebugSnapshotSince(windowCutoffCs());
     presentTokens(snap.conditioningHistory, snap.conditioningPending);
 }

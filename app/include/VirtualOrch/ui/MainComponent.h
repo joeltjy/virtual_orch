@@ -71,10 +71,11 @@ private:
     juce::ComboBox presetList, mtcClockList, midiInputList, launchpadMidiList, reductionTypeList,
             checkpointList, orchestrationModelList, outputList;
     juce::TextButton leftPresetButton{"<"}, rightPresetButton{">"}, savePresetButton{"SAVE"};
-    juce::ToggleButton autoConnect, mtcClock, inputThru, proportionBias;
+    juce::ToggleButton autoConnect, mtcClock, inputThru, proportionBias, pianoReductionBias;
     juce::Label presetListLabel, configLabel, mtcClockLabel, mtcClockOffsetLabel, controllerLabel,
             midiInputListLabel, launchpadMidiListLabel, reductionTypeListLabel, checkpointListLabel,
-            orchestrationModelListLabel, inputThruLabel, proportionBiasLabel, outputListLabel, oscIpLabel, oscPortLabel,
+            orchestrationModelListLabel, inputThruLabel, proportionBiasLabel, pianoReductionBiasLabel,
+            outputListLabel, oscIpLabel, oscPortLabel,
             bufferOutputOscIpLabel, bufferOutputOscPortLabel, statusOutputOscIpLabel,
             statusOutputOscPortLabel, generationLabel, visualizationBufferSizeLabel;
 

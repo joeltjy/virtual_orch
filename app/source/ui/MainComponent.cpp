@@ -24,6 +24,8 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     });
     session.presetStore.setReductionTypeProvider([this]() -> juce::String {
         switch (reductionTypeList.getSelectedId()) {
+            case 4:
+                return "pianoReduction";
             case 3:
                 return "v2";
             case 2:
@@ -349,6 +351,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     reductionTypeList.addItem("MusicTransformer", 1);
     reductionTypeList.addItem("V1 (initial version)", 2);
     reductionTypeList.addItem("V2 (smart sampling)", 3);
+    reductionTypeList.addItem("Piano Reduction (2-instrument)", 4);
     reductionTypeList.setSelectedId(2, juce::dontSendNotification);
     reductionTypeList.onChange = [this] {
         stop();
@@ -444,6 +447,30 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
         session.presetStore.settings.getOrCreateChildWithName("orchestration", nullptr)
             .setProperty("proportionBias", enabled, nullptr);
         session.orchestrationTransformer.proportionBiasEnabled.set(enabled);
+    };
+
+    /* PIANO REDUCTION ANTI-REPETITION BIAS */
+    addAndMakeVisible(pianoReductionBiasLabel);
+    pianoReductionBiasLabel.setText("Reduction Bias:", juce::dontSendNotification);
+    pianoReductionBiasLabel.attachToComponent(&pianoReductionBias, true);
+
+    addAndMakeVisible(pianoReductionBias);
+    auto pianoReductionSettings =
+        session.presetStore.settings.getOrCreateChildWithName("pianoReduction", nullptr);
+    const bool savedPianoReductionBias = pianoReductionSettings.hasProperty("biasEnabled")
+                                             ? static_cast<bool>(
+                                                   pianoReductionSettings.getProperty("biasEnabled"))
+                                             : true;
+    if (! pianoReductionSettings.hasProperty("biasEnabled"))
+        pianoReductionSettings.setProperty("biasEnabled", true, nullptr);
+    pianoReductionBias.setToggleState(savedPianoReductionBias, juce::dontSendNotification);
+    session.reductionTransformerPianoReduction.setBiasEnabled(savedPianoReductionBias);
+    pianoReductionBias.onClick = [this] {
+        const bool enabled = pianoReductionBias.getToggleState();
+        DBG("Saving piano reduction bias: " + std::to_string(enabled));
+        session.presetStore.settings.getOrCreateChildWithName("pianoReduction", nullptr)
+            .setProperty("biasEnabled", enabled, nullptr);
+        session.reductionTransformerPianoReduction.setBiasEnabled(enabled);
     };
 
     /* MIDI THROUGH */
@@ -834,7 +861,9 @@ void MainComponent::loadPresetFromName(const juce::String &presetName) {
     const juce::String reductionKey =
         preset.getProperty("reduction", checkpoint->isDense ? "v1" : "amt").toString().toLowerCase();
     int desiredReductionId = 1;
-    if (reductionKey == "v2")
+    if (reductionKey == "pianoreduction")
+        desiredReductionId = 4;
+    else if (reductionKey == "v2")
         desiredReductionId = 3;
     else if (reductionKey == "v1")
         desiredReductionId = 2;
@@ -929,7 +958,7 @@ void MainComponent::clearModel() {
 
 auto MainComponent::selectedReductionIsDense() const -> bool {
     const auto id = reductionTypeList.getSelectedId();
-    return id == 2 || id == 3;
+    return id == 2 || id == 3 || id == 4;
 }
 
 auto MainComponent::selectedCheckpointName() const -> juce::String {
@@ -957,6 +986,9 @@ auto MainComponent::selectPreferredCheckpointForCurrentReduction() -> bool {
             break;
         case 3: // V2 (smart sampling)
             preferred = "amt_causal";
+            break;
+        case 4: // Piano Reduction (2-instrument)
+            preferred = "piano_reduction_checkpoint-4000";
             break;
         default:
             // AMT: leave first listed checkpoint if any.
@@ -1066,12 +1098,16 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
     try {
         if (isDense) {
             const auto reductionId = reductionTypeList.getSelectedId();
-            session.setMusicModelArch(reductionId == 3 ? MusicModelArch::DenseV2
-                                                      : MusicModelArch::DenseV1);
-            if (reductionId == 3)
+            if (reductionId == 4) {
+                session.setMusicModelArch(MusicModelArch::DensePianoReduction);
+                session.reductionTransformerPianoReduction.init(modelPathStr.toRawUTF8());
+            } else if (reductionId == 3) {
+                session.setMusicModelArch(MusicModelArch::DenseV2);
                 session.reductionTransformerV2.init(modelPathStr.toRawUTF8());
-            else
+            } else {
+                session.setMusicModelArch(MusicModelArch::DenseV1);
                 session.reductionTransformerV1.init(modelPathStr.toRawUTF8());
+            }
         } else {
             session.setMusicModelArch(MusicModelArch::Amt);
             session.musicTransformer.init(modelPathStr.toRawUTF8(), modelType);
@@ -1177,6 +1213,9 @@ void MainComponent::resized() {
 
     auto proportionBiasArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
     proportionBias.setBounds(proportionBiasArea.withTrimmedLeft(80));
+
+    auto pianoReductionBiasArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
+    pianoReductionBias.setBounds(pianoReductionBiasArea.withTrimmedLeft(80));
 
     outputList.setBounds(area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8));
 

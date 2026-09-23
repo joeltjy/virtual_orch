@@ -16,6 +16,7 @@
 #include "VirtualOrch/OutputProcessor.h"
 #include "VirtualOrch/PresetStore.h"
 #include "VirtualOrch/reduction/ReductionTransformer.h"
+#include "VirtualOrch/reduction/ReductionTransformerPianoReduction.h"
 #include "VirtualOrch/reduction/ReductionTransformerV1.h"
 #include "VirtualOrch/reduction/ReductionTransformerV2.h"
 #include "VirtualOrch/orchestration-models/OrchestrationModel.h"
@@ -53,6 +54,7 @@ public:
     MusicTransformer musicTransformer;
     ReductionTransformerV1 reductionTransformerV1;
     ReductionTransformerV2 reductionTransformerV2;
+    ReductionTransformerPianoReduction reductionTransformerPianoReduction;
     OrchestrationTransformer orchestrationTransformer;
     VoiceSeparation voiceSeparation;
     std::unique_ptr<OrchestrationModel> orchestrationModel;

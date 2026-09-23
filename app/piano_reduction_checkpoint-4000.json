@@ -1,0 +1,7 @@
+{
+  "arch": "dense",
+  "contextNotes": 40,
+  "outputInstruments": [1],
+  "defaultPreset": {},
+  "notes": "Piano + piano-reduction finetune (2 real instruments) of amt_dense_maestro_v8_piano_reduction, checkpoint-4000 (best eval loss; step 14000 had regressed to 1.672 vs 1.4187 here). Piano is always instrument 0 (conditioning only, never generated); generation is always instrument 1 (the reduction). See PIANO_REDUCTION_TRANSFORMER.md."
+}

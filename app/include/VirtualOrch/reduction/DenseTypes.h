@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <limits>
+#include <numeric>
 #include <vector>
 
 /** Dense configuration and vocab.
@@ -20,6 +21,16 @@ inline constexpr int32_t DefaultVelocity = 100;
 
 inline constexpr int32_t MaxTime = TimeResolution * MaxTimeInSeconds; // 10000
 inline constexpr int32_t MaxDur = TimeResolution * MaxDurationInSeconds; // 1000
+
+/**
+ * Fixed instrument roles for ReductionTransformerPianoReduction (amt_dense_maestro_v8
+ * piano-reduction finetune): the live piano is always ingested as instrument 0
+ * (conditioning only, never generated); the model only ever generates instrument 1
+ * (the reduction, later consumed by OrchestrationTransformer). Unlike V1/V2, both
+ * bands are meaningfully trained, so this is enforced by masking, not left to config.
+ */
+inline constexpr int32_t PianoReductionInputInstrument = 0;
+inline constexpr int32_t PianoReductionOutputInstrument = 1;
 } // namespace DenseConfig
 
 namespace DenseVocab {
@@ -87,6 +98,17 @@ inline constexpr int32_t PianoKeyHigh = 108; // C8
     const int32_t instr = rel / DenseConfig::MaxPitch;
     const int32_t pitch = snapPianoPitch(rel % DenseConfig::MaxPitch);
     return static_cast<int32_t>(DenseVocab::NoteOffset) + instr * DenseConfig::MaxPitch + pitch;
+}
+
+/**
+ * Instrument band (0..MaxInstr-1) encoded in a packed dense note token, or -1 if
+ * `noteToken` is not a note token (e.g. ClearQueue/BarSeparator).
+ */
+[[nodiscard]] inline auto instrumentOfNoteToken(int32_t noteToken) -> int32_t {
+    const auto rel = noteToken - static_cast<int32_t>(DenseVocab::NoteOffset);
+    if (rel < 0 || rel >= DenseConfig::MaxNote)
+        return -1;
+    return rel / DenseConfig::MaxPitch;
 }
 
 inline auto snapPackedEvents(std::vector<int32_t> &data, size_t eventWidth = 4) -> void {
@@ -208,3 +230,55 @@ inline constexpr int32_t CeilingMultiplier = 4;
 inline constexpr float CeilingDurationPercentile = 0.75f;
 inline constexpr int32_t CeilingMinDurationCs = 40;
 } // namespace DenseSampling
+
+/**
+ * Ordering used by the two-instrument (piano + reduction) dense model. The offline
+ * training data is sorted by (onset, instrument) ascending — same-onset ties break by
+ * ascending instrument, so a piano (instrument 0) event always precedes a reduction
+ * (instrument 1) event at the same onset (see PIANO_REDUCTION_TRANSFORMER.md).
+ * `NoteWindow::sortStridedByOnset` only compares onset and keeps arrival order on
+ * ties, which does not match training once a stream mixes two real instruments — this
+ * is additive (a new function, not a change to the shared onset-only sort) so it
+ * cannot affect V1/V2/AMT, whose events are always instrument 0.
+ */
+namespace DensePianoReductionOrder {
+
+inline auto sortStridedByOnsetThenInstrument(std::vector<int32_t> &data, size_t eventWidth = 4)
+    -> void {
+    if (eventWidth == 0 || data.size() < eventWidth * 2 || data.size() % eventWidth != 0)
+        return;
+
+    const size_t n = data.size() / eventWidth;
+    std::vector<size_t> order(n);
+    std::iota(order.begin(), order.end(), size_t{0});
+    std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+        const size_t baseA = a * eventWidth;
+        const size_t baseB = b * eventWidth;
+        if (data[baseA] != data[baseB])
+            return data[baseA] < data[baseB];
+        return DenseQuantize::instrumentOfNoteToken(data[baseA + 2])
+             < DenseQuantize::instrumentOfNoteToken(data[baseB + 2]);
+    });
+
+    bool alreadySorted = true;
+    for (size_t i = 0; i < n; ++i) {
+        if (order[i] != i) {
+            alreadySorted = false;
+            break;
+        }
+    }
+    if (alreadySorted)
+        return;
+
+    std::vector<int32_t> sorted;
+    sorted.reserve(data.size());
+    for (const size_t idx: order) {
+        const auto base = static_cast<std::ptrdiff_t>(idx * eventWidth);
+        sorted.insert(sorted.end(),
+                      data.begin() + base,
+                      data.begin() + base + static_cast<std::ptrdiff_t>(eventWidth));
+    }
+    data.swap(sorted);
+}
+
+} // namespace DensePianoReductionOrder

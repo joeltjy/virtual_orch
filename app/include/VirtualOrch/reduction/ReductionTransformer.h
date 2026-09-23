@@ -20,15 +20,18 @@ class VoiceSeparation;
 enum class MusicModelArch : uint8_t {
     Amt,
     DenseV1,
-    DenseV2
+    DenseV2,
+    /** Piano + piano-reduction (2 instruments): see ReductionTransformerPianoReduction. */
+    DensePianoReduction
 };
 
 [[nodiscard]] inline auto isDenseMusicArch(MusicModelArch arch) -> bool {
-    return arch == MusicModelArch::DenseV1 || arch == MusicModelArch::DenseV2;
+    return arch == MusicModelArch::DenseV1 || arch == MusicModelArch::DenseV2
+        || arch == MusicModelArch::DensePianoReduction;
 }
 
 /**
- * Shared base for MusicTransformer (AMT) and dense ReductionTransformerV1/V2.
+ * Shared base for MusicTransformer (AMT) and dense ReductionTransformerV1/V2/PianoReduction.
  */
 class ReductionTransformer : public juce::Thread {
 public:

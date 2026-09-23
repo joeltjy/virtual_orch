@@ -1,7 +1,8 @@
 {
   "model": "amt_causal",
   "reduction": "v2",
-  "orchestrationModel": "InstrumentCombinations",
+  "orchestrationModel": "IodPretrained",
+  "orchestrationMode": "jam",
   "inputMode": "direct",
   "inputFilterType": "passthrough",
   "directInputWindowLength": 10,
@@ -18,7 +19,7 @@
   "inputDuration": 400,
   "inputInitialData": "",
   "contextNotes": 40,
-  "outputMinimumDuration": 1,
+  "outputMinimumDuration": 10,
   "outputMaximumDuration": 999,
   "outputTemperatures": [
     0.5,

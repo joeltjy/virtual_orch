@@ -1,5 +1,6 @@
 #include "VirtualOrch/AppSession.h"
 
+#include "VirtualOrch/orchestration-models/IodPretrained.h"
 #include "VirtualOrch/orchestration-models/OrchestrationModels.h"
 #include "VirtualOrch/ProjectPaths.h"
 #include "VirtualOrch/ui/UiConstants.h"
@@ -52,7 +53,7 @@ AppSession::AppSession()
       musicTransformer(modelConfig),
       reductionTransformerV1(modelConfig),
       reductionTransformerV2(modelConfig),
-      orchestrationModel(createOrchestrationModel("InstrumentCombinations")),
+      orchestrationModel(createOrchestrationModel("IodPretrained")),
       inputFilter(createInputFilter(modelConfig.inputFilterType,
                                     modelConfig,
                                     musicTransformer.inputTokenQueue,
@@ -72,11 +73,16 @@ AppSession::AppSession()
     if (const auto vocsep = findModelCheckpoint("vocsep_reduction_best")) {
         try {
             voiceSeparation.init(vocsep->onnxFile.getFullPathName().toRawUTF8());
+            std::cerr << "[vocsep] loaded " << vocsep->onnxFile.getFullPathName() << std::endl;
         } catch (const Ort::Exception &e) {
             std::cerr << "[vocsep] failed to load: " << e.what() << std::endl;
         } catch (const std::exception &e) {
             std::cerr << "[vocsep] failed to load: " << e.what() << std::endl;
         }
+    } else {
+        std::cerr << "[vocsep] checkpoint not found (need app/vocsep_reduction_best.json + "
+                     "Documents/onnx_export_*/vocsep.onnx)"
+                  << std::endl;
     }
 
     bindActiveMusicBackend();
@@ -160,6 +166,23 @@ AppSession::AppSession()
     if (orchestrationModel != nullptr) {
         orchestrationModel->samplingAlert = &modelSamplingAlert;
         orchestrationModel->getOutputTimings = &orchestrationTransformer.getOutputAccum;
+        if (auto *iod = dynamic_cast<IodPretrained *>(orchestrationModel.get())) {
+            auto orch = presetStore.settings.getOrCreateChildWithName("orchestration", nullptr);
+            iod->setEnsembleEnabled(
+                orch.hasProperty("vocsepEnsemble")
+                    ? static_cast<bool>(orch.getProperty("vocsepEnsemble"))
+                    : false);
+            iod->setEnsembleAddP(
+                orch.hasProperty("vocsepEnsembleAddP")
+                    ? static_cast<float>(
+                          static_cast<double>(orch.getProperty("vocsepEnsembleAddP")))
+                    : IodPretrainedTypes::ensembleAddPDefault);
+            iod->setEnsembleRemoveP(
+                orch.hasProperty("vocsepEnsembleRemoveP")
+                    ? static_cast<float>(
+                          static_cast<double>(orch.getProperty("vocsepEnsembleRemoveP")))
+                    : IodPretrainedTypes::ensembleRemovePDefault);
+        }
     }
 
     const auto syncLeds = [this] { syncPauseTopLeds(); };
@@ -281,6 +304,24 @@ auto AppSession::setOrchestrationModel(const juce::String &name) -> bool {
     orchestrationModel->samplingAlert = &modelSamplingAlert;
     orchestrationModel->getOutputTimings = &orchestrationTransformer.getOutputAccum;
     orchestrationTransformer.orchestrationModel = orchestrationModel.get();
+
+    if (auto *iod = dynamic_cast<IodPretrained *>(orchestrationModel.get())) {
+        auto orch = presetStore.settings.getOrCreateChildWithName("orchestration", nullptr);
+        const bool enabled = orch.hasProperty("vocsepEnsemble")
+                                 ? static_cast<bool>(orch.getProperty("vocsepEnsemble"))
+                                 : false;
+        const float addP =
+            orch.hasProperty("vocsepEnsembleAddP")
+                ? static_cast<float>(static_cast<double>(orch.getProperty("vocsepEnsembleAddP")))
+                : IodPretrainedTypes::ensembleAddPDefault;
+        const float removeP =
+            orch.hasProperty("vocsepEnsembleRemoveP")
+                ? static_cast<float>(static_cast<double>(orch.getProperty("vocsepEnsembleRemoveP")))
+                : IodPretrainedTypes::ensembleRemovePDefault;
+        iod->setEnsembleEnabled(enabled);
+        iod->setEnsembleAddP(addP);
+        iod->setEnsembleRemoveP(removeP);
+    }
     return true;
 }
 

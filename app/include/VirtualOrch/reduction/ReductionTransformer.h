@@ -7,6 +7,7 @@
 #include <memory>
 #include <vector>
 
+#include "VirtualOrch/DurationLogitSnapshot.h"
 #include "VirtualOrch/Fifo.h"
 #include "VirtualOrch/Clock.h"
 #include "VirtualOrch/ModelSamplingAlert.h"
@@ -95,6 +96,9 @@ public:
     /** Optional online vocsep; stamps Token.voiceId inside pushOutputToken when loaded. */
     VoiceSeparation *voiceSeparation = nullptr;
 
+    /** Latest dense duration-field logits (post-mask) for the Duration Logits UI. */
+    [[nodiscard]] auto getDurationLogitSnapshot() const -> DurationLogitSnapshot;
+
     auto reportSamplingError(const juce::String &detail) -> void {
         if (samplingAlert != nullptr)
             samplingAlert->report("Reduction", detail);
@@ -147,6 +151,9 @@ protected:
      */
     auto maybeEmitGenerationPauseSoftStopClear() -> void;
 
+    /** Log first generated onset after generationPause clears (diagnose pedal-up lag). */
+    auto logGeneratedTokenIfResumed(int32_t onset) -> void;
+
     auto recordThreadLoopMs(double loopStartHiResMs) -> void;
 
     auto resetLoopTiming() -> void;
@@ -154,12 +161,18 @@ protected:
     auto resetReductionProfile() -> void;
     auto publishBusyReductionProfile(ReductionLoopStepMs step) -> void;
 
+    /** Copy duration-band logits from a full vocab score vector (post-mask). */
+    auto publishDurationLogits(const std::vector<float> &scores, int32_t sampledDurToken) -> void;
+
     ModelConfig &modelConfig;
     std::vector<int32_t> inputData;
     int32_t currentTime = 0;
 
     /** Edge detect for maybeEmitGenerationPauseSoftStopClear (reset on thread start). */
     bool wasGenerationPaused = false;
+
+    /** Set on pause→run; cleared after the next successful generate is logged. */
+    std::atomic<bool> logFirstTokenAfterResume{false};
 
     uint32_t aheadThrottleUntilMs = 0;
     std::atomic<float> lastThreadLoopMs{0.0f};
@@ -180,6 +193,9 @@ protected:
 
     mutable juce::CriticalSection outputHistoryLock;
     std::vector<Token> outputHistory;
+
+    mutable juce::CriticalSection durationLogitLock;
+    DurationLogitSnapshot durationLogitSnapshot;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ReductionTransformer)
 };

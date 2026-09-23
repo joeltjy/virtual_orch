@@ -31,6 +31,11 @@ VocsepOutputWidget::VocsepOutputWidget(AppSession &sessionIn)
 }
 
 auto VocsepOutputWidget::refreshFromSession() -> void {
+    const bool loaded = session.voiceSeparation.isLoaded();
+    titleLabel.setText(loaded ? juce::String(UiConstants::workspaceVocsepOutputTitle)
+                              : juce::String(UiConstants::workspaceVocsepOutputTitle) + " (not loaded)",
+                       juce::dontSendNotification);
+
     setPitchRange(session.modelConfig.inputLow, session.modelConfig.inputHigh);
     auto tokens = session.activeReduction().getOutputHistorySince(windowCutoffCs());
     std::vector<NoteIoRow> rows;

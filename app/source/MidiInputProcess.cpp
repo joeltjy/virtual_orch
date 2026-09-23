@@ -361,7 +361,17 @@ void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const 
         && source != nullptr
         && source->getIdentifier() == selectedMidiInputIdentifier
         && message.getControllerNumber() == 64) {
-        activeReduction().setGenerationPause(message.getControllerValue() >= 64);
+        const int value = message.getControllerValue();
+        const bool pause = value >= 64;
+        juce::Logger::writeToLog(
+            "[pedal] CC64 value=" + juce::String(value)
+            + (pause ? " down→pause" : " up→resume")
+            + " clockCs=" + juce::String(static_cast<int32_t>(clock.getTime()))
+            + " wasPaused="
+            + juce::String(activeReduction().generationPause.get() ? "true" : "false")
+            + " wasOverflow="
+            + juce::String(activeReduction().overflowPause.get() ? "true" : "false"));
+        activeReduction().setGenerationPause(pause);
     }
 
     if (mtcClockActive && source->getIdentifier() == selectedMtcClockIdentifier && message.isQuarterFrame()) {

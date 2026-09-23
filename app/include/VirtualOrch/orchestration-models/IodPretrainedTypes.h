@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <utility>
@@ -26,6 +27,20 @@ inline constexpr int32_t bos = 0;
 inline constexpr int32_t groupsSize = (1 << numFamilies) - 1; // 15
 inline constexpr int32_t groupsOffset = bos + 1;              // 1
 inline constexpr int32_t groupsHi = groupsOffset + groupsSize; // 16 exclusive end of GROUPS ids
+
+/** Past-N GROUPS unigram bias on the first combo step (−τ log π_y). */
+inline constexpr int32_t groupsBiasWindowNotes = 30;
+inline constexpr float groupsBiasTau = 0.5f;
+/** Additive smoothing: π_y = (count_y + ε) / (N + groupsSize · ε). */
+inline constexpr float groupsBiasEpsilon = 1.0f / static_cast<float>(groupsSize);
+
+/** Clear encoder note/combo stream if onset gap exceeds this (pedal-down / silence). */
+inline constexpr int32_t historyGapClearCs = 500; // 5 s
+
+/** Same-voice ensemble: past-N raw (A) predictions for add/remove proportions. */
+inline constexpr int32_t ensembleHistoryNotes = 10;
+inline constexpr float ensembleAddPDefault = 0.67f;
+inline constexpr float ensembleRemovePDefault = 0.3f;
 
 inline constexpr int32_t stringsBits = 9;   // 3 instr × 3 deltas
 inline constexpr int32_t woodwindBits = 12; // 4 × 3
@@ -204,6 +219,42 @@ struct ForbidBits {
     return bitMask > 0 && (bitMask & familyForbidBits) == 0;
 }
 
+/**
+ * −τ log π_y on GROUPS vocab ids [groupsOffset, groupsHi).
+ * π_y = (count_y + ε) / (N + groupsSize · ε) over the recent groups masks (1…15).
+ * Skips non-finite logits. No-op when recentMasks empty.
+ */
+inline auto applyGroupsTokenLogitsBias(float *vocabLogits,
+                                       size_t vocabSize,
+                                       const int32_t *recentMasks,
+                                       size_t recentCount,
+                                       float tau = groupsBiasTau,
+                                       float epsilon = groupsBiasEpsilon) -> void {
+    if (vocabLogits == nullptr || recentCount == 0 || vocabSize < static_cast<size_t>(groupsHi))
+        return;
+    if (! (tau > 0.0f) || ! (epsilon > 0.0f))
+        return;
+
+    std::array<int32_t, static_cast<size_t>(groupsSize)> counts{};
+    for (size_t i = 0; i < recentCount; ++i) {
+        const int32_t mask = recentMasks[i];
+        if (mask >= 1 && mask <= groupsSize)
+            ++counts[static_cast<size_t>(mask - 1)];
+    }
+
+    const float n = static_cast<float>(recentCount);
+    const float denom = n + static_cast<float>(groupsSize) * epsilon;
+    for (int32_t mask = 1; mask <= groupsSize; ++mask) {
+        const int32_t token = groupsTokenForMask(mask);
+        float &logit = vocabLogits[static_cast<size_t>(token)];
+        if (! std::isfinite(logit))
+            continue;
+        const float pi =
+            (static_cast<float>(counts[static_cast<size_t>(mask - 1)]) + epsilon) / denom;
+        logit -= tau * std::log(pi);
+    }
+}
+
 inline constexpr int32_t encoderDurOffset = 10000;
 inline constexpr int32_t encoderNoteOffset = 11000;
 
@@ -330,13 +381,107 @@ struct EncoderWindow {
             assigned.token.duration = durationToken;
             assigned.token.note =
                 static_cast<int32_t>(Vocab::NoteOffset) + outPitch;
-            assigned.velocity = velocity;
-            assigned.token.velocity = velocity;
             assigned.localInstrumentId = *local;
+            const int32_t scaledVel =
+                InstrumentConstants::scaleVelocityForInstrument(*local, velocity);
+            assigned.velocity = scaledVel;
+            assigned.token.velocity = scaledVel;
             notes.push_back(assigned);
         }
     }
     return notes;
+}
+
+/** Packed (gmProgram, Δ) key: high 16 = GM, low 8 = delta+1 (1..3). */
+[[nodiscard]] inline constexpr auto packProgramDelta(int32_t gmProgram, int32_t delta) -> int32_t {
+    return (gmProgram << 8) | (delta + 1);
+}
+
+[[nodiscard]] inline constexpr auto unpackProgram(int32_t key) -> int32_t { return key >> 8; }
+
+[[nodiscard]] inline constexpr auto unpackDelta(int32_t key) -> int32_t {
+    return (key & 0xff) - 1;
+}
+
+/** Expand combo tokens to unique (GM program, Δ) pairs. */
+[[nodiscard]] inline auto pairsFromCombo(const std::array<int32_t, comboLen> &comboLocal)
+    -> std::vector<int32_t> {
+    std::vector<int32_t> pairs;
+    const int32_t groupsMask = maskFromGroupsToken(comboLocal[0]);
+    if (groupsMask == 0)
+        return pairs;
+
+    std::vector<int32_t> expectedFamilies;
+    for (int32_t f = 0; f < numFamilies; ++f) {
+        if ((groupsMask & (1 << f)) != 0)
+            expectedFamilies.push_back(f);
+    }
+
+    std::vector<int32_t> familyTokens;
+    for (size_t i = 1; i < comboLocal.size(); ++i) {
+        if (comboLocal[i] == endNote)
+            break;
+        familyTokens.push_back(comboLocal[i]);
+    }
+    if (familyTokens.size() != expectedFamilies.size())
+        return pairs;
+
+    for (size_t k = 0; k < expectedFamilies.size(); ++k) {
+        const int32_t familyIdx = expectedFamilies[k];
+        const auto &family = familySpecs[static_cast<size_t>(familyIdx)];
+        const int32_t bitMask = maskFromFamilyToken(family, familyTokens[k]);
+        if (bitMask == 0)
+            continue;
+        for (int32_t bit = 0; bit < family.numBits; ++bit) {
+            if ((bitMask & (1 << bit)) == 0)
+                continue;
+            const auto pd = programDeltaFromBit(family, bit);
+            if (! pd.has_value())
+                continue;
+            pairs.push_back(packProgramDelta(pd->first, pd->second));
+        }
+    }
+    return pairs;
+}
+
+/** Rebuild GROUPS + family combo from (GM, Δ) pairs; empty → all endNote (no sounding). */
+[[nodiscard]] inline auto comboFromPairs(const std::vector<int32_t> &pairs)
+    -> std::array<int32_t, comboLen> {
+    std::array<int32_t, comboLen> combo{};
+    combo.fill(endNote);
+
+    std::array<int32_t, numFamilies> familyBits{};
+    for (const int32_t key: pairs) {
+        const int32_t gm = unpackProgram(key);
+        const int32_t delta = unpackDelta(key);
+        if (delta < -1 || delta > 1)
+            continue;
+        const auto loc = familyInstrIndexForGm(gm);
+        if (! loc.has_value())
+            continue;
+        const int32_t familyIdx = loc->first;
+        const int32_t instrIdx = loc->second;
+        familyBits[static_cast<size_t>(familyIdx)] |= (1 << iodBit(instrIdx, delta));
+    }
+
+    int32_t groupsMask = 0;
+    for (int32_t f = 0; f < numFamilies; ++f) {
+        if (familyBits[static_cast<size_t>(f)] != 0)
+            groupsMask |= (1 << f);
+    }
+    if (groupsMask == 0)
+        return combo;
+
+    combo[0] = groupsTokenForMask(groupsMask);
+    int32_t write = 1;
+    for (int32_t f = 0; f < numFamilies; ++f) {
+        if ((groupsMask & (1 << f)) == 0)
+            continue;
+        const auto &family = familySpecs[static_cast<size_t>(f)];
+        combo[static_cast<size_t>(write++)] =
+            familyTokenForMask(family, familyBits[static_cast<size_t>(f)]);
+    }
+    return combo;
 }
 
 } // namespace IodPretrainedTypes

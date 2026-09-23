@@ -12,11 +12,6 @@ auto OrchestrationDebugView::applyTo(WorkspaceCanvas &canvas) -> void {
                               UiConstants::workspaceOrchestrationDebugMidiY,
                               UiConstants::workspaceOrchestrationDebugRollWidth,
                               UiConstants::workspaceOrchestrationDebugRollHeight});
-    canvas.placeWidgetOfType(UiConstants::workspaceWidgetTypeOrchestrationConditioningPianoRoll,
-                             {UiConstants::workspaceOrchestrationDebugConditioningX,
-                              UiConstants::workspaceOrchestrationDebugConditioningY,
-                              UiConstants::workspaceOrchestrationDebugRollWidth,
-                              UiConstants::workspaceOrchestrationDebugRollHeight});
     canvas.placeWidgetOfType(UiConstants::workspaceWidgetTypeOrchestrationReductionPianoRoll,
                              {UiConstants::workspaceOrchestrationDebugReductionX,
                               UiConstants::workspaceOrchestrationDebugReductionY,
@@ -37,11 +32,16 @@ auto OrchestrationDebugView::applyTo(WorkspaceCanvas &canvas) -> void {
                               UiConstants::workspaceOrchestrationDebugModeY,
                               UiConstants::workspaceOrchestrationDebugModeWidth,
                               UiConstants::workspaceOrchestrationDebugModeHeight});
-    canvas.placeWidgetOfType(UiConstants::workspaceWidgetTypeInstrumentLogits,
-                             {UiConstants::workspaceOrchestrationDebugInstrumentLogitsX,
-                              UiConstants::workspaceOrchestrationDebugInstrumentLogitsY,
-                              UiConstants::workspaceOrchestrationDebugInstrumentLogitsWidth,
-                              UiConstants::workspaceOrchestrationDebugInstrumentLogitsHeight});
+    canvas.placeWidgetOfType(UiConstants::workspaceWidgetTypeDurationLogits,
+                             {UiConstants::workspaceOrchestrationDebugDurationLogitsX,
+                              UiConstants::workspaceOrchestrationDebugDurationLogitsY,
+                              UiConstants::workspaceOrchestrationDebugDurationLogitsWidth,
+                              UiConstants::workspaceOrchestrationDebugDurationLogitsHeight});
+    canvas.placeWidgetOfType(UiConstants::workspaceWidgetTypeOctaveDelta,
+                             {UiConstants::workspaceOrchestrationDebugOctaveDeltaX,
+                              UiConstants::workspaceOrchestrationDebugOctaveDeltaY,
+                              UiConstants::workspaceOrchestrationDebugOctaveDeltaWidth,
+                              UiConstants::workspaceOrchestrationDebugOctaveDeltaHeight});
     canvas.placeWidgetOfType(UiConstants::workspaceWidgetTypeReductionTau,
                              {UiConstants::workspaceOrchestrationDebugReductionTauX,
                               UiConstants::workspaceOrchestrationDebugReductionTauY,

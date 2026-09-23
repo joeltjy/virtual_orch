@@ -31,10 +31,11 @@ inline constexpr size_t VelocityOffset = NoteOffset + DenseConfig::MaxNote; // 1
 inline constexpr size_t VocabSize = VelocityOffset + DenseConfig::MaxVelocity; // 11768
 } // namespace DenseVocab
 
-/** MAESTRO v8 grids: duration 5 cs, velocity ÷8, pitches A0–C8 (masks in V2). */
+/** MAESTRO v8 grids: duration 5 cs steps in [DurationMinCs, 995], velocity ÷8, pitches A0–C8. */
 namespace DenseQuantize {
 inline constexpr int32_t DurationStepCs = 5;
-inline constexpr int32_t DurationMinCs = 5;
+/** Sampling + snap floor (was 5; raised to curb live short-duration collapse). */
+inline constexpr int32_t DurationMinCs = 10;
 inline constexpr int32_t DurationMaxCs = 995;
 inline constexpr int32_t VelocityStep = 8;
 inline constexpr int32_t VelocityMin = 0;
@@ -145,9 +146,10 @@ namespace DenseSampling {
 inline constexpr float OnsetTopP = 0.98f;
 inline constexpr float OnsetTemperature = 0.5f;
 inline constexpr float DurationTopP = 0.98f;
-inline constexpr float DurationTemperature = 1.0f; // V1 default
-/** V2 default: same temperature on duration as onset/note/velocity. */
-inline constexpr float V2DurationTemperature = 0.5f;
+/** Duration field temperature (V1 and V2). */
+inline constexpr float DurationTemperature = 1.0f;
+/** Alias kept for V2 call sites; same as DurationTemperature. */
+inline constexpr float V2DurationTemperature = DurationTemperature;
 inline constexpr float NoteTopP = 0.98f;
 inline constexpr float NoteTemperature = 0.5f;
 inline constexpr float VelocityTopP = 0.98f;
@@ -155,6 +157,50 @@ inline constexpr float VelocityTemperature = 0.5f;
 
 /** Notes of reduction history fed to the dense ONNX (4 tokens each → 160 ids). */
 inline constexpr int32_t ContextNotes = 40;
+
+/**
+ * True when `durToken` is still the MIDI provisional hold duration (`inputDuration`
+ * cs), before note-off resolves it. Snapped to the dense duration grid.
+ */
+[[nodiscard]] inline auto isProvisionalDurationToken(int32_t durToken, int32_t provisionalCs)
+    -> bool {
+    const int32_t cs = DenseQuantize::snapDurationCs(
+        durToken - static_cast<int32_t>(DenseVocab::DurOffset));
+    return cs == DenseQuantize::snapDurationCs(provisionalCs);
+}
+
+/**
+ * Copy up to `maxNotes` trailing dense events from `inputData`, skipping notes whose
+ * duration is still the provisional `inputDuration`. Events stay in onset order.
+ */
+[[nodiscard]] inline auto copyDenseContextSkippingProvisional(
+    const std::vector<int32_t> &inputData,
+    int32_t maxNotes,
+    int32_t provisionalCs,
+    int eventWidth = 4) -> std::vector<int32_t> {
+    std::vector<int32_t> out;
+    if (eventWidth < 2 || inputData.size() < static_cast<size_t>(eventWidth) || maxNotes <= 0)
+        return out;
+
+    std::vector<size_t> keepStarts;
+    keepStarts.reserve(static_cast<size_t>(maxNotes));
+    for (size_t i = 0; i + static_cast<size_t>(eventWidth) - 1 < inputData.size();
+         i += static_cast<size_t>(eventWidth)) {
+        if (isProvisionalDurationToken(inputData[i + 1], provisionalCs))
+            continue;
+        keepStarts.push_back(i);
+    }
+    if (static_cast<int32_t>(keepStarts.size()) > maxNotes)
+        keepStarts.erase(keepStarts.begin(),
+                         keepStarts.end() - static_cast<std::ptrdiff_t>(maxNotes));
+
+    out.reserve(keepStarts.size() * static_cast<size_t>(eventWidth));
+    for (const size_t start: keepStarts) {
+        for (int k = 0; k < eventWidth; ++k)
+            out.push_back(inputData[start + static_cast<size_t>(k)]);
+    }
+    return out;
+}
 
 /** Notes of history the duration ceiling percentile is taken over (V1). */
 inline constexpr int32_t CeilingRecentNotes = 15;

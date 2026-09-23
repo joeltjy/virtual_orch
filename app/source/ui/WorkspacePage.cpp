@@ -277,6 +277,17 @@ auto WorkspacePage::loadSelectedView() -> void {
     if (canvas.getWidgetCount() == 0)
         canvas.addPromptWidget();
 
+    // Built-in OrchestrationDebug template always includes Vocsep Output; inject if a
+    // persisted layout omitted it.
+    if (name == UiConstants::workspaceOrchestrationDebugViewName
+        && ! canvas.hasWidgetOfType(UiConstants::workspaceWidgetTypeVocsepOutput)) {
+        canvas.placeWidgetOfType(UiConstants::workspaceWidgetTypeVocsepOutput,
+                                 {UiConstants::workspaceOrchestrationDebugVocsepOutputX,
+                                  UiConstants::workspaceOrchestrationDebugVocsepOutputY,
+                                  UiConstants::workspaceOrchestrationDebugRollWidth,
+                                  UiConstants::workspaceOrchestrationDebugVocsepOutputHeight});
+    }
+
     currentViewName = name;
     saveButton.setEnabled(true);
     clearDirty();

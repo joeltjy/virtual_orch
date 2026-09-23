@@ -92,6 +92,11 @@ auto PresetStore::buildPresetJson(const juce::String &modelName) const -> juce::
         if (orchName.isNotEmpty())
             presetJson.getDynamicObject()->setProperty("orchestrationModel", orchName);
     }
+    if (orchestrationModeProvider) {
+        const auto mode = orchestrationModeProvider();
+        if (mode.isNotEmpty())
+            presetJson.getDynamicObject()->setProperty("orchestrationMode", mode);
+    }
     if (reductionTypeProvider) {
         const auto reduction = reductionTypeProvider();
         if (reduction.isNotEmpty())

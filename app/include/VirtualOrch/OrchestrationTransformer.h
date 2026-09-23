@@ -12,6 +12,7 @@
 #include "Fifo.h"
 #include "VirtualOrch/InstrumentLogitSnapshot.h"
 #include "VirtualOrch/MusicTransformer.h"
+#include "VirtualOrch/OctaveDeltaTracker.h"
 #include "VirtualOrch/OrchestrationBalanceTracker.h"
 #include "VirtualOrch/OrchLoopProfile.h"
 #include "VirtualOrch/orchestration-models/OrchestrationModel.h"
@@ -115,9 +116,14 @@ public:
 
     OrchestrationBalanceTracker userBalance;
     OrchestrationBalanceTracker modelBalance;
+    OctaveDeltaTracker octaveDeltaTracker;
 
     /** Latest post-bias singleton logits (model stream preferred in Edit). */
     [[nodiscard]] auto getInstrumentLogitSnapshot() const -> InstrumentLogitSnapshot;
+
+    [[nodiscard]] auto getOctaveDeltaSnapshot() const -> OctaveDeltaSnapshot {
+        return octaveDeltaTracker.snapshot();
+    }
 
     /** Most recent threadRun iteration duration in milliseconds. */
     [[nodiscard]] auto getLastThreadLoopMs() const -> float {
@@ -163,7 +169,7 @@ public:
     [[nodiscard]] auto getDebugSnapshotSince(int32_t cutoffCs) const -> OrchestrationDebugSnapshot;
 
 private:
-    juce::Atomic<int> modeStorage{static_cast<int>(OrchestrationMode::Edit)};
+    juce::Atomic<int> modeStorage{static_cast<int>(OrchestrationMode::Jam)};
     std::atomic<float> lastThreadLoopMs{0.0f};
 
     mutable juce::CriticalSection orchProfileLock;

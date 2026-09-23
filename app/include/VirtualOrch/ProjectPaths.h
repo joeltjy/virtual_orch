@@ -98,20 +98,29 @@ struct ModelCheckpoint {
                 const auto name = json.getFileNameWithoutExtension();
                 if (seenNames.contains(name))
                     continue;
+                const auto parsed = juce::JSON::parse(json.loadFileAsString());
+                if (parsed.isVoid())
+                    continue;
+
+                // Optional JSON "onnx" overrides basename (e.g. vocsep_reduction_best → vocsep.onnx).
+                juce::String onnxStem = name;
+                const auto onnxProp = parsed.getProperty("onnx", {}).toString().trim();
+                if (onnxProp.isNotEmpty())
+                    onnxStem = onnxProp.endsWithIgnoreCase(".onnx")
+                                   ? onnxProp.dropLastCharacters(5)
+                                   : onnxProp;
+
                 juce::File onnx;
                 for (const auto &exportDir: exportDirs) {
                     if (! exportDir.isDirectory())
                         continue;
-                    const auto candidate = exportDir.getChildFile(name + ".onnx");
+                    const auto candidate = exportDir.getChildFile(onnxStem + ".onnx");
                     if (candidate.existsAsFile()) {
                         onnx = candidate;
                         break;
                     }
                 }
                 if (! onnx.existsAsFile())
-                    continue;
-                const auto parsed = juce::JSON::parse(json.loadFileAsString());
-                if (parsed.isVoid())
                     continue;
                 seenNames.add(name);
                 result.push_back(ModelCheckpoint{

@@ -63,6 +63,8 @@ public:
     /** Create + place a widget; bounds are in design-space pixels. */
     auto placeWidgetOfType(const juce::String &type, juce::Rectangle<int> designBounds) -> void;
 
+    [[nodiscard]] auto hasWidgetOfType(const juce::String &type) const -> bool;
+
     /** Prompt + Generation + Transport widgets for Default view. */
     auto addDefaultWidgets() -> void;
 

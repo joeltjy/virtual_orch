@@ -229,12 +229,14 @@ auto OrchestrationTransformer::getEditOrchestrationOutput(
         const auto userBias = userBalance.makeBiasView(applyBias, nowMs);
         InstrumentLogitSnapshot logitScratch;
         orchestrationModel->instrumentLogitSink = &logitScratch;
+        orchestrationModel->octaveDeltaSink = &octaveDeltaTracker;
         userNotes = orchestrationModel->getOutput(midiInput,
                                                   userInstruments,
                                                   signal,
                                                   &userBalance,
                                                   &userBias);
         orchestrationModel->instrumentLogitSink = nullptr;
+        orchestrationModel->octaveDeltaSink = nullptr;
         if (snapshotHasValidLogit(logitScratch))
             publishInstrumentLogits(std::move(logitScratch));
     }
@@ -244,12 +246,14 @@ auto OrchestrationTransformer::getEditOrchestrationOutput(
         const auto modelBias = modelBalance.makeBiasView(applyBias, nowMs);
         InstrumentLogitSnapshot logitScratch;
         orchestrationModel->instrumentLogitSink = &logitScratch;
+        orchestrationModel->octaveDeltaSink = &octaveDeltaTracker;
         modelNotes = orchestrationModel->getOutput(reductionInput,
                                                    modelInstruments,
                                                    signal,
                                                    &modelBalance,
                                                    &modelBias);
         orchestrationModel->instrumentLogitSink = nullptr;
+        orchestrationModel->octaveDeltaSink = nullptr;
         // Prefer model stream for the bar chart when both run.
         if (snapshotHasValidLogit(logitScratch))
             publishInstrumentLogits(std::move(logitScratch));
@@ -285,12 +289,14 @@ auto OrchestrationTransformer::getJamOrchestrationOutput(
                                                                       nowMs);
     InstrumentLogitSnapshot logitScratch;
     orchestrationModel->instrumentLogitSink = &logitScratch;
+    orchestrationModel->octaveDeltaSink = &octaveDeltaTracker;
     auto notes = orchestrationModel->getOutput(orchestrationInput,
                                                orchestrationInstruments,
                                                signal,
                                                &counts,
                                                &jamBias);
     orchestrationModel->instrumentLogitSink = nullptr;
+    orchestrationModel->octaveDeltaSink = nullptr;
     if (snapshotHasValidLogit(logitScratch))
         publishInstrumentLogits(std::move(logitScratch));
     return notes;
@@ -347,6 +353,7 @@ void OrchestrationTransformer::threadRun() {
         rebuildInstrumentsFromPads();
     userBalance.reset();
     modelBalance.reset();
+    octaveDeltaTracker.reset();
     {
         const juce::ScopedLock lock(instrumentsLock);
         userBalance.syncActive(userInstruments);

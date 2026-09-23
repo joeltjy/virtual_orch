@@ -149,6 +149,7 @@ void MusicTransformer::threadRun() {
             notifyInputDataChanged();
 
             currentTime = newToken.time;
+            logGeneratedTokenIfResumed(newToken.time);
 
             if (inputApplied) {
                 const Token clearToken{Vocab::TimeOffset, Vocab::DurOffset, Vocab::ClearQueue};

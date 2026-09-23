@@ -1,9 +1,11 @@
 #include "VirtualOrch/reduction/ReductionTransformer.h"
 
 #include "VirtualOrch/NoteWindow.h"
+#include "VirtualOrch/reduction/DenseTypes.h"
 #include "VirtualOrch/vocsep/VoiceSeparation.h"
 
 #include <algorithm>
+#include <cmath>
 
 ReductionTransformer::ReductionTransformer(const juce::String &threadName, ModelConfig &modelConfigIn)
     : Thread(threadName),
@@ -29,8 +31,34 @@ auto ReductionTransformer::notifyPausedChanged() -> void {
 auto ReductionTransformer::setGenerationPause(bool paused) -> void {
     if (generationPause.get() == paused)
         return;
+    const bool wasPaused = generationPause.get();
     generationPause.set(paused);
+    const int32_t clockCs =
+        clock != nullptr ? static_cast<int32_t>(clock->getTime()) : -1;
+    juce::Logger::writeToLog(
+        "[rt] generationPause " + juce::String(wasPaused ? "true" : "false") + " -> "
+        + juce::String(paused ? "true" : "false") + " clockCs=" + juce::String(clockCs)
+        + " overflow=" + juce::String(overflowPause.get() ? "true" : "false")
+        + " stopped="
+        + juce::String(isGenerationStopped() ? "true" : "false")
+        + " reason="
+        + juce::String(generationPause.get() ? "generationPause"
+                      : (overflowPause.get() ? "overflowPause" : "none")));
+    if (wasPaused && ! paused)
+        logFirstTokenAfterResume.store(true, std::memory_order_relaxed);
     notifyPausedChanged();
+}
+
+auto ReductionTransformer::logGeneratedTokenIfResumed(int32_t onset) -> void {
+    if (! logFirstTokenAfterResume.exchange(false, std::memory_order_relaxed))
+        return;
+    const int32_t clockCs =
+        clock != nullptr ? static_cast<int32_t>(clock->getTime()) : -1;
+    juce::Logger::writeToLog(
+        "[rt] firstTokenAfterResume onset=" + juce::String(onset)
+        + " currentTime=" + juce::String(currentTime)
+        + " clockCs=" + juce::String(clockCs)
+        + " deltaOnsetMinusClock=" + juce::String(onset - clockCs));
 }
 
 auto ReductionTransformer::startAheadThrottle() -> void {
@@ -42,6 +70,12 @@ auto ReductionTransformer::startAheadThrottle() -> void {
         return;
     overflowPause.set(true);
     aheadThrottleUntilMs = juce::Time::getMillisecondCounter() + sleepMs;
+    const int32_t clockCs =
+        clock != nullptr ? static_cast<int32_t>(clock->getTime()) : -1;
+    juce::Logger::writeToLog(
+        "[rt] overflowPause start throttleMs=" + juce::String(static_cast<int>(sleepMs))
+        + " clockCs=" + juce::String(clockCs)
+        + " currentTime=" + juce::String(currentTime));
 }
 
 auto ReductionTransformer::finishAheadThrottleIfDue() -> void {
@@ -53,9 +87,20 @@ auto ReductionTransformer::finishAheadThrottleIfDue() -> void {
 }
 
 auto ReductionTransformer::resetAheadThrottle() -> void {
+    const bool wasOverflow = overflowPause.get();
     aheadThrottleUntilMs = 0;
     overflowPause.set(false);
     wasGenerationPaused = generationPause.get();
+    if (wasOverflow) {
+        const int32_t clockCs =
+            clock != nullptr ? static_cast<int32_t>(clock->getTime()) : -1;
+        juce::Logger::writeToLog(
+            "[rt] overflowPause end clockCs=" + juce::String(clockCs)
+            + " generationPause="
+            + juce::String(generationPause.get() ? "true" : "false")
+            + " stopped="
+            + juce::String(isGenerationStopped() ? "true" : "false"));
+    }
 }
 
 auto ReductionTransformer::maybeEmitGenerationPauseSoftStopClear() -> void {
@@ -173,4 +218,31 @@ auto ReductionTransformer::publishBusyReductionProfile(ReductionLoopStepMs step)
 auto ReductionTransformer::getLastReductionProfile() const -> ReductionLoopProfile {
     const juce::ScopedLock lock(reductionProfileLock);
     return reductionProfile;
+}
+
+auto ReductionTransformer::getDurationLogitSnapshot() const -> DurationLogitSnapshot {
+    const juce::ScopedLock lock(durationLogitLock);
+    return durationLogitSnapshot;
+}
+
+auto ReductionTransformer::publishDurationLogits(const std::vector<float> &scores,
+                                                 int32_t sampledDurToken) -> void {
+    using namespace DenseVocab;
+    if (scores.size() < NoteOffset)
+        return;
+
+    DurationLogitSnapshot snap;
+    for (size_t cs = 0; cs < DurationLogitSnapshot::kNumBins; ++cs) {
+        const float v = scores[DurOffset + cs];
+        const bool ok = std::isfinite(v);
+        snap.valid[cs] = ok;
+        snap.logits[cs] = ok ? v : 0.0f;
+    }
+    if (sampledDurToken >= static_cast<int32_t>(DurOffset)
+        && sampledDurToken < static_cast<int32_t>(NoteOffset))
+        snap.sampledCs = sampledDurToken - static_cast<int32_t>(DurOffset);
+
+    const juce::ScopedLock lock(durationLogitLock);
+    snap.sequence = durationLogitSnapshot.sequence + 1;
+    durationLogitSnapshot = snap;
 }

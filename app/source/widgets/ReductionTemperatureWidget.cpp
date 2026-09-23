@@ -1,6 +1,7 @@
 #include "VirtualOrch/widgets/ReductionTemperatureWidget.h"
 
 #include "VirtualOrch/AppSession.h"
+#include "VirtualOrch/orchestration-models/IodPretrained.h"
 #include "VirtualOrch/ui/UiConstants.h"
 
 namespace {
@@ -8,6 +9,10 @@ namespace {
 constexpr double kTempMin = 0.05;
 constexpr double kTempMax = 2.0;
 constexpr double kTempStep = 0.05;
+
+constexpr double kPropMin = 0.0;
+constexpr double kPropMax = 1.0;
+constexpr double kPropStep = 0.05;
 
 auto configureTempSlider(juce::Slider &slider, juce::Label &label, const juce::String &name)
     -> void {
@@ -18,6 +23,18 @@ auto configureTempSlider(juce::Slider &slider, juce::Label &label, const juce::S
     slider.setSliderStyle(juce::Slider::LinearHorizontal);
     slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 48, 20);
     slider.setRange(kTempMin, kTempMax, kTempStep);
+    slider.setNumDecimalPlacesToDisplay(2);
+}
+
+auto configurePropSlider(juce::Slider &slider, juce::Label &label, const juce::String &name)
+    -> void {
+    label.setText(name, juce::dontSendNotification);
+    label.setJustificationType(juce::Justification::centredLeft);
+    label.setColour(juce::Label::textColourId, UiConstants::workspaceWidgetTitleTextColour);
+
+    slider.setSliderStyle(juce::Slider::LinearHorizontal);
+    slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 48, 20);
+    slider.setRange(kPropMin, kPropMax, kPropStep);
     slider.setNumDecimalPlacesToDisplay(2);
 }
 
@@ -39,6 +56,15 @@ ReductionTemperatureWidget::ReductionTemperatureWidget(AppSession &sessionIn)
     configureTempSlider(durationSlider, durationLabel, "Duration");
     configureTempSlider(noteSlider, noteLabel, "Note");
     configureTempSlider(velocitySlider, velocityLabel, "Velocity");
+    configurePropSlider(addPSlider, addPLabel, "Add P");
+    configurePropSlider(removePSlider, removePLabel, "Remove P");
+
+    ensembleToggle.setButtonText("IOD Voice Ensemble");
+    ensembleToggle.setColour(juce::ToggleButton::textColourId,
+                             UiConstants::workspaceWidgetTitleTextColour);
+    ensembleToggle.setTooltip(
+        "Uses RT vocsep voiceId to copy prior same-voice instrument×Δ (B). "
+        "Requires vocsep.onnx loaded — does not enable voice separation itself.");
 
     auto &host = getContentComponent();
     for (juce::Component *c: {static_cast<juce::Component *>(&onsetLabel),
@@ -48,11 +74,19 @@ ReductionTemperatureWidget::ReductionTemperatureWidget(AppSession &sessionIn)
                               static_cast<juce::Component *>(&onsetSlider),
                               static_cast<juce::Component *>(&durationSlider),
                               static_cast<juce::Component *>(&noteSlider),
-                              static_cast<juce::Component *>(&velocitySlider)}) {
+                              static_cast<juce::Component *>(&velocitySlider),
+                              static_cast<juce::Component *>(&ensembleToggle),
+                              static_cast<juce::Component *>(&addPLabel),
+                              static_cast<juce::Component *>(&removePLabel),
+                              static_cast<juce::Component *>(&addPSlider),
+                              static_cast<juce::Component *>(&removePSlider)}) {
         host.addAndMakeVisible(c);
     }
 
     syncSlidersFromSession();
+    syncEnsembleFromSettings();
+    pushEnsembleToModel();
+    updateEnsembleVisibility();
 
     auto pushTemps = [this] {
         const auto onset = static_cast<float>(onsetSlider.getValue());
@@ -66,6 +100,57 @@ ReductionTemperatureWidget::ReductionTemperatureWidget(AppSession &sessionIn)
     durationSlider.onValueChange = pushTemps;
     noteSlider.onValueChange = pushTemps;
     velocitySlider.onValueChange = pushTemps;
+
+    auto persistAndPushEnsemble = [this] {
+        auto orch = session.presetStore.settings.getOrCreateChildWithName("orchestration", nullptr);
+        orch.setProperty("vocsepEnsemble", ensembleToggle.getToggleState(), nullptr);
+        orch.setProperty("vocsepEnsembleAddP", addPSlider.getValue(), nullptr);
+        orch.setProperty("vocsepEnsembleRemoveP", removePSlider.getValue(), nullptr);
+        session.presetStore.saveSettings();
+        pushEnsembleToModel();
+        updateEnsembleVisibility();
+        resized();
+    };
+    ensembleToggle.onClick = persistAndPushEnsemble;
+    addPSlider.onValueChange = persistAndPushEnsemble;
+    removePSlider.onValueChange = persistAndPushEnsemble;
+}
+
+auto ReductionTemperatureWidget::iodModel() -> IodPretrained * {
+    return dynamic_cast<IodPretrained *>(session.orchestrationModel.get());
+}
+
+auto ReductionTemperatureWidget::syncEnsembleFromSettings() -> void {
+    auto orch = session.presetStore.settings.getOrCreateChildWithName("orchestration", nullptr);
+    const bool enabled = orch.hasProperty("vocsepEnsemble")
+                             ? static_cast<bool>(orch.getProperty("vocsepEnsemble"))
+                             : false;
+    const double addP = orch.hasProperty("vocsepEnsembleAddP")
+                            ? static_cast<double>(orch.getProperty("vocsepEnsembleAddP"))
+                            : static_cast<double>(IodPretrainedTypes::ensembleAddPDefault);
+    const double removeP = orch.hasProperty("vocsepEnsembleRemoveP")
+                               ? static_cast<double>(orch.getProperty("vocsepEnsembleRemoveP"))
+                               : static_cast<double>(IodPretrainedTypes::ensembleRemovePDefault);
+
+    ensembleToggle.setToggleState(enabled, juce::dontSendNotification);
+    addPSlider.setValue(addP, juce::dontSendNotification);
+    removePSlider.setValue(removeP, juce::dontSendNotification);
+}
+
+auto ReductionTemperatureWidget::pushEnsembleToModel() -> void {
+    if (auto *iod = iodModel()) {
+        iod->setEnsembleEnabled(ensembleToggle.getToggleState());
+        iod->setEnsembleAddP(static_cast<float>(addPSlider.getValue()));
+        iod->setEnsembleRemoveP(static_cast<float>(removePSlider.getValue()));
+    }
+}
+
+auto ReductionTemperatureWidget::updateEnsembleVisibility() -> void {
+    const bool on = ensembleToggle.getToggleState();
+    addPLabel.setVisible(on);
+    removePLabel.setVisible(on);
+    addPSlider.setVisible(on);
+    removePSlider.setVisible(on);
 }
 
 auto ReductionTemperatureWidget::syncSlidersFromSession() -> void {
@@ -105,4 +190,13 @@ auto ReductionTemperatureWidget::resized() -> void {
     placeRow(durationLabel, durationSlider);
     placeRow(noteLabel, noteSlider);
     placeRow(velocityLabel, velocitySlider);
+
+    auto toggleRow = area.removeFromTop(rowH);
+    ensembleToggle.setBounds(toggleRow);
+    area.removeFromTop(gap);
+
+    if (ensembleToggle.getToggleState()) {
+        placeRow(addPLabel, addPSlider);
+        placeRow(removePLabel, removePSlider);
+    }
 }

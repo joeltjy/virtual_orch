@@ -41,6 +41,11 @@ public:
         orchestrationModelNameProvider = std::move(provider);
     }
 
+    /** Returns "edit" or "jam". */
+    auto setOrchestrationModeProvider(std::function<juce::String()> provider) -> void {
+        orchestrationModeProvider = std::move(provider);
+    }
+
     /** Returns "amt", "v1", or "v2" for the Reduction dropdown. */
     auto setReductionTypeProvider(std::function<juce::String()> provider) -> void {
         reductionTypeProvider = std::move(provider);
@@ -58,6 +63,7 @@ private:
 
     std::function<juce::String()> modelNameProvider;
     std::function<juce::String()> orchestrationModelNameProvider;
+    std::function<juce::String()> orchestrationModeProvider;
     std::function<juce::String()> reductionTypeProvider;
     std::function<void(const juce::String &)> onPresetSaved;
 

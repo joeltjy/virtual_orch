@@ -1,5 +1,6 @@
 #include "VirtualOrch/orchestration-models/IodPretrained.h"
 
+#include "VirtualOrch/MusicToken.h"
 #include "VirtualOrch/NoteWindow.h"
 #include "VirtualOrch/OrtEnv.h"
 #include "VirtualOrch/OrchLoopProfile.h"
@@ -12,6 +13,8 @@
 namespace {
 
 constexpr float kNegInf = -std::numeric_limits<float>::infinity();
+/** Softmax temperature for all IOD combo AR steps (GROUPS + family). */
+constexpr float kComboSampleTemperature = 1.0f;
 
 auto findNameIndex(const std::vector<std::string> &names, const char *want) -> int {
     for (size_t i = 0; i < names.size(); ++i) {
@@ -21,29 +24,12 @@ auto findNameIndex(const std::vector<std::string> &names, const char *want) -> i
     return -1;
 }
 
-auto argmaxRange(const float *logits, int32_t lo, int32_t hi) -> int32_t {
-    int32_t best = lo;
-    float bestVal = kNegInf;
-    bool any = false;
-    for (int32_t id = lo; id < hi; ++id) {
-        const float v = logits[id];
-        if (! std::isfinite(v))
-            continue;
-        if (! any || v > bestVal) {
-            bestVal = v;
-            best = id;
-            any = true;
-        }
-    }
-    return best;
-}
-
-auto greedySampleRange(const float *vocabLogits,
-                       int32_t lo,
-                       int32_t hi,
-                       int32_t forbidBits,
-                       int32_t forbidGroupsFamilies,
-                       bool excludeZero) -> int32_t {
+auto sampleRange(const float *vocabLogits,
+                 int32_t lo,
+                 int32_t hi,
+                 int32_t forbidBits,
+                 int32_t forbidGroupsFamilies,
+                 bool excludeZero) -> int32_t {
     const int32_t start = excludeZero ? lo + 1 : lo;
     std::vector<float> local(static_cast<size_t>(hi - start), kNegInf);
     bool any = false;
@@ -71,7 +57,8 @@ auto greedySampleRange(const float *vocabLogits,
         }
         return start < hi ? start : lo;
     }
-    return start + argmaxRange(local.data(), 0, static_cast<int32_t>(local.size()));
+    const int32_t localIdx = sampleTopP(local, /*p*/ 1.0f, kComboSampleTemperature);
+    return start + localIdx;
 }
 
 auto logitsIndex(int32_t noteIdx, int32_t step) -> size_t {
@@ -230,7 +217,8 @@ auto IodPretrained::runLogits(IodPretrainedTypes::EncoderWindow &window) -> std:
 
 auto IodPretrained::sampleComboForNote(IodPretrainedTypes::EncoderWindow &window,
                                        int32_t noteIdx,
-                                       const std::vector<int32_t> &instruments)
+                                       const std::vector<int32_t> &instruments,
+                                       bool applyGroupsBias)
     -> std::array<int32_t, IodPretrainedTypes::comboLen> {
     using namespace IodPretrainedTypes;
 
@@ -251,12 +239,18 @@ auto IodPretrained::sampleComboForNote(IodPretrainedTypes::EncoderWindow &window
         auto logits = runLogits(window);
         if (logits.size() < logitsIndex(noteIdx, 0) + static_cast<size_t>(comboVocabSize))
             return combo;
-        const float *row = logits.data() + logitsIndex(noteIdx, 0);
-        const int32_t groupsTok = greedySampleRange(row, groupsOffset, groupsHi,
-                                                    /*forbidBits*/ 0, forbid.fullyBannedFamilyBits,
-                                                    /*excludeZero*/ false);
+        float *row = logits.data() + logitsIndex(noteIdx, 0);
+        if (applyGroupsBias && ! recentGroupsMasks.empty()) {
+            const std::vector<int32_t> masks(recentGroupsMasks.begin(), recentGroupsMasks.end());
+            applyGroupsTokenLogitsBias(row, static_cast<size_t>(comboVocabSize), masks.data(),
+                                       masks.size());
+        }
+        const int32_t groupsTok = sampleRange(row, groupsOffset, groupsHi,
+                                              /*forbidBits*/ 0, forbid.fullyBannedFamilyBits,
+                                              /*excludeZero*/ false);
         combo[0] = groupsTok;
         window.comboIn[static_cast<size_t>(noteIdx)][1] = groupsTok;
+        recordGroupsMask(maskFromGroupsToken(groupsTok));
     }
 
     const int32_t groupsMask = maskFromGroupsToken(combo[0]);
@@ -276,10 +270,10 @@ auto IodPretrained::sampleComboForNote(IodPretrainedTypes::EncoderWindow &window
         const auto &family = familySpecs[static_cast<size_t>(familyIdx)];
         const float *row = logits.data() + logitsIndex(noteIdx, step);
         const int32_t famTok =
-            greedySampleRange(row, family.tokenOffset, family.tokenOffset + family.tokenSize,
-                              forbid.familyForbid[static_cast<size_t>(familyIdx)],
-                              /*forbidGroupsFamilies*/ 0,
-                              /*excludeZero*/ true);
+            sampleRange(row, family.tokenOffset, family.tokenOffset + family.tokenSize,
+                        forbid.familyForbid[static_cast<size_t>(familyIdx)],
+                        /*forbidGroupsFamilies*/ 0,
+                        /*excludeZero*/ true);
         combo[static_cast<size_t>(comboWrite++)] = famTok;
         if (step + 1 < comboLen)
             window.comboIn[static_cast<size_t>(noteIdx)][static_cast<size_t>(step + 1)] = famTok;
@@ -296,13 +290,172 @@ auto IodPretrained::sampleComboForNote(IodPretrainedTypes::EncoderWindow &window
     return combo;
 }
 
+auto IodPretrained::recordGroupsMask(int32_t groupsMask) -> void {
+    using namespace IodPretrainedTypes;
+    if (groupsMask < 1 || groupsMask > groupsSize)
+        return;
+    recentGroupsMasks.push_back(groupsMask);
+    while (static_cast<int32_t>(recentGroupsMasks.size()) > groupsBiasWindowNotes)
+        recentGroupsMasks.pop_front();
+}
+
+auto IodPretrained::clearStream() -> void {
+    noteStream.clear();
+    recentGroupsMasks.clear();
+}
+
+auto IodPretrained::clearStreamIfGapBefore(int32_t nextOnset) -> void {
+    using namespace IodPretrainedTypes;
+    if (noteStream.empty())
+        return;
+    const int32_t lastOnset = noteStream.back().token.time;
+    if (nextOnset - lastOnset > historyGapClearCs)
+        clearStream();
+}
+
+auto IodPretrained::appendIncoming(const std::vector<Token> &incoming) -> size_t {
+    using namespace IodPretrainedTypes;
+    size_t newBegin = noteStream.size();
+    for (const auto &token: incoming) {
+        if (token.note == static_cast<int32_t>(Vocab::ClearQueue)
+            || token.note == static_cast<int32_t>(Vocab::Rest)
+            || token.note == static_cast<int32_t>(Vocab::BarSeparator))
+            continue;
+        if (token.note < static_cast<int32_t>(Vocab::NoteOffset)
+            || token.note >= static_cast<int32_t>(Vocab::Rest))
+            continue;
+        if (! noteStream.empty())
+            clearStreamIfGapBefore(token.time);
+        if (noteStream.empty())
+            newBegin = 0;
+        StreamNote rec;
+        rec.token = token;
+        rec.hasCombo = false;
+        rec.comboA.fill(endNote);
+        rec.comboB.fill(endNote);
+        noteStream.push_back(rec);
+    }
+    return newBegin;
+}
+
+auto IodPretrained::trimStreamToEncoderCap(size_t &newBegin) -> void {
+    using namespace IodPretrainedTypes;
+    if (noteStream.size() <= static_cast<size_t>(nNotesMax))
+        return;
+    const size_t drop = noteStream.size() - static_cast<size_t>(nNotesMax);
+    noteStream.erase(noteStream.begin(),
+                     noteStream.begin() + static_cast<std::ptrdiff_t>(drop));
+    if (newBegin >= drop)
+        newBegin -= drop;
+    else
+        newBegin = 0;
+}
+
+auto IodPretrained::writeComboInFromStored(
+    IodPretrainedTypes::EncoderWindow &window,
+    int32_t noteIdx,
+    const std::array<int32_t, IodPretrainedTypes::comboLen> &combo) -> void {
+    using namespace IodPretrainedTypes;
+    window.comboIn[static_cast<size_t>(noteIdx)].fill(bos);
+    for (int32_t s = 0; s < comboLen - 1; ++s)
+        window.comboIn[static_cast<size_t>(noteIdx)][static_cast<size_t>(s + 1)] =
+            combo[static_cast<size_t>(s)];
+}
+
+auto IodPretrained::ensembleComboB(
+    size_t noteIdx,
+    const std::array<int32_t, IodPretrainedTypes::comboLen> &comboA)
+    -> std::array<int32_t, IodPretrainedTypes::comboLen> {
+    using namespace IodPretrainedTypes;
+
+    if (noteIdx >= noteStream.size())
+        return comboA;
+
+    const int32_t voiceId = noteStream[noteIdx].token.voiceId;
+
+    // B0: previous same-voice B, or A if first in voice / no voiceId.
+    std::array<int32_t, comboLen> b0 = comboA;
+    if (voiceId >= 0) {
+        for (size_t i = noteIdx; i-- > 0;) {
+            if (noteStream[i].token.voiceId != voiceId || ! noteStream[i].hasCombo)
+                continue;
+            b0 = noteStream[i].comboB;
+            break;
+        }
+    }
+
+    // Past ≤10 same-voice notes ending at noteIdx (inclusive) for A proportions.
+    std::vector<size_t> sameVoice;
+    sameVoice.reserve(static_cast<size_t>(ensembleHistoryNotes));
+    if (voiceId < 0) {
+        sameVoice.push_back(noteIdx);
+    } else {
+        for (size_t i = 0; i <= noteIdx; ++i) {
+            if (noteStream[i].token.voiceId != voiceId)
+                continue;
+            if (i < noteIdx && ! noteStream[i].hasCombo)
+                continue;
+            sameVoice.push_back(i);
+        }
+    }
+    if (sameVoice.size() > static_cast<size_t>(ensembleHistoryNotes))
+        sameVoice.erase(sameVoice.begin(),
+                        sameVoice.end() - static_cast<std::ptrdiff_t>(ensembleHistoryNotes));
+
+    const float n = static_cast<float>(sameVoice.size());
+    if (n <= 0.0f)
+        return comboA;
+
+    std::vector<int32_t> candidateKeys = pairsFromCombo(b0);
+    for (const size_t idx: sameVoice) {
+        const auto &src = (idx == noteIdx) ? comboA : noteStream[idx].comboA;
+        auto fromA = pairsFromCombo(src);
+        candidateKeys.insert(candidateKeys.end(), fromA.begin(), fromA.end());
+    }
+    std::sort(candidateKeys.begin(), candidateKeys.end());
+    candidateKeys.erase(std::unique(candidateKeys.begin(), candidateKeys.end()),
+                        candidateKeys.end());
+
+    const float addP = ensembleAddP.load();
+    const float removeP = ensembleRemoveP.load();
+    auto b0Pairs = pairsFromCombo(b0);
+    std::sort(b0Pairs.begin(), b0Pairs.end());
+
+    auto containsSorted = [](const std::vector<int32_t> &sorted, int32_t key) -> bool {
+        return std::binary_search(sorted.begin(), sorted.end(), key);
+    };
+
+    std::vector<int32_t> bPairs = b0Pairs;
+    for (const int32_t key: candidateKeys) {
+        int32_t count = 0;
+        for (const size_t idx: sameVoice) {
+            const auto &src = (idx == noteIdx) ? comboA : noteStream[idx].comboA;
+            auto fromA = pairsFromCombo(src);
+            std::sort(fromA.begin(), fromA.end());
+            if (containsSorted(fromA, key))
+                ++count;
+        }
+        const float prop = static_cast<float>(count) / n;
+        const bool inB = containsSorted(bPairs, key);
+        if (prop > addP && ! inB) {
+            bPairs.push_back(key);
+            std::sort(bPairs.begin(), bPairs.end());
+        } else if (prop < removeP && inB) {
+            bPairs.erase(std::remove(bPairs.begin(), bPairs.end(), key), bPairs.end());
+        }
+    }
+
+    return comboFromPairs(bPairs);
+}
+
 auto IodPretrained::sampleWindowCombos(IodPretrainedTypes::EncoderWindow &window,
-                                       const std::vector<int32_t> &instruments)
+                                       const std::vector<int32_t> &instruments,
+                                       bool applyGroupsBias)
     -> std::vector<std::array<int32_t, IodPretrainedTypes::comboLen>> {
     std::vector<std::array<int32_t, IodPretrainedTypes::comboLen>> out;
     out.reserve(static_cast<size_t>(window.nNotes));
     for (int32_t i = 0; i < window.nNotes; ++i)
-        out.push_back(sampleComboForNote(window, i, instruments));
+        out.push_back(sampleComboForNote(window, i, instruments, applyGroupsBias));
     return out;
 }
 
@@ -312,7 +465,7 @@ auto IodPretrained::getOutput(const std::vector<Token> &incomingTokens,
                               OrchestrationBalanceTracker *balance,
                               const OrchestrationBalanceTracker::BiasView *bias)
     -> std::vector<OrchestrationNote> {
-    juce::ignoreUnused(conditioningSignal, bias);
+    juce::ignoreUnused(conditioningSignal);
 
     if (incomingTokens.empty() || session == nullptr)
         return {};
@@ -320,14 +473,31 @@ auto IodPretrained::getOutput(const std::vector<Token> &incomingTokens,
     if (getOutputTimings != nullptr)
         ++getOutputTimings->getOutputCalls;
 
+    const bool applyGroupsBias = bias == nullptr || bias->apply;
+    const bool useEnsemble = ensembleEnabled.load();
+
+    using namespace IodPretrainedTypes;
+
+    size_t newBegin = appendIncoming(incomingTokens);
+    if (noteStream.size() <= newBegin)
+        return {};
+
+    trimStreamToEncoderCap(newBegin);
+
+    std::vector<Token> streamTokens;
+    streamTokens.reserve(noteStream.size());
+    for (const auto &rec: noteStream)
+        streamTokens.push_back(rec.token);
+
     std::vector<OrchestrationNote> result;
 
-    const auto starts = IodPretrainedTypes::encoderWindowStarts(incomingTokens.size());
+    // Single window: last ≤128 notes (encoderWindowStarts is identity when N≤128).
+    const auto starts = encoderWindowStarts(streamTokens.size());
     for (const size_t start: starts) {
-        IodPretrainedTypes::EncoderWindow window;
+        EncoderWindow window;
         {
             const ScopedMs prepMs(getOutputTimings != nullptr ? &getOutputTimings->prep : nullptr);
-            window = IodPretrainedTypes::packEncoderWindow(incomingTokens, start);
+            window = packEncoderWindow(streamTokens, start);
             if (window.nNotes <= 0)
                 continue;
 
@@ -340,33 +510,73 @@ auto IodPretrained::getOutput(const std::vector<Token> &incomingTokens,
                     static_cast<int64_t>(window.onsetCs[static_cast<size_t>(i)] - minOnset);
             }
 
+            // Teacher-force already-decoded combos (effective B) into combo_in.
+            for (int32_t i = 0; i < window.nNotes; ++i) {
+                const size_t global = start + static_cast<size_t>(i);
+                if (global >= noteStream.size())
+                    break;
+                if (noteStream[global].hasCombo)
+                    writeComboInFromStored(window, i, noteStream[global].comboB);
+            }
+
             if (getOutputTimings != nullptr) {
                 getOutputTimings->contextTokens = juce::jmax(
                     getOutputTimings->contextTokens,
-                    window.nNotes * IodPretrainedTypes::noteTokensPerNote);
+                    window.nNotes * noteTokensPerNote);
             }
         }
 
-        std::vector<std::array<int32_t, IodPretrainedTypes::comboLen>> combos;
         {
             const ScopedMs sampleMs(getOutputTimings != nullptr ? &getOutputTimings->sample
                                                                 : nullptr);
-            combos = sampleWindowCombos(window, instruments);
+            for (int32_t i = 0; i < window.nNotes; ++i) {
+                const size_t global = start + static_cast<size_t>(i);
+                if (global >= noteStream.size())
+                    break;
+                if (noteStream[global].hasCombo)
+                    continue;
+                auto comboA = sampleComboForNote(window, i, instruments, applyGroupsBias);
+                noteStream[global].comboA = comboA;
+                if (useEnsemble) {
+                    auto comboB = ensembleComboB(global, comboA);
+                    noteStream[global].comboB = comboB;
+                    // Feed B (not A) into combo_in for subsequent notes in this window.
+                    writeComboInFromStored(window, i, comboB);
+                } else {
+                    noteStream[global].comboB = comboA;
+                }
+                noteStream[global].hasCombo = true;
+            }
         }
 
         {
             const ScopedMs decodeMs(getOutputTimings != nullptr ? &getOutputTimings->decode
                                                                 : nullptr);
-            for (size_t i = 0; i < combos.size(); ++i) {
-                auto notes = IodPretrainedTypes::decodeComboToNotes(
-                    window.onsetCs[i], window.durationToken[i], window.basePitch[i],
-                    window.velocity[i], combos[i]);
+            for (int32_t i = 0; i < window.nNotes; ++i) {
+                const size_t global = start + static_cast<size_t>(i);
+                if (global < newBegin || global >= noteStream.size())
+                    continue;
+                if (! noteStream[global].hasCombo)
+                    continue;
+                const int32_t basePitch = window.basePitch[static_cast<size_t>(i)];
+                auto notes = decodeComboToNotes(
+                    window.onsetCs[static_cast<size_t>(i)],
+                    window.durationToken[static_cast<size_t>(i)],
+                    basePitch,
+                    window.velocity[static_cast<size_t>(i)],
+                    noteStream[global].comboB);
                 if (balance != nullptr && ! notes.empty()) {
                     std::vector<int32_t> ids;
                     ids.reserve(notes.size());
                     for (const auto &n: notes)
                         ids.push_back(n.localInstrumentId);
                     balance->recordNote(ids);
+                }
+                if (octaveDeltaSink != nullptr) {
+                    for (const auto &n: notes) {
+                        const int32_t delta = (n.token.getPitch() - basePitch) / 12;
+                        octaveDeltaSink->record(delta);
+                    }
                 }
                 result.insert(result.end(), notes.begin(), notes.end());
             }

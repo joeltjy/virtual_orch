@@ -107,6 +107,27 @@ inline constexpr int32_t kKeyboardLocalInstrumentId = kPianoLocalId;
  */
 inline constexpr int32_t kReductionPlaybackLocalId = kPianoLocalId;
 
+/** Brass family local ids (trumpet…tuba), contiguous in taxonomy_20. */
+inline constexpr int32_t kBrassLocalIdFirst = 11;
+inline constexpr int32_t kBrassLocalIdLast = 14;
+
+/** Default playback scale for brass (too loud at full reduction velocity). */
+inline constexpr float kBrassVelocityScale = 0.5f;
+
+[[nodiscard]] inline auto isBrassLocalInstrumentId(int32_t localInstrumentId) -> bool {
+    return localInstrumentId >= kBrassLocalIdFirst && localInstrumentId <= kBrassLocalIdLast;
+}
+
+/** Apply default family velocity scales (brass ×0.5). Keeps 0 as 0. */
+[[nodiscard]] inline auto scaleVelocityForInstrument(int32_t localInstrumentId, int32_t velocity)
+    -> int32_t {
+    if (velocity <= 0 || ! isBrassLocalInstrumentId(localInstrumentId))
+        return velocity;
+    const auto scaled =
+        static_cast<int32_t>(static_cast<float>(velocity) * kBrassVelocityScale + 0.5f);
+    return scaled < 1 ? 1 : (scaled > 127 ? 127 : scaled);
+}
+
 [[nodiscard]] inline auto gmIdForLocalInstrumentId(int32_t localInstrumentId) -> std::optional<int32_t> {
     for (const auto &[localId, gmId]: kInstrumentMappings) {
         if (localId == localInstrumentId)

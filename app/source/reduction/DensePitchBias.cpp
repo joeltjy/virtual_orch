@@ -30,33 +30,41 @@ auto resolveNowCs(const std::vector<int32_t> &denseInputData, int32_t nowCs) -> 
     return std::max(nowCs, last);
 }
 
-} // namespace
-
-namespace {
-
-auto collectPitchWindowWithNow(const std::vector<int32_t> &denseInputData, int32_t now)
-    -> PitchWindowStats {
+auto collectPitchWindowWithNow(const std::vector<int32_t> &denseInputData,
+                               int32_t now,
+                               int32_t skipProvisionalCs) -> PitchWindowStats {
     PitchWindowStats stats;
     const int32_t cutoff = now - WindowCs;
+    const int32_t skipSnapped =
+        skipProvisionalCs >= 0 ? DenseQuantize::snapDurationCs(skipProvisionalCs) : -1;
 
     std::array<int, DenseConfig::MaxPitch> pitchCounts{};
     std::array<int, DeltaBins> deltaCounts{};
     std::vector<int32_t> orderedPitches;
     orderedPitches.reserve(denseInputData.size() / denseEventWidth);
 
-    int deltaPairs = 0;
+    int inRangeDeltaPairs = 0;
     for (size_t i = 0; i + 3 < denseInputData.size(); i += denseEventWidth) {
         const int32_t onset = denseInputData[i];
         if (onset <= cutoff || onset > now)
             continue;
+        if (skipSnapped >= 0) {
+            const int32_t durCs = DenseQuantize::snapDurationCs(
+                denseInputData[i + 1] - static_cast<int32_t>(DenseVocab::DurOffset));
+            if (durCs == skipSnapped)
+                continue;
+        }
         const int32_t pitch = pitchFromDenseNoteToken(denseInputData[i + 2]);
         if (pitch < 0 || pitch >= DenseConfig::MaxPitch)
             continue;
         ++pitchCounts[static_cast<size_t>(pitch)];
         if (! orderedPitches.empty()) {
             const int delta = pitch - orderedPitches.back();
-            ++deltaCounts[static_cast<size_t>(deltaIndex(delta))];
-            ++deltaPairs;
+            // Offline amt_causal: leaps outside [-12, 12] are dropped (not in D / s_y).
+            if (isInRangeDelta(delta)) {
+                ++deltaCounts[static_cast<size_t>(deltaIndex(delta))];
+                ++inRangeDeltaPairs;
+            }
         }
         orderedPitches.push_back(pitch);
     }
@@ -71,8 +79,11 @@ auto collectPitchWindowWithNow(const std::vector<int32_t> &denseInputData, int32
     stats.uniquePitches.assign(unique.begin(), unique.end());
 
     std::set<int32_t> uniqueDeltas;
-    for (size_t i = 1; i < orderedPitches.size(); ++i)
-        uniqueDeltas.insert(orderedPitches[i] - orderedPitches[i - 1]);
+    for (size_t i = 1; i < orderedPitches.size(); ++i) {
+        const int delta = orderedPitches[i] - orderedPitches[i - 1];
+        if (isInRangeDelta(delta))
+            uniqueDeltas.insert(delta);
+    }
     stats.uniqueDeltas.assign(uniqueDeltas.begin(), uniqueDeltas.end());
 
     const float n = static_cast<float>(std::max(stats.noteCount, 0));
@@ -82,7 +93,7 @@ auto collectPitchWindowWithNow(const std::vector<int32_t> &denseInputData, int32
             (static_cast<float>(pitchCounts[static_cast<size_t>(p)]) + UnigramEpsilon) / piDenom;
     }
 
-    const float d = static_cast<float>(std::max(deltaPairs, 0));
+    const float d = static_cast<float>(std::max(inRangeDeltaPairs, 0));
     const float deltaDenom = d + static_cast<float>(DeltaBins) * DeltaEpsilon;
     for (int i = 0; i < DeltaBins; ++i) {
         stats.sDelta[static_cast<size_t>(i)] =
@@ -94,14 +105,17 @@ auto collectPitchWindowWithNow(const std::vector<int32_t> &denseInputData, int32
 
 } // namespace
 
-auto collectPitchWindow(const std::vector<int32_t> &denseInputData, int32_t nowCs)
-    -> PitchWindowStats {
-    return collectPitchWindowWithNow(denseInputData, resolveNowCs(denseInputData, nowCs));
+auto collectPitchWindow(const std::vector<int32_t> &denseInputData,
+                        int32_t nowCs,
+                        int32_t skipProvisionalCs) -> PitchWindowStats {
+    return collectPitchWindowWithNow(denseInputData, resolveNowCs(denseInputData, nowCs),
+                                     skipProvisionalCs);
 }
 
-auto collectPitchWindowAt(const std::vector<int32_t> &denseInputData, int32_t prefixNowCs)
-    -> PitchWindowStats {
-    return collectPitchWindowWithNow(denseInputData, prefixNowCs);
+auto collectPitchWindowAt(const std::vector<int32_t> &denseInputData,
+                          int32_t prefixNowCs,
+                          int32_t skipProvisionalCs) -> PitchWindowStats {
+    return collectPitchWindowWithNow(denseInputData, prefixNowCs, skipProvisionalCs);
 }
 
 auto applyNoteLogitsBias(std::vector<float> &logits,
@@ -122,9 +136,12 @@ auto applyNoteLogitsBias(std::vector<float> &logits,
                 continue;
 
             const float pi = stats.pi[static_cast<size_t>(pitch)];
-            const int delta = pitch - stats.lastPitch;
-            const float sy = stats.sDelta[static_cast<size_t>(deltaIndex(delta))];
             logit -= tau * std::log(pi);
+
+            const int delta = pitch - stats.lastPitch;
+            if (! isInRangeDelta(delta))
+                continue;
+            const float sy = stats.sDelta[static_cast<size_t>(deltaIndex(delta))];
             logit -= tauPrime * std::log(sy);
         }
     }
@@ -164,7 +181,7 @@ auto PitchTauScheduler::evaluate(int32_t nowCs,
         lastS = uniquePitches;
     }
 
-    // τ′: reset only when a new pitch interval enters the window.
+    // τ′: reset only when a new in-range pitch interval enters the window.
     if (gainedElement(hasDeltas, lastDeltas, uniqueDeltas)) {
         lastDeltas = uniqueDeltas;
         deltaStableSinceCs = nowCs;

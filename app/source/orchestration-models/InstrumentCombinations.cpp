@@ -586,9 +586,11 @@ auto InstrumentCombinations::encodedCombinationToInstruments(const std::vector<i
             assigned.token.time = onset;
             assigned.token.duration = durToken;
             assigned.token.note = static_cast<int32_t>(Vocab::NoteOffset) + pitch;
-            assigned.velocity = velocity;
-            assigned.token.velocity = assigned.velocity;
             assigned.localInstrumentId = instrument;
+            const int32_t scaledVel =
+                InstrumentConstants::scaleVelocityForInstrument(instrument, velocity);
+            assigned.velocity = scaledVel;
+            assigned.token.velocity = scaledVel;
             notes.push_back(assigned);
         }
     }

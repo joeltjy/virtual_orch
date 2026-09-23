@@ -67,16 +67,18 @@ Unseen pitches still get a little mass so `log π` stays finite.
 
 ### s_y — pitch-interval distribution
 
-For consecutive pitches in the window, `Δ = pᵢ₊₁ − pᵢ` (MIDI delta, typically in
-`[-127, 127]`). Histogram those Δ values with smoothing `ε = 0.01` over 255 bins
-(index = `Δ + 127`):
+For consecutive pitches in the window, `Δ = pᵢ₊₁ − pᵢ`. Only leaps in
+**`[-12, 12]`** count (same as offline `amt_causal`); wider jumps are ignored for
+both the histogram and the τ′ set **D**. Histogram with smoothing `ε = 0.01`
+over 25 bins (index = `Δ + 12`):
 
 ```
-s_y[Δ] = (count[Δ] + ε) / (numPairs + 255 · ε)
+s_y[Δ] = (count[Δ] + ε) / (numInRangePairs + 25 · ε)
 ```
 
 When biasing a **candidate** pitch `p`, the interval used is vs the **last** pitch
-still in the window: `Δ = p − lastPitch`.
+still in the window: `Δ = p − lastPitch`. If `|Δ| > 12`, skip the τ′ term for
+that candidate (unigram τ·log π still applies).
 
 ## Strength schedule (τ and τ′)
 
@@ -84,7 +86,7 @@ still in the window: `Δ = p − lastPitch`.
 hold/ramp shape but **independent clocks**.
 
 Let **S** be the set of unique pitches in the 5 s window, and **D** the set of
-unique consecutive pitch intervals (Δ) in that window.
+unique consecutive pitch intervals with **Δ ∈ [-12, 12]** in that window.
 
 ### τ (pitch unigram)
 
@@ -130,7 +132,7 @@ Because `π` and `s_y` are probabilities ≤ 1, `log(·)` is ≤ 0, so subtracti
 `τ · log(·)` **raises** logits for rare pitches / rare intervals and **lowers**
 logits for common ones — more so as `τ` grows.
 
-Then the usual nucleus sample runs (`top-p = 0.98`, temperature `0.5` by default).
+Then the usual nucleus sample runs (`top-p = 0.98`, temperature `0.7` by default).
 
 If the window is empty, skip the bias (no last pitch / no meaningful π).
 

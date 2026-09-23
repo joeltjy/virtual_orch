@@ -48,7 +48,8 @@ auto ReductionTransformerV2::refreshPitchTauSchedule() -> void {
     const auto inputSnapshot = getInputData();
 
     const juce::ScopedLock lock(pitchBiasLock);
-    lastPitchWindow = DensePitchBias::collectPitchWindow(inputSnapshot, clockNow);
+    lastPitchWindow =
+        DensePitchBias::collectPitchWindow(inputSnapshot, clockNow, modelConfig.inputDuration);
     int32_t scheduleNow = 0;
     for (size_t i = 0; i + 3 < inputSnapshot.size(); i += denseEventWidth)
         scheduleNow = inputSnapshot[i];
@@ -59,6 +60,26 @@ auto ReductionTransformerV2::refreshPitchTauSchedule() -> void {
                                    lastPitchWindow.uniqueDeltas);
     pitchTau.store(scheduled.tau, std::memory_order_relaxed);
     pitchTauPrime.store(scheduled.tauPrime, std::memory_order_relaxed);
+}
+
+auto ReductionTransformerV2::refreshDurationTauSchedule() -> void {
+    const int32_t clockNow =
+        clock != nullptr ? static_cast<int32_t>(clock->getTime()) : static_cast<int32_t>(-1);
+    const auto inputSnapshot = getInputData();
+
+    const juce::ScopedLock lock(durationBiasLock);
+    lastDurationWindow =
+        DenseDurationBias::collectDurationWindow(inputSnapshot, clockNow, modelConfig.inputDuration);
+    int32_t scheduleNow = 0;
+    for (size_t i = 0; i + 3 < inputSnapshot.size(); i += denseEventWidth)
+        scheduleNow = inputSnapshot[i];
+    if (clockNow >= 0)
+        scheduleNow = std::max(scheduleNow, clockNow);
+    const auto scheduled =
+        durationTauScheduler.evaluate(scheduleNow, lastDurationWindow.uniqueDurations,
+                                      lastDurationWindow.uniqueDeltas);
+    durationTau.store(scheduled.tau, std::memory_order_relaxed);
+    durationTauPrime.store(scheduled.tauPrime, std::memory_order_relaxed);
 }
 
 void ReductionTransformerV2::threadRun() {
@@ -81,6 +102,13 @@ void ReductionTransformerV2::threadRun() {
         lastPitchWindow = {};
         pitchTau.store(DensePitchBias::TauBase, std::memory_order_relaxed);
         pitchTauPrime.store(DensePitchBias::TauBase, std::memory_order_relaxed);
+    }
+    {
+        const juce::ScopedLock lock(durationBiasLock);
+        durationTauScheduler.reset();
+        lastDurationWindow = {};
+        durationTau.store(DenseDurationBias::TauBase, std::memory_order_relaxed);
+        durationTauPrime.store(DenseDurationBias::TauBase, std::memory_order_relaxed);
     }
 
     currentTime = modelConfig.outputStartTime;
@@ -172,6 +200,7 @@ void ReductionTransformerV2::threadRun() {
             notifyInputDataChanged();
 
             currentTime = newToken.time;
+            logGeneratedTokenIfResumed(newToken.time);
 
             if (inputApplied) {
                 const Token clearToken{static_cast<int32_t>(DenseVocab::TimeOffset),
@@ -264,6 +293,19 @@ auto ReductionTransformerV2::applyUpdatesFromFilter() -> bool {
     if (! updatesFromFilter.pull(update))
         return false;
 
+    // inputData stores v8-snapped dur/note/vel; note-off oldNote still carries raw MIDI
+    // velocity (and unsnapped dur). Snap the update before tokenEquals or matches miss
+    // and provisional inputDuration (often 400) stays forever.
+    const auto snapForMatch = [](Token t) -> Token {
+        t.duration = DenseQuantize::snapDurationToken(t.duration);
+        t.note = DenseQuantize::snapNoteToken(t.note);
+        const int32_t rawVel =
+            t.velocity > 0 ? t.velocity : DenseConfig::DefaultVelocity;
+        t.velocity = DenseQuantize::snapVelocity(
+            juce::jlimit(0, DenseConfig::MaxVelocity - 1, rawVel));
+        return t;
+    };
+
     std::vector<Token> history;
     history.reserve(inputData.size() / denseEventWidth);
     for (size_t i = 0; i + 3 < inputData.size(); i += denseEventWidth) {
@@ -278,7 +320,9 @@ auto ReductionTransformerV2::applyUpdatesFromFilter() -> bool {
     do {
         if (orchestrationUpdatesIncoming != nullptr)
             orchestrationUpdatesIncoming->push(update);
-        if (applyTokenUpdateToHistory(history, update))
+        TokenUpdate snapped{.oldNote = snapForMatch(update.oldNote),
+                            .newNote = snapForMatch(update.newNote)};
+        if (applyTokenUpdateToHistory(history, snapped))
             changed = true;
     } while (updatesFromFilter.pull(update));
 
@@ -377,7 +421,7 @@ void ReductionTransformerV2::safeLogits(std::vector<float> &logits, size_t stepI
             maskNote();
             maskVel();
             break;
-        case 1: // duration — 5 cs grid
+        case 1: // duration — 5 cs grid, floor DurationMinCs (10)
             maskTime();
             maskNote();
             maskVel();
@@ -487,6 +531,7 @@ Token ReductionTransformerV2::generateNewToken(int32_t forceAtTime) {
     // UI / silence path: hybrid now. Note-field bias is refreshed again after onset
     // is sampled (amt_causal: τ/π from the prefix that already contains the new onset).
     refreshPitchTauSchedule();
+    refreshDurationTauSchedule();
 
     DensePitchBias::PitchWindowStats pitchWindow;
     float tau = DensePitchBias::TauBase;
@@ -498,16 +543,27 @@ Token ReductionTransformerV2::generateNewToken(int32_t forceAtTime) {
         tauPrime = pitchTauPrime.load(std::memory_order_relaxed);
     }
 
+    DenseDurationBias::DurationWindowStats durationWindow;
+    float durTau = DenseDurationBias::TauBase;
+    float durTauPrime = DenseDurationBias::TauBase;
+    {
+        const juce::ScopedLock lock(durationBiasLock);
+        durationWindow = lastDurationWindow;
+        durTau = durationTau.load(std::memory_order_relaxed);
+        durTauPrime = durationTauPrime.load(std::memory_order_relaxed);
+    }
+
     std::vector<int32_t> history;
     int32_t offset = 0;
     {
         const ScopedMs prepMs(&loopAccum.prep);
-        const int lookbackInts = DenseSampling::ContextNotes * denseEventWidth;
-        const int lookback = std::max(static_cast<int>(inputData.size()) - lookbackInts, 0);
-        history.assign(inputData.begin() + lookback, inputData.end());
+        history = DenseSampling::copyDenseContextSkippingProvisional(
+            inputData, DenseSampling::ContextNotes, modelConfig.inputDuration, denseEventWidth);
+        if (history.empty())
+            return {-1, -1, -1, DenseConfig::DefaultVelocity};
         DenseQuantize::snapPackedEvents(history, static_cast<size_t>(denseEventWidth));
         NoteWindow::sortStridedByOnset(history, static_cast<size_t>(denseEventWidth));
-        offset = history.empty() ? 0 : denseMinTime(history);
+        offset = denseMinTime(history);
         SamplingRelativeTime::relativizeStridedOnsets(history, static_cast<size_t>(denseEventWidth),
                                                        offset);
         loopAccum.contextTokens =
@@ -517,12 +573,25 @@ Token ReductionTransformerV2::generateNewToken(int32_t forceAtTime) {
     Token newToken{-1, -1, -1, DenseConfig::DefaultVelocity};
 
     for (int i = 0; i < denseEventWidth; ++i) {
-        // After onset is known, rebuild π / s_y / τ for the note-field Menon adjust so
-        // they track this prefix step (inputs + prior outputs + new onset), matching
-        // offline amt_causal (in-sample τ after onset+duration are on the prefix).
+        // After onset is known, rebuild π / s_y / τ for duration (before sampling
+        // duration) and again for pitch before the note field.
+        if (i == 1 && newToken.time >= 0) {
+            const juce::ScopedLock lock(durationBiasLock);
+            durationWindow = DenseDurationBias::collectDurationWindowAt(
+                inputData, newToken.time, modelConfig.inputDuration);
+            lastDurationWindow = durationWindow;
+            const auto scheduled =
+                durationTauScheduler.evaluate(newToken.time, durationWindow.uniqueDurations,
+                                              durationWindow.uniqueDeltas);
+            durTau = scheduled.tau;
+            durTauPrime = scheduled.tauPrime;
+            durationTau.store(durTau, std::memory_order_relaxed);
+            durationTauPrime.store(durTauPrime, std::memory_order_relaxed);
+        }
         if (i == 2 && newToken.time >= 0) {
             const juce::ScopedLock lock(pitchBiasLock);
-            pitchWindow = DensePitchBias::collectPitchWindowAt(inputData, newToken.time);
+            pitchWindow = DensePitchBias::collectPitchWindowAt(inputData, newToken.time,
+                                                               modelConfig.inputDuration);
             lastPitchWindow = pitchWindow;
             const auto scheduled =
                 pitchTauScheduler.evaluate(newToken.time, pitchWindow.uniquePitches,
@@ -549,6 +618,9 @@ Token ReductionTransformerV2::generateNewToken(int32_t forceAtTime) {
             if (i == 0)
                 futureLogits(scores, currentTime - offset,
                              forceAtTime != -1 ? forceAtTime - offset : -1);
+            else if (i == 1)
+                DenseDurationBias::applyDurationLogitsBias(scores, durationWindow, durTau,
+                                                           durTauPrime);
             else if (i == 2)
                 DensePitchBias::applyNoteLogitsBias(scores, pitchWindow, tau, tauPrime);
             else if (i == 3)
@@ -561,6 +633,8 @@ Token ReductionTransformerV2::generateNewToken(int32_t forceAtTime) {
             const ScopedMs sampleMs(&loopAccum.sample);
             token = sampleTopP(scores, fieldSampling.topP, fieldSampling.temperature);
         }
+        if (i == 1)
+            publishDurationLogits(scores, token);
         history.push_back(token);
 
         if (i == 0)

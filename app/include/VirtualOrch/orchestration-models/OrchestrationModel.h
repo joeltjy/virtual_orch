@@ -6,6 +6,7 @@
 
 #include "VirtualOrch/ModelSamplingAlert.h"
 #include "VirtualOrch/MusicTransformer.h"
+#include "VirtualOrch/OctaveDeltaTracker.h"
 #include "VirtualOrch/OrchestrationBalanceTracker.h"
 #include "VirtualOrch/OrchLoopProfile.h"
 #include "VirtualOrch/InstrumentLogitSnapshot.h"
@@ -56,6 +57,9 @@ public:
      * Written by InstrumentCombinations after masking/bias, before sample.
      */
     InstrumentLogitSnapshot *instrumentLogitSink = nullptr;
+
+    /** Optional sink for IOD octave-Δ counts (debug bars). Written by IodPretrained decode. */
+    OctaveDeltaTracker *octaveDeltaSink = nullptr;
 
 protected:
     auto reportSamplingError(const juce::String &detail) -> void {

@@ -159,6 +159,7 @@ void ReductionTransformerV1::threadRun() {
             notifyInputDataChanged();
 
             currentTime = newToken.time;
+            logGeneratedTokenIfResumed(newToken.time);
 
             if (inputApplied) {
                 const Token clearToken{static_cast<int32_t>(DenseVocab::TimeOffset),
@@ -575,11 +576,12 @@ Token ReductionTransformerV1::generateNewToken(int32_t forceAtTime) {
     int32_t offset = 0;
     {
         const ScopedMs prepMs(&loopAccum.prep);
-        const int lookbackInts = DenseSampling::ContextNotes * denseEventWidth;
-        const int lookback = std::max(static_cast<int>(inputData.size()) - lookbackInts, 0);
-        history.assign(inputData.begin() + lookback, inputData.end());
+        history = DenseSampling::copyDenseContextSkippingProvisional(
+            inputData, DenseSampling::ContextNotes, modelConfig.inputDuration, denseEventWidth);
+        if (history.empty())
+            return {-1, -1, -1, DenseConfig::DefaultVelocity};
         NoteWindow::sortStridedByOnset(history, static_cast<size_t>(denseEventWidth));
-        offset = history.empty() ? 0 : denseMinTime(history);
+        offset = denseMinTime(history);
         SamplingRelativeTime::relativizeStridedOnsets(history, static_cast<size_t>(denseEventWidth),
                                                        offset);
         loopAccum.contextTokens =
@@ -619,6 +621,8 @@ Token ReductionTransformerV1::generateNewToken(int32_t forceAtTime) {
             const ScopedMs sampleMs(&loopAccum.sample);
             token = sampleTopP(scores, fieldSampling.topP, fieldSampling.temperature);
         }
+        if (i == 1)
+            publishDurationLogits(scores, token);
         history.push_back(token);
 
         if (i == 0)

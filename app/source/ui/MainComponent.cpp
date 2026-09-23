@@ -18,6 +18,10 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     session.presetStore.setOrchestrationModelNameProvider([this] {
         return orchestrationModelList.getText();
     });
+    session.presetStore.setOrchestrationModeProvider([this]() -> juce::String {
+        return session.orchestrationTransformer.getMode() == OrchestrationMode::Jam ? "jam"
+                                                                                    : "edit";
+    });
     session.presetStore.setReductionTypeProvider([this]() -> juce::String {
         switch (reductionTypeList.getSelectedId()) {
             case 3:
@@ -883,6 +887,12 @@ void MainComponent::loadPresetFromName(const juce::String &presetName) {
                 "Orchestration model '" + orchName + "' not found.");
         }
     }
+
+    const juce::String orchMode = preset.getProperty("orchestrationMode", "").toString();
+    if (orchMode.equalsIgnoreCase("jam"))
+        session.orchestrationTransformer.setMode(OrchestrationMode::Jam);
+    else if (orchMode.equalsIgnoreCase("edit"))
+        session.orchestrationTransformer.setMode(OrchestrationMode::Edit);
 
     session.presetStore.applyPreset(preset);
     session.rebuildInputFilter();

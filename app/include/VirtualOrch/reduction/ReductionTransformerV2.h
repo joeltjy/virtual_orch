@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "VirtualOrch/MusicToken.h"
+#include "VirtualOrch/reduction/DenseDurationBias.h"
 #include "VirtualOrch/reduction/DensePitchBias.h"
 #include "VirtualOrch/reduction/DenseTypes.h"
 #include "VirtualOrch/reduction/ReductionTransformer.h"
@@ -80,11 +81,21 @@ public:
      */
     auto refreshPitchTauSchedule() -> void;
 
+    /** Same now rule as pitch; refreshes duration π / s_y and τ_d / τ′_d. */
+    auto refreshDurationTauSchedule() -> void;
+
     [[nodiscard]] auto getPitchTau() const -> float {
         return pitchTau.load(std::memory_order_relaxed);
     }
     [[nodiscard]] auto getPitchTauPrime() const -> float {
         return pitchTauPrime.load(std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] auto getDurationTau() const -> float {
+        return durationTau.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] auto getDurationTauPrime() const -> float {
+        return durationTauPrime.load(std::memory_order_relaxed);
     }
 
 private:
@@ -120,4 +131,10 @@ private:
     DensePitchBias::PitchWindowStats lastPitchWindow;
     std::atomic<float> pitchTau{DensePitchBias::TauBase};
     std::atomic<float> pitchTauPrime{DensePitchBias::TauBase};
+
+    juce::CriticalSection durationBiasLock;
+    DenseDurationBias::DurationTauScheduler durationTauScheduler;
+    DenseDurationBias::DurationWindowStats lastDurationWindow;
+    std::atomic<float> durationTau{DenseDurationBias::TauBase};
+    std::atomic<float> durationTauPrime{DenseDurationBias::TauBase};
 };

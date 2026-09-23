@@ -8,7 +8,9 @@
 #include "VirtualOrch/widgets/ActiveInstrumentsWidget.h"
 #include "VirtualOrch/widgets/ConditioningPianoRollWidget.h"
 #include "VirtualOrch/widgets/GenerationWidget.h"
+#include "VirtualOrch/widgets/DurationLogitsWidget.h"
 #include "VirtualOrch/widgets/InstrumentLogitsWidget.h"
+#include "VirtualOrch/widgets/OctaveDeltaWidget.h"
 #include "VirtualOrch/widgets/ReductionTemperatureWidget.h"
 #include "VirtualOrch/widgets/ReductionTauWidget.h"
 #include "VirtualOrch/widgets/ModeWidget.h"
@@ -232,6 +234,17 @@ auto WorkspaceCanvas::createWidgetForType(const juce::String &type) const
             return nullptr;
         return std::make_unique<InstrumentLogitsWidget>(*session);
     }
+    if (type == UiConstants::workspaceWidgetTypeDurationLogits) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<DurationLogitsWidget>(*session);
+    }
+
+    if (type == UiConstants::workspaceWidgetTypeOctaveDelta) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<OctaveDeltaWidget>(*session);
+    }
 
     if (type == UiConstants::workspaceWidgetTypeReductionTemperature) {
         if (session == nullptr)
@@ -292,6 +305,14 @@ auto WorkspaceCanvas::placeWidgetOfType(const juce::String &type, juce::Rectangl
     if (widget == nullptr)
         return;
     addWidget(std::move(widget), design);
+}
+
+auto WorkspaceCanvas::hasWidgetOfType(const juce::String &type) const -> bool {
+    for (const auto &widget: widgets) {
+        if (widget != nullptr && widget->getWidgetType() == type)
+            return true;
+    }
+    return false;
 }
 
 auto WorkspaceCanvas::addPromptWidget() -> void {

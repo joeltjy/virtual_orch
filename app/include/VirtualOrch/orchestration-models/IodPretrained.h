@@ -52,6 +52,9 @@ public:
     auto setEnsembleRemoveP(float p) -> void { ensembleRemoveP.store(p); }
     [[nodiscard]] auto getEnsembleRemoveP() const -> float { return ensembleRemoveP.load(); }
 
+    auto setGroupsBiasTau(float tau) -> void { groupsBiasTau.store(tau); }
+    [[nodiscard]] auto getGroupsBiasTau() const -> float { return groupsBiasTau.load(); }
+
 private:
     struct StreamNote {
         Token token{};
@@ -100,6 +103,7 @@ private:
     std::atomic<bool> ensembleEnabled{false};
     std::atomic<float> ensembleAddP{IodPretrainedTypes::ensembleAddPDefault};
     std::atomic<float> ensembleRemoveP{IodPretrainedTypes::ensembleRemovePDefault};
+    std::atomic<float> groupsBiasTau{IodPretrainedTypes::groupsBiasTau};
 
     std::unique_ptr<Ort::Session> session;
     Ort::MemoryInfo memoryInfo = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault);

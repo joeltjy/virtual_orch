@@ -204,6 +204,55 @@ auto OrchestrationTransformer::extractClearQueueTokens(std::vector<Token> &token
     return clears;
 }
 
+namespace {
+/** 30 ms at Config::TimeResolution (100 cs/s → 10 ms/cs). */
+constexpr int32_t kOnsetClusterTolCs = 3;
+
+[[nodiscard]] auto isSoundingNoteToken(const Token &token) -> bool {
+    return token.note >= static_cast<int32_t>(Vocab::NoteOffset)
+           && token.note < static_cast<int32_t>(Vocab::Rest);
+}
+} // namespace
+
+auto OrchestrationTransformer::snapNearbyOnsets(std::vector<Token> &tokens) -> void {
+    std::vector<size_t> idxs;
+    idxs.reserve(tokens.size());
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        if (isSoundingNoteToken(tokens[i]))
+            idxs.push_back(i);
+    }
+    if (idxs.size() < 2)
+        return;
+
+    std::ranges::sort(idxs, [&](size_t a, size_t b) {
+        if (tokens[a].time != tokens[b].time)
+            return tokens[a].time < tokens[b].time;
+        return a < b;
+    });
+
+    size_t clusterBegin = 0;
+    while (clusterBegin < idxs.size()) {
+        size_t clusterEnd = clusterBegin + 1;
+        while (clusterEnd < idxs.size()
+               && tokens[idxs[clusterEnd]].time - tokens[idxs[clusterEnd - 1]].time
+                      <= kOnsetClusterTolCs) {
+            ++clusterEnd;
+        }
+        const size_t n = clusterEnd - clusterBegin;
+        if (n >= 2) {
+            int64_t sum = 0;
+            for (size_t i = clusterBegin; i < clusterEnd; ++i)
+                sum += tokens[idxs[i]].time;
+            // Round mean to nearest 10 ms (1 cs) grid.
+            const auto snapped =
+                static_cast<int32_t>((sum + static_cast<int64_t>(n) / 2) / static_cast<int64_t>(n));
+            for (size_t i = clusterBegin; i < clusterEnd; ++i)
+                tokens[idxs[i]].time = snapped;
+        }
+        clusterBegin = clusterEnd;
+    }
+}
+
 auto OrchestrationTransformer::getConditioningSignal(const std::vector<Token> &midiInput,
                                                      const std::vector<Token> &conditioning)
     -> ConditioningSignal {
@@ -226,11 +275,13 @@ auto OrchestrationTransformer::getEditOrchestrationOutput(
 
     std::vector<OrchestrationNote> userNotes;
     if (! userInstruments.empty()) {
+        auto snappedMidi = midiInput;
+        snapNearbyOnsets(snappedMidi);
         const auto userBias = userBalance.makeBiasView(applyBias, nowMs);
         InstrumentLogitSnapshot logitScratch;
         orchestrationModel->instrumentLogitSink = &logitScratch;
         orchestrationModel->octaveDeltaSink = &octaveDeltaTracker;
-        userNotes = orchestrationModel->getOutput(midiInput,
+        userNotes = orchestrationModel->getOutput(snappedMidi,
                                                   userInstruments,
                                                   signal,
                                                   &userBalance,
@@ -243,11 +294,13 @@ auto OrchestrationTransformer::getEditOrchestrationOutput(
 
     std::vector<OrchestrationNote> modelNotes;
     if (! modelInstruments.empty()) {
+        auto snappedReduction = reductionInput;
+        snapNearbyOnsets(snappedReduction);
         const auto modelBias = modelBalance.makeBiasView(applyBias, nowMs);
         InstrumentLogitSnapshot logitScratch;
         orchestrationModel->instrumentLogitSink = &logitScratch;
         orchestrationModel->octaveDeltaSink = &octaveDeltaTracker;
-        modelNotes = orchestrationModel->getOutput(reductionInput,
+        modelNotes = orchestrationModel->getOutput(snappedReduction,
                                                    modelInstruments,
                                                    signal,
                                                    &modelBalance,
@@ -290,7 +343,9 @@ auto OrchestrationTransformer::getJamOrchestrationOutput(
     InstrumentLogitSnapshot logitScratch;
     orchestrationModel->instrumentLogitSink = &logitScratch;
     orchestrationModel->octaveDeltaSink = &octaveDeltaTracker;
-    auto notes = orchestrationModel->getOutput(orchestrationInput,
+    auto snappedInput = orchestrationInput;
+    snapNearbyOnsets(snappedInput);
+    auto notes = orchestrationModel->getOutput(snappedInput,
                                                orchestrationInstruments,
                                                signal,
                                                &counts,

@@ -9,9 +9,10 @@
 class AppSession;
 
 /**
- * Read-only list of the lookback context the active reduction feeds ONNX each step.
- * Appends throttled snapshots to Documents/virtual-orch/Logs/rt_model_input.log
- * when that lookback changes (rotated when the file grows large).
+ * Read-only list of the active reduction's inputData history (not just the ONNX
+ * lookback window). Caps display/log at 512 notes. Appends throttled snapshots to
+ * Documents/virtual-orch/Logs/rt_model_input.log when the history changes (rotated
+ * when the file grows large).
  */
 class ReductionModelInputWidget : public WorkspaceWidget, private juce::Timer {
 public:

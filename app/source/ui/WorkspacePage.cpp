@@ -49,9 +49,23 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
                      UiConstants::workspaceAddMenuPlaybackOutputItem);
         menu.addItem(UiConstants::workspaceAddMenuReductionTransformerOutputItemId,
                      UiConstants::workspaceAddMenuReductionTransformerOutputItem);
+        menu.addItem(UiConstants::workspaceAddMenuVocsepOutputItemId,
+                     UiConstants::workspaceAddMenuVocsepOutputItem);
         menu.addItem(UiConstants::workspaceAddMenuReductionModelInputItemId,
                      UiConstants::workspaceAddMenuReductionModelInputItem);
         menu.addItem(UiConstants::workspaceAddMenuModeItemId, UiConstants::workspaceAddMenuModeItem);
+        menu.addItem(UiConstants::workspaceAddMenuInstrumentLogitsItemId,
+                     UiConstants::workspaceAddMenuInstrumentLogitsItem);
+        menu.addItem(UiConstants::workspaceAddMenuDurationLogitsItemId,
+                     UiConstants::workspaceAddMenuDurationLogitsItem);
+        menu.addItem(UiConstants::workspaceAddMenuReductionTemperatureItemId,
+                     UiConstants::workspaceAddMenuReductionTemperatureItem);
+        menu.addItem(UiConstants::workspaceAddMenuReductionTauItemId,
+                     UiConstants::workspaceAddMenuReductionTauItem);
+        menu.addItem(UiConstants::workspaceAddMenuOctaveDeltaItemId,
+                     UiConstants::workspaceAddMenuOctaveDeltaItem);
+        menu.addItem(UiConstants::workspaceAddMenuLogitAdjustmentsItemId,
+                     UiConstants::workspaceAddMenuLogitAdjustmentsItem);
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addButton),
                            [this](int result) {
                                if (result == UiConstants::workspaceAddMenuPromptItemId)
@@ -86,32 +100,47 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
                                else if (result
                                         == UiConstants::workspaceAddMenuReductionTransformerOutputItemId)
                                    canvas.addReductionTransformerOutputWidget();
+                               else if (result == UiConstants::workspaceAddMenuVocsepOutputItemId)
+                                   canvas.addVocsepOutputWidget();
                                else if (result
                                         == UiConstants::workspaceAddMenuReductionModelInputItemId)
                                    canvas.addReductionModelInputWidget();
                                else if (result == UiConstants::workspaceAddMenuModeItemId)
                                    canvas.addModeWidget();
+                               else if (result == UiConstants::workspaceAddMenuInstrumentLogitsItemId)
+                                   canvas.addInstrumentLogitsWidget();
+                               else if (result == UiConstants::workspaceAddMenuDurationLogitsItemId)
+                                   canvas.addDurationLogitsWidget();
+                               else if (result
+                                        == UiConstants::workspaceAddMenuReductionTemperatureItemId)
+                                   canvas.addReductionTemperatureWidget();
+                               else if (result == UiConstants::workspaceAddMenuReductionTauItemId)
+                                   canvas.addReductionTauWidget();
+                               else if (result == UiConstants::workspaceAddMenuOctaveDeltaItemId)
+                                   canvas.addOctaveDeltaWidget();
+                               else if (result == UiConstants::workspaceAddMenuLogitAdjustmentsItemId)
+                                   canvas.addLogitAdjustmentsWidget();
                            });
     };
+    newViewButton.onClick = [this] { promptNewView(); };
     saveButton.onClick = [this] { saveCurrentView(); };
     saveAsButton.onClick = [this] { promptSaveAs(); };
     setDefaultButton.onClick = [this] { setCurrentViewAsDefault(); };
 
     toolbar.addAndMakeVisible(addButton);
     toolbar.addAndMakeVisible(viewCombo);
+    toolbar.addAndMakeVisible(newViewButton);
     toolbar.addAndMakeVisible(saveButton);
     toolbar.addAndMakeVisible(saveAsButton);
     toolbar.addAndMakeVisible(setDefaultButton);
 
     addAndMakeVisible(canvas);
 
-    ensureDefaultView();
-    ensureInputView();
-    ensureOrchestrationDebugView();
+    ensureBuiltinViews();
 
     auto names = viewStore.listViewNames();
     juce::String initialName = getStartupViewName();
-    if (! names.contains(initialName)) {
+    if (initialName.isEmpty() || ! names.contains(initialName)) {
         if (names.contains(UiConstants::workspaceOrchestrationDebugViewName))
             initialName = UiConstants::workspaceOrchestrationDebugViewName;
         else if (names.contains(UiConstants::workspaceDefaultViewName))
@@ -162,58 +191,28 @@ auto WorkspacePage::setCurrentViewAsDefault() -> void {
             + UiConstants::workspaceSetDefaultViewMessageSuffix);
 }
 
-auto WorkspacePage::ensureDefaultView() -> void {
-    if (viewStore.listViewNames().size() > 0)
-        return;
+auto WorkspacePage::ensureBuiltinViews() -> void {
+    // Seed each built-in layout once. After that, Save owns the file — never re-seed.
+    const auto seedIfMissing = [this](const juce::String &name, auto addWidgets) {
+        if (viewStore.viewExists(name))
+            return;
 
-    canvas.addDefaultWidgets();
-    viewStore.saveView(UiConstants::workspaceDefaultViewName, canvas.toVar());
-    clearDirty();
-}
+        const auto snapshot = canvas.toVar();
+        const bool restore = canvas.getWidgetCount() > 0;
 
-auto WorkspacePage::ensureInputView() -> void {
-    const auto viewHasGeneration = [](const juce::var &viewJson) {
-        if (! viewJson.isObject())
-            return false;
-        const auto widgetsVar = viewJson.getProperty("widgets", juce::var());
-        if (! widgetsVar.isArray())
-            return false;
-        for (const auto &entry : *widgetsVar.getArray()) {
-            if (! entry.isObject())
-                continue;
-            if (entry.getProperty("type", {}).toString() == UiConstants::workspaceWidgetTypeGeneration)
-                return true;
-        }
-        return false;
+        addWidgets();
+        viewStore.saveView(name, canvas.toVar());
+
+        if (restore)
+            canvas.fromVar(snapshot);
     };
 
-    if (viewStore.viewExists(UiConstants::workspaceInputViewName)
-        && viewHasGeneration(viewStore.loadView(UiConstants::workspaceInputViewName)))
-        return;
-
-    const auto snapshot = canvas.toVar();
-    const bool restore = canvas.getWidgetCount() > 0;
-
-    canvas.addInputViewWidgets();
-    viewStore.saveView(UiConstants::workspaceInputViewName, canvas.toVar());
-
-    if (restore)
-        canvas.fromVar(snapshot);
-
-    clearDirty();
-}
-
-auto WorkspacePage::ensureOrchestrationDebugView() -> void {
-    // Built-in template: always re-seed so layout updates (e.g. Generation placement) apply.
-    const auto snapshot = canvas.toVar();
-    const bool restore = canvas.getWidgetCount() > 0;
-
-    canvas.addOrchestrationDebugViewWidgets();
-    viewStore.saveView(UiConstants::workspaceOrchestrationDebugViewName, canvas.toVar());
-
-    if (restore)
-        canvas.fromVar(snapshot);
-
+    seedIfMissing(UiConstants::workspaceDefaultViewName,
+                  [this] { canvas.addDefaultWidgets(); });
+    seedIfMissing(UiConstants::workspaceInputViewName,
+                  [this] { canvas.addInputViewWidgets(); });
+    seedIfMissing(UiConstants::workspaceOrchestrationDebugViewName,
+                  [this] { canvas.addOrchestrationDebugViewWidgets(); });
     clearDirty();
 }
 
@@ -272,20 +271,6 @@ auto WorkspacePage::loadSelectedView() -> void {
         juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Load View",
                                                "Could not load view \"" + name + "\".");
         return;
-    }
-
-    if (canvas.getWidgetCount() == 0)
-        canvas.addPromptWidget();
-
-    // Built-in OrchestrationDebug template always includes Vocsep Output; inject if a
-    // persisted layout omitted it.
-    if (name == UiConstants::workspaceOrchestrationDebugViewName
-        && ! canvas.hasWidgetOfType(UiConstants::workspaceWidgetTypeVocsepOutput)) {
-        canvas.placeWidgetOfType(UiConstants::workspaceWidgetTypeVocsepOutput,
-                                 {UiConstants::workspaceOrchestrationDebugVocsepOutputX,
-                                  UiConstants::workspaceOrchestrationDebugVocsepOutputY,
-                                  UiConstants::workspaceOrchestrationDebugRollWidth,
-                                  UiConstants::workspaceOrchestrationDebugVocsepOutputHeight});
     }
 
     currentViewName = name;
@@ -376,6 +361,68 @@ auto WorkspacePage::applySaveAsName(const juce::String &rawName) -> void {
         performSave(name);
 }
 
+auto WorkspacePage::promptNewView() -> void {
+    auto *dialog = new juce::AlertWindow(UiConstants::workspaceNewViewDialogTitle,
+                                         UiConstants::workspaceNewViewDialogMessage,
+                                         juce::AlertWindow::QuestionIcon);
+    dialog->addTextEditor(UiConstants::workspaceSaveAsNameFieldId, {},
+                          UiConstants::workspaceSaveAsNameFieldLabel);
+    dialog->addButton(UiConstants::workspaceNewViewConfirmButton,
+                      UiConstants::workspaceSaveAsConfirmResult);
+    dialog->addButton(UiConstants::workspaceNewViewCancelButton,
+                      UiConstants::workspaceSaveAsCancelResult);
+
+    juce::Component::SafePointer<WorkspacePage> safeThis(this);
+    dialog->enterModalState(
+        true,
+        juce::ModalCallbackFunction::create([safeThis, dialog](int result) {
+            std::unique_ptr<juce::AlertWindow> cleanup(dialog);
+            if (safeThis == nullptr || result != UiConstants::workspaceSaveAsConfirmResult)
+                return;
+
+            const auto rawName =
+                dialog->getTextEditorContents(UiConstants::workspaceSaveAsNameFieldId);
+            safeThis->applyNewViewName(rawName);
+        }),
+        true);
+}
+
+auto WorkspacePage::applyNewViewName(const juce::String &rawName) -> void {
+    auto name = rawName.trim();
+    name = name.replaceCharacter('/', '_').replaceCharacter('\\', '_');
+
+    if (name.isEmpty()) {
+        juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
+                                               UiConstants::workspaceNewViewDialogTitle,
+                                               "View name cannot be empty.");
+        return;
+    }
+
+    if (! viewStore.viewExists(name)) {
+        canvas.beginViewLayout();
+        canvas.endViewLayout();
+        performSave(name);
+        return;
+    }
+
+    juce::Component::SafePointer<WorkspacePage> safeThis(this);
+    juce::AlertWindow::showAsync(
+        juce::MessageBoxOptions()
+            .withIconType(juce::AlertWindow::QuestionIcon)
+            .withTitle(UiConstants::workspaceOverwriteSaveTitle)
+            .withMessage(juce::String(UiConstants::workspaceOverwriteSaveMessagePrefix) + name
+                         + UiConstants::workspaceOverwriteSaveMessageSuffix)
+            .withButton(UiConstants::workspaceOverwriteConfirmButton)
+            .withButton(UiConstants::workspaceOverwriteCancelButton),
+        [safeThis, name](int result) {
+            if (safeThis == nullptr || result != UiConstants::workspaceOverwriteConfirmResult)
+                return;
+            safeThis->canvas.beginViewLayout();
+            safeThis->canvas.endViewLayout();
+            safeThis->performSave(name);
+        });
+}
+
 auto WorkspacePage::paint(juce::Graphics &g) -> void {
     g.fillAll(UiConstants::workspacePageBackground);
 
@@ -405,6 +452,8 @@ auto WorkspacePage::resized() -> void {
     addButton.setBounds(bar.removeFromLeft(UiConstants::workspaceToolbarButtonWidth));
     bar.removeFromLeft(UiConstants::workspaceToolbarControlGap);
     viewCombo.setBounds(bar.removeFromLeft(UiConstants::workspaceToolbarViewComboWidth));
+    bar.removeFromLeft(UiConstants::workspaceToolbarControlGap);
+    newViewButton.setBounds(bar.removeFromLeft(UiConstants::workspaceToolbarNewViewButtonWidth));
     bar.removeFromLeft(UiConstants::workspaceToolbarControlGap);
     saveButton.setBounds(bar.removeFromLeft(UiConstants::workspaceToolbarButtonWidth));
     bar.removeFromLeft(UiConstants::workspaceToolbarControlGap);

@@ -15,6 +15,12 @@ public:
 
     auto setRows(std::vector<NoteIoRow> rows) -> void;
 
+    /**
+     * Vocsep-only: treat localInstrumentId as voiceId — header "voice", numeric cell text,
+     * VoiceIdUiColours. Other NoteIoWidget subclasses leave this false (GM program names).
+     */
+    auto setProgramColumnAsVoiceId(bool enabled) -> void;
+
     auto resized() -> void override;
 
 private:
@@ -47,6 +53,7 @@ private:
     static auto programNameForLocalId(int32_t localInstrumentId) -> juce::String;
 
     bool showChannel = false;
+    bool programColumnAsVoiceId = false;
     juce::TableListBox table;
     std::vector<NoteIoRow> rows;
 

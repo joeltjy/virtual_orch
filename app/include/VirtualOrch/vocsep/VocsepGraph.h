@@ -10,8 +10,14 @@ namespace Vocsep {
 inline constexpr int InFeats = 43;
 inline constexpr int VoiceFeatDim = 23;
 inline constexpr int PosEncDim = 20;
-inline constexpr int PotEdgesMaxDist = 2;
-inline constexpr float Threshold = 0.5f;
+inline constexpr int PotEdgesMaxDist = 16;
+/**
+ * Python `NEAR_CONSECUTIVE_TOL_CS`: after MCMA pots, re-add directed A→B when
+ * A.onset < B.onset and |A.offset − B.onset| ≤ this (100 ms). Hetero consecutive
+ * stays exact isclose (paper); this only unions pot edges.
+ */
+inline constexpr int NearConsecutiveTolCs = 10;
+inline constexpr float Threshold = 0.3f;
 inline constexpr float PitchScoreAlpha = 3.1f;
 inline constexpr float CsPerBeat = 50.0f; // 120 BPM
 inline constexpr float TsBeats = 4.0f;

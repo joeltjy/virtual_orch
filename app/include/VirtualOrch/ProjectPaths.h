@@ -51,9 +51,10 @@ struct ModelCheckpoint {
  * Scan project + Documents model dirs. Same basename: project dir wins.
  * Only entries with both .onnx and .json are included.
  *
- * Also pairs `app/<name>.json` with `Documents/onnx_export_092126/<name>.onnx`
- * (fallback: `onnx_export_091426`) so large export weights need not be copied
- * into the repo. Prefer the newer export when both exist (e.g. amt_causal).
+ * Also pairs `app/<name>.json` with ONNX from, in order:
+ *   Documents/virtual-orch/Models, onnx_export_092126, onnx_export_091426
+ * so large weights need not live in the repo. Optional JSON `"onnx"` overrides
+ * the stem (e.g. vocsep_reduction_best → vocsep.onnx).
  */
 [[nodiscard]] inline auto listModelCheckpoints() -> std::vector<ModelCheckpoint> {
     std::vector<ModelCheckpoint> result;
@@ -87,11 +88,12 @@ struct ModelCheckpoint {
     scanDir(projectModelsDir());
     scanDir(documentsModelsDir());
 
-    // Cross-dir: project JSON + onnx_export ONNX (e.g. amt_causal).
+    // Cross-dir: project JSON + Documents Models / onnx_export ONNX.
     {
         const auto projectDir = projectModelsDir();
         if (projectDir.isDirectory()) {
-            const std::array exportDirs{onnxExportDir(), onnxExportFallbackDir()};
+            const std::array onnxDirs{documentsModelsDir(), onnxExportDir(),
+                                      onnxExportFallbackDir()};
             juce::Array<juce::File> jsonFiles;
             projectDir.findChildFiles(jsonFiles, juce::File::findFiles, false, "*.json");
             for (const auto &json: jsonFiles) {
@@ -111,10 +113,10 @@ struct ModelCheckpoint {
                                    : onnxProp;
 
                 juce::File onnx;
-                for (const auto &exportDir: exportDirs) {
-                    if (! exportDir.isDirectory())
+                for (const auto &onnxDir: onnxDirs) {
+                    if (! onnxDir.isDirectory())
                         continue;
-                    const auto candidate = exportDir.getChildFile(onnxStem + ".onnx");
+                    const auto candidate = onnxDir.getChildFile(onnxStem + ".onnx");
                     if (candidate.existsAsFile()) {
                         onnx = candidate;
                         break;

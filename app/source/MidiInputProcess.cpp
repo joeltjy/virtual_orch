@@ -242,13 +242,16 @@ void MidiInputProcess::timerCallback() {
         atTime = static_cast<int32_t>(lastTokenAddedTime + modelConfig.directInputStartDelay);
         musicDirectInputBlock() = false;
     }
-    const int32_t stamp = atTime.value_or(static_cast<int32_t>(lastTokenAddedTime));
     const int32_t defaultDur = static_cast<int32_t>(Vocab::DurOffset + modelConfig.inputDuration);
+    // Batch start-on-input still shares one delayed onset; otherwise each note keeps
+    // its real note-on time (offline MIDI). Using lastTokenAddedTime for every note
+    // in the flush window collapsed phrases into one simultaneous chord.
+    const int32_t batchStamp = atTime.value_or(static_cast<int32_t>(lastTokenAddedTime));
 
     if (modelConfig.directInputHoldBass && bassHeld.has_value()) {
         DBG("Holding bass " + std::to_string(bassHeld.value()));
         tokensToSend.push_back({
-            .time = stamp,
+            .time = batchStamp,
             .duration = defaultDur,
             .note = bassHeld.value()
         });
@@ -257,14 +260,15 @@ void MidiInputProcess::timerCallback() {
     for (auto &[pitch, note]: notesOnToSend) {
         if (note.flushedTime.has_value())
             continue;
+        const int32_t noteOnset = atTime.value_or(static_cast<int32_t>(note.onset));
         tokensToSend.push_back({
-            .time = stamp,
+            .time = noteOnset,
             .duration = defaultDur,
             .note = static_cast<int32_t>(Vocab::NoteOffset + Config::MaxPitch * InstrumentConstants::kReductionInputLocalInstrumentId
                                          + pitch),
             .velocity = note.velocity
         });
-        note.flushedTime = stamp;
+        note.flushedTime = noteOnset;
     }
 
     sendTokensToMusicTransformer(std::nullopt);

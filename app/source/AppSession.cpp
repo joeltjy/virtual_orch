@@ -146,9 +146,21 @@ AppSession::AppSession()
             pads[base + 3][col] = 15 + col; // other 15–19
     }
 
-    // Default: all pads off; user/model instrument sets start empty.
+    // Default: enable all strings, woodwinds, and brass (User + Model); leave "other" off.
     orchestrationTransformer.userInstruments.clear();
     orchestrationTransformer.modelInstruments.clear();
+    {
+        auto &grid = midiInputProcess.getLaunchpadGrid();
+        for (int block = 0; block < 2; ++block) {
+            const int base = block * 4;
+            for (int col = 0; col < 7; ++col)
+                grid.setPadOn(base + 0, col, true); // strings 0–6
+            for (int col = 0; col < 4; ++col)
+                grid.setPadOn(base + 1, col, true); // woodwind 7–10
+            for (int col = 0; col < 4; ++col)
+                grid.setPadOn(base + 2, col, true); // brass 11–14
+        }
+    }
 
     orchestrationTransformer.orchestrationModel = orchestrationModel.get();
     outputPlayback.isReductionPaused = [this] {

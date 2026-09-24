@@ -111,20 +111,38 @@ inline constexpr int32_t kReductionPlaybackLocalId = kPianoLocalId;
 inline constexpr int32_t kBrassLocalIdFirst = 11;
 inline constexpr int32_t kBrassLocalIdLast = 14;
 
+/** Woodwind family local ids (flute…bassoon), contiguous in taxonomy_20. */
+inline constexpr int32_t kWoodwindLocalIdFirst = 7;
+inline constexpr int32_t kWoodwindLocalIdLast = 10;
+
 /** Default playback scale for brass (too loud at full reduction velocity). */
-inline constexpr float kBrassVelocityScale = 0.5f;
+inline constexpr float kBrassVelocityScale = 0.35f;
+
+/** Boost for woodwinds relative to unscaled reduction velocity (clamped to 127). */
+inline constexpr float kWoodwindVelocityScale = 1.5f;
 
 [[nodiscard]] inline auto isBrassLocalInstrumentId(int32_t localInstrumentId) -> bool {
     return localInstrumentId >= kBrassLocalIdFirst && localInstrumentId <= kBrassLocalIdLast;
 }
 
-/** Apply default family velocity scales (brass ×0.5). Keeps 0 as 0. */
+[[nodiscard]] inline auto isWoodwindLocalInstrumentId(int32_t localInstrumentId) -> bool {
+    return localInstrumentId >= kWoodwindLocalIdFirst
+           && localInstrumentId <= kWoodwindLocalIdLast;
+}
+
+/** Apply default family velocity scales (brass ↓, woodwinds ↑). Keeps 0 as 0. */
 [[nodiscard]] inline auto scaleVelocityForInstrument(int32_t localInstrumentId, int32_t velocity)
     -> int32_t {
-    if (velocity <= 0 || ! isBrassLocalInstrumentId(localInstrumentId))
+    if (velocity <= 0)
         return velocity;
-    const auto scaled =
-        static_cast<int32_t>(static_cast<float>(velocity) * kBrassVelocityScale + 0.5f);
+    float scale = 1.0f;
+    if (isBrassLocalInstrumentId(localInstrumentId))
+        scale = kBrassVelocityScale;
+    else if (isWoodwindLocalInstrumentId(localInstrumentId))
+        scale = kWoodwindVelocityScale;
+    else
+        return velocity;
+    const auto scaled = static_cast<int32_t>(static_cast<float>(velocity) * scale + 0.5f);
     return scaled < 1 ? 1 : (scaled > 127 ? 127 : scaled);
 }
 

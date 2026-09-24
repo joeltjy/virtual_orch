@@ -1,0 +1,8 @@
+{
+  "arch": "dense",
+  "onnx": "amt_2instruments_v2.onnx",
+  "contextNotes": 40,
+  "outputInstruments": [1],
+  "defaultPreset": {},
+  "notes": "Piano + piano-reduction finetune v2 (2 instruments). ONNX: Documents/virtual-orch/Models/amt_2instruments_v2.onnx. Piano = instrument 0 (conditioning only); generation = instrument 1 (reduction → OT). Use with Reduction type Piano Reduction."
+}

@@ -55,6 +55,18 @@ public:
 
     auto addInstrumentLogitsWidget() -> void;
 
+    auto addVocsepOutputWidget() -> void;
+
+    auto addDurationLogitsWidget() -> void;
+
+    auto addReductionTemperatureWidget() -> void;
+
+    auto addReductionTauWidget() -> void;
+
+    auto addOctaveDeltaWidget() -> void;
+
+    auto addLogitAdjustmentsWidget() -> void;
+
     /** Clear canvas and suppress layout notifications while seeding a view. */
     auto beginViewLayout() -> void;
 
@@ -65,13 +77,13 @@ public:
 
     [[nodiscard]] auto hasWidgetOfType(const juce::String &type) const -> bool;
 
-    /** Prompt + Generation + Transport widgets for Default view. */
+    /** Seed Prompt + Generation + Transport for the Default view. */
     auto addDefaultWidgets() -> void;
 
-    /** Token + Conditioning piano roll widgets for InputView. */
+    /** Seed Token + Conditioning + Generation for InputView. */
     auto addInputViewWidgets() -> void;
 
-    /** OT rolls + Active Instruments for OrchestrationDebug view. */
+    /** Seed OT rolls + debug widgets for OrchestrationDebug. */
     auto addOrchestrationDebugViewWidgets() -> void;
 
     auto getWidgetCount() const -> int { return (int) widgets.size(); }

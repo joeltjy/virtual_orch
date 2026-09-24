@@ -21,6 +21,12 @@ class VoiceSeparation {
 public:
     static constexpr int WindowNotes = 40;
 
+    /** Rewrite an already-stamped history note's voiceId (score steal from concurrent). */
+    struct HistoryRestamp {
+        size_t historyIndex = 0;
+        int32_t newVoiceId = -1;
+    };
+
     auto init(const char *modelPath) -> void;
 
     [[nodiscard]] auto isLoaded() const -> bool { return session != nullptr; }
@@ -31,9 +37,18 @@ public:
     /**
      * If loaded and `token` is a sounding note: build last-40 graph with history,
      * run ONNX + Hungarian, set token.voiceId (inherit parent or allocate).
-     * Non-notes / unloaded leave voiceId unchanged (-1).
+     * Non-notes / unloaded leave voiceId unchanged (-1) and return {}.
+     *
+     * Concurrent notes (± NearConsecutiveTolCs onset) that already hold the parent's
+     * voice are resolved by pot-edge score to that parent: newest inherits only if
+     * strictly greater than every concurrent claimant's score; then losers are
+     * restamped (returned for the caller to write into outputHistory). On tie or
+     * lower score, newest allocates a new voiceId.
+     *
+     * Logs to Documents/virtual-orch/Logs/vocsep_assign.log.
      */
-    auto stampVoiceId(Token &token, const std::vector<Token> &outputHistory) -> void;
+    auto stampVoiceId(Token &token, const std::vector<Token> &outputHistory)
+        -> std::vector<HistoryRestamp>;
 
     [[nodiscard]] auto getLastProfile() const -> VocsepLoopProfile;
 

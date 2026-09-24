@@ -25,7 +25,8 @@ auto resolveNowCs(const std::vector<int32_t> &denseInputData, int32_t nowCs) -> 
 
 auto collectDurationWindowWithNow(const std::vector<int32_t> &denseInputData,
                                   int32_t now,
-                                  int32_t skipProvisionalCs) -> DurationWindowStats {
+                                  int32_t skipProvisionalCs,
+                                  int32_t onlyInstrument) -> DurationWindowStats {
     DurationWindowStats stats;
     const int32_t cutoff = now - WindowCs;
     const int32_t skipSnapped =
@@ -41,6 +42,11 @@ auto collectDurationWindowWithNow(const std::vector<int32_t> &denseInputData,
         const int32_t onset = denseInputData[i];
         if (onset <= cutoff || onset > now)
             continue;
+        if (onlyInstrument >= 0) {
+            const int32_t instr = DenseQuantize::instrumentOfNoteToken(denseInputData[i + 2]);
+            if (instr != onlyInstrument)
+                continue;
+        }
         int32_t durCs = durationCsFromToken(denseInputData[i + 1]);
         durCs = DenseQuantize::snapDurationCs(durCs);
         if (! isLegalDurationCs(durCs))
@@ -97,15 +103,18 @@ auto collectDurationWindowWithNow(const std::vector<int32_t> &denseInputData,
 
 auto collectDurationWindow(const std::vector<int32_t> &denseInputData,
                            int32_t nowCs,
-                           int32_t skipProvisionalCs) -> DurationWindowStats {
+                           int32_t skipProvisionalCs,
+                           int32_t onlyInstrument) -> DurationWindowStats {
     return collectDurationWindowWithNow(denseInputData, resolveNowCs(denseInputData, nowCs),
-                                        skipProvisionalCs);
+                                        skipProvisionalCs, onlyInstrument);
 }
 
 auto collectDurationWindowAt(const std::vector<int32_t> &denseInputData,
                              int32_t prefixNowCs,
-                             int32_t skipProvisionalCs) -> DurationWindowStats {
-    return collectDurationWindowWithNow(denseInputData, prefixNowCs, skipProvisionalCs);
+                             int32_t skipProvisionalCs,
+                             int32_t onlyInstrument) -> DurationWindowStats {
+    return collectDurationWindowWithNow(denseInputData, prefixNowCs, skipProvisionalCs,
+                                        onlyInstrument);
 }
 
 auto applyDurationLogitsBias(std::vector<float> &logits,
@@ -132,6 +141,92 @@ auto applyDurationLogitsBias(std::vector<float> &logits,
         const float sy = stats.sDelta[static_cast<size_t>(deltaIndex(delta))];
         logit -= tauPrime * std::log(sy);
     }
+}
+
+auto DurationTauScheduler::evaluate(int32_t nowCs,
+                                    const std::vector<int32_t> &uniqueDurations,
+                                    const std::vector<int32_t> &uniqueDeltas,
+                                    float tauBase,
+                                    float tauPrimeBase,
+                                    bool countNote) -> Result {
+    // UI timer and the generation thread both call evaluate. Generation often runs
+    // ahead of the wall clock; a later UI refresh with a smaller "now" must not
+    // rewind the hold/ramp (that pinned τ_d near base, e.g. 0.2→0.3 forever).
+    if (hasScheduleNow)
+        nowCs = std::max(nowCs, lastScheduleNowCs);
+    lastScheduleNowCs = nowCs;
+    hasScheduleNow = true;
+
+    const auto gainedElement = [](bool hasPrev,
+                                  const std::vector<int32_t> &prev,
+                                  const std::vector<int32_t> &cur) -> bool {
+        if (! hasPrev)
+            return true;
+        for (const int32_t value: cur) {
+            if (! std::binary_search(prev.begin(), prev.end(), value))
+                return true;
+        }
+        return false;
+    };
+
+    const auto heldValue = [](int32_t nowCsLocal, int32_t stableSinceCs, int notesSinceReset,
+                              float base) -> float {
+        const float heldSeconds =
+            static_cast<float>(nowCsLocal - stableSinceCs)
+            / static_cast<float>(DenseConfig::TimeResolution);
+        if (heldSeconds < TauHoldSeconds && notesSinceReset < TauHoldNotes)
+            return base;
+        return base
+               * std::pow(TauRampPerSecond, static_cast<float>(notesSinceReset) / 10.0f);
+    };
+
+    if (uniqueDurations.empty()) {
+        lastDurations.clear();
+        hasDurations = false;
+        durationNotesSinceReset = 0;
+    } else if (gainedElement(hasDurations, lastDurations, uniqueDurations)) {
+        lastDurations = uniqueDurations;
+        durationStableSinceCs = nowCs;
+        durationNotesSinceReset = countNote ? 1 : 0;
+        hasDurations = true;
+    } else {
+        lastDurations = uniqueDurations;
+        if (countNote)
+            ++durationNotesSinceReset;
+    }
+
+    if (uniqueDeltas.empty()) {
+        lastDeltas.clear();
+        hasDeltas = false;
+        deltaNotesSinceReset = 0;
+    } else if (gainedElement(hasDeltas, lastDeltas, uniqueDeltas)) {
+        lastDeltas = uniqueDeltas;
+        deltaStableSinceCs = nowCs;
+        deltaNotesSinceReset = countNote ? 1 : 0;
+        hasDeltas = true;
+    } else {
+        lastDeltas = uniqueDeltas;
+        if (countNote)
+            ++deltaNotesSinceReset;
+    }
+
+    return {hasDurations ? heldValue(nowCs, durationStableSinceCs, durationNotesSinceReset, tauBase)
+                         : tauBase,
+            hasDeltas ? heldValue(nowCs, deltaStableSinceCs, deltaNotesSinceReset, tauPrimeBase)
+                      : tauPrimeBase};
+}
+
+auto DurationTauScheduler::reset() -> void {
+    lastDurations.clear();
+    lastDeltas.clear();
+    durationStableSinceCs = 0;
+    deltaStableSinceCs = 0;
+    lastScheduleNowCs = 0;
+    durationNotesSinceReset = 0;
+    deltaNotesSinceReset = 0;
+    hasDurations = false;
+    hasDeltas = false;
+    hasScheduleNow = false;
 }
 
 } // namespace DenseDurationBias

@@ -33,13 +33,14 @@ private:
 
     auto applySaveAsName(const juce::String &rawName) -> void;
 
+    auto promptNewView() -> void;
+
+    auto applyNewViewName(const juce::String &rawName) -> void;
+
     auto confirmOverwriteThenSave(const juce::String &viewName) -> void;
 
-    auto ensureDefaultView() -> void;
-
-    auto ensureInputView() -> void;
-
-    auto ensureOrchestrationDebugView() -> void;
+    /** Persist built-in layouts once if missing; never overwrite a saved view. */
+    auto ensureBuiltinViews() -> void;
 
     auto setCurrentViewAsDefault() -> void;
 
@@ -57,6 +58,7 @@ private:
     juce::Label toolbarLabel;
     juce::TextButton addButton{"Add"};
     juce::ComboBox viewCombo;
+    juce::TextButton newViewButton{"New View"};
     juce::TextButton saveButton{"Save"};
     juce::TextButton saveAsButton{"Save As"};
     juce::TextButton setDefaultButton{"Set Default"};

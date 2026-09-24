@@ -1,0 +1,70 @@
+{
+  "model": "piano_reduction_checkpoint-4000",
+  "reduction": "pianoReduction",
+  "orchestrationModel": "IodPretrained",
+  "orchestrationMode": "jam",
+  "inputMode": "direct",
+  "inputFilterType": "passthrough",
+  "directInputWindowLength": 10,
+  "directInputSendNoteOffs": true,
+  "directInputStartOnInput": false,
+  "directInputStartDelay": 0,
+  "directInputHoldBass": false,
+  "directInputBassLow": 24,
+  "directInputBassHigh": 36,
+  "directInputInitialBass": -1,
+  "inputInstrument": 0,
+  "inputLow": 36,
+  "inputHigh": 120,
+  "inputDuration": 400,
+  "inputInitialData": "",
+  "contextNotes": 40,
+  "outputMinimumDuration": 10,
+  "outputMaximumDuration": 999,
+  "outputTemperatures": [
+    0.5,
+    0.5,
+    0.5
+  ],
+  "outputStartTime": 0,
+  "outputForceStartTime": false,
+  "outputMaxAheadSeconds": 5,
+  "outputAheadThrottleSeconds": 2,
+  "outputInstruments": [
+    {
+      "id": 0,
+      "active": false,
+      "monophony": false,
+      "low": 36,
+      "high": 120
+    },
+    {
+      "id": 1,
+      "active": false,
+      "monophony": false,
+      "low": 36,
+      "high": 120
+    },
+    {
+      "id": 2,
+      "active": false,
+      "monophony": false,
+      "low": 36,
+      "high": 120
+    },
+    {
+      "id": 3,
+      "active": false,
+      "monophony": false,
+      "low": 36,
+      "high": 120
+    },
+    {
+      "id": 4,
+      "active": false,
+      "monophony": false,
+      "low": 36,
+      "high": 120
+    }
+  ]
+}

@@ -149,7 +149,16 @@ auto applyNoteLogitsBias(std::vector<float> &logits,
 
 auto PitchTauScheduler::evaluate(int32_t nowCs,
                                  const std::vector<int32_t> &uniquePitches,
-                                 const std::vector<int32_t> &uniqueDeltas) -> Result {
+                                 const std::vector<int32_t> &uniqueDeltas,
+                                 float tauBase,
+                                 float tauPrimeBase,
+                                 bool countNote) -> Result {
+    // Same UI-vs-generation race as DurationTauScheduler: never rewind "now".
+    if (hasScheduleNow)
+        nowCs = std::max(nowCs, lastScheduleNowCs);
+    lastScheduleNowCs = nowCs;
+    hasScheduleNow = true;
+
     const auto gainedElement = [](bool hasPrev,
                                   const std::vector<int32_t> &prev,
                                   const std::vector<int32_t> &cur) -> bool {
@@ -162,35 +171,53 @@ auto PitchTauScheduler::evaluate(int32_t nowCs,
         return false;
     };
 
-    const auto heldValue = [](int32_t nowCs, int32_t stableSinceCs) -> float {
+    const auto heldValue = [](int32_t nowCsLocal, int32_t stableSinceCs, int notesSinceReset,
+                              float base) -> float {
         const float heldSeconds =
-            static_cast<float>(nowCs - stableSinceCs)
+            static_cast<float>(nowCsLocal - stableSinceCs)
             / static_cast<float>(DenseConfig::TimeResolution);
-        if (heldSeconds < TauHoldSeconds)
-            return TauBase;
-        const float extra = heldSeconds - TauHoldSeconds;
-        return TauBase * std::pow(2.0f, extra);
+        // Hold until 2 s *or* 10 notes, whichever is earlier.
+        if (heldSeconds < TauHoldSeconds && notesSinceReset < TauHoldNotes)
+            return base;
+        return base
+               * std::pow(TauRampBase, static_cast<float>(notesSinceReset) / 10.0f);
     };
 
-    // τ: reset only when S gains a pitch.
-    if (gainedElement(hasS, lastS, uniquePitches)) {
+    // τ: empty S → base. Else reset when S gains a pitch.
+    if (uniquePitches.empty()) {
+        lastS.clear();
+        hasS = false;
+        sNotesSinceReset = 0;
+    } else if (gainedElement(hasS, lastS, uniquePitches)) {
         lastS = uniquePitches;
         sStableSinceCs = nowCs;
+        sNotesSinceReset = countNote ? 1 : 0;
         hasS = true;
     } else {
         lastS = uniquePitches;
+        if (countNote)
+            ++sNotesSinceReset;
     }
 
-    // τ′: reset only when a new in-range pitch interval enters the window.
-    if (gainedElement(hasDeltas, lastDeltas, uniqueDeltas)) {
+    // τ′: empty D → base. Else reset when a new in-range interval enters.
+    if (uniqueDeltas.empty()) {
+        lastDeltas.clear();
+        hasDeltas = false;
+        deltaNotesSinceReset = 0;
+    } else if (gainedElement(hasDeltas, lastDeltas, uniqueDeltas)) {
         lastDeltas = uniqueDeltas;
         deltaStableSinceCs = nowCs;
+        deltaNotesSinceReset = countNote ? 1 : 0;
         hasDeltas = true;
     } else {
         lastDeltas = uniqueDeltas;
+        if (countNote)
+            ++deltaNotesSinceReset;
     }
 
-    return {heldValue(nowCs, sStableSinceCs), heldValue(nowCs, deltaStableSinceCs)};
+    return {hasS ? heldValue(nowCs, sStableSinceCs, sNotesSinceReset, tauBase) : tauBase,
+            hasDeltas ? heldValue(nowCs, deltaStableSinceCs, deltaNotesSinceReset, tauPrimeBase)
+                      : tauPrimeBase};
 }
 
 auto PitchTauScheduler::reset() -> void {
@@ -198,8 +225,12 @@ auto PitchTauScheduler::reset() -> void {
     lastDeltas.clear();
     sStableSinceCs = 0;
     deltaStableSinceCs = 0;
+    lastScheduleNowCs = 0;
+    sNotesSinceReset = 0;
+    deltaNotesSinceReset = 0;
     hasS = false;
     hasDeltas = false;
+    hasScheduleNow = false;
 }
 
 } // namespace DensePitchBias

@@ -13,15 +13,21 @@
  * s_y over consecutive duration deltas (also step-aligned, |Δ| ≤ DeltaAbsMaxCs).
  * Subtract τ·log(π) and τ′·log(s_y) from duration logits.
  *
- * Unlike pitch, duration τ / τ′ stay fixed at TauBase (no hold/ramp) so live
- * matches a constant --in-sample-style strength of 0.5.
+ * τ_d hold/ramps like pitch: hold base for min(2 s, 10 notes), then
+ * base · TauRampPerSecond^(notes/10) (pitch uses 2^(notes/10)).
+ * τ′_d defaults to TauPrimeBase (0) unless raised in the UI.
  */
 namespace DenseDurationBias {
 
 inline constexpr int32_t WindowCs = 500; // 5 s
 inline constexpr float TauBase = 0.5f;
-/** Unused for duration (kept for API parity with pitch); schedule does not ramp. */
+/** Hold at base until this many seconds *or* TauHoldNotes, whichever is earlier. */
 inline constexpr float TauHoldSeconds = 2.0f;
+inline constexpr int TauHoldNotes = 10;
+/** After hold: τ_d = base · TauRampPerSecond^(notesSinceReset / 10). */
+inline constexpr float TauRampPerSecond = 1.5f;
+/** Default τ′ for consecutive duration-delta bias (off unless raised in UI). */
+inline constexpr float TauPrimeBase = 0.0f;
 
 /** Consecutive duration-delta range for s_y / τ′ (centiseconds, step-aligned). */
 inline constexpr int32_t DeltaAbsMaxCs = 200; // ±2 s
@@ -79,12 +85,14 @@ struct DurationWindowStats {
 
 [[nodiscard]] auto collectDurationWindow(const std::vector<int32_t> &denseInputData,
                                          int32_t nowCs,
-                                         int32_t skipProvisionalCs = -1) -> DurationWindowStats;
+                                         int32_t skipProvisionalCs = -1,
+                                         int32_t onlyInstrument = -1) -> DurationWindowStats;
 
 /** Prefix-relative window (just-sampled onset as now), like collectPitchWindowAt. */
 [[nodiscard]] auto collectDurationWindowAt(const std::vector<int32_t> &denseInputData,
                                            int32_t prefixNowCs,
-                                           int32_t skipProvisionalCs = -1) -> DurationWindowStats;
+                                           int32_t skipProvisionalCs = -1,
+                                           int32_t onlyInstrument = -1) -> DurationWindowStats;
 
 /**
  * Subtract τ·log(π[d]) and τ′·log(s_y[d−lastDur]) from legal duration logits.
@@ -95,21 +103,34 @@ auto applyDurationLogitsBias(std::vector<float> &logits,
                              float tau,
                              float tauPrime) -> void;
 
-/** Same API as PitchTauScheduler; duration τ / τ′ are fixed at TauBase (no ramp). */
+/** Hold-then-ramp for τ_d / τ′_d; slower growth than PitchTauScheduler. */
 class DurationTauScheduler {
 public:
     struct Result {
         float tau = TauBase;
-        float tauPrime = TauBase;
+        float tauPrime = TauPrimeBase;
     };
 
-    [[nodiscard]] auto evaluate(int32_t /*nowCs*/,
-                                const std::vector<int32_t> & /*uniqueDurations*/,
-                                const std::vector<int32_t> & /*uniqueDeltas*/) -> Result {
-        return {TauBase, TauBase};
-    }
+    [[nodiscard]] auto evaluate(int32_t nowCs,
+                                const std::vector<int32_t> &uniqueDurations,
+                                const std::vector<int32_t> &uniqueDeltas,
+                                float tauBase = TauBase,
+                                float tauPrimeBase = TauPrimeBase,
+                                bool countNote = false) -> Result;
 
-    auto reset() -> void {}
+    auto reset() -> void;
+
+private:
+    std::vector<int32_t> lastDurations;
+    std::vector<int32_t> lastDeltas;
+    int32_t durationStableSinceCs = 0;
+    int32_t deltaStableSinceCs = 0;
+    int32_t lastScheduleNowCs = 0;
+    int durationNotesSinceReset = 0;
+    int deltaNotesSinceReset = 0;
+    bool hasDurations = false;
+    bool hasDeltas = false;
+    bool hasScheduleNow = false;
 };
 
 } // namespace DenseDurationBias

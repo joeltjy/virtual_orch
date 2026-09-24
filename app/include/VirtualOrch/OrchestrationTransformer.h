@@ -158,6 +158,13 @@ public:
     /** Move ClearQueue tokens out of `tokens` into returned list (order preserved). */
     static auto extractClearQueueTokens(std::vector<Token> &tokens) -> std::vector<Token>;
 
+    /**
+     * Cluster note onsets within 30 ms (3 cs) and set each cluster to the mean
+     * onset, rounded to the 10 ms (1 cs) grid. Non-note / control tokens unchanged.
+     * Mutates `tokens` in place (order preserved).
+     */
+    static auto snapNearbyOnsets(std::vector<Token> &tokens) -> void;
+
     /** Drain updatesIncoming; patch midiInputHistory and conditioningHistory. */
     auto applyTokenUpdates() -> void;
 

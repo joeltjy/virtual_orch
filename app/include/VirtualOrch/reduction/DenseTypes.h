@@ -1,6 +1,8 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <numeric>
@@ -111,6 +113,55 @@ inline constexpr int32_t PianoKeyHigh = 108; // C8
     return rel / DenseConfig::MaxPitch;
 }
 
+/**
+ * Hard-mask note logits to PianoReductionOutputInstrument only. Shared by RT and tests.
+ * Returns false if logits are too short to cover that band (caller should not sample).
+ */
+[[nodiscard]] inline auto maskPianoReductionGenerationInstrument(std::vector<float> &logits)
+    -> bool {
+    const auto band1Low =
+        DenseVocab::NoteOffset
+        + static_cast<size_t>(DenseConfig::MaxPitch) * DenseConfig::PianoReductionOutputInstrument;
+    const auto band1High = band1Low + static_cast<size_t>(DenseConfig::MaxPitch);
+    if (logits.size() < band1High)
+        return false;
+
+    const auto fillEnd = std::min(logits.size(), DenseVocab::VelocityOffset);
+    std::fill(logits.begin() + static_cast<std::ptrdiff_t>(DenseVocab::NoteOffset),
+              logits.begin() + static_cast<std::ptrdiff_t>(band1Low),
+              -std::numeric_limits<float>::infinity());
+    if (fillEnd > band1High) {
+        std::fill(logits.begin() + static_cast<std::ptrdiff_t>(band1High),
+                  logits.begin() + static_cast<std::ptrdiff_t>(fillEnd),
+                  -std::numeric_limits<float>::infinity());
+    }
+    return true;
+}
+
+/** Count finite logits per dense instrument band (and outside the note block). */
+struct NoteBandFiniteCounts {
+    std::array<int, DenseConfig::MaxInstr> perInstr{};
+    int outsideNoteBlock = 0;
+};
+
+[[nodiscard]] inline auto countFiniteNoteBands(const std::vector<float> &logits)
+    -> NoteBandFiniteCounts {
+    NoteBandFiniteCounts out;
+    for (size_t i = 0; i < logits.size(); ++i) {
+        if (! std::isfinite(logits[i]))
+            continue;
+        if (i < DenseVocab::NoteOffset || i >= DenseVocab::VelocityOffset) {
+            ++out.outsideNoteBlock;
+            continue;
+        }
+        const int instr =
+            static_cast<int>((i - DenseVocab::NoteOffset) / static_cast<size_t>(DenseConfig::MaxPitch));
+        if (instr >= 0 && instr < DenseConfig::MaxInstr)
+            ++out.perInstr[static_cast<size_t>(instr)];
+    }
+    return out;
+}
+
 inline auto snapPackedEvents(std::vector<int32_t> &data, size_t eventWidth = 4) -> void {
     if (eventWidth < 4)
         return;
@@ -168,14 +219,14 @@ namespace DenseSampling {
 inline constexpr float OnsetTopP = 0.98f;
 inline constexpr float OnsetTemperature = 0.5f;
 inline constexpr float DurationTopP = 0.98f;
-/** Duration field temperature (V1 and V2). */
-inline constexpr float DurationTemperature = 1.0f;
+/** Duration field temperature (V1 / V2 / Piano Reduction). */
+inline constexpr float DurationTemperature = 0.5f;
 /** Alias kept for V2 call sites; same as DurationTemperature. */
 inline constexpr float V2DurationTemperature = DurationTemperature;
 inline constexpr float NoteTopP = 0.98f;
 inline constexpr float NoteTemperature = 0.5f;
-inline constexpr float VelocityTopP = 0.98f;
-inline constexpr float VelocityTemperature = 0.5f;
+inline constexpr float VelocityTopP = 0.3f;
+inline constexpr float VelocityTemperature = 1.0f;
 
 /** Notes of reduction history fed to the dense ONNX (4 tokens each → 160 ids). */
 inline constexpr int32_t ContextNotes = 40;
@@ -189,6 +240,49 @@ inline constexpr int32_t ContextNotes = 40;
     const int32_t cs = DenseQuantize::snapDurationCs(
         durToken - static_cast<int32_t>(DenseVocab::DurOffset));
     return cs == DenseQuantize::snapDurationCs(provisionalCs);
+}
+
+/**
+ * True when any dense event still carries the MIDI provisional hold duration.
+ * When `onlyInstrument >= 0`, only that note-band is considered (Piano Reduction:
+ * live piano is instrument 0; generated reduction is 1 and must not count).
+ */
+[[nodiscard]] inline auto hasProvisionalDurationNotes(const std::vector<int32_t> &inputData,
+                                                      int32_t provisionalCs,
+                                                      int eventWidth = 4,
+                                                      int32_t onlyInstrument = -1) -> bool {
+    if (eventWidth < 2 || inputData.size() < static_cast<size_t>(eventWidth))
+        return false;
+    for (size_t i = 0; i + static_cast<size_t>(eventWidth) - 1 < inputData.size();
+         i += static_cast<size_t>(eventWidth)) {
+        if (! isProvisionalDurationToken(inputData[i + 1], provisionalCs))
+            continue;
+        if (onlyInstrument >= 0 && eventWidth >= 3) {
+            const int32_t instr = DenseQuantize::instrumentOfNoteToken(inputData[i + 2]);
+            if (instr != onlyInstrument)
+                continue;
+        }
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Snap a generated duration, nudging by one grid step when it would collide with the
+ * MIDI provisional sentinel. Needed for V1/V2 where generated notes share instrument
+ * 0 with live input — otherwise a sampled inputDuration would stall generation forever.
+ */
+[[nodiscard]] inline auto snapGeneratedDurationToken(int32_t durToken, int32_t provisionalCs)
+    -> int32_t {
+    const int32_t snapped = DenseQuantize::snapDurationToken(durToken);
+    if (! isProvisionalDurationToken(snapped, provisionalCs))
+        return snapped;
+    const int32_t cs = snapped - static_cast<int32_t>(DenseVocab::DurOffset);
+    if (cs - DenseQuantize::DurationStepCs >= DenseQuantize::DurationMinCs)
+        return static_cast<int32_t>(DenseVocab::DurOffset) + (cs - DenseQuantize::DurationStepCs);
+    if (cs + DenseQuantize::DurationStepCs <= DenseQuantize::DurationMaxCs)
+        return static_cast<int32_t>(DenseVocab::DurOffset) + (cs + DenseQuantize::DurationStepCs);
+    return snapped;
 }
 
 /**

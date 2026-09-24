@@ -9,6 +9,8 @@
 
 #include "VirtualOrch/MusicToken.h"
 #include "VirtualOrch/reduction/DenseDurationBias.h"
+#include "VirtualOrch/reduction/DenseFirstTokenLogitsAudit.h"
+#include "VirtualOrch/reduction/DenseOnsetGapBias.h"
 #include "VirtualOrch/reduction/DensePitchBias.h"
 #include "VirtualOrch/reduction/DenseTypes.h"
 #include "VirtualOrch/reduction/ReductionTransformer.h"
@@ -84,6 +86,11 @@ public:
     /** Same now rule as pitch; refreshes duration π / s_y and τ_d / τ′_d. */
     auto refreshDurationTauSchedule() -> void;
 
+    /** Same now rule as pitch; refreshes onset-gap s_Δ and τ_g. */
+    auto refreshOnsetGapTauSchedule() -> void;
+
+    auto onGenerationPauseChanged(bool paused) -> void override;
+
     [[nodiscard]] auto getPitchTau() const -> float {
         return pitchTau.load(std::memory_order_relaxed);
     }
@@ -96,6 +103,73 @@ public:
     }
     [[nodiscard]] auto getDurationTauPrime() const -> float {
         return durationTauPrime.load(std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] auto getOnsetGapTau() const -> float {
+        return onsetGapTau.load(std::memory_order_relaxed);
+    }
+
+    /** Online pitch/duration/onset-gap anti-repetition bias. Default on. */
+    [[nodiscard]] auto isBiasEnabled() const -> bool {
+        return isPitchBiasEnabled() || isDurationBiasEnabled() || isOnsetGapBiasEnabled();
+    }
+
+    auto setBiasEnabled(bool enabled) -> void {
+        setPitchBiasEnabled(enabled);
+        setDurationBiasEnabled(enabled);
+        setOnsetGapBiasEnabled(enabled);
+    }
+
+    [[nodiscard]] auto isPitchBiasEnabled() const -> bool {
+        return pitchBiasEnabled.load(std::memory_order_relaxed);
+    }
+    auto setPitchBiasEnabled(bool enabled) -> void {
+        pitchBiasEnabled.store(enabled, std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] auto isDurationBiasEnabled() const -> bool {
+        return durationBiasEnabled.load(std::memory_order_relaxed);
+    }
+    auto setDurationBiasEnabled(bool enabled) -> void {
+        durationBiasEnabled.store(enabled, std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] auto isOnsetGapBiasEnabled() const -> bool {
+        return onsetGapBiasEnabled.load(std::memory_order_relaxed);
+    }
+    auto setOnsetGapBiasEnabled(bool enabled) -> void {
+        onsetGapBiasEnabled.store(enabled, std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] auto getPitchTauBase() const -> float {
+        return pitchTauBase.load(std::memory_order_relaxed);
+    }
+    auto setPitchTauBase(float value) -> void {
+        pitchTauBase.store(value, std::memory_order_relaxed);
+    }
+    [[nodiscard]] auto getPitchTauPrimeBase() const -> float {
+        return pitchTauPrimeBase.load(std::memory_order_relaxed);
+    }
+    auto setPitchTauPrimeBase(float value) -> void {
+        pitchTauPrimeBase.store(value, std::memory_order_relaxed);
+    }
+    [[nodiscard]] auto getDurationTauBase() const -> float {
+        return durationTauBase.load(std::memory_order_relaxed);
+    }
+    auto setDurationTauBase(float value) -> void {
+        durationTauBase.store(value, std::memory_order_relaxed);
+    }
+    [[nodiscard]] auto getDurationTauPrimeBase() const -> float {
+        return durationTauPrimeBase.load(std::memory_order_relaxed);
+    }
+    auto setDurationTauPrimeBase(float value) -> void {
+        durationTauPrimeBase.store(value, std::memory_order_relaxed);
+    }
+    [[nodiscard]] auto getOnsetGapTauBase() const -> float {
+        return onsetGapTauBase.load(std::memory_order_relaxed);
+    }
+    auto setOnsetGapTauBase(float value) -> void {
+        onsetGapTauBase.store(value, std::memory_order_relaxed);
     }
 
 private:
@@ -126,6 +200,16 @@ private:
     std::atomic<float> noteTemperature{DenseSampling::NoteTemperature};
     std::atomic<float> velocityTemperature{DenseSampling::VelocityTemperature};
 
+    std::atomic<bool> pitchBiasEnabled{true};
+    std::atomic<bool> durationBiasEnabled{true};
+    std::atomic<bool> onsetGapBiasEnabled{true};
+
+    std::atomic<float> pitchTauBase{DensePitchBias::TauBase};
+    std::atomic<float> pitchTauPrimeBase{DensePitchBias::TauBase};
+    std::atomic<float> durationTauBase{DenseDurationBias::TauBase};
+    std::atomic<float> durationTauPrimeBase{DenseDurationBias::TauPrimeBase};
+    std::atomic<float> onsetGapTauBase{DenseOnsetGapBias::TauBase};
+
     juce::CriticalSection pitchBiasLock;
     DensePitchBias::PitchTauScheduler pitchTauScheduler;
     DensePitchBias::PitchWindowStats lastPitchWindow;
@@ -136,5 +220,12 @@ private:
     DenseDurationBias::DurationTauScheduler durationTauScheduler;
     DenseDurationBias::DurationWindowStats lastDurationWindow;
     std::atomic<float> durationTau{DenseDurationBias::TauBase};
-    std::atomic<float> durationTauPrime{DenseDurationBias::TauBase};
+    std::atomic<float> durationTauPrime{DenseDurationBias::TauPrimeBase};
+
+    juce::CriticalSection onsetGapBiasLock;
+    DenseOnsetGapBias::OnsetGapTauScheduler onsetGapTauScheduler;
+    DenseOnsetGapBias::OnsetGapWindowStats lastOnsetGapWindow;
+    std::atomic<float> onsetGapTau{DenseOnsetGapBias::TauBase};
+
+    DenseFirstTokenLogitsAudit firstTokenLogitsAudit;
 };

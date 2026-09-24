@@ -4,6 +4,7 @@
 #include "VirtualOrch/InstrumentConstants.h"
 #include "VirtualOrch/InstrumentUiColours.h"
 #include "VirtualOrch/ui/UiConstants.h"
+#include "VirtualOrch/widgets/VoiceIdUiColours.h"
 
 NoteIoTableView::NoteIoTableView(bool showChannelIn)
     : showChannel(showChannelIn) {
@@ -55,6 +56,17 @@ NoteIoTableView::NoteIoTableView(bool showChannelIn)
 auto NoteIoTableView::setRows(std::vector<NoteIoRow> newRows) -> void {
     rows = std::move(newRows);
     table.updateContent();
+    table.repaint();
+}
+
+auto NoteIoTableView::setProgramColumnAsVoiceId(bool enabled) -> void {
+    if (programColumnAsVoiceId == enabled)
+        return;
+    programColumnAsVoiceId = enabled;
+    table.getHeader().setColumnName(
+        programColumn,
+        enabled ? UiConstants::workspaceNoteIoVoiceColumn
+                : UiConstants::workspaceNoteIoProgramColumn);
     table.repaint();
 }
 
@@ -113,7 +125,11 @@ auto NoteIoTableView::paintCell(juce::Graphics &g,
             text = juce::String(row.velocity);
             break;
         case programColumn:
-            text = programNameForLocalId(row.localInstrumentId);
+            if (programColumnAsVoiceId)
+                text = row.localInstrumentId < 0 ? juce::String("-")
+                                                : juce::String(row.localInstrumentId);
+            else
+                text = programNameForLocalId(row.localInstrumentId);
             break;
         case channelColumn:
             text = row.channel < 0 ? juce::String("-") : juce::String(row.channel);
@@ -122,8 +138,13 @@ auto NoteIoTableView::paintCell(juce::Graphics &g,
             break;
     }
 
-    g.setColour(columnId == programColumn ? InstrumentUiColours::forLocalInstrument(row.localInstrumentId)
-                                          : UiConstants::workspaceWidgetTitleTextColour);
+    if (columnId == programColumn) {
+        g.setColour(programColumnAsVoiceId
+                        ? VoiceIdUiColours::forVoiceId(row.localInstrumentId)
+                        : InstrumentUiColours::forLocalInstrument(row.localInstrumentId));
+    } else {
+        g.setColour(UiConstants::workspaceWidgetTitleTextColour);
+    }
     g.setFont(13.0f);
     g.drawText(text, 4, 0, width - 8, height, juce::Justification::centredLeft, true);
 }

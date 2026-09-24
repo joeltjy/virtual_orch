@@ -1,13 +1,139 @@
 #include "VirtualOrch/vocsep/VoiceSeparation.h"
 
 #include "VirtualOrch/OrtEnv.h"
+#include "VirtualOrch/vocsep/VocsepGraph.h"
 
 #include <array>
+#include <cmath>
+#include <limits>
+#include <utility>
+#include <vector>
 
 namespace {
 
 auto nowMs() -> double {
     return juce::Time::getMillisecondCounterHiRes();
+}
+
+constexpr int64_t kAssignLogMaxBytes = 2 * 1024 * 1024;
+/** Onsets within this are treated as concurrent for conflict diagnostics (matches NearConsecutiveTolCs). */
+constexpr int kConcurrentOnsetTolCs = Vocsep::NearConsecutiveTolCs;
+
+auto vocsepAssignLogFile() -> juce::File {
+    const auto dir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+                         .getChildFile("virtual-orch")
+                         .getChildFile("Logs");
+    dir.createDirectory();
+    return dir.getChildFile("vocsep_assign.log");
+}
+
+auto appendAssignLogAsync(juce::String body) -> void {
+    juce::Thread::launch([body = std::move(body)] {
+        auto file = vocsepAssignLogFile();
+        if (file.getSize() > kAssignLogMaxBytes) {
+            const auto rotated = file.getSiblingFile("vocsep_assign.prev.log");
+            rotated.deleteFile();
+            file.moveFileTo(rotated);
+        }
+        file.appendText(body);
+        if (! body.endsWithChar('\n'))
+            file.appendText("\n");
+    });
+}
+
+auto formatNoteBrief(const Token &t) -> juce::String {
+    return juce::String::formatted("onset=%d dur=%d pitch=%d voice=%d",
+                                   static_cast<int>(t.time),
+                                   static_cast<int>(t.getRealDuration()),
+                                   static_cast<int>(t.getPitch()),
+                                   static_cast<int>(t.voiceId));
+}
+
+/**
+ * Log one voice assignment. `parentScore` is NaN when unused.
+ * Lists concurrent window notes (onset within tol) and whether they share the assigned voice.
+ */
+auto logVoiceAssignment(const Token &token,
+                        const char *reason,
+                        const std::vector<Token> &window,
+                        int parentIdx,
+                        float parentScore,
+                        const Vocsep::GraphTensors *graph,
+                        const std::vector<float> *edgeScores) -> void {
+    juce::String line;
+    line << juce::Time::getCurrentTime().toString(true, true, true, true)
+         << " | " << reason
+         << " | new{" << formatNoteBrief(token) << "}";
+
+    if (parentIdx >= 0 && parentIdx < static_cast<int>(window.size())) {
+        line << " | parentIdx=" << parentIdx
+             << " parent{" << formatNoteBrief(window[static_cast<size_t>(parentIdx)]) << "}";
+        if (std::isfinite(parentScore))
+            line << " score=" << juce::String(parentScore, 4);
+    } else {
+        line << " | parentIdx=-1";
+    }
+
+    // Pot edges into the newest node (candidate parents).
+    const int newest = static_cast<int>(window.size()) - 1;
+    if (graph != nullptr && edgeScores != nullptr && newest >= 0) {
+        line << " | potsIntoNew=";
+        bool any = false;
+        for (int64_t e = 0; e < graph->targetEdgeCount; ++e) {
+            const int d = static_cast<int>(
+                graph->targetEdgeIndex[static_cast<size_t>(graph->targetEdgeCount + e)]);
+            if (d != newest)
+                continue;
+            const int s =
+                static_cast<int>(graph->targetEdgeIndex[static_cast<size_t>(e)]);
+            const float sc =
+                e < static_cast<int64_t>(edgeScores->size())
+                    ? (*edgeScores)[static_cast<size_t>(e)]
+                    : 0.0f;
+            if (any)
+                line << ",";
+            line << s << "->" << d << "@" << juce::String(sc, 3);
+            any = true;
+        }
+        if (! any)
+            line << "(none)";
+    }
+
+    // Concurrent notes in window (excluding newest).
+    line << " | concurrent=";
+    bool anyConc = false;
+    bool sameVoiceConflict = false;
+    for (int i = 0; i < newest; ++i) {
+        const auto &o = window[static_cast<size_t>(i)];
+        if (std::abs(o.time - token.time) > kConcurrentOnsetTolCs)
+            continue;
+        if (anyConc)
+            line << ";";
+        line << "[" << i << " " << formatNoteBrief(o) << "]";
+        anyConc = true;
+        if (o.voiceId >= 0 && o.voiceId == token.voiceId)
+            sameVoiceConflict = true;
+    }
+    if (! anyConc)
+        line << "(none)";
+    if (sameVoiceConflict)
+        line << " | CONFLICT_SAME_VOICE_CONCURRENT";
+
+    appendAssignLogAsync(std::move(line));
+}
+
+auto potEdgeScore(const Vocsep::GraphTensors &graph,
+                  const std::vector<float> &edgeScores,
+                  int src,
+                  int dst) -> float {
+    for (int64_t e = 0; e < graph.targetEdgeCount; ++e) {
+        const int s = static_cast<int>(graph.targetEdgeIndex[static_cast<size_t>(e)]);
+        const int d = static_cast<int>(
+            graph.targetEdgeIndex[static_cast<size_t>(graph.targetEdgeCount + e)]);
+        if (s == src && d == dst && e < static_cast<int64_t>(edgeScores.size()))
+            return edgeScores[static_cast<size_t>(e)];
+    }
+    return -std::numeric_limits<float>::infinity();
 }
 
 } // namespace
@@ -49,21 +175,31 @@ auto VoiceSeparation::getLastProfile() const -> VocsepLoopProfile {
     return profile;
 }
 
-auto VoiceSeparation::stampVoiceId(Token &token, const std::vector<Token> &outputHistory) -> void {
+auto VoiceSeparation::stampVoiceId(Token &token, const std::vector<Token> &outputHistory)
+    -> std::vector<HistoryRestamp> {
+    std::vector<HistoryRestamp> restamps;
     if (session == nullptr || ! isSoundingNote(token))
-        return;
+        return restamps;
 
     const double t0 = nowMs();
 
+    // Sounding history indices aligned with the pre-newest window prefix.
+    std::vector<size_t> soundingHistoryIdx;
+    soundingHistoryIdx.reserve(outputHistory.size());
     std::vector<Token> window;
     window.reserve(static_cast<size_t>(WindowNotes));
-    for (const auto &t: outputHistory) {
-        if (isSoundingNote(t))
-            window.push_back(t);
+    for (size_t hi = 0; hi < outputHistory.size(); ++hi) {
+        if (! isSoundingNote(outputHistory[hi]))
+            continue;
+        soundingHistoryIdx.push_back(hi);
+        window.push_back(outputHistory[hi]);
     }
-    if (static_cast<int>(window.size()) >= WindowNotes)
-        window.erase(window.begin(),
-                     window.end() - static_cast<std::ptrdiff_t>(WindowNotes - 1));
+    if (static_cast<int>(window.size()) >= WindowNotes) {
+        const auto drop = static_cast<size_t>(window.size() - (WindowNotes - 1));
+        window.erase(window.begin(), window.begin() + static_cast<std::ptrdiff_t>(drop));
+        soundingHistoryIdx.erase(soundingHistoryIdx.begin(),
+                                 soundingHistoryIdx.begin() + static_cast<std::ptrdiff_t>(drop));
+    }
     window.push_back(token);
 
     VocsepLoopStepMs step;
@@ -79,20 +215,23 @@ auto VoiceSeparation::stampVoiceId(Token &token, const std::vector<Token> &outpu
     step.graph = static_cast<float>(nowMs() - tGraph0);
     step.edges = static_cast<int>(graph.targetEdgeCount);
 
-    if (graph.numNodes <= 0) {
+    auto finishEarly = [&](const char *reason) {
         token.voiceId = nextVoiceId++;
+        window.back().voiceId = token.voiceId;
+        logVoiceAssignment(token, reason, window, -1, NAN, &graph, nullptr);
         step.total = static_cast<float>(nowMs() - t0);
         const juce::ScopedLock lock(profileLock);
         profile.publishBusy(step);
-        return;
+    };
+
+    if (graph.numNodes <= 0) {
+        finishEarly("new_empty_graph");
+        return restamps;
     }
 
     if (graph.targetEdgeCount <= 0 || graph.numNodes == 1) {
-        token.voiceId = nextVoiceId++;
-        step.total = static_cast<float>(nowMs() - t0);
-        const juce::ScopedLock lock(profileLock);
-        profile.publishBusy(step);
-        return;
+        finishEarly(graph.numNodes == 1 ? "new_singleton" : "new_no_pots");
+        return restamps;
     }
 
     const double tOnnx0 = nowMs();
@@ -142,12 +281,9 @@ auto VoiceSeparation::stampVoiceId(Token &token, const std::vector<Token> &outpu
             edgeScores.assign(data, data + count);
         }
     } catch (const Ort::Exception &) {
-        token.voiceId = nextVoiceId++;
         step.onnx = static_cast<float>(nowMs() - tOnnx0);
-        step.total = static_cast<float>(nowMs() - t0);
-        const juce::ScopedLock lock(profileLock);
-        profile.publishBusy(step);
-        return;
+        finishEarly("new_onnx_error");
+        return restamps;
     }
     step.onnx = static_cast<float>(nowMs() - tOnnx0);
 
@@ -162,14 +298,62 @@ auto VoiceSeparation::stampVoiceId(Token &token, const std::vector<Token> &outpu
     const int32_t parentIdx = (newest >= 0 && newest < static_cast<int>(parents.size()))
                                   ? parents[static_cast<size_t>(newest)]
                                   : -1;
+
+    const float parentScore =
+        parentIdx >= 0 ? potEdgeScore(graph, edgeScores, parentIdx, newest) : NAN;
+
+    const char *reason = "new_no_parent";
     if (parentIdx >= 0 && parentIdx < static_cast<int>(window.size())
         && window[static_cast<size_t>(parentIdx)].voiceId >= 0) {
-        token.voiceId = window[static_cast<size_t>(parentIdx)].voiceId;
+        const int32_t candidateVoice = window[static_cast<size_t>(parentIdx)].voiceId;
+        const float sNew = std::isfinite(parentScore)
+                               ? parentScore
+                               : -std::numeric_limits<float>::infinity();
+
+        // Concurrent claimants already holding candidateVoice (±tol onset).
+        std::vector<int> concurrentClaimants;
+        float maxOld = -std::numeric_limits<float>::infinity();
+        bool anyClaimant = false;
+        for (int i = 0; i < newest; ++i) {
+            const auto &o = window[static_cast<size_t>(i)];
+            if (o.voiceId != candidateVoice)
+                continue;
+            if (std::abs(o.time - token.time) > kConcurrentOnsetTolCs)
+                continue;
+            anyClaimant = true;
+            concurrentClaimants.push_back(i);
+            maxOld = std::max(maxOld, potEdgeScore(graph, edgeScores, parentIdx, i));
+        }
+
+        if (! anyClaimant) {
+            token.voiceId = candidateVoice;
+            reason = "inherit";
+        } else if (sNew > maxOld) {
+            // Newest wins on score: take voice, restamp losers to fresh ids.
+            token.voiceId = candidateVoice;
+            reason = "inherit_win_score";
+            for (int i: concurrentClaimants) {
+                const int32_t stolen = nextVoiceId++;
+                window[static_cast<size_t>(i)].voiceId = stolen;
+                if (i >= 0 && static_cast<size_t>(i) < soundingHistoryIdx.size()) {
+                    restamps.push_back(
+                        HistoryRestamp{soundingHistoryIdx[static_cast<size_t>(i)], stolen});
+                }
+            }
+        } else {
+            // Tie or lower: newest does not inherit (no first-wins).
+            token.voiceId = nextVoiceId++;
+            reason = "inherit_lose_score";
+        }
     } else {
         token.voiceId = nextVoiceId++;
+        reason = parentIdx >= 0 ? "new_parent_no_voice" : "new_no_parent";
     }
+    window.back().voiceId = token.voiceId;
+    logVoiceAssignment(token, reason, window, parentIdx, parentScore, &graph, &edgeScores);
 
     step.total = static_cast<float>(nowMs() - t0);
     const juce::ScopedLock lock(profileLock);
     profile.publishBusy(step);
+    return restamps;
 }

@@ -132,6 +132,14 @@ void ReductionTransformerV1::threadRun() {
             continue;
         }
 
+        // Pedal up (or no pause) but live MIDI still at provisional inputDuration —
+        // wait for note-off updates to snap real durations before sampling.
+        if (hasUnresolvedProvisionalInputNotes()) {
+            wait(5);
+            recordThreadLoopMs(loopStartMs);
+            continue;
+        }
+
         wasGenerationPaused = false;
 
         Token newToken = generateNewToken(forceAtTime);
@@ -153,7 +161,8 @@ void ReductionTransformerV1::threadRun() {
         {
             const ScopedMs pushMs(&step.push);
             inputData.push_back(newToken.time);
-            inputData.push_back(newToken.duration);
+            inputData.push_back(DenseSampling::snapGeneratedDurationToken(
+                newToken.duration, modelConfig.inputDuration));
             inputData.push_back(newToken.note);
             inputData.push_back(static_cast<int32_t>(DenseVocab::VelocityOffset + newToken.velocity));
             notifyInputDataChanged();

@@ -67,6 +67,13 @@ public:
     /** Set manual generation pause and sync LEDs/UI when the value changes. */
     auto setGenerationPause(bool paused) -> void;
 
+    /**
+     * Pedal / pause interrupted the live bias clocks. Dense V2 / Piano Reduction
+     * override to snap τ schedules back to base so the first note after resume
+     * is not hit with a silence-aged ramp.
+     */
+    virtual auto onGenerationPauseChanged(bool /*paused*/) -> void {}
+
     /** Soft pause while generated output is too far ahead of the clock. */
     juce::Atomic<bool> overflowPause{false};
 
@@ -74,6 +81,13 @@ public:
     [[nodiscard]] auto isGenerationStopped() const -> bool {
         return generationPause.get() || overflowPause.get();
     }
+
+    /**
+     * True when live MIDI notes in inputData still carry the provisional hold duration
+     * (inputDuration). Generation should wait until note-offs snap them — e.g. after
+     * sustain pedal up while held notes are still unresolved.
+     */
+    [[nodiscard]] auto hasUnresolvedProvisionalInputNotes() const -> bool;
 
     /** Most recent threadRun iteration duration in milliseconds. */
     [[nodiscard]] auto getLastThreadLoopMs() const -> float {

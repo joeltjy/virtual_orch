@@ -41,6 +41,11 @@ void ReductionTransformerV2::threadInit() {
 }
 
 auto ReductionTransformerV2::refreshPitchTauSchedule() -> void {
+    if (! isPitchBiasEnabled())
+        return;
+    if (generationPause.get())
+        return;
+
     // Same now for π/s_y window and τ schedule: max(clock, last onset). Matches
     // amt_causal's prefix-relative window when generation is ahead of the clock.
     const int32_t clockNow =
@@ -57,12 +62,19 @@ auto ReductionTransformerV2::refreshPitchTauSchedule() -> void {
         scheduleNow = std::max(scheduleNow, clockNow);
     const auto scheduled =
         pitchTauScheduler.evaluate(scheduleNow, lastPitchWindow.uniquePitches,
-                                   lastPitchWindow.uniqueDeltas);
+                                   lastPitchWindow.uniqueDeltas,
+                                   pitchTauBase.load(std::memory_order_relaxed),
+                                   pitchTauPrimeBase.load(std::memory_order_relaxed));
     pitchTau.store(scheduled.tau, std::memory_order_relaxed);
     pitchTauPrime.store(scheduled.tauPrime, std::memory_order_relaxed);
 }
 
 auto ReductionTransformerV2::refreshDurationTauSchedule() -> void {
+    if (! isDurationBiasEnabled())
+        return;
+    if (generationPause.get())
+        return;
+
     const int32_t clockNow =
         clock != nullptr ? static_cast<int32_t>(clock->getTime()) : static_cast<int32_t>(-1);
     const auto inputSnapshot = getInputData();
@@ -77,9 +89,59 @@ auto ReductionTransformerV2::refreshDurationTauSchedule() -> void {
         scheduleNow = std::max(scheduleNow, clockNow);
     const auto scheduled =
         durationTauScheduler.evaluate(scheduleNow, lastDurationWindow.uniqueDurations,
-                                      lastDurationWindow.uniqueDeltas);
+                                      lastDurationWindow.uniqueDeltas,
+                                      durationTauBase.load(std::memory_order_relaxed),
+                                      durationTauPrimeBase.load(std::memory_order_relaxed));
     durationTau.store(scheduled.tau, std::memory_order_relaxed);
     durationTauPrime.store(scheduled.tauPrime, std::memory_order_relaxed);
+}
+
+auto ReductionTransformerV2::refreshOnsetGapTauSchedule() -> void {
+    if (! isOnsetGapBiasEnabled())
+        return;
+    if (generationPause.get())
+        return;
+
+    const int32_t clockNow =
+        clock != nullptr ? static_cast<int32_t>(clock->getTime()) : static_cast<int32_t>(-1);
+    const auto inputSnapshot = getInputData();
+
+    const juce::ScopedLock lock(onsetGapBiasLock);
+    lastOnsetGapWindow =
+        DenseOnsetGapBias::collectOnsetGapWindow(inputSnapshot, clockNow, modelConfig.inputDuration);
+    int32_t scheduleNow = 0;
+    for (size_t i = 0; i + 3 < inputSnapshot.size(); i += denseEventWidth)
+        scheduleNow = inputSnapshot[i];
+    if (clockNow >= 0)
+        scheduleNow = std::max(scheduleNow, clockNow);
+    const auto scheduled =
+        onsetGapTauScheduler.evaluate(scheduleNow, lastOnsetGapWindow.uniqueGaps,
+                                      onsetGapTauBase.load(std::memory_order_relaxed));
+    onsetGapTau.store(scheduled.tau, std::memory_order_relaxed);
+}
+
+auto ReductionTransformerV2::onGenerationPauseChanged(bool /*paused*/) -> void {
+    // Pedal / Mode pause: snap bias clocks to base so silence-aged τ does not
+    // hammer the first note after resume.
+    {
+        const juce::ScopedLock lock(pitchBiasLock);
+        pitchTauScheduler.reset();
+        pitchTau.store(pitchTauBase.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        pitchTauPrime.store(pitchTauPrimeBase.load(std::memory_order_relaxed),
+                            std::memory_order_relaxed);
+    }
+    {
+        const juce::ScopedLock lock(durationBiasLock);
+        durationTauScheduler.reset();
+        durationTau.store(durationTauBase.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        durationTauPrime.store(durationTauPrimeBase.load(std::memory_order_relaxed),
+                               std::memory_order_relaxed);
+    }
+    {
+        const juce::ScopedLock lock(onsetGapBiasLock);
+        onsetGapTauScheduler.reset();
+        onsetGapTau.store(onsetGapTauBase.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    }
 }
 
 void ReductionTransformerV2::threadRun() {
@@ -95,6 +157,7 @@ void ReductionTransformerV2::threadRun() {
     clearOutputTokenQueue();
     clearUpdatesFromFilter();
     clearOutputHistory();
+    firstTokenLogitsAudit.reset();
 
     {
         const juce::ScopedLock lock(pitchBiasLock);
@@ -108,7 +171,13 @@ void ReductionTransformerV2::threadRun() {
         durationTauScheduler.reset();
         lastDurationWindow = {};
         durationTau.store(DenseDurationBias::TauBase, std::memory_order_relaxed);
-        durationTauPrime.store(DenseDurationBias::TauBase, std::memory_order_relaxed);
+        durationTauPrime.store(DenseDurationBias::TauPrimeBase, std::memory_order_relaxed);
+    }
+    {
+        const juce::ScopedLock lock(onsetGapBiasLock);
+        onsetGapTauScheduler.reset();
+        lastOnsetGapWindow = {};
+        onsetGapTau.store(DenseOnsetGapBias::TauBase, std::memory_order_relaxed);
     }
 
     currentTime = modelConfig.outputStartTime;
@@ -155,9 +224,6 @@ void ReductionTransformerV2::threadRun() {
 
         if (isGenerationStopped()) {
             maybeEmitGenerationPauseSoftStopClear();
-            // overflowPause + live input: soft-stop clear (now + 1 s), same as manual
-            // generationPause — a ClearQueue at time 0 wiped Out: RT including notes that
-            // were just seeded from outputHistory, leaving silence until throttle ends.
             if (inputApplied && ! generationPause.get() && clock != nullptr) {
                 const auto clearAt =
                     static_cast<int32_t>(clock->getTime()) + Config::TimeResolution;
@@ -168,6 +234,12 @@ void ReductionTransformerV2::threadRun() {
                 wait(5);
             }
             inputApplied = false;
+            recordThreadLoopMs(loopStartMs);
+            continue;
+        }
+
+        if (hasUnresolvedProvisionalInputNotes()) {
+            wait(5);
             recordThreadLoopMs(loopStartMs);
             continue;
         }
@@ -193,7 +265,8 @@ void ReductionTransformerV2::threadRun() {
         {
             const ScopedMs pushMs(&step.push);
             inputData.push_back(newToken.time);
-            inputData.push_back(DenseQuantize::snapDurationToken(newToken.duration));
+            inputData.push_back(DenseSampling::snapGeneratedDurationToken(
+                newToken.duration, modelConfig.inputDuration));
             inputData.push_back(DenseQuantize::snapNoteToken(newToken.note));
             inputData.push_back(DenseQuantize::snapVelocityToken(static_cast<int32_t>(
                 DenseVocab::VelocityOffset + newToken.velocity)));
@@ -344,6 +417,21 @@ auto ReductionTransformerV2::applyUpdatesFromFilter() -> bool {
 }
 
 void ReductionTransformerV2::threadStop() {
+    firstTokenLogitsAudit.verifyOffline(
+        "ReductionTransformerV2",
+        [](const std::vector<int32_t> &prefix, int32_t inputDuration) {
+            auto history = DenseSampling::copyDenseContextSkippingProvisional(
+                prefix, DenseSampling::ContextNotes, inputDuration, denseEventWidth);
+            if (history.empty())
+                return history;
+            DenseQuantize::snapPackedEvents(history, static_cast<size_t>(denseEventWidth));
+            NoteWindow::sortStridedByOnset(history, static_cast<size_t>(denseEventWidth));
+            const int32_t offset = denseMinTime(history);
+            SamplingRelativeTime::relativizeStridedOnsets(
+                history, static_cast<size_t>(denseEventWidth), offset);
+            return history;
+        },
+        [this](std::vector<int32_t> &history) { return runModelAndGetLogits(history); });
 }
 
 void ReductionTransformerV2::futureLogits(std::vector<float> &logits, const int curTime,
@@ -528,15 +616,23 @@ Token ReductionTransformerV2::generateNewToken(int32_t forceAtTime) {
     if (inputData.empty())
         return {-1, -1, -1, DenseConfig::DefaultVelocity};
 
+    const bool pitchBiasOn = isPitchBiasEnabled();
+    const bool durationBiasOn = isDurationBiasEnabled();
+    const bool onsetGapBiasOn = isOnsetGapBiasEnabled();
+
     // UI / silence path: hybrid now. Note-field bias is refreshed again after onset
     // is sampled (amt_causal: τ/π from the prefix that already contains the new onset).
-    refreshPitchTauSchedule();
-    refreshDurationTauSchedule();
+    if (pitchBiasOn)
+        refreshPitchTauSchedule();
+    if (durationBiasOn)
+        refreshDurationTauSchedule();
+    if (onsetGapBiasOn)
+        refreshOnsetGapTauSchedule();
 
     DensePitchBias::PitchWindowStats pitchWindow;
-    float tau = DensePitchBias::TauBase;
-    float tauPrime = DensePitchBias::TauBase;
-    {
+    float tau = pitchTauBase.load(std::memory_order_relaxed);
+    float tauPrime = pitchTauPrimeBase.load(std::memory_order_relaxed);
+    if (pitchBiasOn) {
         const juce::ScopedLock lock(pitchBiasLock);
         pitchWindow = lastPitchWindow;
         tau = pitchTau.load(std::memory_order_relaxed);
@@ -544,13 +640,21 @@ Token ReductionTransformerV2::generateNewToken(int32_t forceAtTime) {
     }
 
     DenseDurationBias::DurationWindowStats durationWindow;
-    float durTau = DenseDurationBias::TauBase;
-    float durTauPrime = DenseDurationBias::TauBase;
-    {
+    float durTau = durationTauBase.load(std::memory_order_relaxed);
+    float durTauPrime = durationTauPrimeBase.load(std::memory_order_relaxed);
+    if (durationBiasOn) {
         const juce::ScopedLock lock(durationBiasLock);
         durationWindow = lastDurationWindow;
         durTau = durationTau.load(std::memory_order_relaxed);
         durTauPrime = durationTauPrime.load(std::memory_order_relaxed);
+    }
+
+    DenseOnsetGapBias::OnsetGapWindowStats onsetGapWindow;
+    float gapTau = onsetGapTauBase.load(std::memory_order_relaxed);
+    if (onsetGapBiasOn) {
+        const juce::ScopedLock lock(onsetGapBiasLock);
+        onsetGapWindow = lastOnsetGapWindow;
+        gapTau = onsetGapTau.load(std::memory_order_relaxed);
     }
 
     std::vector<int32_t> history;
@@ -575,27 +679,33 @@ Token ReductionTransformerV2::generateNewToken(int32_t forceAtTime) {
     for (int i = 0; i < denseEventWidth; ++i) {
         // After onset is known, rebuild π / s_y / τ for duration (before sampling
         // duration) and again for pitch before the note field.
-        if (i == 1 && newToken.time >= 0) {
+        if (durationBiasOn && i == 1 && newToken.time >= 0) {
             const juce::ScopedLock lock(durationBiasLock);
             durationWindow = DenseDurationBias::collectDurationWindowAt(
                 inputData, newToken.time, modelConfig.inputDuration);
             lastDurationWindow = durationWindow;
             const auto scheduled =
                 durationTauScheduler.evaluate(newToken.time, durationWindow.uniqueDurations,
-                                              durationWindow.uniqueDeltas);
+                                              durationWindow.uniqueDeltas,
+                                              durationTauBase.load(std::memory_order_relaxed),
+                                              durationTauPrimeBase.load(std::memory_order_relaxed),
+                                              true);
             durTau = scheduled.tau;
             durTauPrime = scheduled.tauPrime;
             durationTau.store(durTau, std::memory_order_relaxed);
             durationTauPrime.store(durTauPrime, std::memory_order_relaxed);
         }
-        if (i == 2 && newToken.time >= 0) {
+        if (pitchBiasOn && i == 2 && newToken.time >= 0) {
             const juce::ScopedLock lock(pitchBiasLock);
             pitchWindow = DensePitchBias::collectPitchWindowAt(inputData, newToken.time,
                                                                modelConfig.inputDuration);
             lastPitchWindow = pitchWindow;
             const auto scheduled =
                 pitchTauScheduler.evaluate(newToken.time, pitchWindow.uniquePitches,
-                                           pitchWindow.uniqueDeltas);
+                                           pitchWindow.uniqueDeltas,
+                                           pitchTauBase.load(std::memory_order_relaxed),
+                                           pitchTauPrimeBase.load(std::memory_order_relaxed),
+                                           true);
             tau = scheduled.tau;
             tauPrime = scheduled.tauPrime;
             pitchTau.store(tau, std::memory_order_relaxed);
@@ -612,18 +722,27 @@ Token ReductionTransformerV2::generateNewToken(int32_t forceAtTime) {
             return {-1, -1, -1, DenseConfig::DefaultVelocity};
         }
 
+        // First field of the first generated note (N+1 after N prefix notes): raw ONNX logits.
+        if (i == 0)
+            firstTokenLogitsAudit.captureFirst(inputData, history, scores, denseEventWidth,
+                                               modelConfig.inputDuration);
+
         {
             const ScopedMs maskMs(&loopAccum.mask);
             safeLogits(scores, static_cast<size_t>(i));
-            if (i == 0)
+            if (i == 0) {
                 futureLogits(scores, currentTime - offset,
                              forceAtTime != -1 ? forceAtTime - offset : -1);
-            else if (i == 1)
-                DenseDurationBias::applyDurationLogitsBias(scores, durationWindow, durTau,
-                                                           durTauPrime);
-            else if (i == 2)
-                DensePitchBias::applyNoteLogitsBias(scores, pitchWindow, tau, tauPrime);
-            else if (i == 3)
+                if (onsetGapBiasOn)
+                    DenseOnsetGapBias::applyOnsetLogitsBias(scores, onsetGapWindow, gapTau, offset);
+            } else if (i == 1) {
+                if (durationBiasOn)
+                    DenseDurationBias::applyDurationLogitsBias(scores, durationWindow, durTau,
+                                                               durTauPrime);
+            } else if (i == 2) {
+                if (pitchBiasOn)
+                    DensePitchBias::applyNoteLogitsBias(scores, pitchWindow, tau, tauPrime);
+            } else if (i == 3)
                 velocityLogits(scores);
         }
 

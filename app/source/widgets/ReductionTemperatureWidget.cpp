@@ -95,6 +95,7 @@ ReductionTemperatureWidget::ReductionTemperatureWidget(AppSession &sessionIn)
         const auto velocity = static_cast<float>(velocitySlider.getValue());
         applyTemps(session.reductionTransformerV1, onset, duration, note, velocity);
         applyTemps(session.reductionTransformerV2, onset, duration, note, velocity);
+        applyTemps(session.reductionTransformerPianoReduction, onset, duration, note, velocity);
     };
     onsetSlider.onValueChange = pushTemps;
     durationSlider.onValueChange = pushTemps;
@@ -155,19 +156,21 @@ auto ReductionTemperatureWidget::updateEnsembleVisibility() -> void {
 
 auto ReductionTemperatureWidget::syncSlidersFromSession() -> void {
     // Prefer the active dense backend; fall back to V1 defaults.
-    if (session.musicModelArch == MusicModelArch::DenseV2) {
-        auto &dense = session.reductionTransformerV2;
+    auto syncFrom = [this](auto &dense) {
         onsetSlider.setValue(dense.getOnsetTemperature(), juce::dontSendNotification);
         durationSlider.setValue(dense.getDurationTemperature(), juce::dontSendNotification);
         noteSlider.setValue(dense.getNoteTemperature(), juce::dontSendNotification);
         velocitySlider.setValue(dense.getVelocityTemperature(), juce::dontSendNotification);
+    };
+    if (session.musicModelArch == MusicModelArch::DensePianoReduction) {
+        syncFrom(session.reductionTransformerPianoReduction);
         return;
     }
-    auto &dense = session.reductionTransformerV1;
-    onsetSlider.setValue(dense.getOnsetTemperature(), juce::dontSendNotification);
-    durationSlider.setValue(dense.getDurationTemperature(), juce::dontSendNotification);
-    noteSlider.setValue(dense.getNoteTemperature(), juce::dontSendNotification);
-    velocitySlider.setValue(dense.getVelocityTemperature(), juce::dontSendNotification);
+    if (session.musicModelArch == MusicModelArch::DenseV2) {
+        syncFrom(session.reductionTransformerV2);
+        return;
+    }
+    syncFrom(session.reductionTransformerV1);
 }
 
 auto ReductionTemperatureWidget::resized() -> void {

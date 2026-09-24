@@ -29,18 +29,25 @@ auto sampleRange(const float *vocabLogits,
                  int32_t hi,
                  int32_t forbidBits,
                  int32_t forbidGroupsFamilies,
-                 bool excludeZero) -> int32_t {
+                 bool excludeZero,
+                 const IodPretrainedTypes::FamilySpec *family = nullptr,
+                 int32_t claimedDeltas = 0) -> int32_t {
     const int32_t start = excludeZero ? lo + 1 : lo;
     std::vector<float> local(static_cast<size_t>(hi - start), kNegInf);
     bool any = false;
     for (int32_t id = start; id < hi; ++id) {
         const int32_t value = id - lo;
-        if (forbidBits != 0 && (value & forbidBits) != 0)
-            continue;
-        if (forbidGroupsFamilies != 0) {
-            const int32_t groupsMask = value + 1; // GROUPS: offset k → mask k+1
-            if ((groupsMask & forbidGroupsFamilies) != 0)
+        if (family != nullptr) {
+            if (! IodPretrainedTypes::isLegalFamilyMask(value, forbidBits, family, claimedDeltas))
                 continue;
+        } else {
+            if (forbidBits != 0 && (value & forbidBits) != 0)
+                continue;
+            if (forbidGroupsFamilies != 0) {
+                const int32_t groupsMask = value + 1; // GROUPS: offset k → mask k+1
+                if ((groupsMask & forbidGroupsFamilies) != 0)
+                    continue;
+            }
         }
         const float v = vocabLogits[id];
         if (! std::isfinite(v))
@@ -53,6 +60,12 @@ auto sampleRange(const float *vocabLogits,
             for (int32_t groupsMask = 1; groupsMask <= hi - lo; ++groupsMask) {
                 if ((groupsMask & forbidGroupsFamilies) == 0)
                     return lo + (groupsMask - 1);
+            }
+        }
+        if (family != nullptr) {
+            for (int32_t value = (excludeZero ? 1 : 0); value < hi - lo; ++value) {
+                if (IodPretrainedTypes::isLegalFamilyMask(value, forbidBits, family, claimedDeltas))
+                    return lo + value;
             }
         }
         return start < hi ? start : lo;
@@ -228,7 +241,10 @@ auto IodPretrained::sampleComboForNote(IodPretrainedTypes::EncoderWindow &window
     if (noteIdx < 0 || noteIdx >= window.nNotes)
         return combo;
 
-    const auto forbid = forbidBitsForPitch(instruments, window.basePitch[static_cast<size_t>(noteIdx)]);
+    const auto role = outerVoiceDeltaAllows(window.onsetCs.data(), window.durationToken.data(),
+                                            window.basePitch.data(), window.nNotes, noteIdx);
+    auto forbid = forbidBitsForPitch(instruments, window.basePitch[static_cast<size_t>(noteIdx)]);
+    applyOuterVoiceDeltaForbid(forbid, role.allowMinus1, role.allowPlus1);
     if (forbid.fullyBannedFamilyBits == (1 << numFamilies) - 1) {
         return combo;
     }
@@ -243,7 +259,7 @@ auto IodPretrained::sampleComboForNote(IodPretrainedTypes::EncoderWindow &window
         if (applyGroupsBias && ! recentGroupsMasks.empty()) {
             const std::vector<int32_t> masks(recentGroupsMasks.begin(), recentGroupsMasks.end());
             applyGroupsTokenLogitsBias(row, static_cast<size_t>(comboVocabSize), masks.data(),
-                                       masks.size());
+                                       masks.size(), groupsBiasTau.load());
         }
         const int32_t groupsTok = sampleRange(row, groupsOffset, groupsHi,
                                               /*forbidBits*/ 0, forbid.fullyBannedFamilyBits,
@@ -256,6 +272,7 @@ auto IodPretrained::sampleComboForNote(IodPretrainedTypes::EncoderWindow &window
     const int32_t groupsMask = maskFromGroupsToken(combo[0]);
     int32_t step = 1;
     int32_t comboWrite = 1;
+    int32_t claimedDeltas = 0; // bit0/1/2 ↔ Δ −1/0/+1 across families
 
     for (int32_t familyIdx = 0; familyIdx < numFamilies; ++familyIdx) {
         if ((groupsMask & (1 << familyIdx)) == 0)
@@ -273,8 +290,10 @@ auto IodPretrained::sampleComboForNote(IodPretrainedTypes::EncoderWindow &window
             sampleRange(row, family.tokenOffset, family.tokenOffset + family.tokenSize,
                         forbid.familyForbid[static_cast<size_t>(familyIdx)],
                         /*forbidGroupsFamilies*/ 0,
-                        /*excludeZero*/ true);
+                        /*excludeZero*/ true, &family, claimedDeltas);
         combo[static_cast<size_t>(comboWrite++)] = famTok;
+        claimedDeltas |=
+            deltasUsedByFamilyMask(family, maskFromFamilyToken(family, famTok));
         if (step + 1 < comboLen)
             window.comboIn[static_cast<size_t>(noteIdx)][static_cast<size_t>(step + 1)] = famTok;
         ++step;
@@ -445,7 +464,27 @@ auto IodPretrained::ensembleComboB(
         }
     }
 
-    return comboFromPairs(bPairs);
+    // Outer-voice Δ roles among temporally overlapping notes in the stream.
+    const int32_t onset = noteStream[noteIdx].token.time;
+    const int32_t dur = std::max(1, noteStream[noteIdx].token.getRealDuration());
+    const int32_t pitch = noteStream[noteIdx].token.getPitch();
+    OuterVoiceDeltaAllows role;
+    for (size_t i = 0; i < noteStream.size(); ++i) {
+        if (i == noteIdx)
+            continue;
+        const auto &other = noteStream[i].token;
+        const int32_t otherDur = std::max(1, other.getRealDuration());
+        if (! notesOverlapCs(onset, dur, other.time, otherDur))
+            continue;
+        const int32_t otherPitch = other.getPitch();
+        if (otherPitch > pitch)
+            role.allowPlus1 = false;
+        if (otherPitch < pitch)
+            role.allowMinus1 = false;
+    }
+
+    return comboFromPairs(filterPairsUniqueOctave(
+        filterPairsByDeltaAllows(bPairs, role.allowMinus1, role.allowPlus1)));
 }
 
 auto IodPretrained::sampleWindowCombos(IodPretrainedTypes::EncoderWindow &window,
@@ -559,12 +598,18 @@ auto IodPretrained::getOutput(const std::vector<Token> &incomingTokens,
                 if (! noteStream[global].hasCombo)
                     continue;
                 const int32_t basePitch = window.basePitch[static_cast<size_t>(i)];
+                const auto role = outerVoiceDeltaAllows(window.onsetCs.data(),
+                                                        window.durationToken.data(),
+                                                        window.basePitch.data(), window.nNotes, i);
+                auto safePairs = filterPairsUniqueOctave(filterPairsByDeltaAllows(
+                    pairsFromCombo(noteStream[global].comboB), role.allowMinus1, role.allowPlus1));
+                const auto safeCombo = comboFromPairs(safePairs);
                 auto notes = decodeComboToNotes(
                     window.onsetCs[static_cast<size_t>(i)],
                     window.durationToken[static_cast<size_t>(i)],
                     basePitch,
                     window.velocity[static_cast<size_t>(i)],
-                    noteStream[global].comboB);
+                    safeCombo);
                 if (balance != nullptr && ! notes.empty()) {
                     std::vector<int32_t> ids;
                     ids.reserve(notes.size());

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <limits>
 #include <numeric>
+#include <set>
 #include <utility>
 
 namespace Vocsep {
@@ -179,6 +180,10 @@ auto buildHeteroEdges(const std::vector<Note> &notes) -> HeteroEdges {
         }
         const int end = onsetDiv[static_cast<size_t>(i)] + durDiv[static_cast<size_t>(i)];
         for (int j = 0; j < n; ++j) {
+            if (i == j)
+                continue;
+            // Paper consecutive: onset_B ≈ offset_A (exact isclose). Near-abut slack
+            // is applied later as a pot-edge union, not here.
             if (isclose(static_cast<float>(onsetDiv[static_cast<size_t>(j)]),
                         static_cast<float>(end))) {
                 src.push_back(i);
@@ -187,6 +192,7 @@ auto buildHeteroEdges(const std::vector<Note> &notes) -> HeteroEdges {
             }
         }
         for (int j = 0; j < n; ++j) {
+            // During: B starts while A still sounds (MCMA strips these from pot).
             if (onsetDiv[static_cast<size_t>(i)] < onsetDiv[static_cast<size_t>(j)]
                 && end > onsetDiv[static_cast<size_t>(j)]) {
                 src.push_back(i);
@@ -284,7 +290,8 @@ auto buildPotEdges(int numNodes, const HeteroEdges &hetero, int maxDist) -> std:
     std::vector<std::pair<int, int>> pots;
     for (int i = 0; i < numNodes; ++i) {
         for (int j = i + 1; j < numNodes; ++j) {
-            // ones - onset/during, triu(diag=1), drop |j-i|>=max_dist, then re-add consecutive.
+            // MCMA: strip onset/during, drop |j-i|>=max_dist, re-add exact consecutive only.
+            // Exact consecutive never coincides with onset/during, so this does not undo the strip.
             bool keep = onsetDuring[static_cast<size_t>(i * numNodes + j)] == 0;
             if ((j - i) >= maxDist)
                 keep = false;
@@ -292,6 +299,35 @@ auto buildPotEdges(int numNodes, const HeteroEdges &hetero, int maxDist) -> std:
                 keep = true;
             if (keep)
                 pots.emplace_back(i, j);
+        }
+    }
+    return pots;
+}
+
+/** Python `readd_near_consecutive_pot_edges`: union A→B when A.onset < B.onset and |offset_A-onset_B|≤tol. */
+auto readdNearConsecutivePotEdges(std::vector<std::pair<int, int>> pots,
+                                  const std::vector<Note> &notes,
+                                  int tolCs) -> std::vector<std::pair<int, int>> {
+    const int n = static_cast<int>(notes.size());
+    if (n <= 1 || tolCs < 0)
+        return pots;
+
+    std::set<std::pair<int, int>> existing(pots.begin(), pots.end());
+    for (int i = 0; i < n; ++i) {
+        const int onsetI = notes[static_cast<size_t>(i)].onsetCs;
+        const int offsetI =
+            onsetI + std::max(notes[static_cast<size_t>(i)].durCs, 1);
+        for (int j = 0; j < n; ++j) {
+            if (i == j)
+                continue;
+            const int onsetJ = notes[static_cast<size_t>(j)].onsetCs;
+            if (onsetI >= onsetJ)
+                continue;
+            if (std::abs(offsetI - onsetJ) > tolCs)
+                continue;
+            const auto key = std::pair{i, j};
+            if (existing.insert(key).second)
+                pots.push_back(key);
         }
     }
     return pots;
@@ -452,7 +488,8 @@ auto buildGraph(const std::vector<Note> &notesIn) -> GraphTensors {
                 pe[static_cast<size_t>(i * PosEncDim + d)];
     }
 
-    const auto pots = buildPotEdges(n, hetero, PotEdgesMaxDist);
+    const auto pots = readdNearConsecutivePotEdges(
+        buildPotEdges(n, hetero, PotEdgesMaxDist), notes, NearConsecutiveTolCs);
     g.targetEdgeCount = static_cast<int64_t>(pots.size());
     g.targetEdgeIndex.resize(static_cast<size_t>(g.targetEdgeCount * 2));
     for (int64_t e = 0; e < g.targetEdgeCount; ++e) {

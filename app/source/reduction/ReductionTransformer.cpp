@@ -19,6 +19,17 @@ auto ReductionTransformer::isGeneratedTooFarAhead(int32_t generatedTime) const -
     return generatedTime - static_cast<int32_t>(clock->getTime()) > maxAheadTicks;
 }
 
+auto ReductionTransformer::hasUnresolvedProvisionalInputNotes() const -> bool {
+    // Dense only (4 ints/note). Live keyboard is always instrument 0; Piano Reduction
+    // keeps generated notes on instrument 1 so they are not mistaken for MIDI holds.
+    const auto width = static_cast<int>(inputEventWidth());
+    if (width < 4)
+        return false;
+    return DenseSampling::hasProvisionalDurationNotes(
+        inputData, modelConfig.inputDuration, width,
+        DenseConfig::PianoReductionInputInstrument);
+}
+
 auto ReductionTransformer::notifyPausedChanged() -> void {
     if (! onPausedChanged)
         return;
@@ -46,6 +57,7 @@ auto ReductionTransformer::setGenerationPause(bool paused) -> void {
                       : (overflowPause.get() ? "overflowPause" : "none")));
     if (wasPaused && ! paused)
         logFirstTokenAfterResume.store(true, std::memory_order_relaxed);
+    onGenerationPauseChanged(paused);
     notifyPausedChanged();
 }
 
@@ -115,7 +127,8 @@ auto ReductionTransformer::maybeEmitGenerationPauseSoftStopClear() -> void {
 }
 
 auto ReductionTransformer::notifyInputDataChanged() -> void {
-    NoteWindow::trimStridedToLastNotes(inputData, inputEventWidth());
+    NoteWindow::trimStridedToLastNotes(inputData, inputEventWidth(),
+                                       NoteWindow::maxReductionInputNotes);
 
     auto callback = onInputDataChanged;
     if (! callback)
@@ -179,7 +192,14 @@ auto ReductionTransformer::pushOutputToken(const Token &tokenIn) -> void {
             const juce::ScopedLock histLock(outputHistoryLock);
             historyCopy = outputHistory;
         }
-        voiceSeparation->stampVoiceId(token, historyCopy);
+        const auto restamps = voiceSeparation->stampVoiceId(token, historyCopy);
+        if (! restamps.empty()) {
+            const juce::ScopedLock histLock(outputHistoryLock);
+            for (const auto &r: restamps) {
+                if (r.historyIndex < outputHistory.size())
+                    outputHistory[r.historyIndex].voiceId = r.newVoiceId;
+            }
+        }
     }
     outputTokenQueue.push(token);
     if (orchestrationReductionIncoming != nullptr)

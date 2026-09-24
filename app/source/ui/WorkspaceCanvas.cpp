@@ -10,6 +10,7 @@
 #include "VirtualOrch/widgets/GenerationWidget.h"
 #include "VirtualOrch/widgets/DurationLogitsWidget.h"
 #include "VirtualOrch/widgets/InstrumentLogitsWidget.h"
+#include "VirtualOrch/widgets/LogitAdjustmentsWidget.h"
 #include "VirtualOrch/widgets/OctaveDeltaWidget.h"
 #include "VirtualOrch/widgets/ReductionTemperatureWidget.h"
 #include "VirtualOrch/widgets/ReductionTauWidget.h"
@@ -245,6 +246,11 @@ auto WorkspaceCanvas::createWidgetForType(const juce::String &type) const
             return nullptr;
         return std::make_unique<OctaveDeltaWidget>(*session);
     }
+    if (type == UiConstants::workspaceWidgetTypeLogitAdjustments) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<LogitAdjustmentsWidget>(*session);
+    }
 
     if (type == UiConstants::workspaceWidgetTypeReductionTemperature) {
         if (session == nullptr)
@@ -415,6 +421,48 @@ auto WorkspaceCanvas::addModeWidget() -> void {
 
 auto WorkspaceCanvas::addInstrumentLogitsWidget() -> void {
     auto widget = createWidgetForType(UiConstants::workspaceWidgetTypeInstrumentLogits);
+    if (widget == nullptr)
+        return;
+    addWidget(std::move(widget), nextCascadedBounds());
+}
+
+auto WorkspaceCanvas::addVocsepOutputWidget() -> void {
+    auto widget = createWidgetForType(UiConstants::workspaceWidgetTypeVocsepOutput);
+    if (widget == nullptr)
+        return;
+    addWidget(std::move(widget), nextCascadedBounds());
+}
+
+auto WorkspaceCanvas::addDurationLogitsWidget() -> void {
+    auto widget = createWidgetForType(UiConstants::workspaceWidgetTypeDurationLogits);
+    if (widget == nullptr)
+        return;
+    addWidget(std::move(widget), nextCascadedBounds());
+}
+
+auto WorkspaceCanvas::addReductionTemperatureWidget() -> void {
+    auto widget = createWidgetForType(UiConstants::workspaceWidgetTypeReductionTemperature);
+    if (widget == nullptr)
+        return;
+    addWidget(std::move(widget), nextCascadedBounds());
+}
+
+auto WorkspaceCanvas::addReductionTauWidget() -> void {
+    auto widget = createWidgetForType(UiConstants::workspaceWidgetTypeReductionTau);
+    if (widget == nullptr)
+        return;
+    addWidget(std::move(widget), nextCascadedBounds());
+}
+
+auto WorkspaceCanvas::addOctaveDeltaWidget() -> void {
+    auto widget = createWidgetForType(UiConstants::workspaceWidgetTypeOctaveDelta);
+    if (widget == nullptr)
+        return;
+    addWidget(std::move(widget), nextCascadedBounds());
+}
+
+auto WorkspaceCanvas::addLogitAdjustmentsWidget() -> void {
+    auto widget = createWidgetForType(UiConstants::workspaceWidgetTypeLogitAdjustments);
     if (widget == nullptr)
         return;
     addWidget(std::move(widget), nextCascadedBounds());

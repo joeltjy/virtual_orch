@@ -22,6 +22,9 @@ inline constexpr int32_t visibleSpanCs = 6000;
 /** Cap for append-only session histories (OT / RT / playback / prompt). */
 inline constexpr size_t maxHistoryNotes = 256;
 
+/** Cap for reduction inputData (RT model-input widget / history). */
+inline constexpr size_t maxReductionInputNotes = 512;
+
 /** Drop the oldest entries so at most `maxNotes` remain. */
 template <typename Item>
 auto trimToLastNotes(std::vector<Item> &items, size_t maxNotes = maxHistoryNotes) -> void {

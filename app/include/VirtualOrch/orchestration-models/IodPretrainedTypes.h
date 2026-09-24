@@ -30,12 +30,16 @@ inline constexpr int32_t groupsHi = groupsOffset + groupsSize; // 16 exclusive e
 
 /** Past-N GROUPS unigram bias on the first combo step (−τ log π_y). */
 inline constexpr int32_t groupsBiasWindowNotes = 30;
-inline constexpr float groupsBiasTau = 0.5f;
+inline constexpr float groupsBiasTau = 1.0f;
 /** Additive smoothing: π_y = (count_y + ε) / (N + groupsSize · ε). */
 inline constexpr float groupsBiasEpsilon = 1.0f / static_cast<float>(groupsSize);
 
 /** Clear encoder note/combo stream if onset gap exceeds this (pedal-down / silence). */
 inline constexpr int32_t historyGapClearCs = 500; // 5 s
+
+/** Encoder stream duration id = encoderDurOffset + duration_cs. */
+inline constexpr int32_t encoderDurOffset = 10000;
+inline constexpr int32_t encoderNoteOffset = 11000;
 
 /** Same-voice ensemble: past-N raw (A) predictions for add/remove proportions. */
 inline constexpr int32_t ensembleHistoryNotes = 10;
@@ -209,14 +213,153 @@ struct ForbidBits {
     return out;
 }
 
+/**
+ * Outer-voice octave roles among temporally concurrent notes:
+ * top = nothing pitched higher while this note sounds → may use Δ=+1;
+ * bottom = nothing pitched lower while this note sounds → may use Δ=−1.
+ * A lone note allows both.
+ */
+struct OuterVoiceDeltaAllows {
+    bool allowMinus1 = true;
+    bool allowPlus1 = true;
+};
+
+/** Duration in centiseconds from an encoder / vocab duration token (min 1). */
+[[nodiscard]] inline auto durationCsFromToken(int32_t durationToken) -> int32_t {
+    int32_t cs = durationToken;
+    if (durationToken >= encoderDurOffset)
+        cs = durationToken - encoderDurOffset;
+    else if (durationToken >= static_cast<int32_t>(Vocab::DurOffset))
+        cs = durationToken - static_cast<int32_t>(Vocab::DurOffset);
+    return std::max(1, cs);
+}
+
+[[nodiscard]] inline auto notesOverlapCs(int32_t onsetA,
+                                         int32_t durA,
+                                         int32_t onsetB,
+                                         int32_t durB) -> bool {
+    return onsetA < onsetB + durB && onsetB < onsetA + durA;
+}
+
+/**
+ * @param durationTokens packed encoder/vocab duration ids (same indexing as onset/pitch),
+ *        or nullptr to treat every note as duration 1 cs (onset-only concurrency).
+ */
+[[nodiscard]] inline auto outerVoiceDeltaAllows(const int32_t *onsetCs,
+                                                const int32_t *durationTokens,
+                                                const int32_t *basePitch,
+                                                int32_t nNotes,
+                                                int32_t noteIdx) -> OuterVoiceDeltaAllows {
+    OuterVoiceDeltaAllows allows;
+    if (onsetCs == nullptr || basePitch == nullptr || noteIdx < 0 || noteIdx >= nNotes)
+        return allows;
+
+    const int32_t onset = onsetCs[static_cast<size_t>(noteIdx)];
+    const int32_t dur =
+        durationTokens != nullptr
+            ? durationCsFromToken(durationTokens[static_cast<size_t>(noteIdx)])
+            : 1;
+    const int32_t pitch = basePitch[static_cast<size_t>(noteIdx)];
+
+    for (int32_t i = 0; i < nNotes; ++i) {
+        if (i == noteIdx)
+            continue;
+        const int32_t otherOnset = onsetCs[static_cast<size_t>(i)];
+        const int32_t otherDur =
+            durationTokens != nullptr
+                ? durationCsFromToken(durationTokens[static_cast<size_t>(i)])
+                : 1;
+        if (! notesOverlapCs(onset, dur, otherOnset, otherDur))
+            continue;
+        const int32_t otherPitch = basePitch[static_cast<size_t>(i)];
+        if (otherPitch > pitch)
+            allows.allowPlus1 = false;
+        if (otherPitch < pitch)
+            allows.allowMinus1 = false;
+    }
+    return allows;
+}
+
+/** Ban Δ=±1 bits when this note is not the bottom / top among concurrent notes. */
+inline auto applyOuterVoiceDeltaForbid(ForbidBits &forbid,
+                                       bool allowMinus1,
+                                       bool allowPlus1) -> void {
+    if (allowMinus1 && allowPlus1)
+        return;
+    for (int32_t f = 0; f < numFamilies; ++f) {
+        const auto &family = familySpecs[static_cast<size_t>(f)];
+        int32_t &mask = forbid.familyForbid[static_cast<size_t>(f)];
+        for (int32_t instrIdx = 0; instrIdx < family.numInstruments; ++instrIdx) {
+            if (! allowMinus1)
+                mask |= (1 << iodBit(instrIdx, -1));
+            if (! allowPlus1)
+                mask |= (1 << iodBit(instrIdx, +1));
+        }
+        // Recompute fully-banned: any remaining legal (instr×Δ) bit?
+        bool anyLegal = false;
+        for (int32_t bit = 0; bit < family.numBits; ++bit) {
+            if ((mask & (1 << bit)) == 0) {
+                anyLegal = true;
+                break;
+            }
+        }
+        if (! anyLegal)
+            forbid.fullyBannedFamilyBits |= (1 << f);
+        else
+            forbid.fullyBannedFamilyBits &= ~(1 << f);
+    }
+}
+
 [[nodiscard]] inline auto isLegalGroupsMask(int32_t groupsMask, int32_t fullyBannedFamilyBits)
     -> bool {
     return groupsMask >= 1 && groupsMask <= groupsSize
            && (groupsMask & fullyBannedFamilyBits) == 0;
 }
 
-[[nodiscard]] inline auto isLegalFamilyMask(int32_t bitMask, int32_t familyForbidBits) -> bool {
-    return bitMask > 0 && (bitMask & familyForbidBits) == 0;
+/**
+ * Δ occupancy among instruments in a family bit mask.
+ * Bit 0/1/2 ↔ Δ −1/0/+1. Same instrument at multiple Δs is fine; only distinct
+ * instruments contribute.
+ */
+[[nodiscard]] inline auto deltasUsedByFamilyMask(const FamilySpec &family, int32_t bitMask)
+    -> int32_t {
+    int32_t used = 0;
+    for (int32_t instrIdx = 0; instrIdx < family.numInstruments; ++instrIdx) {
+        for (const int32_t delta: {-1, 0, 1}) {
+            if ((bitMask & (1 << iodBit(instrIdx, delta))) != 0)
+                used |= (1 << (delta + 1));
+        }
+    }
+    return used;
+}
+
+/** True if ≥2 distinct instruments in this family mask share the same Δ. */
+[[nodiscard]] inline auto familyMaskHasSharedOctave(const FamilySpec &family, int32_t bitMask)
+    -> bool {
+    for (const int32_t delta: {-1, 0, 1}) {
+        int32_t nInstr = 0;
+        for (int32_t instrIdx = 0; instrIdx < family.numInstruments; ++instrIdx) {
+            if ((bitMask & (1 << iodBit(instrIdx, delta))) != 0)
+                ++nInstr;
+        }
+        if (nInstr >= 2)
+            return true;
+    }
+    return false;
+}
+
+[[nodiscard]] inline auto isLegalFamilyMask(int32_t bitMask,
+                                            int32_t familyForbidBits,
+                                            const FamilySpec *family = nullptr,
+                                            int32_t claimedDeltas = 0) -> bool {
+    if (bitMask <= 0 || (bitMask & familyForbidBits) != 0)
+        return false;
+    if (family == nullptr)
+        return true;
+    if (familyMaskHasSharedOctave(*family, bitMask))
+        return false;
+    const int32_t used = deltasUsedByFamilyMask(*family, bitMask);
+    return (used & claimedDeltas) == 0;
 }
 
 /**
@@ -254,9 +397,6 @@ inline auto applyGroupsTokenLogitsBias(float *vocabLogits,
         logit -= tau * std::log(pi);
     }
 }
-
-inline constexpr int32_t encoderDurOffset = 10000;
-inline constexpr int32_t encoderNoteOffset = 11000;
 
 /** Fixed-size ONNX encoder window (pad to nNotesMax); comboIn starts as BOS. */
 struct EncoderWindow {
@@ -325,7 +465,9 @@ struct EncoderWindow {
     return starts;
 }
 
-/** Decode packed combo (GROUPS + active family tokens + END pad); pitch += 12Δ. */
+/** Decode packed combo (GROUPS + active family tokens + END pad); pitch += 12Δ.
+ * At most one instrument per octave Δ; same instrument at multiple Δs is kept.
+ */
 [[nodiscard]] inline auto decodeComboToNotes(int32_t onset,
                                              int32_t durationToken,
                                              int32_t basePitch,
@@ -354,6 +496,7 @@ struct EncoderWindow {
         return {};
 
     std::vector<OrchestrationNote> notes;
+    int32_t claimedDeltas = 0; // bit0/1/2 ↔ Δ −1/0/+1
     for (size_t k = 0; k < expectedFamilies.size(); ++k) {
         const int32_t familyIdx = expectedFamilies[k];
         const auto &family = familySpecs[static_cast<size_t>(familyIdx)];
@@ -369,6 +512,10 @@ struct EncoderWindow {
                 continue;
             const int32_t gm = pd->first;
             const int32_t delta = pd->second;
+            const int32_t deltaBit = 1 << (delta + 1);
+            // Different instruments may not share an octave; same instr × multi-Δ is ok.
+            if ((claimedDeltas & deltaBit) != 0)
+                continue;
             const int32_t outPitch = basePitch + 12 * delta;
             if (outPitch < 0 || outPitch > 127)
                 continue;
@@ -387,6 +534,7 @@ struct EncoderWindow {
             assigned.velocity = scaledVel;
             assigned.token.velocity = scaledVel;
             notes.push_back(assigned);
+            claimedDeltas |= deltaBit;
         }
     }
     return notes;
@@ -401,6 +549,47 @@ struct EncoderWindow {
 
 [[nodiscard]] inline constexpr auto unpackDelta(int32_t key) -> int32_t {
     return (key & 0xff) - 1;
+}
+
+/**
+ * Keep at most one instrument per Δ across (GM, Δ) pairs.
+ * Same GM at multiple Δs is allowed; a later different GM that reuses a Δ is dropped.
+ */
+[[nodiscard]] inline auto filterPairsUniqueOctave(const std::vector<int32_t> &pairs)
+    -> std::vector<int32_t> {
+    std::vector<int32_t> out;
+    out.reserve(pairs.size());
+    int32_t claimedDeltas = 0; // bit0/1/2 ↔ Δ −1/0/+1
+    for (const int32_t key: pairs) {
+        const int32_t delta = unpackDelta(key);
+        if (delta < -1 || delta > 1)
+            continue;
+        const int32_t bit = 1 << (delta + 1);
+        if ((claimedDeltas & bit) != 0)
+            continue;
+        claimedDeltas |= bit;
+        out.push_back(key);
+    }
+    return out;
+}
+
+/** Drop (GM,Δ) pairs whose Δ is disallowed for this note's outer-voice role. */
+[[nodiscard]] inline auto filterPairsByDeltaAllows(const std::vector<int32_t> &pairs,
+                                                   bool allowMinus1,
+                                                   bool allowPlus1) -> std::vector<int32_t> {
+    if (allowMinus1 && allowPlus1)
+        return pairs;
+    std::vector<int32_t> out;
+    out.reserve(pairs.size());
+    for (const int32_t key: pairs) {
+        const int32_t delta = unpackDelta(key);
+        if (delta < 0 && ! allowMinus1)
+            continue;
+        if (delta > 0 && ! allowPlus1)
+            continue;
+        out.push_back(key);
+    }
+    return out;
 }
 
 /** Expand combo tokens to unique (GM program, Δ) pairs. */

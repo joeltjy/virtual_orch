@@ -23,8 +23,12 @@ namespace DensePitchBias {
 inline constexpr int32_t WindowCs = 500; // 5 s
 inline constexpr float UnigramEpsilon = 1.0f / 128.0f;
 inline constexpr float DeltaEpsilon = 0.01f;
-inline constexpr float TauBase = 0.5f;
+inline constexpr float TauBase = 0.2f;
+/** Hold at base until this many seconds *or* TauHoldNotes, whichever is earlier. */
 inline constexpr float TauHoldSeconds = 2.0f;
+inline constexpr int TauHoldNotes = 10;
+/** After hold: τ = base · TauRampBase^(notesSinceReset / 10). */
+inline constexpr float TauRampBase = 2.0f;
 
 /** amt_causal / offline: only leaps in [-12, 12] enter D and s_y. */
 inline constexpr int DeltaLo = -12;
@@ -92,9 +96,11 @@ auto applyNoteLogitsBias(std::vector<float> &logits,
 
 /**
  * Strength of the pitch / interval bias over time (independent clocks):
- * - τ: after S *gains* a pitch → hold TauBase for TauHoldSeconds, then ramp.
+ * - τ: after S *gains* a pitch → hold base for min(2 s, 10 notes), then
+ *   base · 2^(notes/10).
  * - τ′: after the window *gains* an in-range pitch interval Δ → same hold/ramp.
  * Shrinkage alone (pitches / intervals leaving) does not reset.
+ * Empty S / D snaps back to base.
  */
 class PitchTauScheduler {
 public:
@@ -105,7 +111,10 @@ public:
 
     [[nodiscard]] auto evaluate(int32_t nowCs,
                                 const std::vector<int32_t> &uniquePitches,
-                                const std::vector<int32_t> &uniqueDeltas) -> Result;
+                                const std::vector<int32_t> &uniqueDeltas,
+                                float tauBase = TauBase,
+                                float tauPrimeBase = TauBase,
+                                bool countNote = false) -> Result;
 
     [[nodiscard]] auto lastUniquePitches() const -> const std::vector<int32_t> & { return lastS; }
 
@@ -118,8 +127,12 @@ private:
     std::vector<int32_t> lastDeltas;
     int32_t sStableSinceCs = 0;
     int32_t deltaStableSinceCs = 0;
+    int32_t lastScheduleNowCs = 0;
+    int sNotesSinceReset = 0;
+    int deltaNotesSinceReset = 0;
     bool hasS = false;
     bool hasDeltas = false;
+    bool hasScheduleNow = false;
 };
 
 } // namespace DensePitchBias

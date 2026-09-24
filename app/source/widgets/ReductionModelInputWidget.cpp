@@ -2,6 +2,7 @@
 
 #include "VirtualOrch/AppSession.h"
 #include "VirtualOrch/MusicToken.h"
+#include "VirtualOrch/NoteWindow.h"
 #include "VirtualOrch/reduction/DenseTypes.h"
 #include "VirtualOrch/reduction/ReductionTransformer.h"
 #include "VirtualOrch/ui/UiConstants.h"
@@ -21,14 +22,8 @@ constexpr uint32_t kLogMinIntervalMs = 500;
 /** Rotate (truncate) the log once it exceeds this size. */
 constexpr int64_t kLogMaxBytes = 2 * 1024 * 1024;
 
-auto contextNoteLimit(const AppSession &session) -> size_t {
-    if (isDenseMusicArch(session.musicModelArch))
-        return static_cast<size_t>(juce::jmax(1, DenseSampling::ContextNotes));
-    return static_cast<size_t>(juce::jmax(1, session.modelConfig.reductionContextNotes));
-}
-
-/** Last N events from packed inputData, onset-sorted (same lookback as generateNewToken). */
-auto lookbackPacked(const std::vector<int32_t> &data, size_t stride, size_t maxNotes)
+/** Last N events from packed inputData, onset-sorted for readability. */
+auto historyPacked(const std::vector<int32_t> &data, size_t stride, size_t maxNotes)
     -> std::vector<int32_t> {
     if (stride == 0 || data.size() < stride)
         return {};
@@ -65,19 +60,37 @@ auto lookbackPacked(const std::vector<int32_t> &data, size_t stride, size_t maxN
     return sorted;
 }
 
-auto formatLookbackList(const std::vector<int32_t> &packed, size_t stride) -> juce::String {
+auto formatHistoryList(const std::vector<int32_t> &packed, size_t stride) -> juce::String {
     juce::String text;
     const size_t noteCount = stride == 0 ? 0 : packed.size() / stride;
     text.preallocateBytes(noteCount * 64);
-    text << noteCount << " notes (model lookback)\n";
+    text << noteCount << " notes (RT input history)\n";
     for (size_t i = 0; i + stride - 1 < packed.size(); i += stride) {
-        Token token{packed[i], packed[i + 1], packed[i + 2]};
+        const int32_t onset = packed[i];
+        const int32_t durToken = packed[i + 1];
+        const int32_t noteToken = packed[i + 2];
+        int32_t velocity = DenseConfig::DefaultVelocity;
         if (stride >= 4) {
-            token.velocity = juce::jlimit(
+            velocity = juce::jlimit(
                 0, DenseConfig::MaxVelocity - 1,
                 packed[i + 3] - static_cast<int32_t>(DenseVocab::VelocityOffset));
         }
-        text << juce::String(token.toUnderstandableString()) << "\n";
+        if (stride >= 4) {
+            // Dense: decode instrument from DenseVocab (not AMT Token helpers).
+            const int32_t instr = DenseQuantize::instrumentOfNoteToken(noteToken);
+            const int32_t pitch =
+                instr >= 0
+                    ? (noteToken - static_cast<int32_t>(DenseVocab::NoteOffset))
+                          % DenseConfig::MaxPitch
+                    : noteToken;
+            const int32_t durCs =
+                durToken - static_cast<int32_t>(DenseVocab::DurOffset);
+            text << "(" << onset << ", " << durCs << ", " << instr << " - " << pitch
+                 << ", vel " << velocity << ")\n";
+        } else {
+            Token token{onset, durToken, noteToken, velocity};
+            text << juce::String(token.toUnderstandableString()) << "\n";
+        }
     }
     return text;
 }
@@ -144,11 +157,11 @@ auto ReductionModelInputWidget::refreshFromSession() -> void {
     const bool dense = isDenseMusicArch(session.musicModelArch);
     const size_t stride = dense ? size_t{4} : size_t{3};
     const auto packed =
-        lookbackPacked(session.getActiveInputData(), stride, contextNoteLimit(session));
+        historyPacked(session.getActiveInputData(), stride, NoteWindow::maxReductionInputNotes);
 
     if (packed != lastDisplayedLookback) {
         lastDisplayedLookback = packed;
-        const auto text = formatLookbackList(packed, stride);
+        const auto text = formatHistoryList(packed, stride);
         display.setText(text, juce::dontSendNotification);
         display.applyColourToAllText(UiConstants::workspacePromptEditorTextColour, true);
         display.moveCaretToEnd();
@@ -164,6 +177,6 @@ auto ReductionModelInputWidget::refreshFromSession() -> void {
         lastLoggedLookback = pendingLogLookback;
         logPending = false;
         lastLogFlushMs = nowMs;
-        appendLookbackLogAsync(formatLookbackList(lastLoggedLookback, stride));
+        appendLookbackLogAsync(formatHistoryList(lastLoggedLookback, stride));
     }
 }

@@ -17,8 +17,9 @@ public:
     float pitchTau = DensePitchBias::TauBase;
     float pitchTauPrime = DensePitchBias::TauBase;
     float durationTau = DenseDurationBias::TauBase;
-    float durationTauPrime = DenseDurationBias::TauBase;
-    bool v2Active = false;
+    float durationTauPrime = DenseDurationBias::TauPrimeBase;
+    bool biasActive = false;
+    juce::String statusText = "active for V2 / Piano Reduction";
 
     auto paint(juce::Graphics &g) -> void override {
         g.fillAll(juce::Colour(0xff1a1a1a));
@@ -29,9 +30,7 @@ public:
 
         g.setColour(juce::Colours::grey);
         g.setFont(10.0f);
-        const juce::String subtitle =
-            v2Active ? "pitch / duration bias (0 – 4)" : "active only for V2";
-        g.drawText(subtitle,
+        g.drawText(statusText,
                    area.removeFromTop(14.0f).toNearestIntEdges(),
                    juce::Justification::centredLeft);
         area.removeFromTop(2.0f);
@@ -47,7 +46,7 @@ public:
 
         const auto drawBar = [&](int index, float value, const juce::String &name,
                                  juce::Colour colour) {
-            const float display = v2Active ? value : 0.0f;
+            const float display = biasActive ? value : 0.0f;
             const float cx = area.getX() + (static_cast<float>(index) + 0.5f) * slotW;
             const float fill = juce::jlimit(0.0f, 1.0f, display / kTauAxisMax);
             const float barH = fill * area.getHeight();
@@ -114,18 +113,31 @@ auto ReductionTauWidget::timerCallback() -> void {
 }
 
 auto ReductionTauWidget::refreshFromSession() -> void {
-    const bool v2Active = session.musicModelArch == MusicModelArch::DenseV2;
     float pitchTau = DensePitchBias::TauBase;
     float pitchTauPrime = DensePitchBias::TauBase;
     float durationTau = DenseDurationBias::TauBase;
-    float durationTauPrime = DenseDurationBias::TauBase;
-    if (v2Active) {
+    float durationTauPrime = DenseDurationBias::TauPrimeBase;
+    bool biasActive = false;
+    juce::String statusText = "active for V2 / Piano Reduction";
+
+    if (session.musicModelArch == MusicModelArch::DenseV2) {
+        biasActive = true;
+        statusText = "Reduction V2 (0 – 4)";
         session.reductionTransformerV2.refreshPitchTauSchedule();
         session.reductionTransformerV2.refreshDurationTauSchedule();
         pitchTau = session.reductionTransformerV2.getPitchTau();
         pitchTauPrime = session.reductionTransformerV2.getPitchTauPrime();
         durationTau = session.reductionTransformerV2.getDurationTau();
         durationTauPrime = session.reductionTransformerV2.getDurationTauPrime();
+    } else if (session.musicModelArch == MusicModelArch::DensePianoReduction) {
+        biasActive = true;
+        statusText = "Piano Reduction (0 – 4)";
+        session.reductionTransformerPianoReduction.refreshPitchTauSchedule();
+        session.reductionTransformerPianoReduction.refreshDurationTauSchedule();
+        pitchTau = session.reductionTransformerPianoReduction.getPitchTau();
+        pitchTauPrime = session.reductionTransformerPianoReduction.getPitchTauPrime();
+        durationTau = session.reductionTransformerPianoReduction.getDurationTau();
+        durationTauPrime = session.reductionTransformerPianoReduction.getDurationTauPrime();
     }
 
     if (impl == nullptr)
@@ -134,6 +146,7 @@ auto ReductionTauWidget::refreshFromSession() -> void {
     impl->chart.pitchTauPrime = pitchTauPrime;
     impl->chart.durationTau = durationTau;
     impl->chart.durationTauPrime = durationTauPrime;
-    impl->chart.v2Active = v2Active;
+    impl->chart.biasActive = biasActive;
+    impl->chart.statusText = statusText;
     impl->chart.repaint();
 }

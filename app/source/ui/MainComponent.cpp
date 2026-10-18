@@ -961,9 +961,9 @@ void MainComponent::loadPresetFromName(const juce::String &presetName) {
 
     const juce::String orchMode = preset.getProperty("orchestrationMode", "").toString();
     if (orchMode.equalsIgnoreCase("jam"))
-        session.orchestrationTransformer.setMode(OrchestrationMode::Jam);
+        session.setOrchestrationMode(OrchestrationMode::Jam);
     else if (orchMode.equalsIgnoreCase("edit"))
-        session.orchestrationTransformer.setMode(OrchestrationMode::Edit);
+        session.setOrchestrationMode(OrchestrationMode::Edit);
 
     session.presetStore.applyPreset(preset);
     session.rebuildInputFilter();

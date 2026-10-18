@@ -8,45 +8,48 @@
 #include "VirtualOrch/LaunchpadLighting.h"
 
 /**
- * UI colours matching Launchpad row families (AppSession pad layout):
- * strings pink, woodwinds green, brass blue, other yellow.
+ * On-screen approximations of the Launchpad palette colours, so UI instrument colours
+ * match the pads: strings yellow, woodwinds lime, brass orange, other mint.
  */
 namespace InstrumentUiColours {
 
 [[nodiscard]] inline auto fromPalette(uint8_t palette) -> juce::Colour {
     switch (palette) {
-        case LaunchpadLighting::kPink:
-            return juce::Colour(0xfff06ab0);
-        case LaunchpadLighting::kGreen:
-            return juce::Colour(0xff2ecf5a);
-        case LaunchpadLighting::kBlue:
-            return juce::Colour(0xff3b7cff);
-        case LaunchpadLighting::kYellow:
-            return juce::Colour(0xfff0c820);
+        case LaunchpadLighting::kWhite:
+            return juce::Colour(0xffe8e8e8);
         case LaunchpadLighting::kRed:
             return juce::Colour(0xffe63b3b);
+        case LaunchpadLighting::kOrange:
+            return juce::Colour(0xffff8c1a);
+        case LaunchpadLighting::kYellow:
+            return juce::Colour(0xfff0c820);
+        case LaunchpadLighting::kLime:
+            return juce::Colour(0xff9be22e);
+        case LaunchpadLighting::kGreen:
+            return juce::Colour(0xff2ecf5a);
+        case LaunchpadLighting::kMint:
+            return juce::Colour(0xff2ed8a0);
+        case LaunchpadLighting::kCyan:
+            return juce::Colour(0xff2ee6e6);
+        case LaunchpadLighting::kSky:
+            return juce::Colour(0xff3fb4ff);
+        case LaunchpadLighting::kBlue:
+            return juce::Colour(0xff3b7cff);
+        case LaunchpadLighting::kPurple:
+            return juce::Colour(0xff8a5cff);
+        case LaunchpadLighting::kMagenta:
+            return juce::Colour(0xffd84fe0);
+        case LaunchpadLighting::kPink:
+            return juce::Colour(0xffff5c9a);
         case LaunchpadLighting::kOff:
         default:
             return juce::Colour(0xff1c1c1c);
     }
 }
 
-/** Family row 0..3 matching LaunchpadLighting::colourForRow, if known. */
-[[nodiscard]] inline auto familyRowForLocalInstrument(int32_t localId) -> std::optional<int> {
-    if (localId >= 0 && localId <= 6)
-        return 0; // strings
-    if (localId >= 7 && localId <= 10)
-        return 1; // woodwinds
-    if (localId >= 11 && localId <= 14)
-        return 2; // brass
-    if (localId >= 15 && localId <= 19)
-        return 3; // other (includes piano 15)
-    return std::nullopt;
-}
-
 [[nodiscard]] inline auto forLocalInstrument(int32_t localId) -> juce::Colour {
-    if (const auto row = familyRowForLocalInstrument(localId))
-        return fromPalette(LaunchpadLighting::colourForRow(*row));
+    if (const auto family = LaunchpadLighting::familyForLocalInstrument(localId))
+        return fromPalette(LaunchpadLighting::colourForFamily(*family));
     return juce::Colour(0xff9aa0a6);
 }
 

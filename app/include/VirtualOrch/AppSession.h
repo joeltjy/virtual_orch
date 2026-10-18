@@ -93,6 +93,9 @@ public:
 
     auto stopGeneration() -> void;
 
+    /** Set the OT Edit/Jam mode and light the matching Launchpad mode pad. */
+    auto setOrchestrationMode(OrchestrationMode mode) -> void;
+
     /** Update Launchpad CC105/106 LEDs from current pause flags. */
     auto syncPauseTopLeds() -> void;
 

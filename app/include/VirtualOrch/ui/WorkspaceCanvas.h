@@ -86,6 +86,9 @@ public:
     /** Seed OT rolls + debug widgets for OrchestrationDebug. */
     auto addOrchestrationDebugViewWidgets() -> void;
 
+    /** Seed the labelled Launchpad grid for PerformanceView. */
+    auto addPerformanceViewWidgets() -> void;
+
     auto getWidgetCount() const -> int { return (int) widgets.size(); }
 
     [[nodiscard]] auto toVar() const -> juce::var;

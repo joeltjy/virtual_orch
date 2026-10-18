@@ -5,6 +5,7 @@
 #include "VirtualOrch/views/DefaultView.h"
 #include "VirtualOrch/views/InputView.h"
 #include "VirtualOrch/views/OrchestrationDebugView.h"
+#include "VirtualOrch/views/PerformanceView.h"
 #include "VirtualOrch/widgets/ActiveInstrumentsWidget.h"
 #include "VirtualOrch/widgets/ConditioningPianoRollWidget.h"
 #include "VirtualOrch/widgets/GenerationWidget.h"
@@ -478,6 +479,10 @@ auto WorkspaceCanvas::addInputViewWidgets() -> void {
 
 auto WorkspaceCanvas::addOrchestrationDebugViewWidgets() -> void {
     views::OrchestrationDebugView::applyTo(*this);
+}
+
+auto WorkspaceCanvas::addPerformanceViewWidgets() -> void {
+    views::PerformanceView::applyTo(*this);
 }
 
 auto WorkspaceCanvas::removeWidget(WorkspaceWidget *widget) -> void {

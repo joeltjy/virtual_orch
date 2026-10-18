@@ -213,6 +213,8 @@ auto WorkspacePage::ensureBuiltinViews() -> void {
                   [this] { canvas.addInputViewWidgets(); });
     seedIfMissing(UiConstants::workspaceOrchestrationDebugViewName,
                   [this] { canvas.addOrchestrationDebugViewWidgets(); });
+    seedIfMissing(UiConstants::workspacePerformanceViewName,
+                  [this] { canvas.addPerformanceViewWidgets(); });
     clearDirty();
 }
 

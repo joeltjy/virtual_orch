@@ -6,6 +6,7 @@
 #include "VirtualOrch/ui/UiConstants.h"
 #include "onnxruntime_cxx_api.h"
 
+#include <array>
 #include <atomic>
 #include <iostream>
 #include <thread>
@@ -107,9 +108,10 @@ AppSession::AppSession()
                     continue;
                 const auto &mapped =
                     grid.padInstruments[static_cast<size_t>(row)][static_cast<size_t>(col)];
-                if (! mapped.has_value())
+                const auto target = LaunchpadGrid::targetForRow(row);
+                if (! mapped.has_value() || ! target.has_value())
                     continue;
-                if (row < 4)
+                if (*target == InstrumentUpdateTarget::User)
                     user.insert(*mapped);
                 else
                     model.insert(*mapped);
@@ -117,13 +119,12 @@ AppSession::AppSession()
         }
         orchestrationTransformer.replaceInstrumentSets(std::move(user), std::move(model));
     };
+    midiInputProcess.getLaunchpadGrid().mode_callback = [this](OrchestrationMode mode) {
+        setOrchestrationMode(mode);
+    };
+    midiInputProcess.getLaunchpadGrid().setSelectedMode(orchestrationTransformer.getMode());
     midiInputProcess.getLaunchpadGrid().scene_callback = [this](int idx) {
-        if (idx == 0) {
-            const auto mode = orchestrationTransformer.getMode();
-            orchestrationTransformer.setMode(mode == OrchestrationMode::Edit
-                                                 ? OrchestrationMode::Jam
-                                                 : OrchestrationMode::Edit);
-        } else if (idx == 1) {
+        if (idx == 1) {
             auto &reduction = activeReduction();
             reduction.setGenerationPause(! reduction.generationPause.get());
         } else if (idx == 2) {
@@ -132,35 +133,37 @@ AppSession::AppSession()
 
         syncPauseTopLeds();
     };
-    // One family per row (taxonomy order): strings 0–6, woodwind 7–10, brass 11–14,
-    // other 15–19. Rows 0–3 are User, rows 4–7 mirror them for Model.
-    auto &pads = midiInputProcess.getLaunchpadGrid().padInstruments;
-    for (int block = 0; block < 2; ++block) {
-        const int base = block * 4;
-        for (int col = 0; col < 7; ++col)
-            pads[base + 0][col] = col; // strings 0–6
-        for (int col = 0; col < 4; ++col)
-            pads[base + 1][col] = 7 + col; // woodwind 7–10
-        for (int col = 0; col < 4; ++col)
-            pads[base + 2][col] = 11 + col; // brass 11–14
-        for (int col = 0; col < 5; ++col)
-            pads[base + 3][col] = 15 + col; // other 15–19
-    }
+    // Same two-row instrument layout for User (input) and Model; row offset within the set.
+    struct PadMapping {
+        int rowOffset;
+        int col;
+        int32_t localId;
+    };
+    static constexpr std::array<PadMapping, 13> kInstrumentPads{{
+        {0, 0, 6},  // string ensemble
+        {0, 1, 5},  // pizzicato
+        {0, 2, 4},  // tremolo
+        {0, 4, 7},  // flute
+        {0, 5, 8},  // oboe
+        {0, 6, 9},  // clarinet
+        {0, 7, 10}, // bassoon
+        {1, 0, 12}, // horn
+        {1, 1, 11}, // trumpet
+        {1, 2, 13}, // trombone
+        {1, 3, 14}, // tuba
+        {1, 4, 16}, // timpani
+        {1, 5, 17}, // snare
+    }};
 
-    // Default: enable all strings, woodwinds, and brass (User + Model); leave "other" off.
+    // All instrument pads start off (User + Model).
     orchestrationTransformer.userInstruments.clear();
     orchestrationTransformer.modelInstruments.clear();
     {
         auto &grid = midiInputProcess.getLaunchpadGrid();
-        for (int block = 0; block < 2; ++block) {
-            const int base = block * 4;
-            for (int col = 0; col < 7; ++col)
-                grid.setPadOn(base + 0, col, true); // strings 0–6
-            for (int col = 0; col < 4; ++col)
-                grid.setPadOn(base + 1, col, true); // woodwind 7–10
-            for (int col = 0; col < 4; ++col)
-                grid.setPadOn(base + 2, col, true); // brass 11–14
-        }
+        for (const int base: {LaunchpadGrid::kUserRowFirst, LaunchpadGrid::kModelRowFirst})
+            for (const auto &pad: kInstrumentPads)
+                grid.padInstruments[static_cast<size_t>(base + pad.rowOffset)]
+                                   [static_cast<size_t>(pad.col)] = pad.localId;
     }
 
     orchestrationTransformer.orchestrationModel = orchestrationModel.get();
@@ -424,6 +427,11 @@ auto AppSession::stopGeneration() -> void {
         stopThreadOrReport(outputPlayback, modelSamplingAlert);
         stopJoinInFlight.store(false, std::memory_order_release);
     }).detach();
+}
+
+auto AppSession::setOrchestrationMode(OrchestrationMode mode) -> void {
+    orchestrationTransformer.setMode(mode);
+    midiInputProcess.getLaunchpadGrid().setSelectedMode(mode);
 }
 
 auto AppSession::syncPauseTopLeds() -> void {

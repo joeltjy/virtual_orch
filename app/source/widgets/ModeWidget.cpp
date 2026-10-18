@@ -116,11 +116,11 @@ ModeWidget::ModeWidget(AppSession &sessionIn)
     playbackRtButton.setTooltip(UiConstants::workspaceModePlaybackRtTooltip);
 
     editButton.onClick = [this] {
-        session.orchestrationTransformer.setMode(OrchestrationMode::Edit);
+        session.setOrchestrationMode(OrchestrationMode::Edit);
         refreshFromSession();
     };
     jamButton.onClick = [this] {
-        session.orchestrationTransformer.setMode(OrchestrationMode::Jam);
+        session.setOrchestrationMode(OrchestrationMode::Jam);
         refreshFromSession();
     };
     playbackOtButton.onClick = [this] {

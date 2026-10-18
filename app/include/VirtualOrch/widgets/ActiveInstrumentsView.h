@@ -8,7 +8,10 @@
 
 #include "VirtualOrch/LaunchpadGrid.h"
 
-/** Launchpad view on UI. */
+/**
+ * Launchpad view on UI: 9x9 (top CC row + 8x8 grid + side column), every button
+ * labelled. UI row = pad row + 1; UI col 8 = side column.
+ */
 class ActiveInstrumentsView : public juce::Component {
 public:
     ActiveInstrumentsView();
@@ -27,8 +30,9 @@ private:
 
     struct CellState {
         juce::String label;
-        juce::Colour fill = juce::Colours::transparentBlack;
-        bool hasContent = false;
+        /** Palette colour the button shows when lit. */
+        uint8_t onPalette = 0;
+        bool lit = false;
     };
 
     [[nodiscard]] static auto colourForPalette(uint8_t palette) -> juce::Colour;

@@ -3,30 +3,38 @@
 #include <JuceHeader.h>
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <utility>
+#include <vector>
 
 #include "Fifo.h"
 #include "VirtualOrch/LaunchpadLighting.h"
 #include "VirtualOrch/LaunchpadProgrammerMap.h"
 #include "VirtualOrch/OrchestrationTransformer.h"
+#include "VirtualOrch/TemporalDensity.h"
 
-/** Launchpad pad/side state + instrument updates.
+/** Launchpad pad state + instrument updates.
  *
- *  Middle 8x8: On (1) / Off (0), toggled on press.
- *  Side column (col = kSideCol = 9): Unmute (1) / Mute (0), toggled on press.
- *  Effective pad state = grid[row][col] * side[row].
- *  Grid press → one InstrumentUpdate for that pad (if mapped).
- *  Side press → toggles that family on BOTH User and Model halves (row r and r+4),
- *  then emits InstrumentUpdate for every mapped pad in both rows (Jam unions the sets).
- *  Target: 1-indexed row <= 4 (top) → User; row >= 5 (bottom) → Model.
- *  Presses within kBurstMs on the same pad/side are ignored.
- *  LEDs: mapped 8x8 pads follow effective state (row colours); unmapped pads stay off.
- *  Side: unmuted=row colour (family allowed); muted=off.
+ *  Grid rows (row 0 = top of the 8x8):
+ *    kModeRow (0)        Edit (col 0) / Jam (col 1); the selected one is lit
+ *    kTdRow (1)          TD levels 1..32 (cols 0..5); side = AUTO_TD toggle (starts on).
+ *                        AUTO on: side green, levels unlit. AUTO off: side red, the
+ *                        selected level lit. A level press turns AUTO off and selects it.
+ *                        Only this class writes TemporalDensity.
+ *    kUserRowFirst (2)   input (User) instruments, 2 rows; side of row 2 = flush:
+ *                        every input instrument that is on is switched on in the model
+ *                        set (added, not replaced), then all input pads switch off.
+ *    kModelRowFirst (4)  model instruments, 2 rows (same layout as User)
+ *    6..7                unused
+ *  Instrument pads: On (1) / Off (0), toggled on press; unmapped pads ignore presses.
+ *  Instrument pad press → one InstrumentUpdate for that pad.
+ *  Presses within kBurstMs on the same pad are ignored.
+ *  LEDs: instrument pads lit in their family colour when on; unmapped pads stay off.
  *  Top-row CCs use `scene_callback(idx)` with idx = cc - 104 (0..7).
- *  App wiring: 0 (CC104) Edit/Jam toggle, 1 (CC105) RT pause,
- *  2 (CC106) OT pause; 3..7 unused.
+ *  App wiring: 1 (CC105) RT pause, 2 (CC106) OT pause; 0 and 3..7 unused.
  *  Pause buttons light red via setTopLed while paused.
  */
 class LaunchpadGrid {
@@ -39,15 +47,26 @@ public:
     static constexpr int kTopCcCount = 8;
     static constexpr uint32_t kBurstMs = 100;
 
+    static constexpr int kModeRow = 0;
+    static constexpr int kTdRow = 1;
+    static constexpr int kUserRowFirst = 2;
+    static constexpr int kModelRowFirst = 4;
+    static constexpr int kInstrumentRowsPerSet = 2;
+    static constexpr int kEditCol = 0;
+    static constexpr int kJamCol = 1;
+    static constexpr int kFlushRow = kUserRowFirst;
+    static constexpr int kTdLevelCount = static_cast<int>(TemporalDensity::kLevels.size());
+
     using GridCallback = std::function<void(int rowIdx, int colIdx, bool on)>;
-    using SideCallback = std::function<void(int rowIdx, bool unmuted)>;
     using SceneCallback = std::function<void(int idx)>;
+    using ModeCallback = std::function<void(OrchestrationMode mode)>;
     /** Programmer-mode static LED: Note On ch1, velocity = palette colour. */
     using LedCallback = std::function<void(int midiNote, uint8_t paletteColour)>;
 
     GridCallback grid_callback;
-    SideCallback side_callback;
     SceneCallback scene_callback;
+    /** Edit/Jam pad pressed; the app applies the mode and calls setSelectedMode. */
+    ModeCallback mode_callback;
     LedCallback set_led;
 
     /** (row, col) → local instrument id; leave empty slots unmapped. */
@@ -67,19 +86,26 @@ public:
         return gridState[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
     }
 
-    /** true = Unmute, false = Mute. Defaults to Unmute. */
-    [[nodiscard]] auto getSideUnmuted(int rowIdx) const -> bool {
-        if (rowIdx < 0 || rowIdx >= kRows)
-            return false;
-        return sideUnmuted[static_cast<size_t>(rowIdx)];
-    }
-
     [[nodiscard]] auto getEffectiveState(int rowIdx, int colIdx) const -> uint8_t {
         if (! isGridPad(rowIdx, colIdx))
             return 0;
-        const auto on = gridState[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
-        const auto unmuted = sideUnmuted[static_cast<size_t>(rowIdx)];
-        return static_cast<uint8_t>((on && unmuted) ? 1 : 0);
+        return static_cast<uint8_t>(
+            gridState[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)] ? 1 : 0);
+    }
+
+    [[nodiscard]] auto isInstrumentPad(int rowIdx, int colIdx) const -> bool {
+        return isGridPad(rowIdx, colIdx)
+               && padInstruments[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)]
+                      .has_value();
+    }
+
+    /** User for the input rows, Model for the model rows, nullopt otherwise. */
+    [[nodiscard]] static auto targetForRow(int rowIdx) -> std::optional<InstrumentUpdateTarget> {
+        if (rowIdx >= kUserRowFirst && rowIdx < kUserRowFirst + kInstrumentRowsPerSet)
+            return InstrumentUpdateTarget::User;
+        if (rowIdx >= kModelRowFirst && rowIdx < kModelRowFirst + kInstrumentRowsPerSet)
+            return InstrumentUpdateTarget::Model;
+        return std::nullopt;
     }
 
     auto refreshPadLed(int rowIdx, int colIdx) -> void {
@@ -89,12 +115,62 @@ public:
         if (! note.has_value())
             return;
 
-        const bool mapped =
-            padInstruments[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)].has_value();
-        const auto colour = mapped ? LaunchpadLighting::colourForGridEffective(
-                                         rowIdx, getEffectiveState(rowIdx, colIdx) != 0)
-                                   : LaunchpadLighting::kOff;
+        if (const auto mode = modeForPad(rowIdx, colIdx)) {
+            set_led(*note, LaunchpadLighting::colourForModePad(*mode == getSelectedMode()));
+            return;
+        }
+
+        if (const auto level = tdLevelIndexForPad(rowIdx, colIdx)) {
+            const bool selected = ! TemporalDensity::isAuto() && *level == getManualTdLevelIndex();
+            set_led(*note, LaunchpadLighting::colourForTdLevel(*level, selected));
+            return;
+        }
+
+        const auto &mapped =
+            padInstruments[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
+        const auto colour = mapped.has_value()
+                                ? LaunchpadLighting::colourForInstrumentPad(
+                                      *mapped, getEffectiveState(rowIdx, colIdx) != 0)
+                                : LaunchpadLighting::kOff;
         set_led(*note, colour);
+    }
+
+    auto refreshTopLed(int idx) -> void {
+        if (! set_led || idx < 0 || idx >= kTopCcCount)
+            return;
+        set_led(kTopCcBase + idx, topLedColours[static_cast<size_t>(idx)]);
+    }
+
+    /** Mode shown on the Edit/Jam pads; does not change the orchestration mode itself. */
+    auto setSelectedMode(OrchestrationMode mode) -> void {
+        selectedMode.store(mode, std::memory_order_relaxed);
+        refreshPadLed(kModeRow, kEditCol);
+        refreshPadLed(kModeRow, kJamCol);
+    }
+
+    [[nodiscard]] auto getSelectedMode() const -> OrchestrationMode {
+        return selectedMode.load(std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] static auto modeForPad(int rowIdx, int colIdx) -> std::optional<OrchestrationMode> {
+        if (rowIdx != kModeRow)
+            return std::nullopt;
+        if (colIdx == kEditCol)
+            return OrchestrationMode::Edit;
+        if (colIdx == kJamCol)
+            return OrchestrationMode::Jam;
+        return std::nullopt;
+    }
+
+    [[nodiscard]] static auto tdLevelIndexForPad(int rowIdx, int colIdx) -> std::optional<int> {
+        if (rowIdx != kTdRow || colIdx < 0 || colIdx >= kTdLevelCount)
+            return std::nullopt;
+        return colIdx;
+    }
+
+    /** Level used when AUTO_TD is off (index into TemporalDensity::kLevels). */
+    [[nodiscard]] auto getManualTdLevelIndex() const -> int {
+        return manualTdLevelIndex.load(std::memory_order_relaxed);
     }
 
     auto refreshSideLed(int rowIdx) -> void {
@@ -103,14 +179,12 @@ public:
         const auto note = LaunchpadProgrammerMap::noteFromPad(rowIdx, kSideCol);
         if (! note.has_value())
             return;
-        set_led(*note,
-                LaunchpadLighting::colourForSide(rowIdx, sideUnmuted[static_cast<size_t>(rowIdx)]));
-    }
-
-    auto refreshTopLed(int idx) -> void {
-        if (! set_led || idx < 0 || idx >= kTopCcCount)
-            return;
-        set_led(kTopCcBase + idx, topLedColours[static_cast<size_t>(idx)]);
+        auto colour = LaunchpadLighting::kOff;
+        if (rowIdx == kTdRow)
+            colour = LaunchpadLighting::colourForAutoTd(TemporalDensity::isAuto());
+        else if (rowIdx == kFlushRow)
+            colour = LaunchpadLighting::kFlush;
+        set_led(*note, colour);
     }
 
     /** Persist and light a top-row button (CC 104+idx). */
@@ -161,7 +235,35 @@ public:
 
         const uint32_t now = nowMs.value_or(juce::Time::getMillisecondCounter());
 
-        if (isGridPad(rowIdx, colIdx)) {
+        if (const auto mode = modeForPad(rowIdx, colIdx)) {
+            auto &lastMs = gridLastAcceptMs[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
+            if (acceptPress(lastMs, now) && mode_callback)
+                mode_callback(*mode);
+            return;
+        }
+
+        if (const auto level = tdLevelIndexForPad(rowIdx, colIdx)) {
+            auto &lastMs = gridLastAcceptMs[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
+            if (acceptPress(lastMs, now))
+                selectTdLevel(*level);
+            return;
+        }
+
+        if (colIdx == kSideCol && rowIdx == kTdRow) {
+            auto &lastMs = sideLastAcceptMs[static_cast<size_t>(rowIdx)];
+            if (acceptPress(lastMs, now))
+                setTdAuto(! TemporalDensity::isAuto());
+            return;
+        }
+
+        if (colIdx == kSideCol && rowIdx == kFlushRow) {
+            auto &lastMs = sideLastAcceptMs[static_cast<size_t>(rowIdx)];
+            if (acceptPress(lastMs, now))
+                flushInputToModel();
+            return;
+        }
+
+        if (isInstrumentPad(rowIdx, colIdx)) {
             auto &lastMs = gridLastAcceptMs[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
             if (! acceptPress(lastMs, now))
                 return;
@@ -173,28 +275,6 @@ public:
             refreshPadLed(rowIdx, colIdx);
             if (grid_callback)
                 grid_callback(rowIdx, colIdx, on);
-            return;
-        }
-
-        if (colIdx == kSideCol && rowIdx >= 0 && rowIdx < kRows) {
-            auto &lastMs = sideLastAcceptMs[static_cast<size_t>(rowIdx)];
-            if (! acceptPress(lastMs, now))
-                return;
-
-            // Same family on User (0–3) and Model (4–7): keep mute in sync for Jam union.
-            const int familyRow = rowIdx % 4;
-            const bool newUnmuted = ! sideUnmuted[static_cast<size_t>(rowIdx)];
-            for (const int row: {familyRow, familyRow + 4}) {
-                sideUnmuted[static_cast<size_t>(row)] = newUnmuted;
-                sideLastAcceptMs[static_cast<size_t>(row)] = now == 0 ? 1 : now;
-                for (int col = 0; col < kCols; ++col) {
-                    emitPadUpdate(row, col);
-                    refreshPadLed(row, col);
-                }
-                refreshSideLed(row);
-                if (side_callback)
-                    side_callback(row, newUnmuted);
-            }
         }
     }
 
@@ -208,6 +288,51 @@ public:
     }
 
 private:
+    auto selectTdLevel(int levelIndex) -> void {
+        manualTdLevelIndex.store(levelIndex, std::memory_order_relaxed);
+        TemporalDensity::set(TemporalDensity::kLevels[static_cast<size_t>(levelIndex)]);
+        refreshTdLeds();
+    }
+
+    auto setTdAuto(bool on) -> void {
+        TemporalDensity::set(on ? TemporalDensity::kAuto
+                                : TemporalDensity::kLevels[static_cast<size_t>(getManualTdLevelIndex())]);
+        refreshTdLeds();
+    }
+
+    [[nodiscard]] auto findPadForInstrument(int firstRow, int32_t localId) const
+        -> std::optional<std::pair<int, int>> {
+        for (int row = firstRow; row < firstRow + kInstrumentRowsPerSet; ++row)
+            for (int col = 0; col < kCols; ++col)
+                if (padInstruments[static_cast<size_t>(row)][static_cast<size_t>(col)] == localId)
+                    return std::pair{row, col};
+        return std::nullopt;
+    }
+
+    /** Model pads are switched on before input pads switch off, so no instrument drops out. */
+    auto flushInputToModel() -> void {
+        std::vector<std::pair<int, int>> flushed;
+        for (int row = kUserRowFirst; row < kUserRowFirst + kInstrumentRowsPerSet; ++row) {
+            for (int col = 0; col < kCols; ++col) {
+                if (! isInstrumentPad(row, col) || getEffectiveState(row, col) == 0)
+                    continue;
+                const auto localId =
+                    *padInstruments[static_cast<size_t>(row)][static_cast<size_t>(col)];
+                if (const auto modelPad = findPadForInstrument(kModelRowFirst, localId))
+                    setPadOn(modelPad->first, modelPad->second, true);
+                flushed.emplace_back(row, col);
+            }
+        }
+        for (const auto &[row, col]: flushed)
+            setPadOn(row, col, false);
+    }
+
+    auto refreshTdLeds() -> void {
+        for (int col = 0; col < kTdLevelCount; ++col)
+            refreshPadLed(kTdRow, col);
+        refreshSideLed(kTdRow);
+    }
+
     static auto isGridPad(int row, int col) -> bool {
         return row >= 0 && row < kRows && col >= 0 && col < kCols;
     }
@@ -220,23 +345,18 @@ private:
         return true;
     }
 
-    /** 1-indexed row: <= 4 (top) User; >= 5 (bottom) Model. */
-    static auto targetForRow(int rowIdx) -> InstrumentUpdateTarget {
-        const int oneIndexed = rowIdx + 1;
-        return oneIndexed <= 4 ? InstrumentUpdateTarget::User : InstrumentUpdateTarget::Model;
-    }
-
     auto emitPadUpdate(int rowIdx, int colIdx) -> void {
         if (! isGridPad(rowIdx, colIdx))
             return;
 
         const auto &instrument = padInstruments[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
-        if (! instrument.has_value())
+        const auto target = targetForRow(rowIdx);
+        if (! instrument.has_value() || ! target.has_value())
             return;
 
         InstrumentUpdate update;
         update.localInstrumentId = *instrument;
-        update.target = targetForRow(rowIdx);
+        update.target = *target;
         update.state = getEffectiveState(rowIdx, colIdx);
         if (instrumentUpdates != nullptr)
             instrumentUpdates->push(update);
@@ -245,11 +365,9 @@ private:
     }
 
     std::array<std::array<bool, kCols>, kRows> gridState{};
-    std::array<bool, kRows> sideUnmuted = [] {
-        std::array<bool, kRows> unmuted{};
-        unmuted.fill(true);
-        return unmuted;
-    }();
+    std::atomic<OrchestrationMode> selectedMode{OrchestrationMode::Jam};
+
+    std::atomic<int> manualTdLevelIndex{0};
 
     std::array<std::array<uint32_t, kCols>, kRows> gridLastAcceptMs{};
     std::array<uint32_t, kRows> sideLastAcceptMs{};

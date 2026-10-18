@@ -80,9 +80,9 @@ auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid) -> void {
 
         auto &side = cells[uiRow][8];
         const auto unmuted = grid.getSideUnmuted(padRow);
-        const auto sidePalette = LaunchpadLighting::colourForSide(unmuted);
+        const auto sidePalette = LaunchpadLighting::colourForSide(padRow, unmuted);
         side.fill = colourForPalette(sidePalette);
-        side.hasContent = ! unmuted;
+        side.hasContent = true;
         side.label = unmuted ? juce::String() : "M";
     }
 }

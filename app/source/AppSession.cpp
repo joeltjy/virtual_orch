@@ -68,6 +68,7 @@ AppSession::AppSession()
                        outputProcessor,
                        inputFilter,
                        selectedMidiInputIdentifier,
+                       selectedPedalMidiInputIdentifier,
                        selectedLaunchpadMidiIdentifier,
                        selectedMtcClockIdentifier,
                        mtcClockActive) {

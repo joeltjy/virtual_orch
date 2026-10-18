@@ -45,6 +45,8 @@ public:
     std::unique_ptr<OSCBufferOutputProcessor> bufferOutputProcessor;
 
     juce::String selectedMidiInputIdentifier;
+    /** Separate keyboard used only for sustain (CC64) → generationPause. */
+    juce::String selectedPedalMidiInputIdentifier;
     juce::String selectedLaunchpadMidiIdentifier;
     juce::String selectedMtcClockIdentifier;
     bool mtcClockActive = false;

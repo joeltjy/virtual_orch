@@ -31,9 +31,9 @@ inline constexpr uint8_t kRed = 5;
     return effectiveOn ? colourForRow(rowIdx) : kOff;
 }
 
-/** Side column: muted → red; unmuted → off. */
-[[nodiscard]] inline auto colourForSide(bool unmuted) -> uint8_t {
-    return unmuted ? kOff : kRed;
+/** Side column: unmuted (family allowed) → lit; muted (banned) → off. */
+[[nodiscard]] inline auto colourForSide(int rowIdx, bool unmuted) -> uint8_t {
+    return unmuted ? colourForRow(rowIdx) : kOff;
 }
 
 } // namespace LaunchpadLighting

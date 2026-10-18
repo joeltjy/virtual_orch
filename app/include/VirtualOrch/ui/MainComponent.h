@@ -63,19 +63,23 @@ private:
     void updateOutputProcessor();
 
     /**
-     Starts listening to a MIDI input device, enabling it if necessary *
+     * Starts listening to a MIDI input device, enabling it if necessary.
+     * idx: 0 = play keyboard, 1 = Launchpad, 2 = pedal keyboard (CC64 pause).
      */
     void setMidiInput(int index, int idx);
 
+    /** Clear Pedal MIDI device (no CC64 pause source). */
+    void clearPedalMidiInput();
+
     juce::AudioDeviceManager deviceManager;
-    juce::ComboBox presetList, mtcClockList, midiInputList, launchpadMidiList, reductionTypeList,
-            checkpointList, orchestrationModelList, outputList;
+    juce::ComboBox presetList, mtcClockList, midiInputList, pedalMidiList, launchpadMidiList,
+            reductionTypeList, checkpointList, orchestrationModelList, outputList;
     juce::TextButton leftPresetButton{"<"}, rightPresetButton{">"}, savePresetButton{"SAVE"};
     juce::ToggleButton autoConnect, mtcClock, inputThru, proportionBias, pianoReductionBias;
     juce::Label presetListLabel, configLabel, mtcClockLabel, mtcClockOffsetLabel, controllerLabel,
-            midiInputListLabel, launchpadMidiListLabel, reductionTypeListLabel, checkpointListLabel,
-            orchestrationModelListLabel, inputThruLabel, proportionBiasLabel, pianoReductionBiasLabel,
-            outputListLabel, oscIpLabel, oscPortLabel,
+            midiInputListLabel, pedalMidiListLabel, launchpadMidiListLabel, reductionTypeListLabel,
+            checkpointListLabel, orchestrationModelListLabel, inputThruLabel, proportionBiasLabel,
+            pianoReductionBiasLabel, outputListLabel, oscIpLabel, oscPortLabel,
             bufferOutputOscIpLabel, bufferOutputOscPortLabel, statusOutputOscIpLabel,
             statusOutputOscPortLabel, generationLabel, visualizationBufferSizeLabel;
 

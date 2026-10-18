@@ -59,8 +59,8 @@ public:
     juce::Atomic<bool> directInputBlock = false;
 
     /**
-     * Manual pause (Launchpad CC105 / Mode widget / sustain pedal). Stops all reduction
-     * generation. Independent of overflowPause — clearing overflow never clears this.
+     * Manual pause (Launchpad CC105 / Mode widget / pedal-keyboard CC64). Stops all
+     * reduction generation. Independent of overflowPause — clearing overflow never clears this.
      */
     juce::Atomic<bool> generationPause{false};
 

@@ -7,7 +7,6 @@
 
 namespace {
 
-/** Stored on MidiInputProcess as int: 0 unknown, 1 MK2, 2 Mini Mk3 / X. */
 enum class LaunchpadFamily : int { Unknown = 0, Mk2 = 1, MiniMk3OrX = 2 };
 
 auto detectLaunchpadFamily(const juce::String &name) -> LaunchpadFamily {
@@ -125,6 +124,7 @@ MidiInputProcess::MidiInputProcess(Clock &clock,
                                    std::unique_ptr<OutputProcessor> &outputProcessor,
                                    std::unique_ptr<InputFilter> &inputFilter,
                                    juce::String &selectedMidiInputIdentifier,
+                                   juce::String &selectedPedalMidiInputIdentifier,
                                    juce::String &selectedLaunchpadMidiIdentifier,
                                    juce::String &selectedMtcClockIdentifier,
                                    bool &mtcClockActive)
@@ -134,6 +134,7 @@ MidiInputProcess::MidiInputProcess(Clock &clock,
       outputProcessor(outputProcessor),
       inputFilter(inputFilter),
       selectedMidiInputIdentifier(selectedMidiInputIdentifier),
+      selectedPedalMidiInputIdentifier(selectedPedalMidiInputIdentifier),
       selectedLaunchpadMidiIdentifier(selectedLaunchpadMidiIdentifier),
       selectedMtcClockIdentifier(selectedMtcClockIdentifier),
       mtcClockActive(mtcClockActive) {
@@ -354,28 +355,31 @@ void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const 
         return;
     }
 
+    // Pedal keyboard: CC64 → generationPause only (no notes / thru / other CCs).
+    const bool fromPedalKeyboard = source != nullptr
+                                   && selectedPedalMidiInputIdentifier.isNotEmpty()
+                                   && source->getIdentifier() == selectedPedalMidiInputIdentifier;
+    if (fromPedalKeyboard) {
+        if (message.isController() && message.getControllerNumber() == 64) {
+            const int value = message.getControllerValue();
+            const bool pause = value >= 64;
+            juce::Logger::writeToLog(
+                "[pedal] CC64 value=" + juce::String(value)
+                + (pause ? " down→pause" : " up→resume")
+                + " clockCs=" + juce::String(static_cast<int32_t>(clock.getTime()))
+                + " wasPaused="
+                + juce::String(activeReduction().generationPause.get() ? "true" : "false")
+                + " wasOverflow="
+                + juce::String(activeReduction().overflowPause.get() ? "true" : "false"));
+            activeReduction().setGenerationPause(pause);
+        }
+        return;
+    }
+
     if (inputThruEnabled && source->getIdentifier() == selectedMidiInputIdentifier
         && outputProcessor != nullptr
         && (! allowInputThru || allowInputThru())) {
         outputProcessor->relayMidi(message);
-    }
-
-    // Sustain pedal (CC64): down → RT generationPause, up → resume.
-    if (message.isController()
-        && source != nullptr
-        && source->getIdentifier() == selectedMidiInputIdentifier
-        && message.getControllerNumber() == 64) {
-        const int value = message.getControllerValue();
-        const bool pause = value >= 64;
-        juce::Logger::writeToLog(
-            "[pedal] CC64 value=" + juce::String(value)
-            + (pause ? " down→pause" : " up→resume")
-            + " clockCs=" + juce::String(static_cast<int32_t>(clock.getTime()))
-            + " wasPaused="
-            + juce::String(activeReduction().generationPause.get() ? "true" : "false")
-            + " wasOverflow="
-            + juce::String(activeReduction().overflowPause.get() ? "true" : "false"));
-        activeReduction().setGenerationPause(pause);
     }
 
     if (mtcClockActive && source->getIdentifier() == selectedMtcClockIdentifier && message.isQuarterFrame()) {
@@ -400,7 +404,14 @@ void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const 
                 clock.setMtcTime(time);
                 break;
         }
-    } else if (message.isNoteOn()) {
+        return;
+    }
+
+    // Notes only from the play keyboard (not pedal board / other devices).
+    if (source == nullptr || source->getIdentifier() != selectedMidiInputIdentifier)
+        return;
+
+    if (message.isNoteOn()) {
         DBG("Note On: " + std::to_string(message.getNoteNumber()) + " - Vel: " +
             std::to_string(message.getVelocity()));
         handleNoteOn(message.getNoteNumber(), message.getVelocity());

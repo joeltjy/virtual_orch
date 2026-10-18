@@ -29,6 +29,7 @@ public:
                      std::unique_ptr<OutputProcessor> &outputProcessor,
                      std::unique_ptr<InputFilter> &inputFilter,
                      juce::String &selectedMidiInputIdentifier,
+                     juce::String &selectedPedalMidiInputIdentifier,
                      juce::String &selectedLaunchpadMidiIdentifier,
                      juce::String &selectedMtcClockIdentifier,
                      bool &mtcClockActive);
@@ -77,6 +78,7 @@ private:
     std::unique_ptr<InputFilter> &inputFilter;
 
     juce::String &selectedMidiInputIdentifier;
+    juce::String &selectedPedalMidiInputIdentifier;
     juce::String &selectedLaunchpadMidiIdentifier;
     juce::String &selectedMtcClockIdentifier;
     bool &mtcClockActive;

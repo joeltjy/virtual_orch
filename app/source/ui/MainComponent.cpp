@@ -256,7 +256,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     };
     mtcClockOffset.setText(savedMtcClockOffset);
 
-    /* MIDI INPUT LIST */
+    /* MIDI INPUT LIST (play keyboard) */
 
     addAndMakeVisible(midiInputListLabel);
     midiInputListLabel.setText("MIDI Input: ", juce::dontSendNotification);
@@ -267,12 +267,11 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
 
     midiInputList.addItemList(midiInputNames, 1);
     midiInputList.onChange = [this] {
-        if (midiInputList.getSelectedItemIndex() == 0) {
+        if (midiInputList.getSelectedItemIndex() < 0)
             return;
-        }
         setMidiInput(midiInputList.getSelectedItemIndex(), 0);
         DBG("Saving input: " + midiInputs[midiInputList.getSelectedItemIndex()].identifier);
-        session.presetStore.settings.getChildWithName("input").setProperty(
+        session.presetStore.settings.getOrCreateChildWithName("input", nullptr).setProperty(
             "identifier", midiInputs[midiInputList.getSelectedItemIndex()].identifier, nullptr);
     };
     juce::String savedInput = session.presetStore.settings.getOrCreateChildWithName("input", nullptr).getProperty("identifier", "");
@@ -299,6 +298,50 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
         midiInputList.setSelectedItemIndex(0);
     }
 
+    /* PEDAL MIDI LIST (CC64 → generationPause only) */
+
+    addAndMakeVisible(pedalMidiListLabel);
+    pedalMidiListLabel.setText("Pedal MIDI: ", juce::dontSendNotification);
+    pedalMidiListLabel.attachToComponent(&pedalMidiList, true);
+
+    addAndMakeVisible(pedalMidiList);
+    pedalMidiList.setTextWhenNoChoicesAvailable("No MIDI Inputs Enabled");
+    // Id 1 = none (do not claim a device). Device items use ids 2..n+1.
+    pedalMidiList.addItem("(none)", 1);
+    for (int i = 0; i < midiInputNames.size(); ++i)
+        pedalMidiList.addItem(midiInputNames[i], i + 2);
+    pedalMidiList.onChange = [this] {
+        const int id = pedalMidiList.getSelectedId();
+        auto pedalSettings =
+            session.presetStore.settings.getOrCreateChildWithName("pedalInput", nullptr);
+        if (id <= 1) {
+            clearPedalMidiInput();
+            pedalSettings.setProperty("identifier", "", nullptr);
+            return;
+        }
+        const int deviceIndex = id - 2;
+        if (! juce::isPositiveAndBelow(deviceIndex, midiInputs.size()))
+            return;
+        setMidiInput(deviceIndex, 2);
+        DBG("Saving pedal input: " + midiInputs[deviceIndex].identifier);
+        pedalSettings.setProperty("identifier", midiInputs[deviceIndex].identifier, nullptr);
+    };
+    juce::String savedPedalInput =
+        session.presetStore.settings.getOrCreateChildWithName("pedalInput", nullptr)
+            .getProperty("identifier", "");
+    if (savedPedalInput.isNotEmpty()) {
+        int pedalIndex = -1;
+        for (int i = 0; i < midiInputs.size(); i++) {
+            if (midiInputs[i].identifier == savedPedalInput) {
+                pedalIndex = i;
+                break;
+            }
+        }
+        pedalMidiList.setSelectedId(pedalIndex != -1 ? pedalIndex + 2 : 1);
+    } else {
+        pedalMidiList.setSelectedId(1); // (none)
+    }
+
     /* LAUNCHPAD MIDI LIST */
 
     addAndMakeVisible(launchpadMidiListLabel);
@@ -310,9 +353,8 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
 
     launchpadMidiList.addItemList(midiInputNames, 1);
     launchpadMidiList.onChange = [this] {
-        if (launchpadMidiList.getSelectedItemIndex() == 0) {
+        if (launchpadMidiList.getSelectedItemIndex() < 0)
             return;
-        }
         setMidiInput(launchpadMidiList.getSelectedItemIndex(), 1);
         DBG("Saving launchpad input: " + midiInputs[launchpadMidiList.getSelectedItemIndex()].identifier);
         session.presetStore.settings.getOrCreateChildWithName("launchpadInput", nullptr).setProperty(
@@ -802,7 +844,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
             updateModel(true);
     }
 
-    setSize(700, 800);
+    setSize(700, 840);
 
 }
 
@@ -1199,6 +1241,9 @@ void MainComponent::resized() {
     midiInputList.setBounds(midiInputArea.removeFromLeft(getWidth() - 300));
     inputThru.setBounds(midiInputArea.withTrimmedLeft(80));
 
+    auto pedalMidiArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
+    pedalMidiList.setBounds(pedalMidiArea);
+
     auto launchpadMidiArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
     launchpadMidiList.setBounds(launchpadMidiArea);
 
@@ -1286,33 +1331,49 @@ void MainComponent::updateOutputProcessor() {
     resized();
 };
 
+void MainComponent::clearPedalMidiInput() {
+    const juce::String previous = session.selectedPedalMidiInputIdentifier;
+    session.selectedPedalMidiInputIdentifier = {};
+    if (previous.isNotEmpty()
+        && previous != session.selectedMidiInputIdentifier
+        && previous != session.selectedLaunchpadMidiIdentifier)
+        deviceManager.removeMidiInputDeviceCallback(previous, &session.midiInputProcess);
+}
+
 void MainComponent::setMidiInput(int index, int idx) {
     auto list = juce::MidiInput::getAvailableDevices();
     if (! juce::isPositiveAndBelow(index, list.size()))
         return;
 
     auto newInput = list[index];
-    auto &selectedForRole = (idx == 0) ? session.selectedMidiInputIdentifier
-                                       : session.selectedLaunchpadMidiIdentifier;
-    const auto &otherRole = (idx == 0) ? session.selectedLaunchpadMidiIdentifier
-                                       : session.selectedMidiInputIdentifier;
+    juce::String *selectedForRole = nullptr;
+    if (idx == 0)
+        selectedForRole = &session.selectedMidiInputIdentifier;
+    else if (idx == 1)
+        selectedForRole = &session.selectedLaunchpadMidiIdentifier;
+    else if (idx == 2)
+        selectedForRole = &session.selectedPedalMidiInputIdentifier;
+    else
+        return;
 
-    // Drop the previous device for this role unless the other role still needs it.
-    if (selectedForRole.isNotEmpty()
-        && selectedForRole != newInput.identifier
-        && selectedForRole != otherRole) {
-        deviceManager.removeMidiInputDeviceCallback(selectedForRole, &session.midiInputProcess);
-    }
+    const juce::String previous = *selectedForRole;
 
-    if (!deviceManager.isMidiInputDeviceEnabled(newInput.identifier))
+    if (! deviceManager.isMidiInputDeviceEnabled(newInput.identifier))
         deviceManager.setMidiInputDeviceEnabled(newInput.identifier, true);
 
     deviceManager.addMidiInputDeviceCallback(newInput.identifier, &session.midiInputProcess);
-    selectedForRole = newInput.identifier;
+    *selectedForRole = newInput.identifier;
 
-    if (idx == 1) {
+    // Drop the previous device for this role unless another role still needs it.
+    const bool previousStillNeeded =
+        previous == session.selectedMidiInputIdentifier
+        || previous == session.selectedLaunchpadMidiIdentifier
+        || previous == session.selectedPedalMidiInputIdentifier;
+    if (previous.isNotEmpty() && previous != newInput.identifier && ! previousStillNeeded)
+        deviceManager.removeMidiInputDeviceCallback(previous, &session.midiInputProcess);
+
+    if (idx == 1)
         session.midiInputProcess.setLaunchpadMidiOutputForInputDevice(newInput);
-    }
 }
 
 void MainComponent::updateMtcClock() {

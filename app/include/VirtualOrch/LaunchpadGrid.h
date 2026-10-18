@@ -18,11 +18,12 @@
  *  Side column (col = kSideCol = 9): Unmute (1) / Mute (0), toggled on press.
  *  Effective pad state = grid[row][col] * side[row].
  *  Grid press → one InstrumentUpdate for that pad (if mapped).
- *  Side press → InstrumentUpdate for every mapped pad in that row.
+ *  Side press → toggles that family on BOTH User and Model halves (row r and r+4),
+ *  then emits InstrumentUpdate for every mapped pad in both rows (Jam unions the sets).
  *  Target: 1-indexed row <= 4 (top) → User; row >= 5 (bottom) → Model.
  *  Presses within kBurstMs on the same pad/side are ignored.
  *  LEDs: mapped 8x8 pads follow effective state (row colours); unmapped pads stay off.
- *  Side: muted=red, unmuted=off.
+ *  Side: unmuted=row colour (family allowed); muted=off.
  *  Top-row CCs use `scene_callback(idx)` with idx = cc - 104 (0..7).
  *  App wiring: 0 (CC104) Edit/Jam toggle, 1 (CC105) RT pause,
  *  2 (CC106) OT pause; 3..7 unused.
@@ -102,7 +103,8 @@ public:
         const auto note = LaunchpadProgrammerMap::noteFromPad(rowIdx, kSideCol);
         if (! note.has_value())
             return;
-        set_led(*note, LaunchpadLighting::colourForSide(sideUnmuted[static_cast<size_t>(rowIdx)]));
+        set_led(*note,
+                LaunchpadLighting::colourForSide(rowIdx, sideUnmuted[static_cast<size_t>(rowIdx)]));
     }
 
     auto refreshTopLed(int idx) -> void {
@@ -179,17 +181,20 @@ public:
             if (! acceptPress(lastMs, now))
                 return;
 
-            auto &unmuted = sideUnmuted[static_cast<size_t>(rowIdx)];
-            unmuted = ! unmuted;
-
-            for (int col = 0; col < kCols; ++col) {
-                emitPadUpdate(rowIdx, col);
-                refreshPadLed(rowIdx, col);
+            // Same family on User (0–3) and Model (4–7): keep mute in sync for Jam union.
+            const int familyRow = rowIdx % 4;
+            const bool newUnmuted = ! sideUnmuted[static_cast<size_t>(rowIdx)];
+            for (const int row: {familyRow, familyRow + 4}) {
+                sideUnmuted[static_cast<size_t>(row)] = newUnmuted;
+                sideLastAcceptMs[static_cast<size_t>(row)] = now == 0 ? 1 : now;
+                for (int col = 0; col < kCols; ++col) {
+                    emitPadUpdate(row, col);
+                    refreshPadLed(row, col);
+                }
+                refreshSideLed(row);
+                if (side_callback)
+                    side_callback(row, newUnmuted);
             }
-            refreshSideLed(rowIdx);
-
-            if (side_callback)
-                side_callback(rowIdx, unmuted);
         }
     }
 

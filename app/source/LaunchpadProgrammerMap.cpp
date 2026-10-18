@@ -47,10 +47,18 @@ auto noteFromPad(int row, int col) -> std::optional<int> {
 }
 
 auto sceneIndexFromTopCc(int controllerNumber) -> std::optional<int> {
-    const int idx = controllerNumber - LaunchpadGrid::kTopCcBase;
-    if (idx < 0 || idx >= LaunchpadGrid::kTopCcCount)
+    for (const int base: {LaunchpadGrid::kTopCcBase, kMiniTopCcBase}) {
+        const int idx = controllerNumber - base;
+        if (idx >= 0 && idx < LaunchpadGrid::kTopCcCount)
+            return idx;
+    }
+    return std::nullopt;
+}
+
+auto sideRowFromCc(int controllerNumber) -> std::optional<int> {
+    if (controllerNumber % 10 != 9)
         return std::nullopt;
-    return idx;
+    return rowFromTensDigit(controllerNumber / 10);
 }
 
 } // namespace LaunchpadProgrammerMap

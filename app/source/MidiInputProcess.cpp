@@ -69,13 +69,18 @@ auto openLaunchpadMidiOutputForInput(const juce::MidiDeviceInfo &inputInfo)
 
 auto sendLaunchpadLed(juce::MidiOutput &output, LaunchpadFamily family, int midiNote,
                       uint8_t paletteColour) -> void {
+    // Top-row scene buttons are addressed as CCs 104-111 (MK2); Mini Mk3 / X use 91-98.
+    const bool topRow = midiNote >= LaunchpadGrid::kTopCcBase
+                        && midiNote < LaunchpadGrid::kTopCcBase + LaunchpadGrid::kTopCcCount;
+    if (topRow && family == LaunchpadFamily::MiniMk3OrX)
+        midiNote = LaunchpadProgrammerMap::kMiniTopCcBase + (midiNote - LaunchpadGrid::kTopCcBase);
+
     // Note-on ch1 / velocity=palette works on MK2 and Mini Mk3 Programmer mode.
     output.sendMessageNow(
         juce::MidiMessage::noteOn(1, midiNote, static_cast<juce::uint8>(paletteColour)));
 
-    // Top-row scene buttons are CCs 104-111; CC lighting matches Programmer docs.
-    if (midiNote >= LaunchpadGrid::kTopCcBase
-        && midiNote < LaunchpadGrid::kTopCcBase + LaunchpadGrid::kTopCcCount) {
+    // CC lighting for the top row matches Programmer docs.
+    if (topRow) {
         output.sendMessageNow(juce::MidiMessage::controllerEvent(
             1, midiNote, static_cast<juce::uint8>(paletteColour)));
     }
@@ -336,9 +341,15 @@ void MidiInputProcess::handleLaunchpadMessage(juce::MidiInput *source, const juc
         return;
     }
 
-    if (message.isController() && message.getControllerValue() > 0) {
+    if (message.isController()) {
         const int cc = message.getControllerNumber();
-        if (const auto idx = LaunchpadProgrammerMap::sceneIndexFromTopCc(cc))
+        const bool pressed = message.getControllerValue() > 0;
+        // Mini Mk3 / X send the side column as CCs; MK2 sends it as notes (handled above).
+        if (const auto row = LaunchpadProgrammerMap::sideRowFromCc(cc)) {
+            launchpadGrid.handleInput(*row, LaunchpadGrid::kSideCol, pressed);
+            return;
+        }
+        if (const auto idx = LaunchpadProgrammerMap::sceneIndexFromTopCc(cc); idx && pressed)
             launchpadGrid.handleSceneInput(*idx);
     }
 }

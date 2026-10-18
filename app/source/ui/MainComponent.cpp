@@ -307,7 +307,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     addAndMakeVisible(pedalMidiList);
     pedalMidiList.setTextWhenNoChoicesAvailable("No MIDI Inputs Enabled");
     // Id 1 = none (do not claim a device). Device items use ids 2..n+1.
-    pedalMidiList.addItem("(none)", 1);
+    pedalMidiList.addItem("(none: use MIDI Input)", 1);
     for (int i = 0; i < midiInputNames.size(); ++i)
         pedalMidiList.addItem(midiInputNames[i], i + 2);
     pedalMidiList.onChange = [this] {
@@ -339,7 +339,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
         }
         pedalMidiList.setSelectedId(pedalIndex != -1 ? pedalIndex + 2 : 1);
     } else {
-        pedalMidiList.setSelectedId(1); // (none)
+        pedalMidiList.setSelectedId(1); // (none: use MIDI Input)
     }
 
     /* LAUNCHPAD MIDI LIST */

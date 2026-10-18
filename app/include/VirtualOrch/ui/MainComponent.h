@@ -68,7 +68,7 @@ private:
      */
     void setMidiInput(int index, int idx);
 
-    /** Clear Pedal MIDI device (no CC64 pause source). */
+    /** Clear Pedal MIDI device; CC64 pause then comes from the MIDI Input keyboard. */
     void clearPedalMidiInput();
 
     juce::AudioDeviceManager deviceManager;

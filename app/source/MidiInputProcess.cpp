@@ -343,6 +343,23 @@ void MidiInputProcess::handleLaunchpadMessage(juce::MidiInput *source, const juc
     }
 }
 
+void MidiInputProcess::handleSustainPedal(const juce::MidiMessage &message) {
+    if (! message.isController() || message.getControllerNumber() != 64)
+        return;
+
+    const int value = message.getControllerValue();
+    const bool pause = value >= 64;
+    juce::Logger::writeToLog(
+        "[pedal] CC64 value=" + juce::String(value)
+        + (pause ? " down→pause" : " up→resume")
+        + " clockCs=" + juce::String(static_cast<int32_t>(clock.getTime()))
+        + " wasPaused="
+        + juce::String(activeReduction().generationPause.get() ? "true" : "false")
+        + " wasOverflow="
+        + juce::String(activeReduction().overflowPause.get() ? "true" : "false"));
+    activeReduction().setGenerationPause(pause);
+}
+
 void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const juce::MidiMessage &message) {
     const bool fromLaunchpad = source != nullptr
                                && selectedLaunchpadMidiIdentifier.isNotEmpty()
@@ -355,26 +372,23 @@ void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const 
         return;
     }
 
+    const bool fromPlayKeyboard =
+        source != nullptr && source->getIdentifier() == selectedMidiInputIdentifier;
+
     // Pedal keyboard: CC64 → generationPause only (no notes / thru / other CCs).
+    // If it is the same device as the play keyboard, fall through so notes still play.
     const bool fromPedalKeyboard = source != nullptr
                                    && selectedPedalMidiInputIdentifier.isNotEmpty()
                                    && source->getIdentifier() == selectedPedalMidiInputIdentifier;
-    if (fromPedalKeyboard) {
-        if (message.isController() && message.getControllerNumber() == 64) {
-            const int value = message.getControllerValue();
-            const bool pause = value >= 64;
-            juce::Logger::writeToLog(
-                "[pedal] CC64 value=" + juce::String(value)
-                + (pause ? " down→pause" : " up→resume")
-                + " clockCs=" + juce::String(static_cast<int32_t>(clock.getTime()))
-                + " wasPaused="
-                + juce::String(activeReduction().generationPause.get() ? "true" : "false")
-                + " wasOverflow="
-                + juce::String(activeReduction().overflowPause.get() ? "true" : "false"));
-            activeReduction().setGenerationPause(pause);
-        }
+    if (fromPedalKeyboard && ! fromPlayKeyboard) {
+        handleSustainPedal(message);
         return;
     }
+
+    // No pedal keyboard selected (or it is the play keyboard): take CC64 from the play keyboard.
+    if (fromPlayKeyboard
+        && (selectedPedalMidiInputIdentifier.isEmpty() || fromPedalKeyboard))
+        handleSustainPedal(message);
 
     if (inputThruEnabled && source->getIdentifier() == selectedMidiInputIdentifier
         && outputProcessor != nullptr

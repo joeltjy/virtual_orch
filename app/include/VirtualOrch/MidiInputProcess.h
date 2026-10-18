@@ -63,6 +63,9 @@ private:
 
     void handleLaunchpadMessage(juce::MidiInput *source, const juce::MidiMessage &message);
 
+    /** CC64 → generationPause (down pauses, up resumes); ignores everything else. */
+    void handleSustainPedal(const juce::MidiMessage &message);
+
     void handleNoteOn(int midiNoteNumber, float velocity);
 
     void handleNoteOff(int midiNoteNumber);

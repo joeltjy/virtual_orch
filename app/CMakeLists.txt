@@ -32,6 +32,8 @@ juce_add_binary_data(VirtualOrchData
     NAMESPACE VirtualOrchBinaryData
     SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/resources/general_midi_instruments.csv"
+        "${CMAKE_CURRENT_SOURCE_DIR}/resources/orch_seating_plan_no_perc.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/resources/orch_seating_plan_sectors.png"
 )
 
 target_link_libraries(${PROJECT_NAME}

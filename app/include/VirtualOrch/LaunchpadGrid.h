@@ -15,6 +15,7 @@
 #include "VirtualOrch/LaunchpadLighting.h"
 #include "VirtualOrch/LaunchpadProgrammerMap.h"
 #include "VirtualOrch/OrchestrationTransformer.h"
+#include "VirtualOrch/PerformanceActivity.h"
 #include "VirtualOrch/PolyphonyCap.h"
 #include "VirtualOrch/TemporalDensity.h"
 
@@ -72,6 +73,8 @@ public:
 
     GridCallback grid_callback;
     AccompanimentCallback accompaniment_callback;
+    /** Every accepted user action on the grid (the console widget); MIDI thread. */
+    std::function<void(const PerformanceActivity::LaunchpadAction &)> action_callback;
     SceneCallback scene_callback;
     /** Edit/Jam pad pressed; the app applies the mode and calls setSelectedMode. */
     ModeCallback mode_callback;
@@ -299,15 +302,21 @@ public:
 
         if (const auto level = tdLevelIndexForPad(rowIdx, colIdx)) {
             auto &lastMs = gridLastAcceptMs[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
-            if (acceptPress(lastMs, now))
+            if (acceptPress(lastMs, now)) {
                 selectTdLevel(*level);
+                emitAction({PerformanceActivity::LaunchpadAction::Kind::TdLevel, 0,
+                            TemporalDensity::kLevels[static_cast<size_t>(*level)], false, false});
+            }
             return;
         }
 
         if (colIdx == kSideCol && rowIdx == kTdRow) {
             auto &lastMs = sideLastAcceptMs[static_cast<size_t>(rowIdx)];
-            if (acceptPress(lastMs, now))
+            if (acceptPress(lastMs, now)) {
                 setTdAuto(! TemporalDensity::isAuto());
+                emitAction({PerformanceActivity::LaunchpadAction::Kind::TdAuto, 0, 0,
+                            TemporalDensity::isAuto(), false});
+            }
             return;
         }
 
@@ -315,6 +324,8 @@ public:
             auto &lastMs = sideLastAcceptMs[static_cast<size_t>(rowIdx)];
             if (acceptPress(lastMs, now) && getSelectedMode() == OrchestrationMode::Jam) {
                 setAccompanimentOn(! isAccompanimentOn());
+                emitAction({PerformanceActivity::LaunchpadAction::Kind::Accompaniment, 0, 0,
+                            isAccompanimentOn(), false});
                 if (accompaniment_callback)
                     accompaniment_callback();
             }
@@ -325,6 +336,8 @@ public:
             auto &lastMs = gridLastAcceptMs[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
             if (acceptPress(lastMs, now) && isAccompanimentActive()) {
                 setMaxPolyphony(*polyphony);
+                emitAction({PerformanceActivity::LaunchpadAction::Kind::Polyphony, 0, *polyphony,
+                            false, false});
                 if (accompaniment_callback)
                     accompaniment_callback();
             }
@@ -333,8 +346,10 @@ public:
 
         if (colIdx == kSideCol && rowIdx == kFlushRow) {
             auto &lastMs = sideLastAcceptMs[static_cast<size_t>(rowIdx)];
-            if (acceptPress(lastMs, now))
+            if (acceptPress(lastMs, now)) {
                 flushInputToModel();
+                emitAction({PerformanceActivity::LaunchpadAction::Kind::Flush, 0, 0, false, false});
+            }
             return;
         }
 
@@ -348,6 +363,9 @@ public:
 
             emitPadUpdate(rowIdx, colIdx);
             refreshPadLed(rowIdx, colIdx);
+            emitAction({PerformanceActivity::LaunchpadAction::Kind::InstrumentPad,
+                        *padInstruments[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)],
+                        0, on, targetForRow(rowIdx) == InstrumentUpdateTarget::Model});
             if (grid_callback)
                 grid_callback(rowIdx, colIdx, on);
         }
@@ -400,6 +418,11 @@ private:
         }
         for (const auto &[row, col]: flushed)
             setPadOn(row, col, false);
+    }
+
+    auto emitAction(const PerformanceActivity::LaunchpadAction &action) -> void {
+        if (action_callback)
+            action_callback(action);
     }
 
     auto refreshAccompanimentLeds() -> void {

@@ -14,6 +14,7 @@
 #include "VirtualOrch/OrchestrationTransformer.h"
 #include "VirtualOrch/OutputPlayback.h"
 #include "VirtualOrch/OutputProcessor.h"
+#include "VirtualOrch/PerformanceActivity.h"
 #include "VirtualOrch/PresetStore.h"
 #include "VirtualOrch/reduction/ReductionTransformer.h"
 #include "VirtualOrch/reduction/ReductionTransformerPianoReduction.h"
@@ -63,6 +64,10 @@ public:
     TestOrchestrationTransformerThread testOrchestrationTransformerThread;
     std::unique_ptr<InputFilter> inputFilter;
     std::atomic<PlaybackSource> playbackSource{PlaybackSource::Orchestration};
+    /** What the performance-view widgets read: playback activity and the Launchpad console. */
+    PerformanceActivity::ActivityLog activityLog;
+    PerformanceActivity::ConsoleLog consoleLog;
+
     OutputPlayback outputPlayback;
     MidiInputProcess midiInputProcess;
 

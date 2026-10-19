@@ -21,6 +21,10 @@
  * MIDI / MTC input → tokens into the active music backend via InputFilter.
  * Owns windowing, buffer/direct modes, and note collection state.
  */
+namespace PerformanceActivity {
+class ActivityLog;
+}
+
 class MidiInputProcess : public juce::MidiInputCallback, public juce::Timer {
 public:
     MidiInputProcess(Clock &clock,
@@ -54,6 +58,9 @@ public:
      * the playback queue is cleared without waiting for the transformer threads.
      */
     std::function<void(int32_t pedalTimeCs)> onPedalDown;
+
+    /** Play-keyboard notes are reported here for the seating plan; set by AppSession. */
+    PerformanceActivity::ActivityLog *activityLog = nullptr;
 
     [[nodiscard]] auto getLaunchpadGrid() -> LaunchpadGrid & { return launchpadGrid; }
 

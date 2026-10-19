@@ -1,4 +1,5 @@
 #include "VirtualOrch/AppSession.h"
+#include "VirtualOrch/widgets/ActiveInstrumentsView.h"
 
 #include "VirtualOrch/orchestration-models/IodPretrained.h"
 #include "VirtualOrch/orchestration-models/OrchestrationModels.h"
@@ -89,6 +90,14 @@ AppSession::AppSession()
     }
 
     bindActiveMusicBackend();
+    outputPlayback.activityLog = &activityLog;
+    midiInputProcess.activityLog = &activityLog;
+    midiInputProcess.getLaunchpadGrid().action_callback =
+        [this](const PerformanceActivity::LaunchpadAction &action) {
+            consoleLog.add(PerformanceActivity::describe(action, [](int32_t local) {
+                return ActiveInstrumentsView::shortNameForLocal(local);
+            }));
+        };
     midiInputProcess.onPedalDown = [this](int32_t pedalTimeCs) {
         outputPlayback.pedalClearRequests.push(pedalTimeCs);
     };
@@ -124,17 +133,28 @@ AppSession::AppSession()
     };
     midiInputProcess.getLaunchpadGrid().mode_callback = [this](OrchestrationMode mode) {
         setOrchestrationMode(mode);
+        consoleLog.add(PerformanceActivity::describe(
+            {PerformanceActivity::LaunchpadAction::Kind::Mode, 0,
+             mode == OrchestrationMode::Jam ? 1 : 0, false, false},
+            [](int32_t) { return juce::String(); }));
     };
     midiInputProcess.getLaunchpadGrid().setSelectedMode(orchestrationTransformer.getMode());
     midiInputProcess.getLaunchpadGrid().accompaniment_callback = [this] {
         applyAccompanimentCap();
     };
     midiInputProcess.getLaunchpadGrid().scene_callback = [this](int idx) {
+        const auto logPause = [this](int32_t which, bool paused) {
+            consoleLog.add(PerformanceActivity::describe(
+                {PerformanceActivity::LaunchpadAction::Kind::Pause, 0, which, paused, false},
+                [](int32_t) { return juce::String(); }));
+        };
         if (idx == 1) {
             auto &reduction = activeReduction();
             reduction.setGenerationPause(! reduction.generationPause.get());
+            logPause(1, reduction.generationPause.get());
         } else if (idx == 2) {
             orchestrationTransformer.paused.set(! orchestrationTransformer.paused.get());
+            logPause(2, orchestrationTransformer.paused.get());
         }
 
         syncPauseTopLeds();

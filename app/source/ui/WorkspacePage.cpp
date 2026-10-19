@@ -66,6 +66,14 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
                      UiConstants::workspaceAddMenuOctaveDeltaItem);
         menu.addItem(UiConstants::workspaceAddMenuLogitAdjustmentsItemId,
                      UiConstants::workspaceAddMenuLogitAdjustmentsItem);
+        menu.addItem(UiConstants::workspaceAddMenuInstrumentActiveLightItemId,
+                     UiConstants::workspaceAddMenuInstrumentActiveLightItem);
+        menu.addItem(UiConstants::workspaceAddMenuInstrumentGroupActivityItemId,
+                     UiConstants::workspaceAddMenuInstrumentGroupActivityItem);
+        menu.addItem(UiConstants::workspaceAddMenuTdViewerItemId,
+                     UiConstants::workspaceAddMenuTdViewerItem);
+        menu.addItem(UiConstants::workspaceAddMenuUserSelectionItemId,
+                     UiConstants::workspaceAddMenuUserSelectionItem);
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addButton),
                            [this](int result) {
                                if (result == UiConstants::workspaceAddMenuPromptItemId)
@@ -120,6 +128,18 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
                                    canvas.addOctaveDeltaWidget();
                                else if (result == UiConstants::workspaceAddMenuLogitAdjustmentsItemId)
                                    canvas.addLogitAdjustmentsWidget();
+                               else if (result
+                                        == UiConstants::workspaceAddMenuInstrumentActiveLightItemId)
+                                   canvas.addWidgetByType(
+                                       UiConstants::workspaceWidgetTypeInstrumentActiveLight);
+                               else if (result
+                                        == UiConstants::workspaceAddMenuInstrumentGroupActivityItemId)
+                                   canvas.addWidgetByType(
+                                       UiConstants::workspaceWidgetTypeInstrumentGroupActivity);
+                               else if (result == UiConstants::workspaceAddMenuTdViewerItemId)
+                                   canvas.addWidgetByType(UiConstants::workspaceWidgetTypeTdViewer);
+                               else if (result == UiConstants::workspaceAddMenuUserSelectionItemId)
+                                   canvas.addWidgetByType(UiConstants::workspaceWidgetTypeUserSelection);
                            });
     };
     newViewButton.onClick = [this] { promptNewView(); };

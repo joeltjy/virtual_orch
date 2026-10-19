@@ -42,6 +42,8 @@ public:
     auto addOrchestrationReductionPianoRollWidget() -> void;
 
     auto addActiveInstrumentsWidget() -> void;
+    /** Add any registered widget type at the next cascaded position (Add menu). */
+    auto addWidgetByType(const juce::String &type) -> void;
 
     auto addOrchestrationOutputVisualizerWidget() -> void;
 

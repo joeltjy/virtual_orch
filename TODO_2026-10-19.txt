@@ -1531,3 +1531,32 @@ Task 5 (accompaniment)
   - futureLogits is not clamped for a lower bound beyond the 100 s onset range; the bound is
     relative to the window minimum, so a polyphony raise (<= one note duration) stays far
     below that.
+
+Task 6 (UI widgets)
+  - Seating plan sectors: the PNG has no masks, so I segmented it once offline (white lines =
+    walls, 14 regions found by seed points, holes inside instruments filled) and stored the
+    result as app/resources/orch_seating_plan_sectors.png (pixel value = sector + 1, order in
+    PerformanceActivity::Sector). Both PNGs are embedded with juce_add_binary_data. Dimmed
+    sectors keep 35 % brightness; the white lines are not dimmed.
+  - "Sounding" comes from OutputPlayback's note-on (the same place that fills the playback
+    note-on history, so only notes that are routed to a MIDI channel count; timpani, snare,
+    guitar and choir have no channel and no sector). A note counts for its scheduled duration;
+    a later pedal shortening of that note is not reflected. A sector stays lit for 2 s after
+    its last note ends.
+  - Keyboard: the MIDI keyboard's thru notes do NOT go through OutputPlayback in the code (the
+    OutputPlayback header says keyboard thru bypasses it), so MidiInputProcess reports play-
+    keyboard note-on/off to the same log. The piano sector is lit while a key is down and for
+    2 s after the last release. Orchestrated / reduction-monitor piano (local id 15) lights it
+    through playback as well.
+  - Section bars: share of the total sounding time of strings / woodwinds / brass over the last
+    5 s of playback, counted per note (a violin note counts once, not once per violin section).
+  - TD viewer: 7 steps (1,2,4,8,16,32,64), the steps up to the selected level are filled in
+    the Launchpad TD colours; "AUTO" is shown when AUTO is on and no steps are filled.
+  - Console: records every accepted Launchpad action (instrument pads, flush, TD level, TD AUTO,
+    Edit/Jam, accompaniment toggle, polyphony, RT/OT pause). Newest line at the bottom, older
+    lines fade; 5 visible, 50 kept. Not recorded: the sustain pedal and keyboard notes.
+  - Layout (design canvas): seating plan x20 y1020 980x460; section bars x20 y1500 480x160;
+    TD viewer x520 y1500 480x160; console x20 y1680 980x160. The built-in views are only
+    seeded when no saved file exists ("Save owns the file"), so an EXISTING saved
+    PerformanceView does not get the new widgets: use the Add menu (four new entries) or
+    delete the saved PerformanceView layout so it is re-seeded.

@@ -23,6 +23,10 @@ enum class PlaybackSource : uint8_t {
     Reduction = 1,     // RT debug monitor → ch 16
 };
 
+namespace PerformanceActivity {
+class ActivityLog;
+}
+
 /** One NoteOn that OutputPlayback successfully routed (has a MIDI channel). */
 struct PlaybackNoteOnRecord {
     int32_t time = 0; // clock time in 1/100s when sent (debug / lag)
@@ -75,6 +79,9 @@ public:
      * (FIFO tokens were discarded while Out: OT was selected).
      */
     std::function<std::vector<Token>()> getReductionOutputHistory;
+
+    /** Every routed note-on is reported here (seating plan / group bars); set by AppSession. */
+    PerformanceActivity::ActivityLog *activityLog = nullptr;
 
     [[nodiscard]] auto getNoteOnHistory() const -> std::vector<PlaybackNoteOnRecord>;
 

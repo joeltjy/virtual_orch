@@ -1,4 +1,5 @@
 #include "VirtualOrch/OutputPlayback.h"
+#include "VirtualOrch/PerformanceActivity.h"
 
 #include "VirtualOrch/InstrumentConstants.h"
 #include "VirtualOrch/NoteWindow.h"
@@ -115,6 +116,9 @@ auto OutputPlayback::recordNoteOn(const OrchestrationNote &note, int32_t channel
     record.velocity = note.velocity > 0 ? note.velocity : 100;
     record.localInstrumentId = note.localInstrumentId;
     record.channel = channel;
+    if (activityLog != nullptr)
+        activityLog->noteOn(juce::Time::currentTimeMillis(), record.localInstrumentId,
+                            record.pitch, static_cast<int64_t>(record.durationCs) * 10);
     const juce::ScopedLock lock(noteOnHistoryLock);
     noteOnHistory.push_back(record);
     NoteWindow::trimToLastNotes(noteOnHistory);

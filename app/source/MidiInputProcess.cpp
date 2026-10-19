@@ -1,4 +1,5 @@
 #include "VirtualOrch/MidiInputProcess.h"
+#include "VirtualOrch/PerformanceActivity.h"
 
 #include "VirtualOrch/LaunchpadProgrammerMap.h"
 
@@ -446,6 +447,13 @@ void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const 
     // Notes only from the play keyboard (not pedal board / other devices).
     if (source == nullptr || source->getIdentifier() != selectedMidiInputIdentifier)
         return;
+
+    if (activityLog != nullptr) {
+        if (message.isNoteOn())
+            activityLog->keyboardNoteOn(juce::Time::currentTimeMillis(), message.getNoteNumber());
+        else if (message.isNoteOff())
+            activityLog->keyboardNoteOff(juce::Time::currentTimeMillis(), message.getNoteNumber());
+    }
 
     if (message.isNoteOn()) {
         DBG("Note On: " + std::to_string(message.getNoteNumber()) + " - Vel: " +

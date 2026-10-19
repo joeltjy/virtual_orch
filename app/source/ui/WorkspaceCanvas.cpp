@@ -7,6 +7,10 @@
 #include "VirtualOrch/views/OrchestrationDebugView.h"
 #include "VirtualOrch/views/PerformanceView.h"
 #include "VirtualOrch/widgets/ActiveInstrumentsWidget.h"
+#include "VirtualOrch/widgets/InstrumentActiveLightWidget.h"
+#include "VirtualOrch/widgets/InstrumentGroupActivityWidget.h"
+#include "VirtualOrch/widgets/TdViewerWidget.h"
+#include "VirtualOrch/widgets/UserSelectionWidget.h"
 #include "VirtualOrch/widgets/ConditioningPianoRollWidget.h"
 #include "VirtualOrch/widgets/GenerationWidget.h"
 #include "VirtualOrch/widgets/DurationLogitsWidget.h"
@@ -195,6 +199,27 @@ auto WorkspaceCanvas::createWidgetForType(const juce::String &type) const
         return std::make_unique<ActiveInstrumentsWidget>(*session);
     }
 
+    if (type == UiConstants::workspaceWidgetTypeInstrumentActiveLight) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<InstrumentActiveLightWidget>(*session);
+    }
+
+    if (type == UiConstants::workspaceWidgetTypeInstrumentGroupActivity) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<InstrumentGroupActivityWidget>(*session);
+    }
+
+    if (type == UiConstants::workspaceWidgetTypeTdViewer)
+        return std::make_unique<TdViewerWidget>();
+
+    if (type == UiConstants::workspaceWidgetTypeUserSelection) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<UserSelectionWidget>(*session);
+    }
+
     if (type == UiConstants::workspaceWidgetTypeOrchestrationOutputVisualizer) {
         if (session == nullptr)
             return nullptr;
@@ -373,6 +398,13 @@ auto WorkspaceCanvas::addOrchestrationConditioningPianoRollWidget() -> void {
 auto WorkspaceCanvas::addOrchestrationReductionPianoRollWidget() -> void {
     auto widget =
         createWidgetForType(UiConstants::workspaceWidgetTypeOrchestrationReductionPianoRoll);
+    if (widget == nullptr)
+        return;
+    addWidget(std::move(widget), nextCascadedBounds());
+}
+
+auto WorkspaceCanvas::addWidgetByType(const juce::String &type) -> void {
+    auto widget = createWidgetForType(type);
     if (widget == nullptr)
         return;
     addWidget(std::move(widget), nextCascadedBounds());

@@ -86,6 +86,7 @@ ReductionTemperatureWidget::ReductionTemperatureWidget(AppSession &sessionIn)
         applyTemps(session.reductionTransformerV1, onset, duration, note, velocity);
         applyTemps(session.reductionTransformerV2, onset, duration, note, velocity);
         applyTemps(session.reductionTransformerPianoReduction, onset, duration, note, velocity);
+        applyTemps(session.reductionTransformerAnticipated, onset, duration, note, velocity);
     };
     onsetSlider.onValueChange = pushTemps;
     durationSlider.onValueChange = pushTemps;
@@ -118,6 +119,10 @@ auto ReductionTemperatureWidget::syncSlidersFromSession() -> void {
         noteSlider.setValue(dense.getNoteTemperature(), juce::dontSendNotification);
         velocitySlider.setValue(dense.getVelocityTemperature(), juce::dontSendNotification);
     };
+    if (session.musicModelArch == MusicModelArch::DenseAnticipatedPiano) {
+        syncFrom(session.reductionTransformerAnticipated);
+        return;
+    }
     if (session.musicModelArch == MusicModelArch::DensePianoReduction) {
         syncFrom(session.reductionTransformerPianoReduction);
         return;

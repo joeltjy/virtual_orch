@@ -52,13 +52,9 @@ auto createOrchestrationModel(const std::string &name) -> std::unique_ptr<Orches
         if (name == "IodPretrainedTD") {
             auto model = std::make_unique<IodPretrainedTD>();
             const std::string file = "td_grpo_unk_T14_dummy_from_td_explicit_given_ckpt18000.onnx";
-            const juce::File candidates[] = {
-                onnxExportDir().getChildFile(file),
-                onnxExportFallbackDir().getChildFile(file),
-                juce::File::getSpecialLocation(juce::File::userDesktopDirectory)
-                    .getChildFile("onnx_export_101826")
-                    .getChildFile(file),
-            };
+            std::vector<juce::File> candidates;
+            for (const auto &dir: onnxExportDirs())
+                candidates.push_back(dir.getChildFile(file));
             for (const auto &onnx: candidates) {
                 if (! onnx.existsAsFile())
                     continue;

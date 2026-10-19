@@ -24,6 +24,8 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     });
     session.presetStore.setReductionTypeProvider([this]() -> juce::String {
         switch (reductionTypeList.getSelectedId()) {
+            case 5:
+                return "anticipated";
             case 4:
                 return "pianoReduction";
             case 3:
@@ -394,6 +396,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     reductionTypeList.addItem("V1 (initial version)", 2);
     reductionTypeList.addItem("V2 (smart sampling)", 3);
     reductionTypeList.addItem("Piano Reduction (2-instrument)", 4);
+    reductionTypeList.addItem("Anticipated Piano Reduction (T3)", 5);
     reductionTypeList.setSelectedId(2, juce::dontSendNotification);
     reductionTypeList.onChange = [this] {
         stop();
@@ -919,7 +922,9 @@ void MainComponent::loadPresetFromName(const juce::String &presetName) {
     const juce::String reductionKey =
         preset.getProperty("reduction", checkpoint->isDense ? "v1" : "amt").toString().toLowerCase();
     int desiredReductionId = 1;
-    if (reductionKey == "pianoreduction")
+    if (reductionKey == "anticipated")
+        desiredReductionId = 5;
+    else if (reductionKey == "pianoreduction")
         desiredReductionId = 4;
     else if (reductionKey == "v2")
         desiredReductionId = 3;
@@ -1033,7 +1038,7 @@ void MainComponent::clearModel() {
 
 auto MainComponent::selectedReductionIsDense() const -> bool {
     const auto id = reductionTypeList.getSelectedId();
-    return id == 2 || id == 3 || id == 4;
+    return id == 2 || id == 3 || id == 4 || id == 5;
 }
 
 auto MainComponent::selectedCheckpointName() const -> juce::String {
@@ -1064,6 +1069,9 @@ auto MainComponent::selectPreferredCheckpointForCurrentReduction() -> bool {
             break;
         case 4: // Piano Reduction (2-instrument)
             preferred = "piano_reduction_checkpoint-4000";
+            break;
+        case 5: // Anticipated Piano Reduction (T3)
+            preferred = "t3_anticipated_reduction";
             break;
         default:
             // AMT: leave first listed checkpoint if any.
@@ -1173,7 +1181,17 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
     try {
         if (isDense) {
             const auto reductionId = reductionTypeList.getSelectedId();
-            if (reductionId == 4) {
+            if (reductionId == 5) {
+                session.setMusicModelArch(MusicModelArch::DenseAnticipatedPiano);
+                if (! session.reductionTransformerAnticipated.init(modelPathStr.toRawUTF8())) {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::AlertWindow::WarningIcon, "Error",
+                        "Failed to load model '" + modelName
+                            + "' (needs a KV export: input_ids, past_key, past_value).");
+                    checkpointList.setSelectedId(0, juce::dontSendNotification);
+                    return;
+                }
+            } else if (reductionId == 4) {
                 session.setMusicModelArch(MusicModelArch::DensePianoReduction);
                 session.reductionTransformerPianoReduction.init(modelPathStr.toRawUTF8());
             } else if (reductionId == 3) {

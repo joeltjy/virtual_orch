@@ -1560,3 +1560,47 @@ Task 6 (UI widgets)
     seeded when no saved file exists ("Save owns the file"), so an EXISTING saved
     PerformanceView does not get the new widgets: use the Add menu (four new entries) or
     delete the saved PerformanceView layout so it is re-seeded.
+
+Task 3 (TwoInstrumentAnticipatedReductionTransformer)
+  - Files: reduction/StreamingKvCache (backend interface, ONNX backend, committed + scratch
+    cache), reduction/AnticipatedStream (token list: controls, events, TD, rebase, commit
+    boundary), reduction/TwoInstrumentAnticipatedReductionTransformer (thread, sampling).
+    Selectable as "Anticipated Piano Reduction (T3)" in the Reduction list (preset key
+    "anticipated"), with app/t3_anticipated_reduction.json pointing at the T3 dummy export.
+  - Verified on the real T3 export (ORT on the Mac): feeding the stream token by token, in
+    pieces, or with a committed prefix + scratch tail gives the same logits as one prefill
+    (max diff < 2e-3), and the transformer runs 4 notes end to end.
+  - The model is looked up in every Documents/onnx_export_* folder (newest name first), then
+    in Desktop/onnx_export_* (reference location). ProjectPaths::onnxExportDirs() does that,
+    and listModelCheckpoints and IodPretrainedTD use it.
+  - Clock = onset of the last generated note (LastEventClock). Live additions: the effective
+    clock for inserting controls and the earliest onset is max(that clock, the app clock), so
+    the stream never schedules in the past after a pause or idle time; while generation runs
+    ahead of the app clock this is just the event clock, as trained.
+  - Time axis: the stream origin is the app clock at start rounded down to a multiple of 2 s
+    (TD boundary spacing). When the clock reaches 90 s after the origin the origin moves
+    forward by 60 s (multiple of 2 s), older items are dropped and the cache is rebuilt from
+    the retained stream (at most 512 tokens fed, same eviction as normal).
+  - Generation waits until the stream has at least one token, i.e. until the user has played a
+    note that is past due; with no user notes the model does not start from nothing.
+  - Held keys: the control is inserted with the duration it has so far (frozen), stays in the
+    scratch tail, and is committed at its note-off or after 10 s (kHoldCommitCs is 1000 cs).
+    Held keys do NOT pause generation (the other dense transformers wait for note-offs).
+  - Generated notes are not rewound when a new user note arrives (the other dense models cut
+    the stream back to the input time and send a ClearQueue at 0). With anticipation, a note
+    played "in the past" of the clock simply becomes a past-due control for the next step.
+    Consequence: the reduction reacts to your playing after at most the "output max ahead"
+    window (existing setting).
+  - Sampling uses the app's dense constants (onset/duration/note top-p 0.98 at temperature 0.5,
+    velocity top-p 0.3 at 1.0) and its four temperature sliders, not the training sampler's
+    top-p 0.98 / temperature 0.5 for every field. Pitch anti-repetition (tau 0.2, DensePitchBias)
+    is on by default (setPitchBiasEnabled); the duration and onset-gap biases of the other dense
+    models are not used. Velocity 0 is excluded (8..120); durations 10..995 step 5; pitches
+    A0..C8; TD ids are never sampled.
+  - TD: AUTO repeats the last level the user chose (8 before any choice); with the 11775 vocab
+    level 64 is written as 32.
+  - The anticipated model is the only reduction that does not use ReductionTransformer's
+    hasUnresolvedProvisionalInputNotes, and it keeps the user's notes in inputData as
+    instrument-0 quads for the existing UI.
+  - Not done: the logit-adjustment / tau widgets only know the three older dense transformers;
+    the new one shows only the temperature sliders.

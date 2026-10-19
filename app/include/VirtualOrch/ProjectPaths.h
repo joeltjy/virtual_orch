@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 
+#include <algorithm>
 #include <array>
 #include <optional>
 #include <vector>
@@ -33,6 +34,26 @@
 [[nodiscard]] inline auto onnxExportFallbackDir() -> juce::File {
     return juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
         .getChildFile("onnx_export_091426");
+}
+
+/**
+ * Every onnx_export_* folder, newest name first: Documents/ (where the app finds its models on
+ * any laptop), then Desktop/ (the reference location of the exports while they are developed).
+ * A model is taken from the first folder that has it.
+ */
+[[nodiscard]] inline auto onnxExportDirs() -> std::vector<juce::File> {
+    std::vector<juce::File> dirs;
+    for (const auto location: {juce::File::userDocumentsDirectory, juce::File::userDesktopDirectory}) {
+        juce::Array<juce::File> found;
+        juce::File::getSpecialLocation(location).findChildFiles(found, juce::File::findDirectories,
+                                                                 false, "onnx_export_*");
+        std::vector<juce::File> sorted(found.begin(), found.end());
+        std::sort(sorted.begin(), sorted.end(), [](const juce::File &a, const juce::File &b) {
+            return a.getFileName() > b.getFileName();
+        });
+        dirs.insert(dirs.end(), sorted.begin(), sorted.end());
+    }
+    return dirs;
 }
 
 struct ModelCheckpoint {
@@ -92,8 +113,10 @@ struct ModelCheckpoint {
     {
         const auto projectDir = projectModelsDir();
         if (projectDir.isDirectory()) {
-            const std::array onnxDirs{documentsModelsDir(), onnxExportDir(),
-                                      onnxExportFallbackDir()};
+            std::vector<juce::File> onnxDirs{documentsModelsDir(), onnxExportDir(),
+                                             onnxExportFallbackDir()};
+            for (const auto &dir: onnxExportDirs())
+                onnxDirs.push_back(dir);
             juce::Array<juce::File> jsonFiles;
             projectDir.findChildFiles(jsonFiles, juce::File::findFiles, false, "*.json");
             for (const auto &json: jsonFiles) {

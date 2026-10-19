@@ -1,0 +1,8 @@
+{
+  "arch": "dense",
+  "onnx": "maestro_rope_td_T3_dummy_from_rope_ckpt6000_kv",
+  "contextNotes": 40,
+  "outputInstruments": [1],
+  "defaultPreset": {},
+  "notes": "Anticipated piano reduction (TwoInstrumentAnticipatedReductionTransformer). RoPE + StreamingLLM KV cache (4 sink + 508), vocab 11775/11776. The user's piano notes are anticipated controls on instrument 3, the model samples instrument 1 with the event clock = last generated onset, TD tokens come from the Launchpad. This file is a dummy (checkpoint-6000, instrument-3 band untrained): replace with the final T3 export of the same signature. ONNX is looked up in Documents/onnx_export_* (newest first), then Desktop/onnx_export_*."
+}

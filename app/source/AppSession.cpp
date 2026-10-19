@@ -56,6 +56,7 @@ AppSession::AppSession()
       reductionTransformerV1(modelConfig),
       reductionTransformerV2(modelConfig),
       reductionTransformerPianoReduction(modelConfig),
+      reductionTransformerAnticipated(modelConfig),
       orchestrationModel(createOrchestrationModel("IodPretrained")),
       inputFilter(createInputFilter(modelConfig.inputFilterType,
                                     modelConfig,
@@ -204,10 +205,12 @@ AppSession::AppSession()
     reductionTransformerV1.clock = &clock;
     reductionTransformerV2.clock = &clock;
     reductionTransformerPianoReduction.clock = &clock;
+    reductionTransformerAnticipated.clock = &clock;
     musicTransformer.samplingAlert = &modelSamplingAlert;
     reductionTransformerV1.samplingAlert = &modelSamplingAlert;
     reductionTransformerV2.samplingAlert = &modelSamplingAlert;
     reductionTransformerPianoReduction.samplingAlert = &modelSamplingAlert;
+    reductionTransformerAnticipated.samplingAlert = &modelSamplingAlert;
     if (orchestrationModel != nullptr) {
         orchestrationModel->samplingAlert = &modelSamplingAlert;
         orchestrationModel->getOutputTimings = &orchestrationTransformer.getOutputAccum;
@@ -219,6 +222,7 @@ AppSession::AppSession()
     reductionTransformerV1.onPausedChanged = syncLeds;
     reductionTransformerV2.onPausedChanged = syncLeds;
     reductionTransformerPianoReduction.onPausedChanged = syncLeds;
+    reductionTransformerAnticipated.onPausedChanged = syncLeds;
 }
 
 AppSession::~AppSession() {
@@ -230,6 +234,7 @@ AppSession::~AppSession() {
     reductionTransformerV1.stopThread(threadStopTimeoutMs);
     reductionTransformerV2.stopThread(threadStopTimeoutMs);
     reductionTransformerPianoReduction.stopThread(threadStopTimeoutMs);
+    reductionTransformerAnticipated.stopThread(threadStopTimeoutMs);
     orchestrationTransformer.stopThread(threadStopTimeoutMs);
     outputPlayback.stopThread(threadStopTimeoutMs);
     if (outputProcessor != nullptr)
@@ -244,6 +249,8 @@ auto AppSession::activeReduction() -> ReductionTransformer & {
             return reductionTransformerV2;
         case MusicModelArch::DensePianoReduction:
             return reductionTransformerPianoReduction;
+        case MusicModelArch::DenseAnticipatedPiano:
+            return reductionTransformerAnticipated;
         case MusicModelArch::Amt:
             return musicTransformer;
     }
@@ -258,6 +265,8 @@ auto AppSession::activeReduction() const -> const ReductionTransformer & {
             return reductionTransformerV2;
         case MusicModelArch::DensePianoReduction:
             return reductionTransformerPianoReduction;
+        case MusicModelArch::DenseAnticipatedPiano:
+            return reductionTransformerAnticipated;
         case MusicModelArch::Amt:
             return musicTransformer;
     }
@@ -284,11 +293,14 @@ auto AppSession::bindActiveMusicBackend() -> void {
     reductionTransformerV2.orchestrationReductionIncoming = nullptr;
     reductionTransformerV2.orchestrationUpdatesIncoming = nullptr;
     reductionTransformerPianoReduction.orchestrationReductionIncoming = nullptr;
+    reductionTransformerAnticipated.orchestrationReductionIncoming = nullptr;
     reductionTransformerPianoReduction.orchestrationUpdatesIncoming = nullptr;
+    reductionTransformerAnticipated.orchestrationUpdatesIncoming = nullptr;
     musicTransformer.orchestrationRestampsIncoming = nullptr;
     reductionTransformerV1.orchestrationRestampsIncoming = nullptr;
     reductionTransformerV2.orchestrationRestampsIncoming = nullptr;
     reductionTransformerPianoReduction.orchestrationRestampsIncoming = nullptr;
+    reductionTransformerAnticipated.orchestrationRestampsIncoming = nullptr;
 
     auto &reduction = activeReduction();
     reduction.orchestrationReductionIncoming = &orchestrationTransformer.reductionIncoming;
@@ -299,6 +311,7 @@ auto AppSession::bindActiveMusicBackend() -> void {
     reductionTransformerV1.voiceSeparation = nullptr;
     reductionTransformerV2.voiceSeparation = nullptr;
     reductionTransformerPianoReduction.voiceSeparation = nullptr;
+    reductionTransformerAnticipated.voiceSeparation = nullptr;
     reduction.voiceSeparation = voiceSeparation.isLoaded() ? &voiceSeparation : nullptr;
 
     outputPlayback.reductionOutputQueue = &reduction.outputTokenQueue;
@@ -335,6 +348,7 @@ auto AppSession::setOnInputDataChanged(std::function<void(std::vector<int32_t>)>
     reductionTransformerV1.onInputDataChanged = nullptr;
     reductionTransformerV2.onInputDataChanged = nullptr;
     reductionTransformerPianoReduction.onInputDataChanged = nullptr;
+    reductionTransformerAnticipated.onInputDataChanged = nullptr;
     activeReduction().onInputDataChanged = std::move(callback);
 }
 
@@ -431,6 +445,7 @@ auto AppSession::stopGeneration() -> void {
     reductionTransformerV1.signalThreadShouldExit();
     reductionTransformerV2.signalThreadShouldExit();
     reductionTransformerPianoReduction.signalThreadShouldExit();
+    reductionTransformerAnticipated.signalThreadShouldExit();
     orchestrationTransformer.signalThreadShouldExit();
     outputPlayback.signalThreadShouldExit();
 
@@ -439,6 +454,7 @@ auto AppSession::stopGeneration() -> void {
     reductionTransformerV1.resetAheadThrottle();
     reductionTransformerV2.resetAheadThrottle();
     reductionTransformerPianoReduction.resetAheadThrottle();
+    reductionTransformerAnticipated.resetAheadThrottle();
     clock.stop();
     outputPlayback.resetProgress();
     outputPlayback.clearNoteOnHistory();
@@ -446,6 +462,7 @@ auto AppSession::stopGeneration() -> void {
     reductionTransformerV1.clearOutputHistory();
     reductionTransformerV2.clearOutputHistory();
     reductionTransformerPianoReduction.clearOutputHistory();
+    reductionTransformerAnticipated.clearOutputHistory();
     if (outputProcessor != nullptr)
         outputProcessor->clear();
 
@@ -458,6 +475,7 @@ auto AppSession::stopGeneration() -> void {
         stopThreadOrReport(reductionTransformerV1, modelSamplingAlert);
         stopThreadOrReport(reductionTransformerV2, modelSamplingAlert);
         stopThreadOrReport(reductionTransformerPianoReduction, modelSamplingAlert);
+        stopThreadOrReport(reductionTransformerAnticipated, modelSamplingAlert);
         stopThreadOrReport(orchestrationTransformer, modelSamplingAlert);
         stopThreadOrReport(outputPlayback, modelSamplingAlert);
         stopJoinInFlight.store(false, std::memory_order_release);
@@ -476,6 +494,7 @@ auto AppSession::applyAccompanimentCap() -> void {
     reductionTransformerV1.setMaxPolyphony(cap);
     reductionTransformerV2.setMaxPolyphony(cap);
     reductionTransformerPianoReduction.setMaxPolyphony(cap);
+    reductionTransformerAnticipated.setMaxPolyphony(cap);
 }
 
 auto AppSession::syncPauseTopLeds() -> void {

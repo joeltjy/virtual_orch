@@ -48,6 +48,13 @@ public:
     /** When set, input thru only relays if this returns true (e.g. Jam mode). */
     std::function<bool()> allowInputThru;
 
+    /**
+     * Called on the MIDI thread at every sustain-pedal press (CC64 going from up to down) with
+     * the app clock time in cs. AppSession points it at OutputPlayback::pedalClearRequests so
+     * the playback queue is cleared without waiting for the transformer threads.
+     */
+    std::function<void(int32_t pedalTimeCs)> onPedalDown;
+
     [[nodiscard]] auto getLaunchpadGrid() -> LaunchpadGrid & { return launchpadGrid; }
 
     /** Open/replace MIDI out for Launchpad LEDs. */
@@ -76,6 +83,7 @@ private:
 
     Clock &clock;
     std::function<ReductionTransformer &()> activeReduction;
+    bool pedalDown = false;
     ModelConfig &modelConfig;
     std::unique_ptr<OutputProcessor> &outputProcessor;
     std::unique_ptr<InputFilter> &inputFilter;

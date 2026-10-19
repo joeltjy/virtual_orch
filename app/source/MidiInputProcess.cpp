@@ -360,6 +360,8 @@ void MidiInputProcess::handleSustainPedal(const juce::MidiMessage &message) {
 
     const int value = message.getControllerValue();
     const bool pause = value >= 64;
+    const bool pressed = pause && ! pedalDown;
+    pedalDown = pause;
     juce::Logger::writeToLog(
         "[pedal] CC64 value=" + juce::String(value)
         + (pause ? " down→pause" : " up→resume")
@@ -368,6 +370,15 @@ void MidiInputProcess::handleSustainPedal(const juce::MidiMessage &message) {
         + juce::String(activeReduction().generationPause.get() ? "true" : "false")
         + " wasOverflow="
         + juce::String(activeReduction().overflowPause.get() ? "true" : "false"));
+    if (pressed) {
+        // Stamp the press with the clock now and clear the playback queue right away; the
+        // upstream clear token carries the same time. Request before pausing so the reduction
+        // thread sees it on the not-paused -> paused edge.
+        const auto pedalTime = static_cast<int32_t>(clock.getTime());
+        if (onPedalDown)
+            onPedalDown(pedalTime);
+        activeReduction().requestPedalClear(pedalTime);
+    }
     activeReduction().setGenerationPause(pause);
 }
 

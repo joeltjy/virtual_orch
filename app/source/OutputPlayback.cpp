@@ -2,6 +2,7 @@
 
 #include "VirtualOrch/InstrumentConstants.h"
 #include "VirtualOrch/NoteWindow.h"
+#include "VirtualOrch/PedalClear.h"
 
 #include <set>
 
@@ -165,6 +166,7 @@ void OutputPlayback::run() {
     std::vector<TokenUpdate> pendingDurationUpdates;
     int32_t playbackTime = 0;
     auto lastSource = playbackSource.load(std::memory_order_relaxed);
+    PedalClear::DropWindow pedalDrop;
 
     auto flushModelSchedule = [&]() {
         for (const auto &playing: currentlyPlaying)
@@ -227,6 +229,22 @@ void OutputPlayback::run() {
                        / 1000.0;
         }
 
+        {
+            // Sustain pedal: drop every note that has not sounded, end sounding notes by
+            // pedal time + 0.3 s, then keep dropping late arrivals until the upstream clear.
+            int32_t pedalTime = 0;
+            while (pedalClearRequests.pull(pedalTime)) {
+                PedalClear::apply(nextTokens, currentlyPlaying, pedalTime, time,
+                                  [&](const OrchestrationNote &note) {
+                                      handleNoteForOutput(note, TokenNoteType::TokenNoteOff);
+                                  });
+                pendingDurationUpdates.clear();
+                pedalDrop.start(pedalTime, time);
+                clearedQueueThisRun = true;
+                DBG("Pedal clear at time " + juce::String(pedalTime));
+            }
+        }
+
         const auto source = playbackSource.load(std::memory_order_relaxed);
         if (source != lastSource) {
             flushModelSchedule();
@@ -255,8 +273,12 @@ void OutputPlayback::run() {
                 clearedQueueThisRun = true;
                 DBG("Clearing queue at time " + juce::String(note.token.time));
                 applyClearQueue(nextTokens, note.token.time);
+                if (PedalClear::isPedalClear(note.token))
+                    pedalDrop.finish();
                 continue;
             }
+            if (pedalDrop.drops(note.token.time, time))
+                continue;
             scheduleNote(note);
         }
 
@@ -272,9 +294,13 @@ void OutputPlayback::run() {
                     clearedQueueThisRun = true;
                     DBG("Clearing RT monitor queue at time " + juce::String(rtToken.time));
                     applyClearQueue(nextTokens, rtToken.time);
+                    if (PedalClear::isPedalClear(rtToken))
+                        pedalDrop.finish();
                     continue;
                 }
                 if (! isSoundingNoteToken(rtToken))
+                    continue;
+                if (pedalDrop.drops(rtToken.time, time))
                     continue;
 
                 scheduleNote(reductionMonitorNote(rtToken));

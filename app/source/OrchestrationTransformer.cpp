@@ -1,4 +1,5 @@
 #include "VirtualOrch/OrchestrationTransformer.h"
+#include "VirtualOrch/PedalClear.h"
 
 #include "VirtualOrch/InstrumentConstants.h"
 #include "VirtualOrch/NoteWindow.h"
@@ -360,11 +361,7 @@ auto OrchestrationTransformer::getJamOrchestrationOutput(
 auto OrchestrationTransformer::packSortAndPushOutput(const std::vector<OrchestrationNote> &notes)
     -> void {
     auto packed = notes;
-    std::ranges::sort(packed, [](const OrchestrationNote &a, const OrchestrationNote &b) {
-        if (a.token.time != b.token.time)
-            return a.token.time < b.token.time;
-        return a.token.duration < b.token.duration;
-    });
+    PedalClear::sortForOutput(packed);
 
     for (const auto &note: packed)
         pushOutputNote(note);

@@ -14,6 +14,7 @@
 #include "OSCBufferOutputProcessor.h"
 #include "OrchestrationTransformer.h"
 #include "OutputProcessor.h"
+#include "PedalClear.h"
 #include "orchestration-models/OrchestrationModel.h"
 
 /** Which model stream OutputPlayback schedules to MIDI (keyboard thru is independent). */
@@ -52,6 +53,13 @@ public:
     double progress = 0.0;
 
     void resetProgress() { progress = 0.0; }
+
+    /**
+     * Sustain-pedal presses (clock time in cs), pushed by the MIDI thread. Applied at the top
+     * of every playback tick, so the clear does not wait for the reduction or orchestration
+     * threads. See PedalClear.h for the rule.
+     */
+    CircularFifo<int32_t> pedalClearRequests;
 
     /** Optional: true when reduction generation is stopped (manual or overflow). */
     std::function<bool()> isReductionPaused;

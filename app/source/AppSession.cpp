@@ -89,6 +89,9 @@ AppSession::AppSession()
     }
 
     bindActiveMusicBackend();
+    midiInputProcess.onPedalDown = [this](int32_t pedalTimeCs) {
+        outputPlayback.pedalClearRequests.push(pedalTimeCs);
+    };
     midiInputProcess.allowInputThru = [this] {
         return orchestrationTransformer.getMode() == OrchestrationMode::Jam;
     };

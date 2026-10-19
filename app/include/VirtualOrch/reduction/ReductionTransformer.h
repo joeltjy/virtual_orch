@@ -68,6 +68,15 @@ public:
     auto setGenerationPause(bool paused) -> void;
 
     /**
+     * Sustain-pedal press at clock time `pedalTimeCs` (MIDI thread). The reduction thread turns
+     * it into a ClearQueue token stamped with that time (see PedalClear.h), once per press,
+     * also when generation was already paused. Call before setGenerationPause(true).
+     */
+    auto requestPedalClear(int32_t pedalTimeCs) -> void {
+        pedalClearTimeCs.store(pedalTimeCs, std::memory_order_release);
+    }
+
+    /**
      * Pedal / pause interrupted the live bias clocks. Dense V2 / Piano Reduction
      * override to snap τ schedules back to base so the first note after resume
      * is not hit with a silence-aged ramp.
@@ -190,6 +199,9 @@ protected:
 
     /** Set on pause→run; cleared after the next successful generate is logged. */
     std::atomic<bool> logFirstTokenAfterResume{false};
+
+    /** Pending pedal press (cs), -1 when none; consumed by maybeEmitGenerationPauseSoftStopClear. */
+    std::atomic<int32_t> pedalClearTimeCs{-1};
 
     uint32_t aheadThrottleUntilMs = 0;
     std::atomic<float> lastThreadLoopMs{0.0f};

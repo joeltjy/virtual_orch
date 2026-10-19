@@ -1,4 +1,5 @@
 #include "VirtualOrch/reduction/ReductionTransformer.h"
+#include "VirtualOrch/PedalClear.h"
 
 #include "VirtualOrch/NoteWindow.h"
 #include "VirtualOrch/reduction/DenseTypes.h"
@@ -117,6 +118,16 @@ auto ReductionTransformer::resetAheadThrottle() -> void {
 
 auto ReductionTransformer::maybeEmitGenerationPauseSoftStopClear() -> void {
     const bool paused = generationPause.get();
+
+    // Pedal press: clear stamped with the press time, on every press (also when generation
+    // was already paused). It replaces the "now + 1 s" soft stop for this pause.
+    const int32_t pedalTime = pedalClearTimeCs.exchange(-1, std::memory_order_acq_rel);
+    if (pedalTime >= 0) {
+        pushOutputToken(PedalClear::makeClearToken(pedalTime));
+        wasGenerationPaused = paused;
+        return;
+    }
+
     if (paused && ! wasGenerationPaused && clock != nullptr) {
         const auto clearAt =
             static_cast<int32_t>(clock->getTime()) + Config::TimeResolution; // now + 1 s
@@ -161,6 +172,7 @@ auto ReductionTransformer::clearOutputTokenQueue() -> void {
     Token t{.time = -1, .duration = -1, .note = -1};
     while (outputTokenQueue.pull(t)) {
     }
+    pedalClearTimeCs.store(-1, std::memory_order_release);
 }
 
 auto ReductionTransformer::clearUpdatesFromFilter() -> void {

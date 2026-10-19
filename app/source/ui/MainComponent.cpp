@@ -24,6 +24,8 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     });
     session.presetStore.setReductionTypeProvider([this]() -> juce::String {
         switch (reductionTypeList.getSelectedId()) {
+            case 6:
+                return "melodyFirst";
             case 5:
                 return "anticipated";
             case 4:
@@ -397,6 +399,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     reductionTypeList.addItem("V2 (smart sampling)", 3);
     reductionTypeList.addItem("Piano Reduction (2-instrument)", 4);
     reductionTypeList.addItem("Anticipated Piano Reduction (T3)", 5);
+    reductionTypeList.addItem("Melody First (mb + double anticipation)", 6);
     reductionTypeList.setSelectedId(2, juce::dontSendNotification);
     reductionTypeList.onChange = [this] {
         stop();
@@ -922,7 +925,9 @@ void MainComponent::loadPresetFromName(const juce::String &presetName) {
     const juce::String reductionKey =
         preset.getProperty("reduction", checkpoint->isDense ? "v1" : "amt").toString().toLowerCase();
     int desiredReductionId = 1;
-    if (reductionKey == "anticipated")
+    if (reductionKey == "melodyfirst")
+        desiredReductionId = 6;
+    else if (reductionKey == "anticipated")
         desiredReductionId = 5;
     else if (reductionKey == "pianoreduction")
         desiredReductionId = 4;
@@ -1038,7 +1043,7 @@ void MainComponent::clearModel() {
 
 auto MainComponent::selectedReductionIsDense() const -> bool {
     const auto id = reductionTypeList.getSelectedId();
-    return id == 2 || id == 3 || id == 4 || id == 5;
+    return id == 2 || id == 3 || id == 4 || id == 5 || id == 6;
 }
 
 auto MainComponent::selectedCheckpointName() const -> juce::String {
@@ -1072,6 +1077,9 @@ auto MainComponent::selectPreferredCheckpointForCurrentReduction() -> bool {
             break;
         case 5: // Anticipated Piano Reduction (T3)
             preferred = "t3_anticipated_reduction";
+            break;
+        case 6: // Melody First
+            preferred = "melody_first_reduction";
             break;
         default:
             // AMT: leave first listed checkpoint if any.
@@ -1181,7 +1189,32 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
     try {
         if (isDense) {
             const auto reductionId = reductionTypeList.getSelectedId();
-            if (reductionId == 5) {
+            if (reductionId == 6) {
+                session.setMusicModelArch(MusicModelArch::DenseMelodyFirst);
+                juce::String melodyStem =
+                    parsedJson.getProperty("melodyOnnx", {}).toString().trim();
+                if (melodyStem.endsWithIgnoreCase(".onnx"))
+                    melodyStem = melodyStem.dropLastCharacters(5);
+                juce::File melodyFile;
+                for (const auto &dir: onnxExportDirs()) {
+                    const auto candidate = dir.getChildFile(melodyStem + ".onnx");
+                    if (melodyStem.isNotEmpty() && candidate.existsAsFile()) {
+                        melodyFile = candidate;
+                        break;
+                    }
+                }
+                if (! melodyFile.existsAsFile()
+                    || ! session.reductionTransformerMelodyFirst.init(
+                        modelPathStr.toRawUTF8(), melodyFile.getFullPathName().toRawUTF8())) {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::AlertWindow::WarningIcon, "Error",
+                        "Failed to load '" + modelName + "': it needs the double-anticipation KV "
+                        "export and the mb KV export ('" + melodyStem + "') in an onnx_export_* "
+                        "folder.");
+                    checkpointList.setSelectedId(0, juce::dontSendNotification);
+                    return;
+                }
+            } else if (reductionId == 5) {
                 session.setMusicModelArch(MusicModelArch::DenseAnticipatedPiano);
                 if (! session.reductionTransformerAnticipated.init(modelPathStr.toRawUTF8())) {
                     juce::AlertWindow::showMessageBoxAsync(

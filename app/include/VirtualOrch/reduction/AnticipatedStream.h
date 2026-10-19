@@ -59,30 +59,48 @@ public:
     /** Onset of the last generated event (the base before the first). */
     [[nodiscard]] auto clock() const -> int32_t { return clockCs; }
 
-    /** A user note arrives (held = key still down: duration is only provisional). */
-    auto addControl(const Note &note, bool held) -> void {
+    /**
+     * A control note arrives (held = key still down: duration is only provisional). Its actual
+     * time is onset - deltaCs; controls are inserted in actual-time order, ties to the lower
+     * priority number (the double-anticipation melody has priority 0, the piano 1).
+     */
+    auto addControl(const Note &note, bool held, int32_t instrument = kControlInstrument,
+                    int32_t deltaCs = 0, int32_t priority = 0) -> void {
         Control c;
         c.note = note;
         c.provisional = held;
+        c.instrument = instrument;
+        c.deltaCs = deltaCs;
+        c.priority = priority;
         pending.push_back(c);
         std::stable_sort(pending.begin(), pending.end(), [](const Control &a, const Control &b) {
+            if (a.actualCs() != b.actualCs())
+                return a.actualCs() < b.actualCs();
+            if (a.priority != b.priority)
+                return a.priority < b.priority;
             if (a.note.onsetCs != b.note.onsetCs)
                 return a.note.onsetCs < b.note.onsetCs;
             return a.note.pitch < b.note.pitch;
         });
     }
 
+    /** True when a pending control would be inserted at event clock `clockCsNow`. */
+    [[nodiscard]] auto hasPendingDueBy(int32_t clockCsNow) const -> bool {
+        return ! pending.empty() && pending.front().actualCs() <= clockCsNow;
+    }
+
     /** Note-off: the held note gets its final duration (pending or already inserted). */
-    auto confirmControl(int32_t onsetCs, int32_t pitch, int32_t finalDurationCs) -> bool {
+    auto confirmControl(int32_t onsetCs, int32_t pitch, int32_t finalDurationCs,
+                        int32_t instrument = kControlInstrument) -> bool {
         for (auto &c: pending)
-            if (c.note.onsetCs == onsetCs && c.note.pitch == pitch) {
+            if (c.note.onsetCs == onsetCs && c.note.pitch == pitch && c.instrument == instrument) {
                 c.note.durationCs = finalDurationCs;
                 c.provisional = false;
                 return true;
             }
         for (auto it = items.rbegin(); it != items.rend(); ++it)
             if (it->kind == Kind::Control && it->control.note.onsetCs == onsetCs
-                && it->control.note.pitch == pitch) {
+                && it->control.note.pitch == pitch && it->control.instrument == instrument) {
                 it->control.note.durationCs = finalDurationCs;
                 it->control.provisional = false;
                 return true;
@@ -104,7 +122,7 @@ public:
     /** Insert every pending control with onset <= clockCsNow, in onset order. */
     auto insertDue(int32_t clockCsNow, int32_t nowCs) -> int {
         int inserted = 0;
-        while (! pending.empty() && pending.front().note.onsetCs <= clockCsNow) {
+        while (! pending.empty() && pending.front().actualCs() <= clockCsNow) {
             Control c = pending.front();
             pending.erase(pending.begin());
             if (c.provisional) // frozen at what it has now
@@ -114,7 +132,7 @@ public:
             item.kind = Kind::Control;
             item.control = c;
             items.push_back(item);
-            writeBoundariesUpTo(c.note.onsetCs);
+            writeBoundariesUpTo(c.actualCs());
             ++inserted;
         }
         return inserted;
@@ -188,6 +206,10 @@ private:
     struct Control {
         Note note;
         bool provisional = false;
+        int32_t instrument = kControlInstrument;
+        int32_t deltaCs = 0;
+        int32_t priority = 0;
+        [[nodiscard]] auto actualCs() const -> int32_t { return note.onsetCs - deltaCs; }
     };
     struct Item {
         Kind kind = Kind::Event;
@@ -216,7 +238,8 @@ private:
             out.push_back(item.tdToken);
             return;
         }
-        const int32_t instrument = item.kind == Kind::Control ? kControlInstrument : kEventInstrument;
+        const int32_t instrument =
+            item.kind == Kind::Control ? item.control.instrument : kEventInstrument;
         const auto quad = quadFor(item.control.note, instrument, baseCs);
         out.insert(out.end(), quad.begin(), quad.end());
     }

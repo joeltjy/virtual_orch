@@ -1604,3 +1604,49 @@ Task 3 (TwoInstrumentAnticipatedReductionTransformer)
     instrument-0 quads for the existing UI.
   - Not done: the logit-adjustment / tau widgets only know the three older dense transformers;
     the new one shows only the temperature sliders.
+
+Task 2 (MelodyFirstReductionTransformer)
+  - Files: reduction/MelodyBassSkyline (algorithm A, C++ port), MelodyBassState (L, R, the 2 s
+    window run), MelodyStream (the T8 token stream), AnticipatedStream (now also the double-
+    anticipation stream: several control streams with delta / priority), and
+    MelodyFirstReductionTransformer. Selectable as "Melody First (mb + double anticipation)"
+    (preset key "melodyFirst", app/melody_first_reduction.json: "onnx" = DA KV export, "melodyOnnx"
+    = T8 KV export; both found in Documents/onnx_export_*, then Desktop/onnx_export_*).
+  - Algorithm A is checked against the ORIGINAL Python skyline_and_bass: 80 random passages
+    (single notes, repeated-pitch chains, big leaps, chords) with expected melody and bass made by
+    running melody_bass.py (the pure functions, copied from the source I had read) are in
+    test/resources/melody_bass_cases.json, and the C++ port matches all of them exactly, including
+    Python's round-half-to-even and the float second arithmetic of the trough rule.
+    (melody_bass.py was available to me only as the text I read earlier in this session; the
+    file on hai-res-mobile01 was not opened again, per the one-login rule.)
+  - Verified on the real exports on the Mac: T8 KV (learned positions, position_ids) and the DA
+    dummy run end to end (melody notes, reduction notes) with the C++ cache.
+  - Window rule as decided: t = app clock, [t - 2 s, t], held keys last until t, notes that began
+    earlier but still sound keep their real onset, A only runs after a pull or note-off, A's
+    output replaces exactly the notes it was given. R entries ending more than 60 s ago are pruned
+    (kKeepCs = 6000 cs is 60 s).
+  - The mb stream: control quads from R when the clock reaches their onset (a late note lands out
+    of order); a note that began before the stream started is not offered; the monophony check
+    (G-b) shortens a predecessor that is still in the same insertion batch and skips a newcomer
+    that would overlap one already written; held controls keep the duration they were written
+    with until the note-off, and are committed after 10 s; visible rest quads are written while
+    the clock catches up with the app clock (so silence writes one rest per second) and during
+    onset sampling; the stream is cut to 128 tokens when it passes 256 (cache rebuilt at
+    positions 0..127); a held control that falls out of the cut is counted as force-committed.
+  - Melody: up to 3 notes per loop, none while the melody's latest onset is more than 3 s ahead of
+    the latest reduction note (both start at the stream origin); then ONE reduction note.
+    Nothing is generated until the user has played a first note. The melody is not sent
+    downstream: only the reduction notes are.
+  - The DA stage: X = the user's piano (instr 0, delta 0, priority 1) from L, M = the generated
+    melody (instr 2, delta 300 cs, priority 0), hidden 1 s rest steps from the effective clock,
+    TD from the Launchpad by actual time, committed + scratch cache (held X are provisional).
+    The effective clock is max(last reduction onset, app clock), as in Task 3.
+  - Same sampling constants and temperature sliders as Task 3 for both stages (top-p 0.98 /
+    temperature 0.5 for onset, duration, note; velocity top-p 0.3 / temperature 1.0), q5v8 with
+    the 10 cs floor, velocities 8..120. The melody stage has no anti-repetition bias; the
+    reduction stage has the pitch bias like Task 3.
+  - The polyphony cap applies to both stages: the reduction through onsetLowerBoundCs (generated
+    reduction notes), the melody through PolyphonyCap on its own generated events; the lower
+    bound is kept across the rest-step resampling.
+  - Not done: the logit-adjustment / tau widgets do not know this transformer (temperature
+    sliders only), as for Task 3.

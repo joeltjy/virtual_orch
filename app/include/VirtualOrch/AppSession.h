@@ -20,6 +20,7 @@
 #include "VirtualOrch/reduction/ReductionTransformerPianoReduction.h"
 #include "VirtualOrch/reduction/ReductionTransformerV1.h"
 #include "VirtualOrch/reduction/ReductionTransformerV2.h"
+#include "VirtualOrch/reduction/MelodyFirstReductionTransformer.h"
 #include "VirtualOrch/reduction/TwoInstrumentAnticipatedReductionTransformer.h"
 #include "VirtualOrch/orchestration-models/OrchestrationModel.h"
 #include "VirtualOrch/TestOrchestrationTransformerThread.h"
@@ -60,6 +61,7 @@ public:
     ReductionTransformerV2 reductionTransformerV2;
     ReductionTransformerPianoReduction reductionTransformerPianoReduction;
     TwoInstrumentAnticipatedReductionTransformer reductionTransformerAnticipated;
+    MelodyFirstReductionTransformer reductionTransformerMelodyFirst;
     OrchestrationTransformer orchestrationTransformer;
     VoiceSeparation voiceSeparation;
     std::unique_ptr<OrchestrationModel> orchestrationModel;

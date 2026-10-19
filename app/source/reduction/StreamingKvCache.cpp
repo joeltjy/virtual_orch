@@ -190,6 +190,8 @@ auto OnnxBackend::init(const char *modelPath, std::string &error) -> bool {
         return false;
     }
 
+    hasPositionIds = has(inputNames, "position_ids");
+
     const auto pastIndex = static_cast<size_t>(
         std::find(inputNames.begin(), inputNames.end(), "past_key") - inputNames.begin());
     const auto pastShape = session->GetInputTypeInfo(pastIndex).GetTensorTypeAndShapeInfo().GetShape();
@@ -213,6 +215,9 @@ auto OnnxBackend::run(const State &past, const std::vector<int64_t> &ids, State 
     try {
         std::vector<int64_t> idsCopy = ids;
         const std::array<int64_t, 2> idsShape{1, static_cast<int64_t>(idsCopy.size())};
+        std::vector<int64_t> positions(idsCopy.size());
+        for (size_t i = 0; i < positions.size(); ++i)
+            positions[i] = static_cast<int64_t>(past.rows) + static_cast<int64_t>(i);
         const std::array<int64_t, 5> pastShape{dimsValue.layers, 1, dimsValue.heads, past.rows,
                                                dimsValue.headDim};
         static float emptyData = 0.0f;
@@ -226,6 +231,9 @@ auto OnnxBackend::run(const State &past, const std::vector<int64_t> &ids, State 
             if (name == "input_ids")
                 inputs.push_back(Ort::Value::CreateTensor<int64_t>(
                     memoryInfo, idsCopy.data(), idsCopy.size(), idsShape.data(), idsShape.size()));
+            else if (name == "position_ids")
+                inputs.push_back(Ort::Value::CreateTensor<int64_t>(
+                    memoryInfo, positions.data(), positions.size(), idsShape.data(), idsShape.size()));
             else if (name == "past_key")
                 inputs.push_back(Ort::Value::CreateTensor<float>(
                     memoryInfo, keyPtr, past.key.size(), pastShape.data(), pastShape.size()));

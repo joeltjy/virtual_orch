@@ -24,13 +24,16 @@ enum class MusicModelArch : uint8_t {
     /** Piano + piano-reduction (2 instruments): see ReductionTransformerPianoReduction. */
     DensePianoReduction,
     /** Anticipation-style piano -> reduction (RoPE + KV): TwoInstrumentAnticipatedReductionTransformer. */
-    DenseAnticipatedPiano
+    DenseAnticipatedPiano,
+    /** mb melody first, then double-anticipation reduction: MelodyFirstReductionTransformer. */
+    DenseMelodyFirst
 };
 
 [[nodiscard]] inline auto isDenseMusicArch(MusicModelArch arch) -> bool {
     return arch == MusicModelArch::DenseV1 || arch == MusicModelArch::DenseV2
         || arch == MusicModelArch::DensePianoReduction
-        || arch == MusicModelArch::DenseAnticipatedPiano;
+        || arch == MusicModelArch::DenseAnticipatedPiano
+        || arch == MusicModelArch::DenseMelodyFirst;
 }
 
 /**

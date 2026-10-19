@@ -1,0 +1,9 @@
+{
+  "arch": "dense",
+  "onnx": "da_rope_td_T7_dummy_from_rope_ckpt6000_kv",
+  "melodyOnnx": "mb_phase2_T8_best_step4000_kv",
+  "contextNotes": 40,
+  "outputInstruments": [1],
+  "defaultPreset": {},
+  "notes": "MelodyFirstReductionTransformer. 'onnx' is the double-anticipation KV export (T7 dummy: RoPE + StreamingLLM, vocab 11775/11776, X piano instr 0, M melody instr 2 with a 3 s delta, TD from the Launchpad); 'melodyOnnx' is the mb KV export (T8 real: learned positions, position_ids, vocab 55285). Both are looked up in Documents/onnx_export_* (newest first), then Desktop/onnx_export_*."
+}

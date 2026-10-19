@@ -155,3 +155,46 @@ TEST(AnticipatedStream, rebaseShiftsByAMultipleOfTheBoundaryAndDropsOldItems) {
 }
 
 } // namespace virtual_orch_test
+
+namespace virtual_orch_test {
+
+TEST(AnticipatedStream, doubleAnticipationControlsUseActualTimeAndPriority) {
+    Fixture f;
+    f.stream.reset(0);
+    // M (melody, instrument 2): delta 300 cs, priority 0; X (piano, instrument 0): priority 1.
+    f.stream.addControl(note(700, 100, 60), false, /*instrument*/ 2, /*delta*/ 300, /*priority*/ 0);
+    f.stream.addControl(note(400, 100, 72), false, 0, 0, 1);
+    f.stream.addControl(note(400, 100, 50), false, 2, 0, 0); // M exactly tied with X at 400? (actual 400)
+    EXPECT_FALSE(f.stream.hasPendingDueBy(399));
+    EXPECT_TRUE(f.stream.hasPendingDueBy(400));
+    f.stream.appendEvent(note(10, 40, 61));  // clock 10
+    EXPECT_EQ(f.stream.insertDue(400, 0), 3) << "M(700) is due at 700 - 300 = 400, tied with X";
+    const auto t = f.stream.tokens();
+    std::vector<int32_t> instruments;
+    for (size_t i = 0; i + 3 < t.size();) {
+        if (t[i] >= 11768 && i + 3 >= t.size()) break;
+        if (t[i] >= 11768) { ++i; continue; }
+        instruments.push_back((t[i + 2] - 11000) / 128);
+        i += 4;
+    }
+    ASSERT_EQ(instruments.size(), 4u);
+    EXPECT_EQ(instruments[0], 1) << "the event";
+    EXPECT_EQ(instruments[1], 2) << "melody first on the actual-time tie (priority 0)";
+    EXPECT_EQ(instruments[2], 2);
+    EXPECT_EQ(instruments[3], 0) << "piano last";
+}
+
+TEST(AnticipatedStream, tdBoundariesFollowTheActualTimeOfAControlQuad) {
+    Fixture f;
+    f.stream.reset(0);
+    f.stream.addControl(note(1000, 100, 60), false, 2, 300, 0); // actual 700
+    f.stream.appendEvent(note(0, 40, 61));                      // TD(0)
+    f.stream.insertDue(800, 0);
+    int td = 0;
+    for (const auto id: f.stream.tokens())
+        if (id >= 11768)
+            ++td;
+    EXPECT_EQ(td, 1 + 3) << "TD(0), then TD 200, 400, 600 after the melody quad (actual 700)";
+}
+
+} // namespace virtual_orch_test

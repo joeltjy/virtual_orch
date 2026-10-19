@@ -106,6 +106,13 @@ public:
     auto init(const char *modelPath, std::string &error) -> bool;
 
     [[nodiscard]] auto isLoaded() const -> bool { return session != nullptr; }
+    /** True for the learned-position export (T8): it takes explicit position_ids. */
+    [[nodiscard]] auto usesPositionIds() const -> bool { return hasPositionIds; }
+    /**
+     * Learned positions cannot be re-indexed: rows are never evicted from the cache (the caller
+     * rebuilds it instead), so the cache may hold up to `maxRows` before the graph is fed.
+     */
+    auto setRowLimit(int maxRows) -> void { dimsValue.maxRows = maxRows; }
     [[nodiscard]] auto vocabSize() const -> size_t { return vocab; }
     [[nodiscard]] auto dims() const -> Dims override { return dimsValue; }
     [[nodiscard]] auto run(const State &past, const std::vector<int64_t> &ids, State &present,
@@ -118,6 +125,7 @@ private:
     Ort::MemoryInfo memoryInfo = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault);
     Dims dimsValue;
     size_t vocab = 0;
+    bool hasPositionIds = false;
     std::vector<std::string> inputNames;
     std::vector<std::string> outputNames;
 };

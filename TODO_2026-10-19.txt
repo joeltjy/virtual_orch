@@ -1,0 +1,1467 @@
+TODOs for 19 Oct (virtual orchestra)
+(Planning only. No code has been changed for any of these yet.)
+STATUS: all questions for tasks 1-6 are answered (see each task; some decisions are
+restated or superseded later in the same task, the latest answer wins). Task 0
+(sustain pedal clears the playback queue) was added last; its questions are now all
+answered too.
+
+GLOBAL RULE (from you): everything has to be q5v8.
+  q5v8 as used in training (README in onnx_export_101826): duration = round(cs/5)*5
+  clamped to [5, 995]; velocity = ((v+4)//8)*8 clamped to [0, 120]. That applies to the
+  user's notes (L, R, controls X and M) and to every sampled field's allowed set
+  (durations 5..995 step 5, velocities 0..120 step 8).
+  DECIDED (you): the duration floor is 10 cs (and the pitch clamp A0..C8 stays), i.e. the app's existing snap helper
+  (DenseQuantize: round to 5 cs steps, clamped to [10, 995]; velocity step 8, clamped
+  to [0, 120]). So "q5v8" here means the 5 cs / 8 grids with a 10 cs floor, not the
+  training floor of 5 cs. The pitch clamp A0..C8 stays (answered).
+
+GLOBAL RULE (from you): the dummy ONNX models for mb + DA, the piano reduction generation
+(RoPE) and the orchestration transformer of point 4 live in onnx_export_101826 (the
+folder on the Desktop; you wrote "onnx_exports_101826"). The code must be compatible with
+their signatures.
+  Search location (decided): the app must find them under Documents/onnx_export_* (it will
+  run on another laptop). The Desktop folder onnx_export_101826 is only the reference for
+  now. Today's code looks only at Documents/onnx_export_092126 and 091426
+  (ProjectPaths.h onnxExportDir / onnxExportFallbackDir), so the lookup has to be
+  generalised to Documents/onnx_export_* (e.g. newest first, falling back per file).
+  Also downloaded into the reference folder (you agreed): the KV-cache export of T8,
+  mb_phase2_T8_best_step4000_kv.onnx (684,559,739 bytes), for the mb KV-cache plan.
+  #1 mb_phase2_T8_best_step4000.onnx (the REAL T8, not a dummy): input_ids -> logits.
+  #2 da_rope_td_T7_dummy..._kv.onnx: DA, RoPE, StreamingLLM KV (past_key/past_value).
+  #3 maestro_rope_td_T3_dummy..._kv.onnx: piano reduction, RoPE, same KV signature.
+  #4 td_grpo_unk_T14_dummy...onnx: orchestration with TD, input_ids -> logits.
+
+=====================================================================
+0. sustain pedal clears the playback queue
+=====================================================================
+--- Description (from you) ---
+  If the pedal is pressed down at time t, clear all the notes in the playback queue.
+  FINAL RULE (from you, replacing "past t + 1 s", then "past t + 0.3 s"):
+    - a note that has NOT started sounding yet does not sound (it is removed from the queue);
+    - a note that IS sounding ends by t + 0.3 s (its note-off is moved up to at most t + 0.3 s;
+      a note that would end earlier anyway is left alone).
+  So t + 0.3 s (30 cs) is now only the latest end time of notes already sounding; the cut-off
+  for queued notes is t itself.
+
+--- What exists today (read from the code, not run) ---
+  1. MidiInputProcess::handleSustainPedal (MidiInputProcess.cpp ~line 357): CC64 with value
+     >= 64 is "pedal down" and calls activeReduction().setGenerationPause(true); value < 64
+     resumes. It does not clear anything itself. (The pedal can come from the play keyboard
+     or from a separate pedal keyboard.)
+  2. The reduction thread's run loop calls ReductionTransformer::
+     maybeEmitGenerationPauseSoftStopClear() when generation is stopped. ONLY on the
+     transition not-paused -> paused it pushes a ClearQueue token with time = clock now +
+     100 cs (now + 1 s) through pushOutputToken.
+  3. That token goes (a) to outputTokenQueue, which OutputPlayback drains for the reduction
+     monitor, and (b) to the orchestration transformer, which pulls it out of the reduction
+     stream (extractClearQueueTokens), bypasses the orchestration model and pushes it to
+     OutputPlayback in front of nothing else (OrchestrationTransformer.cpp ~line 516).
+  4. OutputPlayback::applyClearQueue erases every NOT-YET-PLAYED note in its queue
+     (nextTokens) whose onset is >= the clear time. Notes that start before t + 1 s still
+     play, and notes already sounding are not cut.
+  So the behaviour you describe exists in outline: pedal down -> pause -> notes starting
+  after about now + 1 s are removed from the playback queue.
+
+--- Where the +1 s lives today (what the change to 0.3 s would touch) ---
+  The offset is Config::TimeResolution (100 cs) added to the clock in five places:
+    - ReductionTransformer::maybeEmitGenerationPauseSoftStopClear   (the pedal / pause clear)
+        app/source/reduction/ReductionTransformer.cpp:122
+    - the same "clock now + 1 s" ClearQueue sent when input arrives while generation is
+      stopped (overflow pause), in each transformer's run loop:
+        ReductionTransformerV1.cpp:123, ReductionTransformerV2.cpp:229,
+        ReductionTransformerPianoReduction.cpp:231, MusicTransformer.cpp:120
+  Open point (0.6): the pedal clear and the overflow-pause clear share this one value in
+  the code. Should only the PEDAL clear use 0.3 s and the other clears keep 1 s, or all of
+  them move to 0.3 s?
+
+--- Gaps I can see in the current code (my reading, not tested) ---
+  a. The clear time is taken on the REDUCTION THREAD when it next loops, not at the moment
+     the pedal arrives, so t is late by up to one loop iteration (a model call can take
+     tens to hundreds of ms), and the clear is not sent at all if that thread is not
+     running or is stuck.
+  b. It is edge-triggered on the pause flag: if generation is already paused (the Launchpad
+     pause pad, overflow pause, or a previous pedal press without release), pressing the
+     pedal again sends no clear.
+  c. In the soft stop of the overflow pause the code uses the same mechanism, so a pedal
+     press that happens while an overflow pause is active is not distinguished.
+  d. Only notes already in OutputPlayback's queue are cleared. Notes the orchestration
+     transformer has not yet produced from reduction tokens already queued are still
+     produced after the clear.
+
+--- Answers (from you) ---
+  0.1 The clear takes too long.
+  0.2 Yes: clear on every pedal-down press, stamped with the pedal message's arrival time.
+  0.3 Notes already sounding are CUT.
+  0.4 Yes, the pedal still pauses generation; the problem is that the transition takes too long.
+  0.5 Yes: clear both playback sources and drop the reduction tokens not yet processed (with
+      the final rule: the ones with onset after t).
+  0.6 The 0.3 s applies only to the pedal clear (the overflow-pause and other soft-stop clears
+      keep 1 s).
+
+--- Why it is slow today (my reading of the code) ---
+  The pedal only sets generationPause. The ClearQueue token is created later, on the reduction
+  thread, the next time its loop runs and notices the pause (the loop is busy for a whole model
+  call). It then travels through the orchestration transformer, whose loop pulls it out only
+  after its own iteration, and finally reaches OutputPlayback, which applies it. So the delay is
+  up to one reduction-loop iteration plus one orchestration-loop iteration, and the clear time
+  is stamped late as well.
+
+--- Plan (small steps) ---
+  1. FAST PATH: when the pedal goes down (MidiInputProcess::handleSustainPedal, on the MIDI
+     thread) read the app clock at that instant, t, and hand a clear request {t + 30 cs} straight
+     to OutputPlayback through a new small queue/atomic that its loop checks at the top of every
+     iteration. It does not wait for either transformer thread. Generation is paused at the same
+     moment as today.
+  2. OutputPlayback applies the request (final rule): erase EVERY not-yet-sounded note from its
+     queue (nextTokens), whatever its onset, and for notes already sounding (currentlyPlaying)
+     move the note-off up to min(natural end, t + 30 cs) using the existing note-off path (the
+     one flushModelSchedule uses); if t + 30 cs has already passed, send the note-off at once.
+     Both playback sources are handled (the orchestration queue and the reduction monitor
+     queue; they share nextTokens).
+  3. SLOW PATH, kept for what is still upstream: also send the existing ClearQueue token, but
+     stamped with t (the pedal time, not the reduction thread's clock) and applied as "drop every
+     note with onset after t", so notes the reduction thread and the orchestration transformer
+     have queued or are about to produce are dropped too (your 0.5, gap d; with the final rule
+     the cut-off for notes that have not started is t, not t + 0.3 s). It must not be emitted only on
+     the not-paused -> paused edge (your 0.2).
+  4. Other soft-stop clears (overflow pause in V1, V2, PianoReduction, MusicTransformer) are
+     NOT changed: they keep 1 s (your 0.6). Only the pedal path uses 0.3 s.
+  5. Check: log the time from the pedal message to the first note-off / queue clear to see
+     the latency drop.
+
+--- Questions ---
+  0.7 (answered, your rule: "if a note hasn't sounded it shouldn't sound; else if it's sounding,
+      end by t + 0.3". In the example (press at 10.0 s): A (sounding, would last to 12.0 s) is
+      cut to end at 10.3 s; B (queued to start at 10.2 s) and C (queued for 10.5 s) never
+      sound.)
+  0.8 (answered: yes. The fast path clears the playback queue at once, and the stamped ClearQueue
+      token follows later for the upstream leftovers.)
+
+=====================================================================
+1. vocsep modularity
+=====================================================================
+Target: the orchestration transformer.
+Goal: the vocsep ensembling step should be easy to turn on/off and apply to ANY
+orchestration transformer, not just one.
+
+--- What is done today (read from the code, not run) ---
+
+How voice ids get to the orchestration side:
+  - VoiceSeparation (app/include/VirtualOrch/vocsep/VoiceSeparation.h) is an ONNX
+    model (vocsep_reduction_best -> vocsep.onnx), loaded once in AppSession.
+  - ReductionTransformer::pushOutputToken (app/source/reduction/ReductionTransformer.cpp)
+    calls voiceSeparation->stampVoiceId(token, outputHistory) on every generated
+    note, writing Token::voiceId (-1 = unset). Only done if vocsep is loaded
+    (AppSession::bindActiveMusicBackend sets reduction.voiceSeparation).
+  - The stamped token is then pushed to orchestrationReductionIncoming, so the
+    orchestration model receives notes that already carry voiceId.
+  - Vocsep can RE-stamp earlier notes. Those re-stamps only update the reduction's
+    own outputHistory; I found no code forwarding them to the OT (see risk below).
+
+The ensemble itself (IodPretrained only):
+  - Lives inside IodPretrained::ensembleComboB
+    (app/source/orchestration-models/IodPretrained.cpp ~line 384), called from
+    IodPretrained::getOutput (~line 579) when ensembleEnabled is true.
+  - Per note, the model samples a raw combo "A". With ensembling on, A is turned
+    into an effective combo "B":
+      1. B0 = the previous same-voice note's B (or A if first in its voice, or if
+         voiceId < 0).
+      2. Look at the last <=10 same-voice notes' raw A combos. For every
+         (instrument x octave-delta) pair, compute the proportion of those notes
+         whose A contains it.
+      3. Add the pair to B if proportion > addP (default 0.67); remove it if
+         proportion < removeP (default 0.3).
+      4. Apply IOD-specific filters: outer-voice delta rules (+1/-1 octave vs
+         temporally overlapping notes) and unique-octave filter.
+  - B (not A) is what gets written back into combo_in for later notes (teacher
+    forcing) and what gets decoded to output notes.
+  - With ensembling off, B = A. If vocsep is not loaded (voiceId = -1 on every
+    note) the "same voice" set is just the note itself, so it effectively does
+    nothing.
+  - Constants: ensembleHistoryNotes = 10, ensembleAddPDefault = 0.67,
+    ensembleRemovePDefault = 0.3 (IodPretrainedTypes.h).
+
+Switch / plumbing (all IOD-specific right now):
+  - State: ensembleEnabled (default false), ensembleAddP, ensembleRemoveP are
+    atomics ON IodPretrained, with setters/getters (IodPretrained.h).
+  - UI: the "IOD Voice Ensemble" toggle + Add P / Remove P sliders in
+    ReductionTemperatureWidget. Its tooltip says it needs vocsep loaded and does
+    not enable voice separation itself.
+  - Persistence: presetStore.settings -> "orchestration" child, keys
+    vocsepEnsemble, vocsepEnsembleAddP, vocsepEnsembleRemoveP.
+  - Wiring: dynamic_cast<IodPretrained*>(orchestrationModel) in THREE places:
+    AppSession constructor (~line 188), AppSession::setOrchestrationModel
+    (~line 337), and ReductionTemperatureWidget. If the active model is not
+    IodPretrained the toggle does nothing.
+
+Other orchestration models (OrchestrationModels.cpp factory: TestModel,
+InstrumentCombinations, IodPretrained):
+  - InstrumentCombinations and TestModel have no ensembling and never read
+    Token::voiceId.
+  - OrchestrationModel (base class) has no notion of vocsep or ensembling.
+
+--- Why it is not modular today ---
+  a. The algorithm (steps 1-3 above) is mixed with IOD-specific data types
+     (pairsFromCombo / comboFromPairs, outer-voice delta filters) in one method.
+  b. The enable flag and add/remove parameters live on the subclass, so every
+     caller needs a dynamic_cast.
+  c. The UI toggle is labelled and wired for IOD only.
+
+--- Decisions from you ---
+  - The on/off switch is GLOBAL, placed next to the orchestration model dropdown
+    (not per model).
+  - Any orchestration model that keeps a list of note quads (onset, dur, pitch, vel)
+    as history should be compatible.
+  - The same Add P / Remove P apply to every model.
+
+--- Do the models keep such a list? (checked in the code) ---
+Short answer: all three keep a note list, but only IodPretrained keeps the
+per-INPUT-note record that ensembling needs.
+  - All three (IodPretrained, InstrumentCombinations, TestModel) keep
+    `history`: vector<OrchestrationNote> = the OUTPUT notes (Token with onset, dur,
+    note, velocity, plus localInstrumentId), one entry per instrument per input note.
+    The base class also keeps `tokenHistorySequence` (flat ints, used as model
+    context).
+  - IodPretrained additionally keeps `noteStream`: one StreamNote per INPUT note =
+    the input Token (including voiceId) + raw combo A + effective combo B. This is
+    what ensembleComboB reads.
+  - InstrumentCombinations: the per-input-note combo is only in tokenHistorySequence
+    as 9 ints per note (quad + GROUPS + 4 family slots). voiceId is NOT kept: its
+    input tokens are flattened to ints (time/dur/pitch/vel only), and its output
+    notes are rebuilt without copying voiceId.
+  - TestModel: history copies the incoming Token (so voiceId survives), but each
+    note gets exactly one instrument, and tokenHistorySequence is just the 4-int quad.
+So today only IodPretrained has everything ensembling needs. To make "any model
+with a note list" work, the ensemble needs, per input note: voiceId + the set of
+"keys" the model chose for that note (A) + the effective set (B).
+  - IOD key = (instrument x octave-delta) pair (existing pairsFromCombo).
+  - InstrumentCombinations key = local instrument id (0-19). GROUPS and family
+    tokens are bitmasks over instruments, so key set <-> tokens converts both ways.
+  - TestModel key = its single instrument id.
+
+--- Plan, in small steps (each step should leave the app working) ---
+  Step 1. Pin down current behaviour: write a small test that runs the current
+          IOD ensembleComboB logic on a fixed fake note stream and records the
+          output. This is the baseline for "ensemble ON for IOD is unchanged".
+          (gtest already exists in test/.)
+  Step 2. Extract the model-agnostic core (previous same-voice B, last-10 same-voice
+          A proportions, add if > addP, remove if < removeP) into its own header,
+          e.g. VocsepEnsemble.h. Works on plain records:
+          {voiceId, keysA, keysB, hasResult} and sorted integer keys. It knows
+          nothing about IOD. IodPretrained calls it and keeps its IOD-only filters
+          (outer-voice delta, unique octave) as a post-step. Output must match the
+          Step 1 baseline.
+  Step 3. Move the settings (enabled, addP, removeP) from IodPretrained to the
+          OrchestrationModel base class (shared by all models; one value of
+          Add P / Remove P). Keep the same settings keys (vocsepEnsemble,
+          vocsepEnsembleAddP, vocsepEnsembleRemoveP) so saved settings still load.
+  Step 4. Change the base class OrchestrationModel so it OWNS the input-note list
+          (decided). All three models inherit from it, so all three get changed.
+            - One record per input note: the input Token (onset, dur, pitch, vel,
+              voiceId) + a STREAM TAG (User or Reduction) + keys A + keys B + hasResult.
+              (decided: ONE shared list with a per-record stream tag, like the instrument
+              tag in ReductionTransformerPianoReduction's inputData.)
+            - Which stream a call belongs to: OrchestrationTransformer sets a field on the
+              base class before each getOutput call (the same pattern it already uses for
+              instrumentLogitSink / octaveDeltaSink): User for the call with the keyboard
+              notes, Reduction for the call with the reduction notes (Jam mode: always
+              Reduction). recordIncoming(tokens) stamps the records with it.
+            - Ensemble and voice grouping only look at records with the SAME stream tag
+              ("same voice" = same stream AND same voiceId), so keyboard notes (voiceId -1)
+              are never mixed into a reduction voice. IodPretrained's encoder window still
+              takes the last 128 notes of the shared list regardless of the tag, as today.
+            - Recorded the way the reduction models already do it (ReductionTransformer::
+              pushOutputToken): a PROTECTED helper in the base class, e.g.
+              recordIncoming(tokens), that each model calls first thing in its own
+              getOutput. It appends the incoming tokens (with voiceId) to the base-owned
+              list and trims to the last 256 notes (NoteWindow::maxHistoryNotes, the same
+              default the reductions use; 256 confirmed by you). No wrapper
+              around getOutput.
+            - IodPretrained's own noteStream is replaced by this shared list. Its encoder
+              only looks at the last 128 notes (nNotesMax), so it takes the last 128 from
+              the end of the shared list when it packs a window.
+  Step 4b. Forward vocsep re-stamps to the orchestration side (decided by you: yes).
+          Today ReductionTransformer::pushOutputToken gets back a list of re-stamps from
+          VoiceSeparation::stampVoiceId (older notes whose voiceId changed) and writes them
+          only into its own outputHistory, by history index. Those older notes were already
+          pushed to the OT, so nothing downstream learns about the change. Exact plan:
+            1. Give every reduction output token a stable id. Add a field to Token
+               (MusicToken.h), e.g. int32_t noteId = -1 (defaulted, so existing positional
+               Token{time, dur, note, vel} initialisers still compile). pushOutputToken
+               assigns a monotonically increasing noteId before it pushes the token to
+               outputTokenQueue, orchestrationReductionIncoming and outputHistory.
+               Why not match by content: OrchestrationTransformer::snapNearbyOnsets
+               shifts onsets of near-simultaneous notes on COPIES before calling the
+               model, so the model's stored onset can differ from the reduction's.
+            2. New message type VoiceRestamp {int32_t noteId; int32_t newVoiceId;} and a
+               new queue CircularFifo<VoiceRestamp> restampsIncoming in
+               OrchestrationTransformer (same pattern as updatesIncoming), with a pointer
+               orchestrationRestampsIncoming in ReductionTransformer that
+               AppSession::bindActiveMusicBackend wires and clears per active reduction
+               transformer, exactly like orchestrationUpdatesIncoming today.
+            3. In pushOutputToken, for each re-stamp r returned by vocsep: take
+               outputHistory[r.historyIndex].noteId (before/after it is rewritten) and push
+               VoiceRestamp{noteId, r.newVoiceId} to orchestrationRestampsIncoming (if set).
+               Also keep rewriting outputHistory as now.
+            4. Do NOT reuse TokenUpdate / orchestrationUpdatesIncoming for this:
+               OrchestrationTransformer::applyTokenUpdates treats every update as a
+               duration/velocity change (it matches by onset+pitch, copies duration and
+               velocity, and pushes a playback duration update for each one), and it could
+               match an unrelated keyboard note with the same onset/pitch.
+            5. In the OT run loop, right after draining restampsIncoming and BEFORE calling
+               the model: (a) patch the voiceId of any token with that noteId in the batch
+               just drained (reductionUpdate), because the re-stamp can arrive in the same
+               loop as the note it changes; (b) patch OrchestrationTransformer::
+               reductionHistory (used by the UI); (c) call a new base-class method
+               OrchestrationModel::applyVoiceRestamp(noteId, newVoiceId) that updates the
+               voiceId of the matching record in the base-owned note list (Step 4), if it
+               is still within the trim cap. All of this runs on the OT thread, the same
+               thread that calls getOutput, so the list needs no extra locking.
+            6. What a re-stamp does and does not change: notes already decoded and sent to
+               playback are NOT redone. It only changes which notes count as "the same
+               voice" for LATER ensembling decisions (previous same-voice B and the last
+               <=10 same-voice A's).
+            7. Files touched: MusicToken.h (Token), ReductionTransformer.h/.cpp,
+               OrchestrationTransformer.h/.cpp, OrchestrationModel.h (applyVoiceRestamp +
+               the list), AppSession.cpp (wiring). Test: a unit test that feeds a re-stamp
+               for a note in an earlier batch and in the same batch and checks the list.
+  Step 5. Change each model to fill the list and use the ensemble through a small
+          adapter: keys of a note <-> the model's own output.
+            - IodPretrained first (already works): keys = (instrument x octave-delta).
+            - InstrumentCombinations: keys = instrument ids; stop dropping voiceId in
+              tokensToInput / the history notes; convert keys <-> GROUPS + family
+              tokens; re-encode B before it is stored in tokenHistorySequence.
+            - TestModel: keys = its single instrument id; keep voiceId.
+  Step 6. Replace the three dynamic_cast<IodPretrained*> sites (AppSession x2,
+          ReductionTemperatureWidget) with base-class calls.
+  Step 7. UI: add the global "Voice Ensemble" toggle in MainComponent next to the
+          orchestration model dropdown (same style as the existing "Proportion Bias"
+          toggle). Remove the "IOD Voice Ensemble" toggle from
+          ReductionTemperatureWidget. Add P / Remove P sliders stay in that widget
+          (shared by all models) and are shown/enabled only when the toggle is on.
+          Grey out the toggle with a tooltip reason if vocsep is not loaded.
+  Step 8. Verify: OFF -> output identical to before the refactor for all 3 models;
+          ON for IOD -> matches Step 1 baseline; ON for InstrumentCombinations and
+          TestModel -> runs, sensible, and a no-op-safe when vocsep is not loaded
+          (voiceId = -1).
+
+--- Risks / things I have not verified ---
+  - Stale voiceIds: vocsep re-stamps earlier notes, but I found no path that sends
+    those re-stamps to the OT, so any copy of voiceId inside a model may be stale.
+  - Empty result: from my reading of ensembleComboB, the effective set B can end
+    up empty (a pair kept from the previous note is removed because it is under
+    removeP, and none of the current note's pairs is over addP). That would make
+    the note silent. I did not test this. Decide what to do for all models:
+    fall back to A when B is empty?
+  - InstrumentCombinations samples all notes of a batch from ONE forward pass (the
+    combo slots are masked inputs, not fed back), unlike IOD which teacher-forces
+    B into combo_in as it goes. So for IC the ensemble can only change what is
+    stored/decoded, not what later notes in the same batch see.
+
+  - Edit mode calls the model twice per loop on the SAME model object: first with the user's
+    MIDI notes (user instruments), then with the reduction notes (model instruments)
+    (OrchestrationTransformer::getEditOrchestrationOutput). Raw MIDI tokens carry
+    voiceId = -1; only reduction notes are stamped by vocsep. A single shared note list
+    would mix both streams, and IodPretrained's current noteStream already does this.
+    Jam mode calls it once, with reduction notes.
+
+--- Scope (confirmed by you) ---
+  - All three models are changed (IodPretrained, InstrumentCombinations,
+    TestModel). The base class requires the input-note token list, so any future
+    orchestration model must provide it to compile.
+  - The base class owns the list (decided), recorded via a protected helper each
+    model calls (decided, like pushOutputToken). The 256-note trim cap is confirmed.
+
+=====================================================================
+2. mb + double anticipation  ->  new MelodyFirstReductionTransformer
+=====================================================================
+Goal: a new reduction transformer called MelodyFirstReductionTransformer, placed
+with the other reduction transformers (app/include/VirtualOrch/reduction/ and
+app/source/reduction/). Like the others it has a run() loop. The description is
+being given step by step; only step 1 is described so far.
+
+--- Step 1 (from you): keep a running melody+bass list R for instrument 0 ---
+In each loop iteration:
+  - Incoming MIDI is put on instrument 0. Keep the FULL list of all incoming
+    MIDI notes, L.
+  - Make sure notes are q5v8 first.
+  - Keep a running list R of instrument-0 melody + bass. Every time a note is added
+    to L, also add it to R, then run algorithm A (the same logic used to
+    preprocess melody+bass for instrument 0 in training) on the LAST 2 SECONDS of R
+    to get the true melody and bass.
+
+--- What I found for algorithm A (read from ~/orchestration, read-only) ---
+Main file: src/orchestration/preprocessing/melody_bass.py, function
+skyline_and_bass(notes) -> (melody segments, bass segments, skyline_ticks).
+It is purely rule-based (no model) in "version 1". Per note of duration D, with
+T = min(33% of D, 100 ms):
+  1. Melody cover test: drop a note if a strictly HIGHER pitch overlaps
+     [onset+T, offset-T], or a higher pitch starts within 30 ms of its onset.
+  2. Bass cover test: same, but for a strictly LOWER pitch.
+     Any note kept as melody by the cover test is blocked from bass
+     (unless it is later removed as a trough).
+  3. Repeated-note chains: a chain of >=4 notes on one pitch whose gaps to the next
+     same-pitch note all lie within 40 ms of each other is removed from the
+     melody (including the note the chain lands on).
+  4. Troughs: a melody run under 1 s whose neighbours on both sides are >=13
+     semitones above it is removed (and may become bass). A single melody note
+     under 0.5 s with both neighbours >10 semitones above is also removed.
+  5. An earlier note that overlaps a later onset is cut off at that onset.
+  6. Then keep only the tick-wise top line (melody) / bottom line (bass). A note
+     keeps only the ticks it wins; if less than half remains, it is dropped.
+     NOTE (corrected after your remark): only this last, monophonic stage shortens
+     notes (steps 5 and 6: cut at the next onset, then keep the top/bottom line).
+     The earlier stages (cover test, chains, troughs) keep or drop a note WHOLE.
+"Version 2" (vocsep): keeps WHOLE melody notes from vocsep voices that the skyline
+votes for (vocsep_melody_indices); bass is unchanged from version 1.
+Which version produced the instrument-0 data for T8? I believe version 1
+(maestro_melody_bass_plain_amt.py reads the "skyline/" directory built by
+scripts/build_melody_and_bass.py, and melody_bass_intervals.py calls
+skyline_and_bass directly). I did not confirm this against the phase-2 build.
+Input to A offline: all notes of a piece, with start/end in ticks AND seconds,
+sorted by (onset, pitch, offset), i.e. note durations are fully known.
+
+--- Answers from you ---
+  1. Algorithm A = version 1 (rule-based skyline_and_bass).
+  2. Window = the 2 seconds before the onset (of the newest note). CHANGED later: now
+     t - 2 s to the current time t, notes truncated to t (see the CHANGE section).
+  3. A's result REPLACES the notes in that window of R.
+  4. When a note-off arrives, update L and R.
+  5. q5v8 floor is 5 cs. R and A only see snapped notes.
+  6. Everything stays on instrument 0.
+  7. Inherit from ReductionTransformer.
+  Change requested: "run the 2 s check on R only ONCE per mass pull" (not once per
+  note). So: drain everything the queue holds, add all of it to L and R, then run A
+  once on the window.
+
+--- Do short bursts arrive together, and does run() pull them together? ---
+(Checked by reading the code. I did not run the app with live MIDI.)
+
+Consumer side (reduction run loop): YES, it pulls everything.
+  - V1/V2/PianoReduction call applyQueuedInputToInputData() once per loop iteration,
+    which is `while (inputTokenQueue.pull(inputToken))`: it drains every token that
+    is in the queue at that moment. Then applyUpdatesFromFilter() drains all pending
+    note-off updates the same way. So "one mass pull per iteration" is already how
+    the existing loop works, and the new class can run A once right after the drain.
+  - While the loop is busy generating (an ONNX call takes a while), more notes pile
+    up and are drained together on the next iteration.
+
+Producer side (MidiInputProcess, Direct input mode): bursts ARE grouped, but not
+guaranteed to arrive as one pull:
+  a. Grouping works like this. Each note-on is stored with its real onset, and a
+     10 ms timer is started. The timer does nothing until there has been a quiet
+     gap longer than directInputWindowLength (default 10 = 0.1 s) since the LAST
+     note-on. Then it flushes ALL unflushed notes in one timer callback, each
+     keeping its own real onset. So a burst whose gaps are all <= 0.1 s is flushed
+     together.
+  b. NOT atomic. The flush pushes tokens one at a time into inputTokenQueue
+     (sendTokensToMusicTransformer -> inputFilter->filter -> push), with std::cout
+     prints between pushes. The reduction thread can drain in the middle, so one
+     burst can be split across two loop iterations (first part, then the rest). A
+     two-pull burst would run A twice.
+  c. (CORRECTED) Fast playing does NOT wait for a pause when note-offs are sent
+     (directInputSendNoteOffs is true by default and in the version0.1/0.2 presets).
+     A note whose key is released before the quiet-gap flush is sent at its
+     note-off, with its real onset and its final duration (see the 5 s passage
+     section below). Only notes still HELD wait for the flush.
+  d. Note-offs take a different path. For a note that is already flushed, the
+     note-off becomes a TokenUpdate (old duration -> held duration) via
+     updatesFromFilter, drained after the input drain. For a note not yet flushed,
+     the note-off sends the note itself with its final duration. So durations
+     reach the transformer separately from the note-on, possibly in a later
+     iteration.
+  e. Buffer input mode is different again (each note is sent at note-on, no quiet-gap
+     batching). Not checked in detail.
+
+How to make "one A per mass pull" reliable (not decided, for you to choose):
+  - Option 1: make the producer push a whole flush as one unit (e.g. a batch push
+    plus a "batch complete" marker/counter) and have the consumer only take
+    complete batches.
+  - Option 2: keep the FIFO as is and, in the new class, do a short "settle"
+    drain: after the first token is seen, wait a few ms and drain again until the
+    queue stays empty, then run A once.
+  - Option 1 is exact but touches the shared input path (InputFilter /
+    MidiInputProcess). Option 2 stays inside the new class but adds a small delay.
+
+--- Things that look hard for the online version (my reading, not tested) ---
+  - A is written for finished notes. A live note has a provisional duration
+    (modelConfig.inputDuration, default 400 cs = 4 s) until its note-off. With that
+    long provisional duration, the cover test would let a held note block many
+    others, until the note-off update arrives.
+  - Running A only on the window [newest onset - 2 s, ...] changes results versus the
+    full-piece run: trough/chain rules need neighbours or >= 4 notes, and the cover
+    test needs the overlapping notes to be in the window.
+  - Only A's last (monophonic) stage shortens notes; the earlier stages keep or drop a
+    note whole. Either way A's output for the window can differ from what R held, so
+    R's entries in the window are replaced each time A runs, as you decided in answer 3.
+  - The existing snap helper (DenseQuantize::snapDurationCs) has a 10 cs floor; you
+    want 5 cs (training q5v8: round(cs/5)*5 clamped to [5, 995]; velocity
+    ((v+4)//8)*8 clamped to [0, 120]). That needs a separate snap with floor 5.
+
+--- Answers from you, round 2 ---
+  - Provisional notes (no note-off yet) do NOT count in algorithm A. (SUPERSEDED by the
+    time-based window decision: held notes are included, lasting from onset to t.)
+  - 10 cs duration floor is fine, so the existing DenseQuantize snap helper can be
+    used as is. (Note: this replaces your earlier "5 cs"; training q5v8 uses 5 cs,
+    so R/A and the training data differ for durations of 5 cs. Your call.)
+  - The window is measured off the NEWEST note's onset (newest onset in the pull).
+  - Notes that started earlier but are still sounding DO count.
+  - A re-runs after a note-off update: yes.
+  - "A still-held note counts as lasting." (see conflict below)
+
+--- Conflict to resolve ---
+  "Provisional notes do not count in A" and "a still-held note counts as lasting"
+  look opposite. A held note that has been sent but has no note-off yet is exactly
+  a provisional note (it carries the 4 s default duration). Which do you mean?
+    (a) Held notes are EXCLUDED from A until their note-off arrives; or
+    (b) Held notes are INCLUDED, with their duration taken as "until now" (clock);
+    or something else (e.g. "provisional" = notes not yet flushed from the 0.1 s
+    quiet-gap buffer, which are not in R at all)?
+
+--- Batching: the options in more detail ---
+Facts that matter (from the code):
+  - inputTokenQueue is a CircularFifo<Token>, capacity 120. A push into a full
+    queue drops the oldest token (it advances the read pointer from the producer
+    thread). Pushes are one token at a time; there is no batch concept.
+  - The producer: MidiInputProcess::timerCallback (message thread) builds one flush
+    from notesOnToSend and calls sendTokensToMusicTransformer, which loops
+    inputFilter->filter(token) -> PassthroughInputFilter -> InputFilter::pushToken ->
+    inputTokenQueue.push(token) (and also pushes the same token to the OT queue).
+    It prints two std::cout lines per token inside that loop.
+  - The consumer drains with `while (pull)` once per run() iteration.
+  - Why splitting is only a partial problem: A is deterministic over the window and
+    replaces the window, so running it twice on a split burst ends in the same final
+    R (the second run sees every note). What goes wrong is only the intermediate
+    state: if run() generates a token right after the first part, the model is
+    conditioned on a partial chord for that step, and A runs twice (extra CPU).
+
+Option 0 - do nothing special.
+  Drain, add to L/R, run A once per drain. A split burst gives two A runs and, at
+  worst, one generation step conditioned on half a chord. Zero changes outside the
+  new class. Simplest, but it does not meet "run A only once per burst" exactly.
+
+Option 1 - producer batches (exact).
+  Make one flush = one unit the consumer takes whole. Two ways:
+    1a. Side channel: add a CircularFifo<int> of batch sizes. After the flush loop
+        the producer pushes the number of tokens it just pushed. The consumer reads
+        one size n, then pulls exactly n tokens (so it never takes half a batch).
+        Existing reduction transformers ignore the size FIFO and keep draining token
+        by token, so they are unaffected. Touch points: MidiInputProcess
+        (sendTokensToMusicTransformer, and the note-off direct push in
+        handleNoteOff), InputFilter (a filterBatch / batch-done call), and the new
+        class. Risk: if a flush has more than 120 tokens, the oldest are dropped and
+        sizes and tokens no longer line up, so the consumer needs a guard.
+    1b. Change the queue element to a whole batch: CircularFifo<std::vector<Token>>.
+        Naturally atomic, but it changes the type used by MusicTransformer,
+        ReductionTransformerV1, V2, PianoReduction, InputFilter and AppSession.
+  Note-offs still arrive separately (TokenUpdate via updatesFromFilter), so with
+  either 1a or 1b the A re-run after a note-off (your answer above) is a second,
+  separate trigger anyway.
+
+Option 2 - settle drain inside the new class.
+  After the first token of a pull is seen, wait a few ms and drain again; repeat
+  until a drain returns nothing, then run A once. No change to the shared input
+  path. Cost: a few ms of extra latency whenever input arrives. Not exact: a flush
+  slowed by the std::cout lines or a busy message thread can still outlast the wait.
+  The wait should be longer than one flush; removing the two cout prints per token
+  would shrink the flush time a lot.
+
+--- What happens when you play a 5 s fast passage (default settings) ---
+(From reading MidiInputProcess.cpp; not run with live MIDI. Defaults: direct input,
+directInputSendNoteOffs = true, directInputWindowLength = 10 = 0.1 s, start-on-input
+off.)
+  1. Each note-on is stored in notesOnToSend (keyed by pitch) with its real onset and
+     a 10 ms timer is started. Every new note-on restarts the 0.1 s quiet-gap wait,
+     so while you keep playing with gaps <= 0.1 s the timer flushes nothing.
+  2. When you RELEASE a note, handleNoteOff sends it immediately (before any flush)
+     as a normal token: real onset, final held duration. It is then erased from
+     notesOnToSend. So in a fast passage notes stream into the reduction queue one
+     at a time, at their note-off times, not in one flush after the passage.
+  3. Consequences:
+       - Notes arrive in order of RELEASE, not onset. With legato or overlapping
+         notes (or a held bass), an earlier-onset note can arrive after later-onset
+         notes.
+       - There are few real "bursts". A pull usually holds the notes released since
+         the last loop iteration (one iteration is about 25 ms of model time per
+         token on the GPU, about 100 ms per generated 4-token note), so a pull can
+         hold several notes at once, but only because they piled up, not because the
+         producer grouped them.
+       - Notes still held when the passage ends are flushed after the first quiet gap
+         > 0.1 s since the last note-on, with the provisional 4 s duration; their
+         note-off later arrives as a TokenUpdate. These are the only truly
+         provisional notes.
+       - In the existing transformers, the first token of each drain that has an onset
+         EARLIER than entries already in inputData erases those entries and
+         everything after them (applyQueuedInputToInputData, meant to rewind generated
+         notes). With release-ordered arrival this can also drop earlier-received
+         input notes that have later onsets. (From reading the code; not tested.) The
+         new class must not copy that: L and R should insert notes by onset instead.
+  4. Two caveats on my earlier summary:
+       - "Pitch overwrite": notesOnToSend is keyed by pitch, so a second note-on of
+         the same pitch overwrites the first only if there was no note-off between
+         them. A keyboard sends a note-off on release, which sends and erases the
+         entry first, so this basically cannot happen with default settings. I
+         overstated it earlier.
+       - If directInputSendNoteOffs were FALSE (not the default), a released unflushed
+         note is just erased without being sent, so fast notes released before a
+         pause would be lost.
+
+--- OLD question list (SUPERSEDED: every item below has since been answered; see the
+    numbered list 2.1-2.22 in the PENDING QUESTIONS section at the end) ---
+  1. The held/provisional conflict above: (a) or (b)?
+  2. Notes that started before the window but are still sounding count as input to
+     A. But A rewrites (slices) notes. When A replaces "the notes in that window", is
+     a note whose onset is BEFORE the window start left untouched in R (context only),
+     or can A cut it too?
+  3. Which batching option: 0, 1a, 1b or 2? (The 5 s passage finding above
+     changes the picture: bursts are rarer than I assumed, because notes arrive at
+     their note-offs. Option 0 may be enough.)
+  3b. Notes arrive in release order, so a pull can contain only an old-onset note. Is
+     the window anchored on the newest onset in the pull, or on the newest onset
+     anywhere in R?
+  4. What else do you want to change in the melody + bass extraction besides
+     running it once per pull? (Waiting for your next step description.)
+  5. Which model will this class run later? (T8 mb_phase2 from onnx_export_101826,
+     I assume.)
+
+--- mb model speed (T8 mb_phase2_T8_best_step4000.onnx) ---
+Measured 2026-10-19 on this Mac (Apple M1, 8 cores, onnxruntime 1.19.2, CPU
+provider, default thread settings, fp32 model). One token per step, full forward
+pass over a 256-token window every step (no KV cache; this model uses learned
+positions, so a cache does not apply). 80 steps after 3 warm-up runs, with field
+masking and temperature-0.5 sampling included:
+  - forward pass: mean 798 ms, median 746 ms, p95 1075 ms (min 624, max 1378)
+  - mask + sample: about 4 ms
+  - result: about 1.25 tokens/s = about 0.31 notes/s (a note is 4 tokens)
+Same test on GPU (hai-res-mobile01, NVIDIA RTX 6000 Ada, GPU 1 via CUDA_VISIBLE_DEVICES=1,
+onnxruntime 1.24.1 CUDAExecutionProvider, fp32, same 256-token window, 300 steps after
+10 warm-up runs, model loaded from /data/scratch-oc40/joel/onnx_export_101826/):
+  - forward pass: mean 24.6 ms, median 21.9 ms, p95 40.2 ms (min 11.4, max 336.3)
+  - mask + sample: about 2.7 ms (on CPU in numpy)
+  - result: about 36.6 tokens/s = about 9.2 notes/s (about 41 tokens/s using the median
+    forward time plus sampling)
+  - Caveats: the host's GPUs are shared (GPU 1 had about 11 GB used by other jobs at
+    the time; GPU 0 about 29 GB), so numbers can vary. onnxruntime warned that 12
+    Memcpy nodes were added between CPU and CUDA, which may cost some speed. The max of
+    336 ms is a single value; I did not check whether such spikes recur. Speedup vs the Mac CPU is about 29x (36.6 vs 1.25 tokens/s).
+  - Not measured: the C++ app's own overhead, fp16, TensorRT, CoreML on the Mac.
+
+
+
+--- Step 2 (from you): generate melody from the mb model ---
+In every run() loop:
+  - Generate 3 melody notes (as events) on instrument 1 from the mb model (T8),
+    unless the melody is already more than 3 seconds ahead of the orchestra's latest
+    generated note.
+  - Controls = the user's melody + bass on instrument 0 (the list R from step 1).
+  - Sampling is done like anticipation sampling in AMT.
+
+--- Step 3 (from you): generate the reduction (double anticipation) ---
+  - Using the past piano input as instrument 0 and the generated melody as
+    instrument 2, sample the reduction on instrument 1, as double anticipation
+    sampling is done.
+
+--- How I read the two sampling procedures (from the README in onnx_export_101826) ---
+Step 2 = T8 sampling:
+  - Context starts with ANTICIPATE (55027). Controls are written as AMT control quads
+    (27513+onset, 37513+dur, 38513+pitch (instr 0), 55156+vel).
+  - (CORRECTED after reading the sampler code, sampling/anticipation_sampler.py,
+    phase2_spec: RestStepClock(100, visible=True).) T8 lines contain VISIBLE rest
+    quads. Between two events y0 and t there is a REST quad [r, DUR+0, REST (27512),
+    VEL+0] at every r = y0 + 100k (1 s steps) with r < t. When the sampler proposes an
+    onset t, it walks these rest steps: at each r < t it discards t, writes the rest
+    quad, moves the clock to r, inserts any control now due, and samples the onset
+    again with onset > r. (The README text I relied on first said 'clock = onset of
+    the last event' and left the rests out.)
+  - Before each event, insert every control with actual_time <= clock (delta 0).
+    Then sample one event quad: time (>= clock), duration (q5v8 grid), note (instr-1
+    band 11128..11255 only), velocity.
+  - All control ranges, REST, SEPARATOR, AUTOREGRESS, ANTICIPATE and PAD are -inf at
+    every event step. Per-instrument logit adjustment on pitch (tau 0.5, tau' 0.5,
+    5 s), top-p 0.98, temperature 0.5. Stop at onset >= 15 s.
+  - 3 notes = 12 tokens per loop.
+Step 3 = T6/T7 double-anticipation sampling:
+  - X = the user's piano as instrument 0 (in when event clock >= onset). M = the
+    generated melody as instrument 2, with a 3 s delta (in when clock >= onset - 3 s).
+    This is why the melody must not run more than 3 s ahead: the reduction model only
+    sees M notes up to 3 s before they sound. M is placed before X on exact ties.
+  - The reduction Y is sampled on instrument 1 (band 11128..11255 only). Hidden 1 s
+    rest steps move the clock when a pending control becomes due before the next
+    sampled onset. T7 also has TD controls (every 2 s).
+  - The DA graph in the export folder (#2) is a dummy with checkpoint-6000 weights,
+    not trained on X/M controls yet. The real T6/T7 are pending.
+Mapping to keep straight: the melody T8 generates on its instrument 1 is fed to the
+DA model as instrument 2 (M).
+
+--- KV cache for the mb model (ACTIVE again: mb, DA and T3 all use the committed + scratch paradigm) ---
+STATUS: the earlier "remove the KV cache for now" is withdrawn. All three cached streams (mb /
+T8, double anticipation / T7, and T3) use the committed + scratch cache described under 3.7.
+The plan and measurements below are the mb-specific part (learned positions, reset at 256).
+Policy: use a KV cache that grows as tokens are generated; when it reaches 256 tokens,
+drop the oldest 128 and RESET the cache (rebuild it from the kept 128 tokens), then keep
+growing to 256 again.
+Why it must be a reset and not just slicing the cache: T8 uses learned position
+embeddings (wpe), so each cached key/value carries the position it was computed at.
+Slicing the cache leaves positions 128..255 in the cache and new tokens would collide
+with them or go beyond 256 (never trained). Rebuilding at positions 0..127 keeps every
+position consistent with training.
+What I built (all in the scratchpad / on the remote host; nothing in virtual_orch):
+  - A KV-cache ONNX of T8 exported on the remote host:
+    ~/mb_t8_kv/mb_phase2_T8_best_step4000_kv.onnx (685 MB, on hai-res-mobile01, not
+    downloaded). Inputs: input_ids, position_ids (explicit, because of wpe), past_key,
+    past_value [12,B,12,P,64]. Outputs: logits, present_key, present_value. Verified
+    against PyTorch: max |diff| 6.6e-4 (100-token prefill from an empty past) and
+    1.7e-4 (40 single-token steps).
+  - Results on the remote GPU (RTX 6000 Ada, GPU 1, shared with other jobs):
+      * Extend 128 -> 256 tokens (128 single-token steps):
+          - cache on the GPU between steps (IO binding): forward 14.1 ms/step, plus
+            2.9 ms mask+sample = 2.18 s total = 58.7 tokens/s
+          - cache copied CPU<->GPU every step (plain numpy): forward 20.1 ms/step,
+            plus 2.8 ms = 2.93 s total = 43.7 tokens/s
+          - no cache, full forward over a growing 129..256 window (forward only,
+            no sampling): 2.45 s = 52.2 tokens/s
+      * Cache reset (re-prefill 128 tokens at positions 0..127): 22 ms (IO binding)
+        to 30 ms (numpy), once every 128 tokens.
+      * Without IO binding the KV cache was NOT faster than recomputing the window.
+        Most likely cause (not isolated): about 19 MB of cache is copied CPU<->GPU
+        each way every step. With the cache kept on the GPU the forward pass alone is
+        14.1 ms/step vs about 19.2 ms/step for the no-cache forward (2.45 s / 128),
+        i.e. about 1.36x faster.
+      * 128 tokens = 32 notes, so about 2.2 s per 32 notes of melody on the GPU.
+      * Mac CPU with the KV model: not measured (the KV file is on the remote host).
+  - Quality check on real data (4 concatenated phase-2 test lines = 1024 tokens, 723
+    teacher-forced predictions, remote GPU). The stream is artificial (each line
+    restarts the clock) and absolute NLLs are high, so read these as relative:
+      * current approach (4 sink + last 252, full recompute): NLL 7.90 (reference)
+      * A: truncate to last 128 and rebuild the cache at positions 0..127: NLL 7.61,
+        top-1 matches the current approach on 74% of steps
+      * B: just slice the cache, new positions = cache length: NLL 9.53, top-1 11%
+      * C: just slice the cache, positions keep counting: NLL 10.46, top-1 17%
+    A is the only KV variant that stays close to the current approach, which matches
+    your "reset the cache" instruction.
+
+--- Answers from you, round 3 ---
+  1. "More than 3 s ahead of the orchestra's latest generated" = the latest generated
+     REDUCTION (Y, instrument 1) note. Yes.
+  2. The melody batch runs before the reduction in the same loop; 1 reduction note
+     at a time. Yes.
+  3. In step 3 the piano (instrument 0) is the full list L.
+  4. For double anticipation, follow ~/orchestration for how anticipation is done.
+     "In AMT sampling with anticipation, controls are never given and are only
+     inserted once past due."
+  5. Use the dummy DA model first.
+  6. DA cache = RoPE with its own StreamingLLM-style cache, 4 sinks.
+
+--- What ~/orchestration does (read-only, src/orchestration/sampling/anticipation_sampler.py) ---
+One shared sampler ("anticipation-style, AMT order") serves dense AMT, double
+anticipation and phase 2. Loop:
+  - Every control stream is a list of notes plus (instrument, delta_cs, priority). A
+    control's ACTUAL time = onset - delta. All streams are merged in strict
+    actual-time order; exact ties go to the lower priority number, then onset,
+    pitch, velocity.
+  - The event clock starts at 0. Before EACH event, every pending control with
+    actual_time <= clock is inserted (tag CONTROL). Controls are never sampled:
+    every control id is masked (-inf) at every event field, and the explicit control
+    mask is applied again on top. No rejection sampling, ever. Controls whose actual
+    time never comes up stay un-inserted (leftovers are not appended).
+  - One event quad is then sampled field by field: onset in [min_onset, 9999],
+    duration on the 5 cs grid (5..995), pitch only in the allowed event-instrument
+    band(s), velocity on the 8-step grid (0..120). Per field: allow-list mask ->
+    per-instrument logit adjustment on the PITCH field only (tau 0.5, tau' 0.5, 5 s
+    window, each instrument's own notes; controls count as their own instrument) ->
+    top-p 0.98 -> temperature 0.5 -> multinomial.
+  - Stop when a sampled onset >= 15 s (offline only).
+Double anticipation (da_spec): X = piano, instrument 0, delta 0, priority 1;
+M = melody, instrument 2, delta 300 cs (3 s), priority 0 (M before X on exact ties);
+events Y on instrument 1; clock = RestStepClock(100, visible=False), i.e. one clock
+over the Y events plus HIDDEN 1 s rest steps: sample onset t; walk rest steps
+r = prev + 100k with r < t; at the first r where a pending control becomes due,
+discard t, move the clock to r, insert the due controls, resample with onset > r.
+Rest steps where nothing becomes due change nothing (nothing is written). Optional
+TD tokens (T7) go right after the first note quad whose actual time >= each 2 s
+boundary. The code comment says DA models use the StreamingLLM cache (4 sink + 508).
+Phase 2 / T8 (phase2_spec): prefix [ANTICIPATE], X'_mb as AMT control quads
+(ATIME/ADUR/ANOTE/AVELOCITY ranges) with delta 0, events on instrument 1, VISIBLE
+1 s rest quads. Same-onset controls are sorted like the training builder
+(onset, raw duration, note).
+
+--- StreamingLLM cache for the DA models (what the code does) ---
+  - Class StreamingKVContext (4 sink + 508 recent) over StartRecentKVCache.
+    The token list must be append-only; new tokens are fed to the model in chunks
+    of up to 4 together with the cache (past_key_values).
+  - Before feeding n new tokens, if cache_len + n > 512, evict: keep the first 4 rows
+    (sinks) + the last (508 - n) rows, then feed n tokens, so the cache stays <= 512.
+    The sinks are the first 4 tokens of the stream and are never evicted.
+  - RoPE positions are re-indexed by cache slot (sinks at 0..3, the rest at 4..511),
+    and the ONNX cache stores keys before rotation (see the README section "Feeding
+    the KV models" for the exact rules and the past_key/past_value layout
+    [24, batch, 16, seq, 64]). First call from an empty past of length 0.
+  - For the DA graph in onnx_export_101826 (#2): inputs input_ids, past_key,
+    past_value; outputs logits, present_key, present_value; present_seq =
+    min(past_seq + seq_len, 512). It is a dummy (checkpoint-6000 weights).
+  - Not measured yet: speed of this 24-layer, 1024-wide model per token.
+
+--- CHANGE (from you): the 2 s window is time-based, with notes truncated to now ---
+The window is now measured from the CURRENT time t (the app clock, right now) back to
+t - 2 s, instead of from the newest onset. All notes are truncated to the current time
+(a note's end is clipped to t). This replaces the earlier "2 s before the newest note's
+onset" anchor (answer (i) to 2.3).
+What follows from it (my reading, not tested):
+  - Notes arrive at their note-off, so at arrival a note's end is about "now": a note is
+    always inside the window when it arrives, even a long one that started earlier. The
+    problem of a late note falling outside the window no longer exists.
+  - Truncating at t only matters for notes whose recorded end is later than t. Those are
+    the provisional (held) notes, which carry the 4 s placeholder duration. Clipping one
+    to t gives its length so far. That conflicts with your earlier answer 2.1 (a),
+    "held notes are excluded from A until note-off". See question 2.13.
+  - R in the window = A(notes of L that sound inside [t - 2 s, t], each end clipped to t).
+    When A re-runs at a later t, notes still held are longer, so their R entries change;
+    entries older than the window are not recomputed and keep the version from the last
+    run that covered them.
+  - The mb "settled" idea (G-a below) becomes simple and time-based: a control is settled
+    once it lies entirely before t - 2 s.
+
+--- Requirement (from you): input to the mb model must be strictly monophonic ---
+Any controls fed into the mb model (T8) must be strictly monophonic melody and strictly
+monophonic bass: within the melody line no two notes overlap in time, and the same for the
+bass line (melody and bass may overlap each other).
+What algorithm A already guarantees (read from melody_bass.py): after the final
+monophonic stage (_truncate_before_later_onsets then _monophonic_slices) exactly one note
+owns each tick of each line, so each line has no overlaps. Melody notes are also removed
+from the bass candidates.
+Where this can break in the live version (my reading, not tested):
+  1. The mb stream is append-only (and cached). Controls are inserted once past due and
+     cannot be taken back. If R changes afterwards (a late note-off arrives, A re-runs,
+     R's window is replaced), the controls already written into the mb context can
+     disagree with R, and a late-arriving note whose onset is already behind the mb clock
+     would be inserted out of onset order and could overlap a note already inserted.
+  2. (No longer applies: held notes are now included in A, see 2.13. Originally:) Held
+     notes were excluded from A until note-off (your answer 2.1). While a key is held
+     the melody line has a gap, and a lower note may be picked as melody in that gap;
+     when the held note finally arrives, A would drop that lower note, but it may already
+     be in the mb context.
+Proposed guards (for your approval):
+  G-a. Insert a control into the mb stream only when it is settled: its onset is at least
+       2 s before the newest onset in L (so A's window will never re-run over it), AND no
+       held/provisional note has an onset at or before it (otherwise the melody clock
+       waits for that note-off). Cost: about 2 s of lag, and melody generation pauses
+       while a key is held.
+  G-b. A final monophony check right before writing control quads: per line, a control
+       must start at or after the previous control's end in the same line; otherwise it
+       is shortened to fit or skipped. Cheap, and it protects against anything G-a misses.
+Note: this concerns the controls (instrument 0) going into T8. T8's own generated melody
+and bass (fed to the DA model as M) are not covered by this requirement.
+
+--- OLD question list for steps 2 and 3 (SUPERSEDED: answered as 2.6-2.9, see the
+    PENDING QUESTIONS section at the end) ---
+  1. REAL TIME vs clocks (the main design question). Offline, the controls up to the
+     event clock are always all known. Live, the user's notes only exist up to "now".
+     If the melody clock or the reduction clock runs ahead of the newest user
+     onset, controls in between are simply unknown and the model sees a stream
+     that never occurred in training. Should both clocks be capped at the newest
+     user onset in L / R (or at the real clock), or may they run ahead and just skip
+     the missing controls?
+  2. Related: when the user is silent, the T8 clock must walk through VISIBLE rest
+     quads (1 s) and the DA clock through hidden 1 s rests. In the live loop, should
+     these steps be taken only up to "now"/newest user onset, or on a timer?
+  3. At the very start there is no reduction note yet. For the "3 s ahead" check,
+     is the reduction's latest onset taken as 0 (so melody may run up to 3 s)?
+  4. Stop at 15 s exists offline only. For the live loop, do you want no stop and let
+     the sliding windows (mb: reset at 256; DA: 4 sink + 508) handle length?
+
+=====================================================================
+3. piano reduction generation (RoPE)  ->  another reduction transformer
+=====================================================================
+Simpler than point 2. This is another reduction transformer (inherits from
+ReductionTransformer; the name is still to be chosen). It is separate from the existing
+ReductionTransformerPianoReduction (checkpoint-4000, no anticipation, learned positions).
+
+--- Description (from you) ---
+  - The model takes the user's piano notes as instrument 0 and uses them as
+    ANTICIPATORY CONTROLS (never given as tokens to sample, inserted only once past due).
+  - It then samples the piano reduction on instrument 1.
+  - Use the StreamingLLM cache (RoPE, 4 sinks).
+  - Everything is q5v8 (see the global rule at the top).
+  - It must take TD tokens into account, taken from the Launchpad (point 4).
+
+--- What exists that fits (from reading the code and the export README) ---
+  - The sampling procedure is the same shared anticipation sampler as in point 2, with
+    a single control stream: X = piano, instrument 0, delta 0, events on instrument 1
+    (maestro_spec / da_spec without M in ~/orchestration/.../anticipation_sampler.py).
+    Controls inserted when actual_time <= clock; all control ids and TD ids masked at
+    every event field; per-instrument logit adjustment on pitch, top-p 0.98,
+    temperature 0.5.
+  - Clock rule: LastEventClock (maestro replay) in the code's maestro_spec, or
+    RestStepClock hidden rests as in da_spec. Not yet chosen for this model.
+  - Cache: same StreamingLLM cache as the DA models (4 sink + 508 recent, RoPE
+    positions re-indexed by slot).
+  - Models in onnx_export_101826 that could back it (both dummies, vocab 11775, same KV
+    signature, byte-identical files): #3 "maestro_rope_td_T3_dummy..." (stand-in for T3)
+    and #2 "da_rope_td_T7_dummy..." (stand-in for T6/T7).
+  - Convention mismatch to settle: T3's final convention puts the piano controls on
+    INSTRUMENT 3 (band 11384..11511, "ctl3amt") with the reduction on instrument 1,
+    whereas the dummy weights (checkpoint-6000, an "ant0" run) were trained with the
+    controls on INSTRUMENT 0, which is what you described. T6/T7 (DA) use instrument 0
+    for the piano too.
+
+--- Planning note (not decided) ---
+  Point 2 step 3 (DA reduction) and this transformer use the same machinery: control
+  streams with delta/priority, a clock rule, the StreamingLLM cache, TD insertion and
+  the same masks. This transformer is the DA stage without the melody stream. It is
+  worth building that machinery once and sharing it, instead of twice.
+
+--- Answers (from you) ---
+  1. Class name: TwoInstrumentAnticipatedReductionTransformer.
+  2. Backed by #3, the T3 stand-in (maestro_rope_td_T3_dummy..._kv.onnx).
+  3. (asked what the clock options mean: explained below.)
+  4. Live clocks: keep running ahead (same as Task 2, answer 2.6).
+  5. Piano controls on instrument 3 (T3's convention): yes.
+  6. KEEP the KV cache (StreamingLLM) for this model: yes.
+
+--- What the two clock rules mean (worked example) ---
+Setup: the model has generated reduction notes up to onset 1.0 s. You have played piano
+notes at 1.5 s, 2.3 s and 4.0 s. The model now has to pick the next reduction note.
+  LastEventClock (clock = onset of the last generated note, no rest markers):
+    - The clock is 1.0 s. Only controls with onset <= 1.0 s are inserted. The model picks
+      the next onset (say 5.0 s) WITHOUT having seen your notes at 1.5, 2.3 and 4.0.
+    - Only after the note at 5.0 s is written does the clock become 5.0 s; then the
+      controls at 1.5, 2.3 and 4.0 are inserted (past due), before the next note.
+    - So controls may appear after a generated note that is later than them. That is
+      exactly how the training data was built for this kind of model.
+  Hidden 1 s rest steps (the double-anticipation rule):
+    - The model proposes 5.0 s. The sampler walks 1 s steps after the last note: 2.0,
+      3.0, 4.0. At the first step where a control has become due (your 1.5 s note is due
+      at step 2.0), it throws the proposed onset away, moves the clock to 2.0 s, inserts
+      the due controls, and asks the model for a new onset later than 2.0 s.
+    - Nothing is written for the rest step itself ("hidden"), so the model sees the
+      controls inside long gaps.
+Which one is not a free choice: a model must be sampled with the clock it was trained
+with. The README says T3 uses LastEventClock ("Event clock = onset of the last generated
+event, starts at 0, no rests"), while the double-anticipation models (T6/T7) use hidden
+1 s rests and the mb model (T8) uses visible rest quads. So for T3 the clock is
+LastEventClock.
+
+--- Consequence to confirm: T3 puts the piano controls on INSTRUMENT 3 ---
+T3's final convention (README, "ctl3amt"): the user's piano controls are written as
+instrument 3 (note band 11384..11511), the reduction events are instrument 1, and TD
+tokens follow the anticipation rule. Your first description said "piano notes as
+instrument 0". With T3 the controls are instrument 3. The dummy weights (checkpoint-6000,
+an "ant0" run) were trained with controls on instrument 0, so the instrument-3 band is
+untrained in the dummy: the dummy can run and wire everything up but its output means
+nothing for instrument-3 controls.
+
+=====================================================================
+4. TD anticipated  ->  new orchestration transformer, plus TD in the reduction stages
+=====================================================================
+--- UPDATE (reported by the other session, "SSH access to hai-res-mobile01 (fork)", 2026-10-19):
+    TD level 64 is being added to the DENSE models only ---
+  - Dense T3 and T7: TD levels 0, 1, 2, 4, 8, 16, 32, 64 = ids 11768..11775 (64 = new id
+    11775); vocab 11775 -> 11776; existing ids keep their order. Snapping uses the same
+    n*sqrt(2) cuts: x >= 32*sqrt(2) (about 45.3) -> 64; 16*sqrt(2) <= x < 32*sqrt(2) -> 32.
+  - T6 has no TD tokens at all. The IOD TD models (T13, T14 = file #4) are UNCHANGED:
+    levels 1..32 at 20170..20175, PAD 20176, unknown 20177, vocab 20178; no level 0, no 64.
+  - TD MEANING CHANGED for T3/T7: it is now ORCHESTRA-SCORE density, not reduction density.
+    TD(b) = (non-drum, non-solo-piano notes of the full orchestral score with onset in
+    [b, b+4 s), plus 10 x the overlap in seconds of each tremolo-string (GM program 44)
+    note) / 4 s, one value per 2 s boundary. It is still a given control, inserted right
+    after the first note quad whose actual time >= b. (So the density figures quoted from the
+    old README for #2/#3 ("reduction onset density") are out of date for these models, and
+    the Launchpad level now means orchestra notes per second.)
+  - Exports: #2 (DA + TD, from T7 job 2709036) and #3 (T3) will be re-exported for vocab
+    11776 into ~/Desktop/onnx_export_101826 with the README updated. #2 is likely today or
+    Oct 20; #3 is not submitted yet, expect Oct 20-21. Until then #2 and #3 are the old
+    vocab-11775 dummies.
+  - What this changes in the plan: (1) for the dense models Launchpad 64 maps to id 11775
+    (levels 1/2/4/8/16/32/64 -> 11769..11775), not clamped; (2) for IodPretrainedTD (file
+    #4) 64 is still clamped to 32 (your answer 4.2); (3) the dense code has to read the
+    vocab size from the model (logits width 11775 or 11776) and, on the old 11775 files,
+    clamp 64 to 32; (4) these source facts came from the other session, not from me, and I
+    have not checked them against the training code.
+
+--- 4a. New orchestration transformer (from you) ---
+  - Another orchestration transformer (an OrchestrationModel subclass), placed with the
+    other orchestration models (app/include/VirtualOrch/orchestration-models/ and
+    app/source/orchestration-models/, and registered in OrchestrationModels.cpp).
+  - It takes the TD token into account and ANTICIPATES it.
+  - Its dummy ONNX is in onnx_export_101826 and the code must be compatible with it.
+  - Per point 1, it also has to work with the vocsep ensemble (the base class will own
+    the note list; this model supplies its keys).
+
+--- What backs it: file #4, td_grpo_unk_T14_dummy_from_td_explicit_given_ckpt18000.onnx ---
+(from the README in onnx_export_101826; the weights are a stand-in for T14, which is
+still training)
+  - GPT-2 small, vocab 20178, plain input_ids [batch, seq] -> logits [batch, seq, 20178],
+    NO KV cache (learned positions), context = one 512-token window, recomputed every
+    step. Use logits[:, -1, :].
+  - Token layout (ids): 0..9999 onset, 10000..10999 duration (5 cs grid), 11000..11255
+    reduction note = 11000 + 128*track + pitch (2 tracks), 11256..11383 velocity
+    (steps of 8), 11384..11398 GROUPS (family bitmask 1..15), 11399..11910 strings combo
+    (512), 11911..16006 woodwind combo (4096), 16007..20102 brass combo (4096),
+    20103..20166 other combo (64), 20167 END_NOTE, 20168 SEP, 20169 MASK, 20170..20175
+    TD levels 1,2,4,8,16,32, 20176 PAD, 20177 TD=unknown.
+  - Per note, a 9-token group: the 4 reduction quad tokens (given, copied, never
+    sampled) then 5 combo slots sampled in order: GROUPS, strings, woodwind, brass,
+    other. A family slot holds that family's token if its GROUPS bit is set, else
+    END_NOTE.
+  - TD (anticipated, delta 0): one TD token per 2 s boundary b, inserted right AFTER
+    the whole 9-token note group of the first note whose onset >= b (every boundary
+    not yet written with b <= this note's onset, in boundary order). The TD value is
+    GIVEN: a level id, or TD=unknown (20177) where the curve value is withheld. TD ids
+    are never sampled.
+  - Sampling: temperature 1.0, NO per-instrument logit adjustment, NO top-p (plain
+    multinomial). Never sampled (-inf at every combo step): TD levels, PAD, unknown, SEP,
+    MASK and all note-quad ids 0..11383; each slot only allows its legal ids.
+  - Launchpad AUTO maps to TD=unknown (20177) here, which exists in this model's vocab.
+    The Launchpad levels 1..32 map to 20170..20175.
+  - NEW LAUNCHPAD LEVEL 64 (your latest message): this model has no id for 64 (its TD
+    levels stop at 32), so a 64 selection cannot be written as a token. See the question
+    list.
+  - Relation to existing code (my reading, not verified id by id): the combo vocabulary
+    looks like the one in IodPretrainedTypes (comboVocabSize 8785, which starts with a
+    BOS entry) shifted to start at 11384, so the combos are (instrument x octave delta)
+    pairs and could be decoded with the existing pairsFromCombo / decodeComboToNotes.
+    The token stream style (9 tokens per note, flat input_ids -> logits) is like
+    InstrumentCombinations, but slots here are sampled one by one (causal), with TD
+    tokens interleaved.
+  - The dummy has had no TD=unknown or GRPO training, so TD behaviour means nothing yet.
+
+--- Findings in ~/orchestration about TD for file #4 (read-only) ---
+  (src/orchestration/preprocessing/iod_temporal_density.py docstring)
+  - Each training sequence is exactly 512 tokens (IOD_TD_CONTEXT_SIZE) and is REBASED so
+    its first note is at onset 0. A cut falls before a note group; the density tokens that
+    belong to a note stay with it. Short sequences are filled with PAD (20176).
+  - The density token describes the NEXT 4 SECONDS and is reconsidered every 2 seconds.
+    "Explicit" tokenization emits one at every due boundary, after the note group whose
+    onset first reaches that time; "implicit" emits one only when it changes. File #4 is
+    the explicit mode.
+  - What is counted: orchestra hits whose onset falls in the 4 s window (notes past the
+    512 cut still count). Tremolo-string hits (program 44) weigh 10 x L notes, with L the
+    unclamped duration in seconds; other hits weigh 1. The value snaps to the log-nearest
+    power of two in {1, 2, 4, 8, 16, 32}, ties toward the higher bin.
+  - Consequence for the live version (my reading, to confirm): the boundaries sit at 0,
+    2 s, 4 s, ... measured from the FIRST NOTE OF THE WINDOW the model is given, not from
+    the session start. The window slides, so the sequence (with its TD tokens) is rebuilt
+    each step. The TD value for each boundary comes from a short history of the Launchpad
+    value (and AUTO state) on the app's generation clock: the value in effect at that
+    boundary's time. A new level pressed now affects boundaries from now on.
+
+--- 4b. TD for the reduction stages (your earlier message) ---
+  For both the piano reduction transformer (point 3) and the DA stage of point 2, take TD
+  tokens into account, from the Launchpad: TD=unknown or an allowed value.
+  App side: TemporalDensity (app/include/VirtualOrch/TemporalDensity.h) is a global
+  atomic: auto (kAuto = 0) or kLevels {1, 2, 4, 8, 16, 32}. Only LaunchpadGrid writes it
+  (row 1 level pads, side pad of row 1 = AUTO toggle); only ActiveInstrumentsView reads it
+  today.
+  Model side (dense T3/T6/T7, vocab 11775): TD ids 11768..11774 = levels 0,1,2,4,8,16,32
+  (one id each); same anticipated, delta-0, per 2 s boundary rule, inserted after the
+  first note quad (any instrument, generated or control) whose actual time >= b; TD(b) =
+  reduction onset density over [b, b+4 s). TD ids masked at every event field. There is
+  NO unknown id in the dense vocab (the unknown id exists only in file #4). T8 (mb) has no
+  TD ids, so TD cannot affect the melody stage. T6 has no TD ids at all.
+  Watch out: the app's "auto" is stored as 0, while 0 is a REAL level (id 11768) in the
+  dense vocab. Do not confuse them.
+  Mapping I would use: Launchpad level 1/2/4/8/16/32 -> dense ids 11769..11774, value read
+  when each TD(b) is inserted.
+  NEW (your latest message): add one more allowed TD level on the Launchpad, 64. Facts:
+    - The Launchpad TD row is row 1, cols 0..5 = levels 1..32 (kTdLevelCount = 6 from
+      TemporalDensity::kLevels); cols 6 and 7 of that row are unused, so a 7th level pad
+      has room (col 6 is the natural spot, to be confirmed).
+    - TemporalDensity::kLevels (std::array of 6) and isValid() would gain 64;
+      ActiveInstrumentsView also indexes kLevels.
+    - NEITHER model family has an id for 64: the dense models stop at level 32 (id 11774)
+      and file #4 stops at 32 (id 20175). The dummies cannot represent 64.
+
+--- Open design risk for the RoPE stages (my reading, not tested) ---
+  With a StreamingLLM cache, tokens are computed once and kept, but onset tokens are
+  absolute within [0, 9999] cs (about 100 s). A live session longer than that needs a
+  re-base policy (e.g. rebuild the cache with onsets shifted when the clock nears
+  9999). The existing dense transformers shift onsets by the window minimum before every
+  call, which a cache cannot do afterwards. For mb (T8) the planned reset at 256 tokens
+  can re-base at the same time.
+
+=====================================================================
+5. accompaniment mode = jam mode + max polyphony
+=====================================================================
+--- Description (from you) ---
+  - Launchpad (7, 8) starts accompaniment mode.
+  - Accompaniment mode is just jam mode, except that there is a MAX ALLOWED POLYPHONY
+    when generating the instrument-1 tokens in the reduction transformer.
+  - (7, 0) = max polyphony 1, (7, 1) = 2, (7, 2) = 3, (7, 3) = 4.
+  - Meaning: at most that number of notes may be playing at once. If there are already
+    >= max_polyphony notes sounding and the next note is to be generated, restrict its
+    earliest possible onset to the next offset.
+
+--- What exists (read from the code) ---
+  - LaunchpadGrid (app/include/VirtualOrch/LaunchpadGrid.h): 8x8 grid, row 0 at the TOP.
+    Row 0 = Edit (col 0) / Jam (col 1) mode pads; row 1 = TD level pads (cols 0..5) and
+    the side pad = AUTO TD; rows 2-3 = user instruments (side pad of row 2 = flush); rows
+    4-5 = model instruments; ROWS 6 AND 7 ARE UNUSED. The right-hand side column is
+    index 9 in the code (kSideCol = 9, notes 19,29,...,89), and the top row CCs are
+    104..111. Modes are the OrchestrationMode enum (Edit, Jam).
+  - So (7, 0..3) are free pads. The code's side column is column 9, so "(7, 8)" is
+    probably the side pad of the bottom row, but 8 is not a column index in the code.
+  - Where the cap would apply: the reduction transformers sample the onset field with a
+    mask that bans onsets before the current time (futureLogits). The cap would raise
+    that lower bound when the number of sounding generated notes reaches the limit.
+
+--- My reading of the rule (for your confirmation) ---
+  Count the generated instrument-1 notes that are still sounding at the clock (onset <=
+  clock < onset + duration). If count >= max_polyphony, the earliest allowed onset is the
+  offset of the (count - max_polyphony + 1)-th earliest-ending of those notes. With
+  count == max that is exactly "the next offset", as you said; with count > max (can
+  happen if the cap is lowered while notes are sounding) the next offset alone would
+  still leave too many notes.
+
+--- Decisions (from you) ---
+  - (7, 8) = the side pad of the bottom row (code: row 7 counting from 0 at the top, side
+    column index 9). You count rows from 1, so you call the bottom row "row 8"; I take
+    (7, 0..3) to be the bottom row's first four grid pads as well.
+  - (7, 8) is a toggle that starts / stops accompaniment mode. It only applies while JAM
+    mode is on. In EDIT mode it is not applicable, so it is not lit (and, as I read it,
+    pressing it does nothing).
+  - Max polyphony default on entering accompaniment mode: 1, i.e. pad (7, 0).
+  - The cap applies to EVERY reduction transformer that generates instrument 1.
+  - Only GENERATED notes count toward the polyphony (not the user's notes).
+  - If more notes than the cap are sounding, the earliest allowed onset is the
+    (count - cap + 1)-th earliest offset among the sounding generated notes (not just the
+    next offset). Confirmed.
+
+  - Also decided: the cap applies to BOTH generators in MelodyFirst (T8 melody and DA
+    reduction); accompaniment mode and the polyphony choice are restored after Jam -> Edit ->
+    Jam; pads (7, 0..3) do nothing while the mode is off; the selected polyphony pad is lit
+    only while the mode is on.
+
+=====================================================================
+6. UI  (widgets for the performance view)
+=====================================================================
+Current state: PerformanceView (app/source/views/PerformanceView.cpp) places one widget,
+the Launchpad ActiveInstruments view, at a fixed rectangle (UiConstants
+workspacePerformanceViewLaunchpad*). Widgets are WorkspaceWidget subclasses placed by type
+with canvas.placeWidgetOfType(...); each new one needs a UiConstants type/title entry and
+registration. The widgets folder is app/include/VirtualOrch/widgets/ and
+app/source/widgets/.
+
+--- i) InstrumentActiveLightWidget (from you) ---
+  - First copy ~/Downloads/orch_seating_plan_no_perc.png into the git repo. (Checked: it
+    exists, PNG, 1832 x 859, 825 KB. The _with_perc version also exists in Downloads; not
+    mentioned.)
+  - The widget is that image. When an instrument is active (either playing in the user
+    instruments or the model instruments), its segment lights up.
+  - The image: a semicircle seating plan, no vector data or masks. Strings are green
+    (First Violins, Second Violins, Violas, Cellos, Double Basses), woodwinds blue
+    (Flutes, Oboes, Clarinets, Bassoons), brass red (Horns, Trumpets, Trombones, Tuba),
+    piano purple. Segments are separated by white lines, so each segment could be
+    found as a connected colour region, or defined by polygons.
+  - The app's instruments (InstrumentConstants, local ids): 0 violin, 1 viola, 2 cello,
+    3 contrabass, 4 tremolo strings, 5 pizzicato strings, 6 string ensemble, 7 flute,
+    8 oboe, 9 clarinet, 10 bassoon, 11 trumpet, 12 horn, 13 trombone, 14 tuba, 15 piano,
+    16 timpani, 17 taiko/snare, 18 acoustic guitar, 19 choir. The image has no segment
+    for 4, 5, 6, 16, 17, 18, 19 and two segments (first and second violins) for id 0.
+
+--- ii) InstrumentGroupActivityWidget (from you) ---
+  - 3 bars showing the proportion of strings / woodwinds / brass in the past 5 seconds
+    of PLAYBACK.
+
+--- iii) TDViewerWidget (from you) ---
+  - A bar showing the level of the TD I have selected, if not AUTO.
+  - (TemporalDensity::get() / isAuto() give the value; levels are 1, 2, 4, 8, 16, 32 and,
+    per your latest message, a new 64, so the bar needs 7 steps.)
+
+--- iv) UserSelectionWidget (from you) ---
+  - A "console" showing the latest actions the user did on the Launchpad, in words.
+
+
+--- Decisions (from you) ---
+  - Seating plan: each sector is dimmed when its instrument is NOT active (active sectors
+    show normally); the widget is just the image.
+  - "Active" = the instrument is SOUNDING. No strobe effect: a sector switches off (dims)
+    only after 2 s of silence for that instrument; it turns on as soon as a note sounds.
+  - Group bars: proportion by TOTAL NOTE SOUNDING TIME over the past 5 s of playback. Only
+    strings / woodwinds / brass matter (other instruments are ignored, so the three bars
+    are normalised among themselves).
+  - TDViewer: shows "AUTO" when AUTO is on; otherwise a log-spaced bar over the levels
+    (1, 2, 4, 8, 16, 32, 64: 7 steps now that 64 is allowed on the Launchpad).
+  - UserSelectionWidget: logs EVERYTHING the user does on the Launchpad, no timestamps, no
+    keyboard notes, 5 lines.
+  - The PNG goes in app/resources/.
+  - Layout: you answered "rectangles yes"; I read that as "propose rectangles". See the
+    proposal and question 6.9.
+Assumptions I am making (tell me if wrong): newest console line at the bottom; a dimmed
+sector is shown at about 35 % brightness; "sounding" comes from the playback output
+(OutputPlayback note events per local instrument id).
+Embedding: the project already packages resources with juce_add_binary_data
+(VirtualOrchData, currently general_midi_instruments.csv, in app/CMakeLists.txt). Since the
+app has to run on another laptop, I suggest adding the PNG to that same binary data (about
+825 KB) instead of loading it from disk.
+Layout proposal (design canvas is 1020 wide; the Launchpad widget is at x 20, y 20,
+980 x 980; I have not checked whether the canvas scrolls vertically), placed BELOW the
+Launchpad: InstrumentActiveLightWidget x 20, y 1020, 980 x 460 (image aspect 1832:859);
+InstrumentGroupActivityWidget x 20, y 1500, 480 x 160; TDViewerWidget x 520, y 1500,
+480 x 160; UserSelectionWidget x 20, y 1680, 980 x 160 (5 lines).
+
+
+=====================================================================
+PENDING QUESTIONS (all points)  -  as of the last update
+=====================================================================
+GLOBAL
+  G1. (answered: 10 cs floor; keep the app's A0..C8 pitch clamp.)
+  G2. (answered: Documents/onnx_export_*, Desktop folder as reference for now; the new
+      models get JSON descriptors in app/ like the existing checkpoints.)
+  G3. (answered: yes, downloaded into onnx_export_101826.)
+
+0. SUSTAIN PEDAL CLEARS THE PLAYBACK QUEUE  (see Task 0 for the full text)
+  0.1-0.6 (answered; see Task 0: too slow today, every press, cut sounding notes, still pauses
+      generation, clear both sources and unprocessed tokens, 0.3 s only for the pedal.)
+  0.7 (answered: notes that have not sounded never sound; sounding notes end by t + 0.3 s.)
+  0.8 (answered: yes.)
+
+1. VOCSEP MODULARITY
+  1.1 (answered: record via a protected helper each model calls, like the reductions'
+      pushOutputToken; trim cap 256 confirmed; IodPretrained takes its last 128 from the
+      shared list.)
+  1.2 (answered: if the ensemble result B is empty, fall back to the raw combo A.)
+  1.3 (answered: forward the re-stamps; exact plan is Step 4b.)
+  1.4 (answered: option (c), ONE shared list with a per-record stream tag, as in
+      ReductionTransformerPianoReduction. See Step 4.)
+
+2. MB + DOUBLE ANTICIPATION (MelodyFirstReductionTransformer)
+  2.1 (SUPERSEDED by 2.13: held notes are now INCLUDED, lasting from onset to t. Earlier
+      answer was (a) excluded until note-off.)
+  2.2 (answered: notes sounding inside the 2 s window are counted as input to A, and A's
+      result CAN also remove an earlier-onset note that is still sounding. You noted that A
+      doesn't really cut notes except in the monophonic stage; that matches the code: the
+      cover test, repeat chains and troughs keep or drop a note whole, and only the final
+      monophonic stage (cut at the next onset, then top/bottom line) shortens notes.)
+      Consequence for the replace rule: A's output replaces exactly the set of notes it was
+      given (window notes plus earlier notes still sounding in the window); anything in
+      that set that A does not return is removed from R.
+  2.3 (SUPERSEDED by your later change, see "CHANGE: the 2 s window is time-based".
+      Earlier answer: (i) anchor on the latest onset in the pull.)
+  2.4 (answered: Option 0. Drain the queue once per run() iteration, add everything pulled
+      to L and R, run algorithm A once on the window. No change to the shared input path
+      (InputFilter / MidiInputProcess). A burst that happens to split across two pulls runs
+      A twice; the final R is the same.)
+  2.5 (answered: nothing else to change in the extraction, beyond running it once per pull
+      on the 2 s window.)
+  2.6 (answered: KEEP RUNNING AHEAD. The melody and reduction clocks may pass the user's
+      newest onset; controls that do not exist yet are simply missing. A note played after
+      the clock has passed its onset is a past-due control and is handled as in 2.11.)
+  2.7 (answered: the timer keeps moving. The clocks advance in real time, so rest steps are
+      taken while the user is silent. If there are no notes in the 2 s window, then there
+      are no notes in the melody / bass: R's window is empty.)
+  2.8 (answered: yes. At the start, with no reduction note yet, its latest onset counts as
+      0 for the "melody not more than 3 s ahead" check.)
+  2.9 (answered: NO stop at 15 s in the live loop. The 15 s stop came from the offline
+      sampler in ~/orchestration: anticipation_sampler.py stops when a sampled onset is
+      >= stop_cs, 15 s by default, because the offline samples are 15 s clips.)
+  2.10 (DROPPED by you: no separate settling rule. You consider the window t - 2 s to t
+       already properly settled by the time-based window with notes truncated to t, so the
+       G-a guard is not needed.)
+  2.11 (answered: a note that arrives after the mb clock has passed its onset is not
+       inserted in THIS iteration; it should appear in the NEXT run() loop. My reading: it
+       is a past-due control, inserted at the next opportunity like any past-due control
+       in the anticipation sampler, so it lands after tokens with later onsets that are
+       already in the stream, out of onset order.)
+  2.12 (answered: yes, add G-b: a final per-line monophony check right before the control
+       quads are written; a control that would overlap the previous one in its line is
+       shortened or skipped. This is also what protects against a late, past-due note
+       overlapping one already inserted.)
+  2.13 (answered: held notes ARE included in A, lasting from their onset to t. This
+       replaces the earlier "excluded until note-off".)
+  2.14 (answered: a note that started before t - 2 s and is still sounding is kept at its
+       REAL onset (not clipped on the left) and counted.)
+  2.15 (answered: t = the app clock, Clock::getTime(); nothing special for stopped / paused /
+       MTC.)
+  2.16 (answered: A only re-runs on a pull or a note-off, not on a timer. So a held note's
+       entry in R keeps the length it had at the last run until the next pull / note-off.)
+  2.17 (answered: (b). A held melody/bass note's control is written when due with the
+       duration so far (t - onset); when its note-off arrives the stream is corrected to
+       the real duration. With the KV cache removed for now (see below) this is simply an
+       edit of the token list: the next forward pass reads the corrected list. The "rewind
+       the cache and re-feed" part only matters if a cache is added back later. Why the
+       stream was thought of as append-only: a KV cache stores keys/values per token in
+       order, and an edit invalidates the cache from that point.)
+  2.18 (answered: mb AND double anticipation use the same committed + scratch cache paradigm
+       as T3, i.e. the KV cache is NOT removed. The earlier "remove it for now" is withdrawn.)
+       Planned as ONE shared component with two position policies:
+         - mb (T8, learned positions): the cache grows to 256 tokens; at 256 the oldest 128 are
+           dropped and the cache is REBUILT from the kept tokens at positions 0..127, then it
+           grows again (your earlier rule; plain slicing was measured to be much worse).
+           FLAG (your later remark: "no need to truncate mb since we use the StreamingLLM
+           cache"): T8 uses LEARNED absolute position embeddings (wpe), not RoPE. The
+           StreamingLLM cache only works for RoPE models, because it re-indexes positions by
+           cache slot and stores keys before rotation. The README in onnx_export_101826 says
+           of T8: "uses learned positions, so StreamingLLM / KV position shifting does not
+           apply", and the ~/orchestration sampler uses a recompute context for wpe models and
+           StreamingKVContext only for RoPE ones. My measurement agrees: slicing T8's cache
+           and continuing gave NLL 9.5-10.5 against 7.6-7.9 for a rebuild or full recompute
+           (top-1 agreement 11-17 % against 74 % for the rebuild). So for mb some bounded
+           window with a rebuild is still needed. See 2.22.
+         - DA (T7) and T3 (RoPE): StreamingLLM, 4 sink + 508 recent, positions re-indexed by
+           cache slot, eviction as in the ~/orchestration code.
+  2.19 (replaced by 2.18: no recompute window is needed because the cache stays.)
+  2.20 (answered: for mb, a control is PROVISIONAL if its note lies in the 2 s window AND has
+       not ended yet (no note-off, still sounding). A note in the window that has already
+       ended counts as confirmed. For DA: held X (piano) notes are provisional; M is fixed
+       once generated. For T3: a still-held key. The committed boundary is the first
+       provisional control.)
+       Residual risk of this rule (my reading, not tested): algorithm A can still change its
+       decision about an ENDED note in the window when a later note shows up. Examples: a
+       higher note that is still held and overlaps it can cover it (cover test); the next
+       melody note can turn it into a trough; a fourth repeat can make it part of a chain.
+       If that ended note's control was already committed, the stream keeps it even though
+       R no longer has it, and there is no repair.
+  2.20b (answered: acceptable. The committed stream may keep a control that a later run of A
+       drops; there is no repair, and an ended note does not stay provisional because of an
+       overlapping note.)
+  2.21 (answered: yes. If the scratch tail is longer than the 128 tokens kept when the mb cache
+       is cut, force-commit the oldest provisional controls, as if confirmed with their
+       current value, until it fits. You expect this not to happen in practice, so it is a
+       safety rule: log it when it triggers.)
+
+3. PIANO REDUCTION GENERATION (RoPE)  -  TwoInstrumentAnticipatedReductionTransformer
+  3.1 (answered: TwoInstrumentAnticipatedReductionTransformer.)
+  3.2 (answered: T3.)
+  3.3 (answered by explanation: LastEventClock, because T3 was trained with it.)
+  3.4 (answered: keep running ahead, same as 2.6.)
+  3.5 (answered: yes, instrument 3 for the user's piano controls, reduction events on
+      instrument 1. The dummy has that band untrained, so its output means nothing yet.)
+  3.6 (answered: KEEP the KV cache (StreamingLLM, RoPE, 4 sink + 508) for this model. The
+      "remove the KV cache" decision of Task 2 does not apply here.)
+  3.7 (answered by you, clarified: the model is NOT blind to a held note.) A provisional piano
+      note IS used for inference, with the duration it has so far, but the cache is NOT
+      advanced for it. My reading, as a two-layer cache:
+        - COMMITTED cache: only confirmed tokens (everything before the first still-held
+          control). It is the only thing that is stored and evicted.
+        - SCRATCH tail: from the first provisional control onward, i.e. the provisional
+          control(s) and every token generated after them. Each step the tail is fed on top
+          of the committed cache to get the logits, and the resulting keys/values are NOT
+          kept as committed. (The ONNX graph is a function: past in, present out, so using
+          the committed tensors as the past and discarding the output is non-destructive.)
+        - When the held note is CONFIRMED (note-off): replace its duration with the final
+          one and advance the committed cache over the tail (re-feed from the committed
+          prefix). There is nothing to rewind or slice, because the provisional tokens were
+          never committed; the "rewind" is just re-feeding the tail.
+      Why the generated tokens after the held control also stay in the scratch tail: their
+      keys/values depend on that control being there, so they cannot be committed before it
+      is confirmed.
+      Costs (mb measurements, T3 not measured): re-feeding a tail of up to 128 tokens took
+      about 22-30 ms on the GPU, about one forward pass; a tail grows by the tokens generated
+      while a key is held, so a long hold makes each step longer, bounded by the window.
+      Several held notes: the commit boundary is the EARLIEST still-held control; a later
+      note confirmed first just gets its final duration inside the tail.
+      (3.7b answered: (i) FROZEN: while a key is held, the duration of its control stays at
+      the value it had when the control was written. (ii) a held note is COMMITTED as
+      confirmed, with the duration so far, once it has been held for more than 10 seconds
+      (a time limit, instead of my token-count idea of about 508 tokens).)
+      Consequence of (ii): the commit boundary can never be older than 10 s; a note held
+      longer is committed at 10 s with its duration at that moment and its later note-off
+      changes nothing for the model. 10 s is also the longest duration token the
+      vocabulary can hold (duration ids go to 9.95 s), so a longer duration could not be
+      written anyway. The tail also has to fit the window: 10 s of generation is well
+      inside 508 tokens only if the model writes fewer than about 50 notes in that time; if
+      it would not fit, the earlier of the two limits applies (I assume, to confirm if it
+      ever matters).
+      Bookkeeping (how committed vs scratch is tracked; design only):
+        - One logical token list for the stream. Each token carries: its id, the note it
+          belongs to, and a provisional flag (set on the 4 tokens of a control whose key is
+          still held, and on nothing else; tokens generated after a provisional control are
+          scratch by position, not flagged).
+        - committedLen = index of the FIRST token of the earliest still-provisional control
+          (or the list length if none). Everything before it is final.
+        - Two caches: C = keys/values for tokens[0:committedLen], only ever appended to or
+          evicted (StreamingLLM: 4 sinks + recent rows); W = working cache = C plus the
+          scratch rows (what was last computed on top of C). fedTokens = copy of the ids W
+          was computed from.
+        - Each step: compare fedTokens with the current token list; cut W back to the first
+          difference (this only ever cuts scratch rows, never C), then feed the new/changed
+          tokens on top and keep W. Sampling reads the logits of the last fed token.
+        - Note-off: the duration token(s) of that control change, so W is cut back to that
+          position and re-fed. If it was the earliest held note, committedLen moves to the
+          next provisional control (or the end) and C becomes W up to that point.
+        - With the duration frozen while held (3.7b i), the provisional tokens do not change
+          between steps, so W is only appended to until the note-off.
+        - Eviction: a counter of evicted rows maps token index to cache row; the 4 sink rows
+          and the committed rows may be evicted from the front as usual; the scratch tail is
+          never evicted from. If the tail grows past the window, 3.7b (ii) applies.
+
+4. TD ANTICIPATED  -  new orchestration model IodPretrainedTD (backed by file #4)
+  4.1 (answered: IodPretrainedTD.)
+  4.2 (answered: level 64 is clamped to 32 for now. REFINED by the update above: that clamp
+      now only applies to IodPretrainedTD (file #4 has no 64) and to the old vocab-11775
+      dense dummies. The new dense T3/T7 exports have a real id for 64 (11775).)
+  4.3 (answered: for T3 and the DA models, which have no TD=unknown token, Launchpad AUTO
+      keeps the LAST TD level that was given: the TD tokens keep being written with that
+      last level. IodPretrainedTD (file #4) on AUTO writes TD=unknown, id 20177.)
+      (4.3b answered: before any level has been given, T3 and the DA models use TD = 8.)
+  4.4 (answered: (ii). For IodPretrainedTD the 2 s boundaries sit on a FIXED GRID of the app
+      clock (0, 2 s, 4 s, ...), not counted from the first note of the window. T3 and DA use
+      the model's own generation clock, as before.)
+      REBASE RULE (from you, added to 4.4): the TD models were trained with TD tokens only at
+      boundaries that are multiples of 2 s, so any time we rebase onsets (subtract an offset
+      so they fit the model's range / window) the offset MUST be an exact multiple of 2 s
+      (200 cs). Rule: offset = floor(earliest onset in the window / 200 cs) * 200 cs, never
+      the earliest onset itself. Then the boundaries stay at 0, 2 s, 4 s, ... in the model's
+      frame, which is also what makes the fixed app-clock grid in (ii) work. It applies to
+      every TD-aware model: IodPretrainedTD (rebuilt every step), and the cached dense T3 /
+      DA models whenever the cache is rebuilt with shifted onsets (4.8). Consequences: the
+      first note of a window sits somewhere in [0, 2 s) of the model's frame rather than at
+      exactly 0 as in training, and the usable onset range shrinks by up to 2 s (limit 9999
+      cs). The existing dense code subtracts the exact minimum onset
+      (SamplingRelativeTime::relativizeStridedOnsets with denseMinTime), and IodPretrained
+      subtracts minOnset in getOutput; the TD versions need the rounded-down offset instead.
+      T8 (mb) has no TD tokens, so it is not affected.
+      (4.4b answered: HISTORY. For IodPretrainedTD, each boundary already inside the window
+      gets the Launchpad value (or AUTO = unknown) that was in effect when that boundary
+      passed, kept as a small list of (time, value) pairs on the app clock. A change takes
+      effect only from the moment it is made.)
+      Task 4 has no open questions left.
+  4.5 (answered: yes. TD applies to the DA reduction stage, the T3 model and
+      IodPretrainedTD; not to T8.)
+  4.6 (answered: yes, track 0 for every note. IodPretrained itself gives its encoder no track
+      at all, only onset, duration and pitch.)
+  4.7 (answered: yes, the existing proportion bias still applies to IodPretrainedTD.)
+  4.8 (answered: yes, rebuild the StreamingLLM cache with shifted onsets when the clock
+      nears the 9999 cs limit; this concerns the cached RoPE models. The threshold is still
+      to be chosen.)
+
+5. ACCOMPANIMENT MODE
+  5.1 (answered: the side pad of the bottom row; you count that row as row 8.)
+  5.2 (answered: it is a toggle, and only applicable in Jam mode; not lit in Edit mode.)
+  5.3 (answered: default polyphony 1, pad (7, 0).)
+  5.4 (answered: every reduction transformer that generates instrument 1.)
+  5.5 (answered: only generated notes count.)
+  5.6 (answered: yes, the (count - cap + 1)-th earliest offset.)
+  5.7 (answered: BOTH. In MelodyFirst the polyphony cap applies to the T8 melody notes and to
+      the DA reduction notes.)
+  5.8 (answered: yes, accompaniment mode and the chosen polyphony are restored when you
+      switch Jam -> Edit -> Jam.)
+  5.9 (answered: pads (7, 0..3) do nothing while accompaniment mode is off, and the selected
+      polyphony pad is lit only while accompaniment mode is on.)
+  Task 5 has no open questions left.
+
+6. UI
+  6.1 (answered: dim the sector of an instrument that is not active.)
+  6.2 (answered: active = sounding; turn off only after 2 s of silence, no strobing.)
+  6.3 (answered: total note sounding time over the past 5 s of playback; other instruments
+      ignored.)
+  6.4 (answered: shows AUTO when on; log-spaced bar.)
+  6.5 (answered: everything, no timestamps, no keyboard notes, 5 lines.)
+  6.6 (read as: propose the rectangles; see 6.9.)
+  6.7 (answered: app/resources. Embedding vs disk: I suggest embedding via the existing
+      juce_add_binary_data, see 6.10.)
+  6.8 (answered: string ensemble, tremolo strings and pizzicato strings are mapped to violin /
+      viola / cello / bass by PITCH RANGE; timpani, snare, guitar and choir are ignored.)
+      How I will implement it: reuse the existing rule in InstrumentConstants::
+      outputChannelForLocalInstrumentId (for string ensemble, id 6): take the first solo
+      string in the order violin, viola, cello, contrabass whose General MIDI pitch range
+      contains the sounding note's pitch, and light that string's sector (violin lights
+      BOTH First Violins and Second Violins). I apply the same rule to tremolo (4) and
+      pizzicato (5). Note: in the current code only string ensemble is remapped by range;
+      tremolo and pizzicato go to their own MIDI channels (4 and 5), so for those two the
+      range rule would be new, used only by this widget.
+  6.9 (answered: the layout proposal is fine: all four widgets below the Launchpad widget.)
+  6.10 (answered: embed the PNG with juce_add_binary_data.)
+  6.11 (answered: yes, the piano sector lights when you play the keyboard, since the
+       keyboard piano passes through playback.)
+  Task 6 has no open questions left.

@@ -104,6 +104,21 @@ auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid) -> void {
     flush.onPalette = LaunchpadLighting::kFlush;
     flush.lit = true;
 
+    // Accompaniment (bottom row): polyphony pads 1..4 + the side toggle (dark outside Jam).
+    const bool accompActive = grid.isAccompanimentActive();
+    for (int pad = 0; pad < LaunchpadGrid::kPolyphonyPadCount; ++pad) {
+        const int polyphony = *LaunchpadGrid::polyphonyForPad(LaunchpadGrid::kAccompRow, pad);
+        auto &cell = cellAt(LaunchpadGrid::kAccompRow, pad);
+        cell.label = UiConstants::workspaceActiveInstrumentsPolyphonyPrefix + juce::String(polyphony);
+        cell.onPalette = LaunchpadLighting::colourForPolyphonyPad(true, true);
+        cell.lit = accompActive && polyphony == grid.getMaxPolyphony();
+    }
+    auto &accomp = cellAt(LaunchpadGrid::kAccompRow, LaunchpadGrid::kCols);
+    accomp.label = UiConstants::workspaceActiveInstrumentsAccompanimentLabel;
+    accomp.onPalette = LaunchpadLighting::colourForAccompanimentToggle(
+        true, grid.isAccompanimentOn());
+    accomp.lit = mode == OrchestrationMode::Jam;
+
     // Instrument pads (input + model rows).
     for (int padRow = 0; padRow < LaunchpadGrid::kRows; ++padRow) {
         for (int padCol = 0; padCol < LaunchpadGrid::kCols; ++padCol) {

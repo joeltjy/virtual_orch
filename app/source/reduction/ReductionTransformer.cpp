@@ -1,5 +1,6 @@
 #include "VirtualOrch/reduction/ReductionTransformer.h"
 #include "VirtualOrch/PedalClear.h"
+#include "VirtualOrch/PolyphonyCap.h"
 
 #include "VirtualOrch/NoteWindow.h"
 #include "VirtualOrch/reduction/DenseTypes.h"
@@ -207,6 +208,14 @@ auto ReductionTransformer::forwardRestamp(size_t historyIndex, int32_t newVoiceI
     }
     if (noteId >= 0 && orchestrationRestampsIncoming != nullptr)
         orchestrationRestampsIncoming->push(VoiceRestamp{noteId, newVoiceId});
+}
+
+auto ReductionTransformer::onsetLowerBoundCs() const -> int32_t {
+    const int32_t cap = maxPolyphony.load();
+    if (cap <= 0)
+        return currentTime;
+    const juce::ScopedLock lock(outputHistoryLock);
+    return PolyphonyCap::earliestOnsetCs(outputHistory, currentTime, cap);
 }
 
 auto ReductionTransformer::pushOutputToken(const Token &tokenIn) -> void {

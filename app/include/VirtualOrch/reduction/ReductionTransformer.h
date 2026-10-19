@@ -101,6 +101,10 @@ public:
      */
     [[nodiscard]] auto hasUnresolvedProvisionalInputNotes() const -> bool;
 
+    /** Accompaniment mode: at most this many generated notes sound at once (0 = no cap). */
+    auto setMaxPolyphony(int32_t cap) -> void { maxPolyphony.store(cap); }
+    [[nodiscard]] auto getMaxPolyphony() const -> int32_t { return maxPolyphony.load(); }
+
     /** Most recent threadRun iteration duration in milliseconds. */
     [[nodiscard]] auto getLastThreadLoopMs() const -> float {
         return lastThreadLoopMs.load(std::memory_order_relaxed);
@@ -175,6 +179,12 @@ protected:
     auto pushOutputToken(const Token &token) -> void;
 
     /**
+     * Earliest onset the next generated note may have: currentTime, raised by the accompaniment
+     * polyphony cap (generated notes still sounding at currentTime, see PolyphonyCap.h).
+     */
+    [[nodiscard]] auto onsetLowerBoundCs() const -> int32_t;
+
+    /**
      * Vocsep changed the voice of the output-history note at `historyIndex`: rewrite it in
      * outputHistory and tell the orchestration side, which got that note earlier.
      */
@@ -204,6 +214,7 @@ protected:
     ModelConfig &modelConfig;
     std::vector<int32_t> inputData;
     int32_t currentTime = 0;
+    std::atomic<int32_t> maxPolyphony{0};
 
     /** Edge detect for maybeEmitGenerationPauseSoftStopClear (reset on thread start). */
     bool wasGenerationPaused = false;

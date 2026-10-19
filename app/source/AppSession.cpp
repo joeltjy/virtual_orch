@@ -126,6 +126,9 @@ AppSession::AppSession()
         setOrchestrationMode(mode);
     };
     midiInputProcess.getLaunchpadGrid().setSelectedMode(orchestrationTransformer.getMode());
+    midiInputProcess.getLaunchpadGrid().accompaniment_callback = [this] {
+        applyAccompanimentCap();
+    };
     midiInputProcess.getLaunchpadGrid().scene_callback = [this](int idx) {
         if (idx == 1) {
             auto &reduction = activeReduction();
@@ -444,6 +447,15 @@ auto AppSession::stopGeneration() -> void {
 auto AppSession::setOrchestrationMode(OrchestrationMode mode) -> void {
     orchestrationTransformer.setMode(mode);
     midiInputProcess.getLaunchpadGrid().setSelectedMode(mode);
+    applyAccompanimentCap();
+}
+
+auto AppSession::applyAccompanimentCap() -> void {
+    const int cap = midiInputProcess.getLaunchpadGrid().effectivePolyphonyCap();
+    musicTransformer.setMaxPolyphony(cap);
+    reductionTransformerV1.setMaxPolyphony(cap);
+    reductionTransformerV2.setMaxPolyphony(cap);
+    reductionTransformerPianoReduction.setMaxPolyphony(cap);
 }
 
 auto AppSession::syncPauseTopLeds() -> void {

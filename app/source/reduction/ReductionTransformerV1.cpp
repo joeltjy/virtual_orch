@@ -614,7 +614,7 @@ Token ReductionTransformerV1::generateNewToken(int32_t forceAtTime) {
             const ScopedMs maskMs(&loopAccum.mask);
             safeLogits(scores, static_cast<size_t>(i));
             if (i == 0)
-                futureLogits(scores, currentTime - offset,
+                futureLogits(scores, onsetLowerBoundCs() - offset,
                              forceAtTime != -1 ? forceAtTime - offset : -1);
             else if (i == 1)
                 durLogits(scores);

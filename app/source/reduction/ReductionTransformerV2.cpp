@@ -731,7 +731,7 @@ Token ReductionTransformerV2::generateNewToken(int32_t forceAtTime) {
             const ScopedMs maskMs(&loopAccum.mask);
             safeLogits(scores, static_cast<size_t>(i));
             if (i == 0) {
-                futureLogits(scores, currentTime - offset,
+                futureLogits(scores, onsetLowerBoundCs() - offset,
                              forceAtTime != -1 ? forceAtTime - offset : -1);
                 if (onsetGapBiasOn)
                     DenseOnsetGapBias::applyOnsetLogitsBias(scores, onsetGapWindow, gapTau, offset);

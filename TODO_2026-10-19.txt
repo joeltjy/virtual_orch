@@ -1513,3 +1513,21 @@ Task 4 (TD)
     README says none for T14), so the logit-adjustment widget does not apply to it.
   - Wiring TD into the reduction stages (dense TD ids) is done with the transformers of
     Tasks 2 and 3, using TdTokens::DenseTdResolver.
+
+Task 5 (accompaniment)
+  - The cap's reference time is the GENERATION HEAD (currentTime, the onset of the last
+    generated or input note), not the wall clock: generation runs ahead of the clock, so
+    "sounding" is counted among the generated notes sounding at the head. This replaces my
+    earlier "at the clock" wording.
+  - The cap is applied through ReductionTransformer::onsetLowerBoundCs(), which feeds the onset
+    mask (futureLogits) of all four existing reduction transformers (V1, V2, PianoReduction,
+    AMT MusicTransformer). New generators (Tasks 2 and 3) must call it too.
+  - Switching accompaniment ON always starts at polyphony 1; Jam -> Edit -> Jam keeps the
+    chosen value (pressing the toggle is what resets it). Switching OFF and ON again also
+    resets to 1.
+  - Side pad (7, side column): green = on, red = off, dark in Edit. Polyphony pad: only the
+    selected one is lit (yellow), only while accompaniment is active.
+  - The Active Instruments widget shows the bottom row as "Poly 1..4" and "Accomp".
+  - futureLogits is not clamped for a lower bound beyond the 100 s onset range; the bound is
+    relative to the window minimum, so a polyphony raise (<= one note duration) stays far
+    below that.

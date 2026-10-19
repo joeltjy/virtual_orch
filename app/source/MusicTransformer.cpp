@@ -494,7 +494,7 @@ Token MusicTransformer::generateNewToken(int32_t forceAtTime) {
             const ScopedMs maskMs(&loopAccum.mask);
             safeLogits(scores, i % 3);
             if (i == 0)
-                futureLogits(scores, currentTime - offset,
+                futureLogits(scores, onsetLowerBoundCs() - offset,
                              forceAtTime != -1 ? forceAtTime - offset : -1);
             else if (i == 1)
                 durLogits(scores);

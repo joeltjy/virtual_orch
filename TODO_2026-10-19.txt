@@ -1465,3 +1465,51 @@ GLOBAL
   6.11 (answered: yes, the piano sector lights when you play the keyboard, since the
        keyboard piano passes through playback.)
   Task 6 has no open questions left.
+
+
+=====================================================================
+OPEN POINTS AND JUDGMENT CALLS MADE DURING IMPLEMENTATION
+(You said: where something stayed open, decide, and record it here.)
+=====================================================================
+
+Task 0 (pedal)
+  - "Pedal pressed" = the up -> down transition of CC64 (value >= 64); a repeated down value
+    does not count as a new press.
+  - Playback keeps dropping notes that start after the press for 1 s (kDropWindowCs = 100 cs)
+    while it waits for the stamped ClearQueue token from upstream; after that it stops.
+  - The stamped clear token uses velocity 127 as its marker (the ordinary clears use 100).
+
+Task 1 (vocsep ensemble for every orchestration model)
+  - Add P / Remove P sliders are always visible (even when the toggle is off).
+  - InstrumentCombinations and TestModel drop non-note tokens (ClearQueue, rests, bar
+    separators) before recording incoming notes.
+  - The tests use a tiny dummy IOD graph (test/resources/iod_dummy.onnx) because the Mac
+    ONNX Runtime (1.18) cannot load the real IOD export (Trilu op). A real-model test runs when
+    VIRTUAL_ORCH_TEST_MODELS is set and the export loads.
+
+Task 4 (TD)
+  - Launchpad TD level 64 is pad (row 1, col 6), lit red when selected (AUTO stays at the side
+    pad: green on / red off).
+  - TdTokens.h holds the id rules: dense ids 11768..11775 = levels 0,1,2,4,8,16,32,64 (64 only
+    when vocab >= 11776, otherwise 64 is written as 32); AUTO for dense models repeats the last
+    level the user chose (default 8) because the dense vocab has no "unknown" id; IOD ids
+    20170..20175 = levels 1..32 with 64 written as 32 (no id for 64 in that vocab); AUTO =
+    unknown 20177.
+  - IodPretrainedTD: the TD value of a boundary is read from the Launchpad when the first note
+    at or past that boundary is processed, and then fixed (kept in a map keyed by absolute
+    boundary time). The first note of a stream carries the boundary at or below its onset.
+  - The reduction note in the quad uses track 0 (11000 + pitch). The README says 2 tracks but
+    not which one is which; the app has only one input stream per call.
+  - Window: the newest <= 48 notes, trimmed further until the stream (+5 slots) fits 512
+    tokens and the onsets (rebased by a multiple of 2 s) fit 0..9999 cs. Every sampled slot
+    recomputes the window (up to 5 forward passes per note; ~0.3 s per note on Mac CPU).
+  - Notes are sampled in list order, never re-sampled. Orchestrated notes are decoded with the
+    same outer-voice and one-instrument-per-octave filters as IodPretrained.
+  - When a family slot has no legal mask left after the octaves already taken, that rule is
+    relaxed for the slot (decode drops the clashing pairs) instead of silencing the note.
+  - The model is looked up as td_grpo_unk_T14_dummy_from_td_explicit_given_ckpt18000.onnx in
+    Documents/onnx_export_092126, onnx_export_091426 and Desktop/onnx_export_101826. Listed in
+    the model dropdown as "IodPretrainedTD". No groups-bias (tau) adjustment is applied (the
+    README says none for T14), so the logit-adjustment widget does not apply to it.
+  - Wiring TD into the reduction stages (dense TD ids) is done with the transformers of
+    Tasks 2 and 3, using TdTokens::DenseTdResolver.

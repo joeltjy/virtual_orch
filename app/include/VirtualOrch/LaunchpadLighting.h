@@ -61,8 +61,8 @@ enum class Family : uint8_t { Strings, Woodwinds, Brass, Other };
     return on && family.has_value() ? colourForFamily(*family) : kOff;
 }
 
-/** TD levels 1..32, low → high: cyan, sky, blue, purple, magenta, pink. */
-inline constexpr std::array<uint8_t, 6> kTdGradient{{kCyan, kSky, kBlue, kPurple, kMagenta, kPink}};
+/** TD levels 1..64, low → high: cyan, sky, blue, purple, magenta, pink, red. */
+inline constexpr std::array<uint8_t, 7> kTdGradient{{kCyan, kSky, kBlue, kPurple, kMagenta, kPink, kRed}};
 
 /** TD level pad: lit in its gradient colour only when selected. */
 [[nodiscard]] inline auto colourForTdLevel(int levelIndex, bool selected) -> uint8_t {

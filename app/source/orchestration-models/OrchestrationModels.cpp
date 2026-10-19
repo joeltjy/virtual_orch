@@ -3,10 +3,11 @@
 #include "VirtualOrch/ProjectPaths.h"
 #include "VirtualOrch/orchestration-models/InstrumentCombinations.h"
 #include "VirtualOrch/orchestration-models/IodPretrained.h"
+#include "VirtualOrch/orchestration-models/IodPretrainedTD.h"
 #include "VirtualOrch/orchestration-models/TestModel.h"
 
 auto orchestrationModelNames() -> std::vector<std::string> {
-    return {"TestModel", "InstrumentCombinations", "IodPretrained"};
+    return {"TestModel", "InstrumentCombinations", "IodPretrained", "IodPretrainedTD"};
 }
 
 auto createOrchestrationModel(const std::string &name) -> std::unique_ptr<OrchestrationModel> {
@@ -47,6 +48,27 @@ auto createOrchestrationModel(const std::string &name) -> std::unique_ptr<Orches
                 return nullptr;
             }
             return model;
+        }
+        if (name == "IodPretrainedTD") {
+            auto model = std::make_unique<IodPretrainedTD>();
+            const std::string file = "td_grpo_unk_T14_dummy_from_td_explicit_given_ckpt18000.onnx";
+            const juce::File candidates[] = {
+                onnxExportDir().getChildFile(file),
+                onnxExportFallbackDir().getChildFile(file),
+                juce::File::getSpecialLocation(juce::File::userDesktopDirectory)
+                    .getChildFile("onnx_export_101826")
+                    .getChildFile(file),
+            };
+            for (const auto &onnx: candidates) {
+                if (! onnx.existsAsFile())
+                    continue;
+                model->init(onnx.getFullPathName().toRawUTF8());
+                if (model->isModelLoaded())
+                    return model;
+                DBG("IodPretrainedTD init failed for " + onnx.getFullPathName());
+            }
+            DBG("IodPretrainedTD model not found");
+            return nullptr;
         }
     } catch (const Ort::Exception &exception) {
         DBG("createOrchestrationModel failed: " + juce::String(exception.what()));

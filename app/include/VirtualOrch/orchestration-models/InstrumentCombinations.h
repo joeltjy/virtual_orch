@@ -64,6 +64,8 @@ public:
         const OrchestrationBalanceTracker::BiasView *bias = nullptr)
         -> std::vector<OrchestrationNote> override;
 
+    [[nodiscard]] auto supportsVocsepEnsemble() const -> bool override { return true; }
+
     /** Decode each 9-token group into one OrchestrationNote per active instrument. */
     [[nodiscard]] auto encodedCombinationToInstruments(const std::vector<int32_t> &sampledTokens) const
         -> std::vector<OrchestrationNote>;
@@ -76,6 +78,22 @@ public:
     /** Allowed vocab ids for the groups slot (token index 4) given active local instruments. */
     [[nodiscard]] auto allowedTokensForGroups(const std::vector<int32_t> &instruments) const
         -> std::vector<int32_t>;
+
+    /**
+     * Fill inputNotes (keys = local instrument ids, data = the 5 combo tokens) for the notes of
+     * `sampledTokens` and, when the vocsep ensemble is on, rewrite their combo tokens with the
+     * voice-smoothed choice B (restricted to `allowed`; an empty B falls back to A).
+     */
+    auto applyEnsembleToSampled(std::vector<int32_t> &sampledTokens,
+                                const std::vector<int32_t> &allowed) -> void;
+
+    /** Local instrument ids chosen by the combo tokens of the note starting at `base`. */
+    [[nodiscard]] static auto instrumentKeysFromTokens(const std::vector<int32_t> &sampledTokens,
+                                                       size_t base) -> std::vector<int32_t>;
+
+    /** Write the 5 combo tokens (GROUPS + 4 family slots) for a set of local instrument ids. */
+    static auto writeComboTokens(std::vector<int32_t> &sampledTokens, size_t base,
+                                 const std::vector<int32_t> &instrumentKeys) -> void;
 
 private:
     [[nodiscard]] auto tokensToInput(const std::vector<Token> &incomingTokens) const
@@ -112,6 +130,7 @@ private:
 
     auto updateHistories(const std::vector<OrchestrationNote> &notes,
                          const std::vector<int32_t> &sampledTokens) -> void;
+
 
     /** After decode: one recordNote per 9-token group in sampledTokens. */
     auto recordBalanceFromSampled(OrchestrationBalanceTracker &balance,

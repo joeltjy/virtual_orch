@@ -63,6 +63,16 @@ auto OrchestrationTransformer::copyInstrumentLists() const
             {modelInstruments.begin(), modelInstruments.end()}};
 }
 
+auto OrchestrationTransformer::applyVoiceRestamps(std::vector<Token> &reductionBatch) -> void {
+    VoiceRestamp restamp{};
+    while (restampsIncoming.pull(restamp)) {
+        applyVoiceRestampToTokens(reductionBatch, restamp);
+        applyVoiceRestampToTokens(reductionHistory, restamp);
+        if (orchestrationModel != nullptr)
+            orchestrationModel->applyVoiceRestamp(restamp.noteId, restamp.newVoiceId);
+    }
+}
+
 auto OrchestrationTransformer::applyTokenUpdates() -> void {
     TokenUpdate update{};
     while (updatesIncoming.pull(update)) {
@@ -282,6 +292,7 @@ auto OrchestrationTransformer::getEditOrchestrationOutput(
         InstrumentLogitSnapshot logitScratch;
         orchestrationModel->instrumentLogitSink = &logitScratch;
         orchestrationModel->octaveDeltaSink = &octaveDeltaTracker;
+        orchestrationModel->currentStream = OrchestrationModel::InputStream::User;
         userNotes = orchestrationModel->getOutput(snappedMidi,
                                                   userInstruments,
                                                   signal,
@@ -301,6 +312,7 @@ auto OrchestrationTransformer::getEditOrchestrationOutput(
         InstrumentLogitSnapshot logitScratch;
         orchestrationModel->instrumentLogitSink = &logitScratch;
         orchestrationModel->octaveDeltaSink = &octaveDeltaTracker;
+        orchestrationModel->currentStream = OrchestrationModel::InputStream::Reduction;
         modelNotes = orchestrationModel->getOutput(snappedReduction,
                                                    modelInstruments,
                                                    signal,
@@ -344,6 +356,7 @@ auto OrchestrationTransformer::getJamOrchestrationOutput(
     InstrumentLogitSnapshot logitScratch;
     orchestrationModel->instrumentLogitSink = &logitScratch;
     orchestrationModel->octaveDeltaSink = &octaveDeltaTracker;
+    orchestrationModel->currentStream = OrchestrationModel::InputStream::Reduction;
     auto snappedInput = orchestrationInput;
     snapNearbyOnsets(snappedInput);
     auto notes = orchestrationModel->getOutput(snappedInput,
@@ -392,6 +405,7 @@ void OrchestrationTransformer::threadRun() {
     clearOutputNotes();
     clearInstrumentUpdates();
     clearUpdatesIncoming();
+    clearRestampsIncoming();
     clearOutputDurationUpdates();
     clearDebugSnapshot();
     {
@@ -431,6 +445,7 @@ void OrchestrationTransformer::threadRun() {
             conditioningUpdate = drainIncoming(conditioningIncoming);
             reductionUpdate = drainIncoming(reductionIncoming);
         }
+        applyVoiceRestamps(reductionUpdate);
         step.midiIn = static_cast<int>(midiUpdate.size());
         step.reductionIn = static_cast<int>(reductionUpdate.size());
 

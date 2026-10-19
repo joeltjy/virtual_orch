@@ -598,6 +598,95 @@ auto InstrumentCombinations::encodedCombinationToInstruments(const std::vector<i
     return notes;
 }
 
+auto InstrumentCombinations::instrumentKeysFromTokens(const std::vector<int32_t> &sampledTokens,
+                                                      size_t base) -> std::vector<int32_t> {
+    const std::array<int32_t, 4> familyOffsets = {stringsOffset, woodwindOffset, brassOffset,
+                                                  otherOffset};
+    const std::array<int32_t, 4> familySizes = {numStrings, numWoodwinds, numBrass, numOther};
+    const std::array<int32_t, 4> idOffsets = {0, numStrings, numStrings + numWoodwinds,
+                                              numStrings + numWoodwinds + numBrass};
+    std::vector<int32_t> keys;
+    const int32_t groupsCombo = comboFromGroupsToken(sampledTokens[base + 4]);
+    for (size_t family = 0; family < 4; ++family) {
+        if ((groupsCombo & (1 << static_cast<int32_t>(family))) == 0)
+            continue;
+        const int32_t familyToken = sampledTokens[base + 5 + family];
+        if (familyToken == endNote)
+            continue;
+        const int32_t mask = familyToken - familyOffsets[family];
+        for (int32_t bit = 0; bit < familySizes[family]; ++bit) {
+            if ((mask & (1 << bit)) != 0)
+                keys.push_back(idOffsets[family] + bit);
+        }
+    }
+    std::sort(keys.begin(), keys.end());
+    keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
+    return keys;
+}
+
+auto InstrumentCombinations::writeComboTokens(std::vector<int32_t> &sampledTokens, size_t base,
+                                              const std::vector<int32_t> &instrumentKeys) -> void {
+    const std::array<int32_t, 4> familyOffsets = {stringsOffset, woodwindOffset, brassOffset,
+                                                  otherOffset};
+    const std::array<int32_t, 4> familySizes = {numStrings, numWoodwinds, numBrass, numOther};
+    const std::array<int32_t, 4> idOffsets = {0, numStrings, numStrings + numWoodwinds,
+                                              numStrings + numWoodwinds + numBrass};
+    int32_t groupsCombo = 0;
+    std::array<int32_t, 4> masks{};
+    for (const int32_t key: instrumentKeys) {
+        for (size_t family = 0; family < 4; ++family) {
+            const int32_t bit = key - idOffsets[family];
+            if (bit >= 0 && bit < familySizes[family]) {
+                masks[family] |= (1 << bit);
+                groupsCombo |= (1 << static_cast<int32_t>(family));
+            }
+        }
+    }
+    sampledTokens[base + 4] = groupsCombo != 0 ? groupsTokenForCombo(groupsCombo)
+                                               : groupsTokenForCombo(1);
+    for (size_t family = 0; family < 4; ++family) {
+        sampledTokens[base + 5 + family] =
+            masks[family] != 0 ? familyOffsets[family] + masks[family] : endNote;
+    }
+}
+
+auto InstrumentCombinations::applyEnsembleToSampled(std::vector<int32_t> &sampledTokens,
+                                                    const std::vector<int32_t> &allowed) -> void {
+    const size_t perNote = static_cast<size_t>(tokensPerNote);
+    const size_t numNotes = sampledTokens.size() / perNote;
+    if (numNotes == 0 || inputNotes.size() < numNotes)
+        return;
+    // The sampled notes are the last numNotes records of the shared list.
+    const size_t firstList = inputNotes.size() - numNotes;
+    const bool useEnsemble = getVocsepEnsembleEnabled();
+
+    for (size_t k = 0; k < numNotes; ++k) {
+        const size_t base = k * perNote;
+        const size_t listIdx = firstList + k;
+        auto &rec = inputNotes[listIdx];
+        rec.keysA = instrumentKeysFromTokens(sampledTokens, base);
+        rec.dataA.assign(sampledTokens.begin() + static_cast<std::ptrdiff_t>(base + 4),
+                         sampledTokens.begin() + static_cast<std::ptrdiff_t>(base + 9));
+        rec.keysB = rec.keysA;
+        if (useEnsemble) {
+            auto candidate = ensembleKeysB(listIdx);
+            candidate.erase(std::remove_if(candidate.begin(), candidate.end(),
+                                           [&](int32_t id) {
+                                               return std::find(allowed.begin(), allowed.end(), id)
+                                                      == allowed.end();
+                                           }),
+                            candidate.end());
+            if (! candidate.empty()) {
+                rec.keysB = candidate;
+                writeComboTokens(sampledTokens, base, candidate);
+            }
+        }
+        rec.dataB.assign(sampledTokens.begin() + static_cast<std::ptrdiff_t>(base + 4),
+                         sampledTokens.begin() + static_cast<std::ptrdiff_t>(base + 9));
+        rec.hasResult = true;
+    }
+}
+
 auto InstrumentCombinations::updateHistories(const std::vector<OrchestrationNote> &notes,
                                              const std::vector<int32_t> &sampledTokens) -> void {
     history.insert(history.end(), notes.begin(), notes.end());
@@ -620,6 +709,11 @@ auto InstrumentCombinations::getOutput(const std::vector<Token> &incomingTokens,
     if (incomingTokens.empty() || session == nullptr)
         return {};
 
+    const auto noteTokens = soundingNotes(incomingTokens);
+    if (noteTokens.empty())
+        return {};
+    recordIncoming(noteTokens);
+
     if (getOutputTimings != nullptr)
         ++getOutputTimings->getOutputCalls;
 
@@ -627,7 +721,7 @@ auto InstrumentCombinations::getOutput(const std::vector<Token> &incomingTokens,
     std::vector<int32_t> context;
     {
         const ScopedMs prepMs(getOutputTimings != nullptr ? &getOutputTimings->prep : nullptr);
-        newTokens = tokensToInput(incomingTokens);
+        newTokens = tokensToInput(noteTokens);
         const size_t perNote = static_cast<size_t>(tokensPerNote);
         const size_t maxAligned =
             (static_cast<size_t>(maxContextLength) / perNote) * perNote;
@@ -678,6 +772,7 @@ auto InstrumentCombinations::getOutput(const std::vector<Token> &incomingTokens,
         const ScopedMs sampleMs(getOutputTimings != nullptr ? &getOutputTimings->sample : nullptr);
         sampled = sample(newTokens, logits, vocab);
     }
+    applyEnsembleToSampled(sampled, instruments);
 
     std::vector<OrchestrationNote> result;
     {

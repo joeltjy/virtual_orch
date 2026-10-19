@@ -69,6 +69,9 @@ public:
     CircularFifo<OrchestrationNote> outputTokenQueue;
     CircularFifo<InstrumentUpdate> instrumentUpdates;
     CircularFifo<TokenUpdate> updatesIncoming;
+
+    /** Vocsep re-stamps of notes the reduction already sent (see VoiceRestamp). */
+    CircularFifo<VoiceRestamp> restampsIncoming;
     /** Duration/content corrections for notes already pushed to OutputPlayback. */
     CircularFifo<TokenUpdate> outputDurationUpdates;
 
@@ -249,6 +252,19 @@ private:
         while (instrumentUpdates.pull(u)) {
         }
     }
+
+    auto clearRestampsIncoming() -> void {
+        VoiceRestamp r{};
+        while (restampsIncoming.pull(r)) {
+        }
+    }
+
+    /**
+     * Drain restampsIncoming: patch the voiceId of the batch just drained (a re-stamp can
+     * arrive together with the note it changes), of reductionHistory, and of the model's own
+     * note list. Runs on the OT thread, before the model sees the batch.
+     */
+    auto applyVoiceRestamps(std::vector<Token> &reductionBatch) -> void;
 
     auto clearUpdatesIncoming() -> void {
         TokenUpdate u{};

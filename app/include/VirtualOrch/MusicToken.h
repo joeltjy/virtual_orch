@@ -197,6 +197,11 @@ struct Token {
      * -1 = unset / vocsep off / non-note; >= 0 inherits from parent or is newly allocated.
      */
     int32_t voiceId = -1;
+    /**
+     * Stable id of a reduction output note, assigned by ReductionTransformer::pushOutputToken
+     * so a later vocsep re-stamp can find the same note downstream. -1 = none.
+     */
+    int32_t noteId = -1;
 
     auto getRealDuration() const -> int32_t {
         return duration - Vocab::DurOffset;
@@ -310,6 +315,27 @@ struct TokenUpdate {
     Token oldNote;
     Token newNote;
 };
+
+/** Vocsep re-stamped an earlier reduction note: its stable id and its new voice. */
+struct VoiceRestamp {
+    int32_t noteId = -1;
+    int32_t newVoiceId = -1;
+};
+
+/** Apply a re-stamp to every token with that noteId; returns how many were changed. */
+inline auto applyVoiceRestampToTokens(std::vector<Token> &tokens, const VoiceRestamp &restamp)
+    -> int {
+    if (restamp.noteId < 0)
+        return 0;
+    int changed = 0;
+    for (auto &token: tokens) {
+        if (token.noteId == restamp.noteId && token.voiceId != restamp.newVoiceId) {
+            token.voiceId = restamp.newVoiceId;
+            ++changed;
+        }
+    }
+    return changed;
+}
 
 /** Find oldNote scanning backwards; replace with newNote; reinsert if order key changed. */
 inline auto applyTokenUpdateToHistory(std::vector<Token> &history, const TokenUpdate &update) -> bool {

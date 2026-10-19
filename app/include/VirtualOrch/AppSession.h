@@ -89,6 +89,24 @@ public:
 
     auto setOrchestrationModel(const juce::String &name) -> bool;
 
+    /** Global vocsep-ensemble switch and proportions (shared by every orchestration model). */
+    struct VocsepEnsembleSettings {
+        bool enabled = false;
+        float addP = OrchestrationModel::kEnsembleAddPDefault;
+        float removeP = OrchestrationModel::kEnsembleRemovePDefault;
+    };
+
+    [[nodiscard]] auto getVocsepEnsembleSettings() -> VocsepEnsembleSettings;
+
+    /** Persist the settings and push them to the current orchestration model. */
+    auto setVocsepEnsembleSettings(const VocsepEnsembleSettings &settings) -> void;
+
+    /** Push the stored settings to the current orchestration model (after a model switch). */
+    auto applyVocsepEnsembleSettings() -> void;
+
+    /** The model supports the ensemble and vocsep (which stamps the voice ids) is loaded. */
+    [[nodiscard]] auto vocsepEnsembleAvailable() const -> bool;
+
     auto startGeneration() -> void;
 
     auto stopGeneration() -> void;

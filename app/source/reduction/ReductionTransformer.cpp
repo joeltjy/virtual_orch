@@ -196,8 +196,24 @@ auto ReductionTransformer::clearOutputHistory() -> void {
     outputHistory.clear();
 }
 
+auto ReductionTransformer::forwardRestamp(size_t historyIndex, int32_t newVoiceId) -> void {
+    int32_t noteId = -1;
+    {
+        const juce::ScopedLock histLock(outputHistoryLock);
+        if (historyIndex >= outputHistory.size())
+            return;
+        outputHistory[historyIndex].voiceId = newVoiceId;
+        noteId = outputHistory[historyIndex].noteId;
+    }
+    if (noteId >= 0 && orchestrationRestampsIncoming != nullptr)
+        orchestrationRestampsIncoming->push(VoiceRestamp{noteId, newVoiceId});
+}
+
 auto ReductionTransformer::pushOutputToken(const Token &tokenIn) -> void {
     Token token = tokenIn;
+    if (token.note >= static_cast<int32_t>(Vocab::NoteOffset)
+        && token.note < static_cast<int32_t>(Vocab::Rest))
+        token.noteId = nextNoteId.fetch_add(1, std::memory_order_relaxed);
     if (voiceSeparation != nullptr) {
         std::vector<Token> historyCopy;
         {
@@ -205,13 +221,8 @@ auto ReductionTransformer::pushOutputToken(const Token &tokenIn) -> void {
             historyCopy = outputHistory;
         }
         const auto restamps = voiceSeparation->stampVoiceId(token, historyCopy);
-        if (! restamps.empty()) {
-            const juce::ScopedLock histLock(outputHistoryLock);
-            for (const auto &r: restamps) {
-                if (r.historyIndex < outputHistory.size())
-                    outputHistory[r.historyIndex].voiceId = r.newVoiceId;
-            }
-        }
+        for (const auto &r: restamps)
+            forwardRestamp(r.historyIndex, r.newVoiceId);
     }
     outputTokenQueue.push(token);
     if (orchestrationReductionIncoming != nullptr)

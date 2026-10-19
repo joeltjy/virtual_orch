@@ -188,23 +188,7 @@ AppSession::AppSession()
     if (orchestrationModel != nullptr) {
         orchestrationModel->samplingAlert = &modelSamplingAlert;
         orchestrationModel->getOutputTimings = &orchestrationTransformer.getOutputAccum;
-        if (auto *iod = dynamic_cast<IodPretrained *>(orchestrationModel.get())) {
-            auto orch = presetStore.settings.getOrCreateChildWithName("orchestration", nullptr);
-            iod->setEnsembleEnabled(
-                orch.hasProperty("vocsepEnsemble")
-                    ? static_cast<bool>(orch.getProperty("vocsepEnsemble"))
-                    : false);
-            iod->setEnsembleAddP(
-                orch.hasProperty("vocsepEnsembleAddP")
-                    ? static_cast<float>(
-                          static_cast<double>(orch.getProperty("vocsepEnsembleAddP")))
-                    : IodPretrainedTypes::ensembleAddPDefault);
-            iod->setEnsembleRemoveP(
-                orch.hasProperty("vocsepEnsembleRemoveP")
-                    ? static_cast<float>(
-                          static_cast<double>(orch.getProperty("vocsepEnsembleRemoveP")))
-                    : IodPretrainedTypes::ensembleRemovePDefault);
-        }
+        applyVocsepEnsembleSettings();
     }
 
     const auto syncLeds = [this] { syncPauseTopLeds(); };
@@ -278,10 +262,15 @@ auto AppSession::bindActiveMusicBackend() -> void {
     reductionTransformerV2.orchestrationUpdatesIncoming = nullptr;
     reductionTransformerPianoReduction.orchestrationReductionIncoming = nullptr;
     reductionTransformerPianoReduction.orchestrationUpdatesIncoming = nullptr;
+    musicTransformer.orchestrationRestampsIncoming = nullptr;
+    reductionTransformerV1.orchestrationRestampsIncoming = nullptr;
+    reductionTransformerV2.orchestrationRestampsIncoming = nullptr;
+    reductionTransformerPianoReduction.orchestrationRestampsIncoming = nullptr;
 
     auto &reduction = activeReduction();
     reduction.orchestrationReductionIncoming = &orchestrationTransformer.reductionIncoming;
     reduction.orchestrationUpdatesIncoming = &orchestrationTransformer.updatesIncoming;
+    reduction.orchestrationRestampsIncoming = &orchestrationTransformer.restampsIncoming;
 
     musicTransformer.voiceSeparation = nullptr;
     reductionTransformerV1.voiceSeparation = nullptr;
@@ -337,24 +326,44 @@ auto AppSession::setOrchestrationModel(const juce::String &name) -> bool {
     orchestrationModel->getOutputTimings = &orchestrationTransformer.getOutputAccum;
     orchestrationTransformer.orchestrationModel = orchestrationModel.get();
 
-    if (auto *iod = dynamic_cast<IodPretrained *>(orchestrationModel.get())) {
-        auto orch = presetStore.settings.getOrCreateChildWithName("orchestration", nullptr);
-        const bool enabled = orch.hasProperty("vocsepEnsemble")
-                                 ? static_cast<bool>(orch.getProperty("vocsepEnsemble"))
-                                 : false;
-        const float addP =
-            orch.hasProperty("vocsepEnsembleAddP")
-                ? static_cast<float>(static_cast<double>(orch.getProperty("vocsepEnsembleAddP")))
-                : IodPretrainedTypes::ensembleAddPDefault;
-        const float removeP =
-            orch.hasProperty("vocsepEnsembleRemoveP")
-                ? static_cast<float>(static_cast<double>(orch.getProperty("vocsepEnsembleRemoveP")))
-                : IodPretrainedTypes::ensembleRemovePDefault;
-        iod->setEnsembleEnabled(enabled);
-        iod->setEnsembleAddP(addP);
-        iod->setEnsembleRemoveP(removeP);
-    }
+    applyVocsepEnsembleSettings();
     return true;
+}
+
+auto AppSession::getVocsepEnsembleSettings() -> VocsepEnsembleSettings {
+    auto orch = presetStore.settings.getOrCreateChildWithName("orchestration", nullptr);
+    VocsepEnsembleSettings out;
+    if (orch.hasProperty("vocsepEnsemble"))
+        out.enabled = static_cast<bool>(orch.getProperty("vocsepEnsemble"));
+    if (orch.hasProperty("vocsepEnsembleAddP"))
+        out.addP = static_cast<float>(static_cast<double>(orch.getProperty("vocsepEnsembleAddP")));
+    if (orch.hasProperty("vocsepEnsembleRemoveP"))
+        out.removeP =
+            static_cast<float>(static_cast<double>(orch.getProperty("vocsepEnsembleRemoveP")));
+    return out;
+}
+
+auto AppSession::applyVocsepEnsembleSettings() -> void {
+    if (orchestrationModel == nullptr)
+        return;
+    const auto settings = getVocsepEnsembleSettings();
+    orchestrationModel->setVocsepEnsembleEnabled(settings.enabled);
+    orchestrationModel->setVocsepEnsembleAddP(settings.addP);
+    orchestrationModel->setVocsepEnsembleRemoveP(settings.removeP);
+}
+
+auto AppSession::setVocsepEnsembleSettings(const VocsepEnsembleSettings &settings) -> void {
+    auto orch = presetStore.settings.getOrCreateChildWithName("orchestration", nullptr);
+    orch.setProperty("vocsepEnsemble", settings.enabled, nullptr);
+    orch.setProperty("vocsepEnsembleAddP", static_cast<double>(settings.addP), nullptr);
+    orch.setProperty("vocsepEnsembleRemoveP", static_cast<double>(settings.removeP), nullptr);
+    presetStore.saveSettings();
+    applyVocsepEnsembleSettings();
+}
+
+auto AppSession::vocsepEnsembleAvailable() const -> bool {
+    return orchestrationModel != nullptr && orchestrationModel->supportsVocsepEnsemble()
+           && voiceSeparation.isLoaded();
 }
 
 auto AppSession::startGeneration() -> void {

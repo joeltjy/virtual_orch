@@ -21,6 +21,8 @@ public:
 
     [[nodiscard]] auto tokenHistory() const -> const std::vector<OrchestrationNote> & override;
 
+    [[nodiscard]] auto supportsVocsepEnsemble() const -> bool override { return true; }
+
     [[nodiscard]] auto getOutput(
         const std::vector<Token> &incomingTokens,
         const std::vector<int32_t> &instruments,
@@ -28,6 +30,16 @@ public:
         OrchestrationBalanceTracker *balance = nullptr,
         const OrchestrationBalanceTracker::BiasView *bias = nullptr)
         -> std::vector<OrchestrationNote> override;
+
+    /**
+     * Record the chosen instrument of each new note (key = instrument id) in the shared list
+     * and, when the vocsep ensemble is on, replace it by the voice-smoothed choice B
+     * (restricted to `allowed`; an empty B falls back to A). B may hold several instruments, so
+     * a note can become several notes.
+     */
+    [[nodiscard]] auto applyEnsemble(const std::vector<OrchestrationNote> &sampled,
+                                     const std::vector<int32_t> &allowed)
+        -> std::vector<OrchestrationNote>;
 
 private:
     [[nodiscard]] auto tokensToInput(const std::vector<Token> &incomingTokens) const
@@ -46,6 +58,7 @@ private:
 
     auto updateHistories(const std::vector<OrchestrationNote> &notes,
                          const std::vector<int32_t> &newTokens) -> void;
+
 
     std::vector<OrchestrationNote> history;
 

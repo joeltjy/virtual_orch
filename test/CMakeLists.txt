@@ -38,7 +38,8 @@ target_link_libraries(${PROJECT_NAME}
 # Prevent GTK and curl dependencies
 target_compile_definitions(${PROJECT_NAME} PRIVATE
   JUCE_WEB_BROWSER=0
-  JUCE_USE_CURL=0)
+  JUCE_USE_CURL=0
+  VIRTUAL_ORCH_TEST_RESOURCES="${CMAKE_CURRENT_SOURCE_DIR}/resources")
 
 include(GoogleTest)
 gtest_discover_tests(${PROJECT_NAME} DISCOVERY_MODE)

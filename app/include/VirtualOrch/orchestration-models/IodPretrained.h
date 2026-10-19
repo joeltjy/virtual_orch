@@ -43,28 +43,12 @@ public:
                                           bool applyGroupsBias = true)
         -> std::vector<std::array<int32_t, IodPretrainedTypes::comboLen>>;
 
-    auto setEnsembleEnabled(bool enabled) -> void { ensembleEnabled.store(enabled); }
-    [[nodiscard]] auto getEnsembleEnabled() const -> bool { return ensembleEnabled.load(); }
-
-    auto setEnsembleAddP(float p) -> void { ensembleAddP.store(p); }
-    [[nodiscard]] auto getEnsembleAddP() const -> float { return ensembleAddP.load(); }
-
-    auto setEnsembleRemoveP(float p) -> void { ensembleRemoveP.store(p); }
-    [[nodiscard]] auto getEnsembleRemoveP() const -> float { return ensembleRemoveP.load(); }
+    [[nodiscard]] auto supportsVocsepEnsemble() const -> bool override { return true; }
 
     auto setGroupsBiasTau(float tau) -> void { groupsBiasTau.store(tau); }
     [[nodiscard]] auto getGroupsBiasTau() const -> float { return groupsBiasTau.load(); }
 
 private:
-    struct StreamNote {
-        Token token{};
-        bool hasCombo = false;
-        /** Raw model sample (A). */
-        std::array<int32_t, IodPretrainedTypes::comboLen> comboA{};
-        /** Effective combo for combo_in + decode (B). */
-        std::array<int32_t, IodPretrainedTypes::comboLen> comboB{};
-    };
-
     [[nodiscard]] auto sampleComboForNote(IodPretrainedTypes::EncoderWindow &window,
                                           int32_t noteIdx,
                                           const std::vector<int32_t> &instruments,
@@ -73,36 +57,31 @@ private:
 
     auto recordGroupsMask(int32_t groupsMask) -> void;
 
-    auto clearStream() -> void;
-
-    /** Drop stream if `nextOnset` is more than historyGapClearCs after the last note. */
-    auto clearStreamIfGapBefore(int32_t nextOnset) -> void;
-
-    /** Append RT notes; returns index of first newly appended note (0 if stream was cleared). */
-    auto appendIncoming(const std::vector<Token> &incoming) -> size_t;
-
-    /** Keep last nNotesMax; adjust `newBegin` for dropped prefix. */
-    auto trimStreamToEncoderCap(size_t &newBegin) -> void;
-
     static auto writeComboInFromStored(
         IodPretrainedTypes::EncoderWindow &window,
         int32_t noteIdx,
         const std::array<int32_t, IodPretrainedTypes::comboLen> &combo) -> void;
 
-    /** Same-voice ensemble: A → B using previous B + past-10 A proportions. */
-    [[nodiscard]] auto ensembleComboB(size_t noteIdx,
-                                      const std::array<int32_t, IodPretrainedTypes::comboLen> &comboA)
+    /**
+     * Effective combo B for the note at `listIdx` of the shared input-note list (keysA/dataA
+     * already set): shared vocsep ensemble on instrument x octave-delta pairs, then the IOD-only
+     * outer-voice and unique-octave filters over the encoder window [windowBase, end). An empty
+     * result falls back to A.
+     */
+    [[nodiscard]] auto ensembleComboB(size_t listIdx, size_t windowBase)
         -> std::array<int32_t, IodPretrainedTypes::comboLen>;
 
+    [[nodiscard]] static auto comboFromData(const std::vector<int32_t> &data)
+        -> std::array<int32_t, IodPretrainedTypes::comboLen>;
+
+    [[nodiscard]] static auto dataFromCombo(
+        const std::array<int32_t, IodPretrainedTypes::comboLen> &combo) -> std::vector<int32_t>;
+
     std::vector<OrchestrationNote> history;
-    std::vector<StreamNote> noteStream;
 
     /** Last GROUPS masks (1…15) from sampled notes — drives −τ log π_y. */
     std::deque<int32_t> recentGroupsMasks;
 
-    std::atomic<bool> ensembleEnabled{false};
-    std::atomic<float> ensembleAddP{IodPretrainedTypes::ensembleAddPDefault};
-    std::atomic<float> ensembleRemoveP{IodPretrainedTypes::ensembleRemovePDefault};
     std::atomic<float> groupsBiasTau{IodPretrainedTypes::groupsBiasTau};
 
     std::unique_ptr<Ort::Session> session;

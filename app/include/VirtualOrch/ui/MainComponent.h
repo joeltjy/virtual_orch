@@ -62,6 +62,9 @@ private:
 
     void updateOutputProcessor();
 
+    /** Enable/disable the global vocsep-ensemble switch for the current model + vocsep state. */
+    void refreshVocsepEnsembleToggle();
+
     /**
      * Starts listening to a MIDI input device, enabling it if necessary.
      * idx: 0 = play keyboard, 1 = Launchpad, 2 = pedal keyboard (CC64 pause).
@@ -75,10 +78,11 @@ private:
     juce::ComboBox presetList, mtcClockList, midiInputList, pedalMidiList, launchpadMidiList,
             reductionTypeList, checkpointList, orchestrationModelList, outputList;
     juce::TextButton leftPresetButton{"<"}, rightPresetButton{">"}, savePresetButton{"SAVE"};
-    juce::ToggleButton autoConnect, mtcClock, inputThru, proportionBias, pianoReductionBias;
+    juce::ToggleButton autoConnect, mtcClock, inputThru, proportionBias, pianoReductionBias,
+            vocsepEnsemble;
     juce::Label presetListLabel, configLabel, mtcClockLabel, mtcClockOffsetLabel, controllerLabel,
             midiInputListLabel, pedalMidiListLabel, launchpadMidiListLabel, reductionTypeListLabel,
-            checkpointListLabel, orchestrationModelListLabel, inputThruLabel, proportionBiasLabel,
+            checkpointListLabel, orchestrationModelListLabel, inputThruLabel, proportionBiasLabel, vocsepEnsembleLabel,
             pianoReductionBiasLabel, outputListLabel, oscIpLabel, oscPortLabel,
             bufferOutputOscIpLabel, bufferOutputOscPortLabel, statusOutputOscIpLabel,
             statusOutputOscPortLabel, generationLabel, visualizationBufferSizeLabel;

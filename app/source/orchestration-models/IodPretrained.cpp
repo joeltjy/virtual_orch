@@ -4,6 +4,7 @@
 #include "VirtualOrch/NoteWindow.h"
 #include "VirtualOrch/OrtEnv.h"
 #include "VirtualOrch/OrchLoopProfile.h"
+#include "VirtualOrch/orchestration-models/VocsepEnsemble.h"
 
 #include <algorithm>
 #include <cmath>
@@ -318,56 +319,18 @@ auto IodPretrained::recordGroupsMask(int32_t groupsMask) -> void {
         recentGroupsMasks.pop_front();
 }
 
-auto IodPretrained::clearStream() -> void {
-    noteStream.clear();
-    recentGroupsMasks.clear();
+auto IodPretrained::comboFromData(const std::vector<int32_t> &data)
+    -> std::array<int32_t, IodPretrainedTypes::comboLen> {
+    std::array<int32_t, IodPretrainedTypes::comboLen> combo;
+    combo.fill(IodPretrainedTypes::endNote);
+    for (size_t i = 0; i < combo.size() && i < data.size(); ++i)
+        combo[i] = data[i];
+    return combo;
 }
 
-auto IodPretrained::clearStreamIfGapBefore(int32_t nextOnset) -> void {
-    using namespace IodPretrainedTypes;
-    if (noteStream.empty())
-        return;
-    const int32_t lastOnset = noteStream.back().token.time;
-    if (nextOnset - lastOnset > historyGapClearCs)
-        clearStream();
-}
-
-auto IodPretrained::appendIncoming(const std::vector<Token> &incoming) -> size_t {
-    using namespace IodPretrainedTypes;
-    size_t newBegin = noteStream.size();
-    for (const auto &token: incoming) {
-        if (token.note == static_cast<int32_t>(Vocab::ClearQueue)
-            || token.note == static_cast<int32_t>(Vocab::Rest)
-            || token.note == static_cast<int32_t>(Vocab::BarSeparator))
-            continue;
-        if (token.note < static_cast<int32_t>(Vocab::NoteOffset)
-            || token.note >= static_cast<int32_t>(Vocab::Rest))
-            continue;
-        if (! noteStream.empty())
-            clearStreamIfGapBefore(token.time);
-        if (noteStream.empty())
-            newBegin = 0;
-        StreamNote rec;
-        rec.token = token;
-        rec.hasCombo = false;
-        rec.comboA.fill(endNote);
-        rec.comboB.fill(endNote);
-        noteStream.push_back(rec);
-    }
-    return newBegin;
-}
-
-auto IodPretrained::trimStreamToEncoderCap(size_t &newBegin) -> void {
-    using namespace IodPretrainedTypes;
-    if (noteStream.size() <= static_cast<size_t>(nNotesMax))
-        return;
-    const size_t drop = noteStream.size() - static_cast<size_t>(nNotesMax);
-    noteStream.erase(noteStream.begin(),
-                     noteStream.begin() + static_cast<std::ptrdiff_t>(drop));
-    if (newBegin >= drop)
-        newBegin -= drop;
-    else
-        newBegin = 0;
+auto IodPretrained::dataFromCombo(const std::array<int32_t, IodPretrainedTypes::comboLen> &combo)
+    -> std::vector<int32_t> {
+    return {combo.begin(), combo.end()};
 }
 
 auto IodPretrained::writeComboInFromStored(
@@ -381,98 +344,26 @@ auto IodPretrained::writeComboInFromStored(
             combo[static_cast<size_t>(s)];
 }
 
-auto IodPretrained::ensembleComboB(
-    size_t noteIdx,
-    const std::array<int32_t, IodPretrainedTypes::comboLen> &comboA)
+auto IodPretrained::ensembleComboB(size_t listIdx, size_t windowBase)
     -> std::array<int32_t, IodPretrainedTypes::comboLen> {
     using namespace IodPretrainedTypes;
 
-    if (noteIdx >= noteStream.size())
-        return comboA;
+    const auto &cur = inputNotes[listIdx];
+    const auto comboA = comboFromData(cur.dataA);
 
-    const int32_t voiceId = noteStream[noteIdx].token.voiceId;
+    // Shared, model-neutral part: smooth the (instrument x octave-delta) pairs over the voice.
+    std::vector<int32_t> bPairs = ensembleKeysB(listIdx);
 
-    // B0: previous same-voice B, or A if first in voice / no voiceId.
-    std::array<int32_t, comboLen> b0 = comboA;
-    if (voiceId >= 0) {
-        for (size_t i = noteIdx; i-- > 0;) {
-            if (noteStream[i].token.voiceId != voiceId || ! noteStream[i].hasCombo)
-                continue;
-            b0 = noteStream[i].comboB;
-            break;
-        }
-    }
-
-    // Past ≤10 same-voice notes ending at noteIdx (inclusive) for A proportions.
-    std::vector<size_t> sameVoice;
-    sameVoice.reserve(static_cast<size_t>(ensembleHistoryNotes));
-    if (voiceId < 0) {
-        sameVoice.push_back(noteIdx);
-    } else {
-        for (size_t i = 0; i <= noteIdx; ++i) {
-            if (noteStream[i].token.voiceId != voiceId)
-                continue;
-            if (i < noteIdx && ! noteStream[i].hasCombo)
-                continue;
-            sameVoice.push_back(i);
-        }
-    }
-    if (sameVoice.size() > static_cast<size_t>(ensembleHistoryNotes))
-        sameVoice.erase(sameVoice.begin(),
-                        sameVoice.end() - static_cast<std::ptrdiff_t>(ensembleHistoryNotes));
-
-    const float n = static_cast<float>(sameVoice.size());
-    if (n <= 0.0f)
-        return comboA;
-
-    std::vector<int32_t> candidateKeys = pairsFromCombo(b0);
-    for (const size_t idx: sameVoice) {
-        const auto &src = (idx == noteIdx) ? comboA : noteStream[idx].comboA;
-        auto fromA = pairsFromCombo(src);
-        candidateKeys.insert(candidateKeys.end(), fromA.begin(), fromA.end());
-    }
-    std::sort(candidateKeys.begin(), candidateKeys.end());
-    candidateKeys.erase(std::unique(candidateKeys.begin(), candidateKeys.end()),
-                        candidateKeys.end());
-
-    const float addP = ensembleAddP.load();
-    const float removeP = ensembleRemoveP.load();
-    auto b0Pairs = pairsFromCombo(b0);
-    std::sort(b0Pairs.begin(), b0Pairs.end());
-
-    auto containsSorted = [](const std::vector<int32_t> &sorted, int32_t key) -> bool {
-        return std::binary_search(sorted.begin(), sorted.end(), key);
-    };
-
-    std::vector<int32_t> bPairs = b0Pairs;
-    for (const int32_t key: candidateKeys) {
-        int32_t count = 0;
-        for (const size_t idx: sameVoice) {
-            const auto &src = (idx == noteIdx) ? comboA : noteStream[idx].comboA;
-            auto fromA = pairsFromCombo(src);
-            std::sort(fromA.begin(), fromA.end());
-            if (containsSorted(fromA, key))
-                ++count;
-        }
-        const float prop = static_cast<float>(count) / n;
-        const bool inB = containsSorted(bPairs, key);
-        if (prop > addP && ! inB) {
-            bPairs.push_back(key);
-            std::sort(bPairs.begin(), bPairs.end());
-        } else if (prop < removeP && inB) {
-            bPairs.erase(std::remove(bPairs.begin(), bPairs.end(), key), bPairs.end());
-        }
-    }
-
-    // Outer-voice Δ roles among temporally overlapping notes in the stream.
-    const int32_t onset = noteStream[noteIdx].token.time;
-    const int32_t dur = std::max(1, noteStream[noteIdx].token.getRealDuration());
-    const int32_t pitch = noteStream[noteIdx].token.getPitch();
+    // IOD-only part: outer-voice delta roles among temporally overlapping notes in the
+    // encoder window, then at most one instrument per octave delta.
+    const int32_t onset = cur.token.time;
+    const int32_t dur = std::max(1, cur.token.getRealDuration());
+    const int32_t pitch = cur.token.getPitch();
     OuterVoiceDeltaAllows role;
-    for (size_t i = 0; i < noteStream.size(); ++i) {
-        if (i == noteIdx)
+    for (size_t i = windowBase; i < inputNotes.size(); ++i) {
+        if (i == listIdx)
             continue;
-        const auto &other = noteStream[i].token;
+        const auto &other = inputNotes[i].token;
         const int32_t otherDur = std::max(1, other.getRealDuration());
         if (! notesOverlapCs(onset, dur, other.time, otherDur))
             continue;
@@ -483,8 +374,11 @@ auto IodPretrained::ensembleComboB(
             role.allowMinus1 = false;
     }
 
-    return comboFromPairs(filterPairsUniqueOctave(
-        filterPairsByDeltaAllows(bPairs, role.allowMinus1, role.allowPlus1)));
+    const auto filtered = filterPairsUniqueOctave(
+        filterPairsByDeltaAllows(bPairs, role.allowMinus1, role.allowPlus1));
+    if (filtered.empty())
+        return comboA; // an empty B would silence the note: fall back to the raw choice A
+    return comboFromPairs(filtered);
 }
 
 auto IodPretrained::sampleWindowCombos(IodPretrainedTypes::EncoderWindow &window,
@@ -513,24 +407,32 @@ auto IodPretrained::getOutput(const std::vector<Token> &incomingTokens,
         ++getOutputTimings->getOutputCalls;
 
     const bool applyGroupsBias = bias == nullptr || bias->apply;
-    const bool useEnsemble = ensembleEnabled.load();
+    const bool useEnsemble = getVocsepEnsembleEnabled();
 
     using namespace IodPretrainedTypes;
 
-    size_t newBegin = appendIncoming(incomingTokens);
-    if (noteStream.size() <= newBegin)
+    bool cleared = false;
+    const size_t listNewBegin = recordIncoming(incomingTokens, historyGapClearCs, &cleared);
+    if (cleared)
+        recentGroupsMasks.clear();
+    if (inputNotes.size() <= listNewBegin)
         return {};
 
-    trimStreamToEncoderCap(newBegin);
+    // The encoder looks at the last nNotesMax notes of the shared list.
+    const size_t windowBase =
+        inputNotes.size() > static_cast<size_t>(nNotesMax)
+            ? inputNotes.size() - static_cast<size_t>(nNotesMax)
+            : 0;
+    const size_t newBegin = listNewBegin >= windowBase ? listNewBegin - windowBase : 0;
 
     std::vector<Token> streamTokens;
-    streamTokens.reserve(noteStream.size());
-    for (const auto &rec: noteStream)
-        streamTokens.push_back(rec.token);
+    streamTokens.reserve(inputNotes.size() - windowBase);
+    for (size_t i = windowBase; i < inputNotes.size(); ++i)
+        streamTokens.push_back(inputNotes[i].token);
 
     std::vector<OrchestrationNote> result;
 
-    // Single window: last ≤128 notes (encoderWindowStarts is identity when N≤128).
+    // Single window: last <=128 notes (encoderWindowStarts is identity when N<=128).
     const auto starts = encoderWindowStarts(streamTokens.size());
     for (const size_t start: starts) {
         EncoderWindow window;
@@ -552,10 +454,11 @@ auto IodPretrained::getOutput(const std::vector<Token> &incomingTokens,
             // Teacher-force already-decoded combos (effective B) into combo_in.
             for (int32_t i = 0; i < window.nNotes; ++i) {
                 const size_t global = start + static_cast<size_t>(i);
-                if (global >= noteStream.size())
+                if (windowBase + global >= inputNotes.size())
                     break;
-                if (noteStream[global].hasCombo)
-                    writeComboInFromStored(window, i, noteStream[global].comboB);
+                const auto &rec = inputNotes[windowBase + global];
+                if (rec.hasResult)
+                    writeComboInFromStored(window, i, comboFromData(rec.dataB));
             }
 
             if (getOutputTimings != nullptr) {
@@ -570,21 +473,27 @@ auto IodPretrained::getOutput(const std::vector<Token> &incomingTokens,
                                                                 : nullptr);
             for (int32_t i = 0; i < window.nNotes; ++i) {
                 const size_t global = start + static_cast<size_t>(i);
-                if (global >= noteStream.size())
+                const size_t listIdx = windowBase + global;
+                if (listIdx >= inputNotes.size())
                     break;
-                if (noteStream[global].hasCombo)
+                if (inputNotes[listIdx].hasResult)
                     continue;
-                auto comboA = sampleComboForNote(window, i, instruments, applyGroupsBias);
-                noteStream[global].comboA = comboA;
+                const auto comboA = sampleComboForNote(window, i, instruments, applyGroupsBias);
+                {
+                    auto &rec = inputNotes[listIdx];
+                    rec.dataA = dataFromCombo(comboA);
+                    rec.keysA = VocsepEnsemble::sortedUnique(pairsFromCombo(comboA));
+                }
+                auto comboB = comboA;
                 if (useEnsemble) {
-                    auto comboB = ensembleComboB(global, comboA);
-                    noteStream[global].comboB = comboB;
+                    comboB = ensembleComboB(listIdx, windowBase);
                     // Feed B (not A) into combo_in for subsequent notes in this window.
                     writeComboInFromStored(window, i, comboB);
-                } else {
-                    noteStream[global].comboB = comboA;
                 }
-                noteStream[global].hasCombo = true;
+                auto &rec = inputNotes[listIdx];
+                rec.dataB = dataFromCombo(comboB);
+                rec.keysB = VocsepEnsemble::sortedUnique(pairsFromCombo(comboB));
+                rec.hasResult = true;
             }
         }
 
@@ -593,16 +502,18 @@ auto IodPretrained::getOutput(const std::vector<Token> &incomingTokens,
                                                                 : nullptr);
             for (int32_t i = 0; i < window.nNotes; ++i) {
                 const size_t global = start + static_cast<size_t>(i);
-                if (global < newBegin || global >= noteStream.size())
+                const size_t listIdx = windowBase + global;
+                if (global < newBegin || listIdx >= inputNotes.size())
                     continue;
-                if (! noteStream[global].hasCombo)
+                if (! inputNotes[listIdx].hasResult)
                     continue;
                 const int32_t basePitch = window.basePitch[static_cast<size_t>(i)];
                 const auto role = outerVoiceDeltaAllows(window.onsetCs.data(),
                                                         window.durationToken.data(),
                                                         window.basePitch.data(), window.nNotes, i);
                 auto safePairs = filterPairsUniqueOctave(filterPairsByDeltaAllows(
-                    pairsFromCombo(noteStream[global].comboB), role.allowMinus1, role.allowPlus1));
+                    pairsFromCombo(comboFromData(inputNotes[listIdx].dataB)), role.allowMinus1,
+                    role.allowPlus1));
                 const auto safeCombo = comboFromPairs(safePairs);
                 auto notes = decodeComboToNotes(
                     window.onsetCs[static_cast<size_t>(i)],

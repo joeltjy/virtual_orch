@@ -49,6 +49,9 @@ public:
     CircularFifo<Token> *orchestrationReductionIncoming = nullptr;
     CircularFifo<TokenUpdate> *orchestrationUpdatesIncoming = nullptr;
 
+    /** Where vocsep re-stamps of already-sent notes go (the OT's restampsIncoming). */
+    CircularFifo<VoiceRestamp> *orchestrationRestampsIncoming = nullptr;
+
     [[nodiscard]] auto getInputData() const -> std::vector<int32_t> { return inputData; }
 
     [[nodiscard]] auto getCurrentTime() const -> int32_t { return currentTime; }
@@ -170,6 +173,14 @@ protected:
 
     /** Push to outputTokenQueue and outputHistory. */
     auto pushOutputToken(const Token &token) -> void;
+
+    /**
+     * Vocsep changed the voice of the output-history note at `historyIndex`: rewrite it in
+     * outputHistory and tell the orchestration side, which got that note earlier.
+     */
+    auto forwardRestamp(size_t historyIndex, int32_t newVoiceId) -> void;
+
+    std::atomic<int32_t> nextNoteId{0};
 
     /**
      * On generationPause false→true, emit ClearQueue at clock now + 1 s so pending

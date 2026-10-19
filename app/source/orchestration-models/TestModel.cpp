@@ -1,4 +1,6 @@
 #include "VirtualOrch/orchestration-models/TestModel.h"
+
+#include <algorithm>
 #include "VirtualOrch/OrtEnv.h"
 #include "VirtualOrch/SamplingRelativeTime.h"
 
@@ -158,6 +160,43 @@ auto TestModel::sample(const std::vector<Token> &incomingTokens,
     return result;
 }
 
+auto TestModel::applyEnsemble(const std::vector<OrchestrationNote> &sampled,
+                              const std::vector<int32_t> &allowed) -> std::vector<OrchestrationNote> {
+    if (inputNotes.size() < sampled.size())
+        return sampled;
+    // The sampled notes are the last sampled.size() records of the shared list.
+    const size_t firstList = inputNotes.size() - sampled.size();
+    const bool useEnsemble = getVocsepEnsembleEnabled();
+
+    std::vector<OrchestrationNote> out;
+    out.reserve(sampled.size());
+    for (size_t i = 0; i < sampled.size(); ++i) {
+        auto &rec = inputNotes[firstList + i];
+        rec.keysA = {sampled[i].localInstrumentId};
+        rec.dataA = rec.keysA;
+        rec.keysB = rec.keysA;
+        if (useEnsemble) {
+            auto candidate = ensembleKeysB(firstList + i);
+            candidate.erase(std::remove_if(candidate.begin(), candidate.end(),
+                                           [&](int32_t id) {
+                                               return std::find(allowed.begin(), allowed.end(), id)
+                                                      == allowed.end();
+                                           }),
+                            candidate.end());
+            if (! candidate.empty())
+                rec.keysB = candidate;
+        }
+        rec.dataB = rec.keysB;
+        rec.hasResult = true;
+        for (const int32_t instrument: rec.keysB) {
+            auto note = sampled[i];
+            note.localInstrumentId = instrument;
+            out.push_back(note);
+        }
+    }
+    return out;
+}
+
 auto TestModel::updateHistories(const std::vector<OrchestrationNote> &notes,
                                 const std::vector<int32_t> &newTokens) -> void {
     history.insert(history.end(), notes.begin(), notes.end());
@@ -170,10 +209,15 @@ auto TestModel::getOutput(const std::vector<Token> &incomingTokens,
                           OrchestrationBalanceTracker *balance,
                           const OrchestrationBalanceTracker::BiasView *bias)
     -> std::vector<OrchestrationNote> {
-    juce::ignoreUnused(instruments, conditioningSignal, balance, bias);
+    juce::ignoreUnused(conditioningSignal, balance, bias);
 
     if (incomingTokens.empty() || session == nullptr)
         return {};
+
+    const auto noteTokens = soundingNotes(incomingTokens);
+    if (noteTokens.empty())
+        return {};
+    recordIncoming(noteTokens);
 
     if (getOutputTimings != nullptr)
         ++getOutputTimings->getOutputCalls;
@@ -182,7 +226,7 @@ auto TestModel::getOutput(const std::vector<Token> &incomingTokens,
     std::vector<int32_t> context;
     {
         const ScopedMs prepMs(getOutputTimings != nullptr ? &getOutputTimings->prep : nullptr);
-        newTokens = tokensToInput(incomingTokens);
+        newTokens = tokensToInput(noteTokens);
         context = prependHistoryToInput(newTokens);
 
         // Model sees relative onsets; sample() keeps absolute times from incomingTokens.
@@ -199,7 +243,7 @@ auto TestModel::getOutput(const std::vector<Token> &incomingTokens,
     if (logitsFlat.empty())
         return {};
 
-    const size_t n = incomingTokens.size();
+    const size_t n = noteTokens.size();
     const size_t numNotesInContext = context.size() / 4;
     if (numNotesInContext == 0 || logitsFlat.size() % numNotesInContext != 0 || numNotesInContext < n)
         return {};
@@ -222,7 +266,7 @@ auto TestModel::getOutput(const std::vector<Token> &incomingTokens,
     std::vector<OrchestrationNote> result;
     {
         const ScopedMs sampleMs(getOutputTimings != nullptr ? &getOutputTimings->sample : nullptr);
-        result = sample(incomingTokens, newNoteLogits, numInstruments);
+        result = applyEnsemble(sample(noteTokens, newNoteLogits, numInstruments), instruments);
     }
 
     {

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <array>
+#include <atomic>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -46,6 +48,50 @@ public:
     int32_t maxContextLength = 256;
     std::vector<int32_t> tokenHistorySequence;
 
+    // ---- Input-note list + vocsep ensemble (shared by every orchestration model) ----
+
+    /** Which call a batch of incoming notes belongs to (the OT sets it before getOutput). */
+    enum class InputStream : int32_t {
+        User = 0,      // the user's MIDI notes (Edit mode, user instruments)
+        Reduction = 1, // notes from the reduction transformer
+    };
+
+    /** Kept per incoming note: what the model chose (A) and the voice-smoothed choice (B). */
+    struct InputNote {
+        Token token;
+        InputStream stream = InputStream::Reduction;
+        bool hasResult = false;
+        /** Model-neutral keys (sorted, unique) of the raw choice A and the effective choice B. */
+        std::vector<int32_t> keysA;
+        std::vector<int32_t> keysB;
+        /** Model-specific encoding of A and B (e.g. combo tokens), owned by the model. */
+        std::vector<int32_t> dataA;
+        std::vector<int32_t> dataB;
+    };
+
+    /** Same cap as the reduction transformers' output history (NoteWindow::maxHistoryNotes). */
+    static constexpr size_t kInputNoteCap = 256;
+    static constexpr float kEnsembleAddPDefault = 0.67f;
+    static constexpr float kEnsembleRemovePDefault = 0.3f;
+
+    /** Models that can smooth their per-note choice over a voice return true. */
+    [[nodiscard]] virtual auto supportsVocsepEnsemble() const -> bool { return false; }
+
+    auto setVocsepEnsembleEnabled(bool enabled) -> void { ensembleEnabled.store(enabled); }
+    [[nodiscard]] auto getVocsepEnsembleEnabled() const -> bool { return ensembleEnabled.load(); }
+    auto setVocsepEnsembleAddP(float p) -> void { ensembleAddP.store(p); }
+    [[nodiscard]] auto getVocsepEnsembleAddP() const -> float { return ensembleAddP.load(); }
+    auto setVocsepEnsembleRemoveP(float p) -> void { ensembleRemoveP.store(p); }
+    [[nodiscard]] auto getVocsepEnsembleRemoveP() const -> float { return ensembleRemoveP.load(); }
+
+    /** Written by the OT thread before each getOutput call (like the sinks below). */
+    InputStream currentStream = InputStream::Reduction;
+
+    [[nodiscard]] auto getInputNotes() const -> const std::vector<InputNote> & { return inputNotes; }
+
+    /** Vocsep re-stamped an earlier note: update its voiceId in the list (OT thread). */
+    auto applyVoiceRestamp(int32_t noteId, int32_t newVoiceId) -> void;
+
     /** Set by AppSession; used to surface ORT / sampling failures in the Mode widget. */
     ModelSamplingAlert *samplingAlert = nullptr;
 
@@ -62,8 +108,32 @@ public:
     OctaveDeltaTracker *octaveDeltaSink = nullptr;
 
 protected:
+    /**
+     * Append the sounding notes of `incoming` (tagged with currentStream) to inputNotes and
+     * trim to kInputNoteCap. Call first thing in getOutput, like the reductions call
+     * pushOutputToken. Returns the index of the first note appended by this call (after the
+     * trim). With gapClearCs > 0 the whole list is dropped when a note starts more than that
+     * many cs after the last one; `cleared` is then set.
+     */
+    auto recordIncoming(const std::vector<Token> &incoming,
+                        int32_t gapClearCs = 0,
+                        bool *cleared = nullptr) -> size_t;
+
+    /** The sounding notes of `tokens` (drops ClearQueue, rests, bar separators). */
+    [[nodiscard]] static auto soundingNotes(const std::vector<Token> &tokens) -> std::vector<Token>;
+
+    /** B keys for inputNotes[idx] (its keysA must be set) with the current Add P / Remove P. */
+    [[nodiscard]] auto ensembleKeysB(size_t idx) const -> std::vector<int32_t>;
+
+    std::vector<InputNote> inputNotes;
+
     auto reportSamplingError(const juce::String &detail) -> void {
         if (samplingAlert != nullptr)
             samplingAlert->report(juce::String(getName()), detail);
     }
+
+private:
+    std::atomic<bool> ensembleEnabled{false};
+    std::atomic<float> ensembleAddP{kEnsembleAddPDefault};
+    std::atomic<float> ensembleRemoveP{kEnsembleRemovePDefault};
 };

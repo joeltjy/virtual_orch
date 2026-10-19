@@ -465,6 +465,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
                 "Error",
                 "Failed to load orchestration model '" + name + "'.");
         }
+        refreshVocsepEnsembleToggle();
     };
 
     /* ORCHESTRATION PROPORTION BIAS */
@@ -490,6 +491,21 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
             .setProperty("proportionBias", enabled, nullptr);
         session.orchestrationTransformer.proportionBiasEnabled.set(enabled);
     };
+
+    /* GLOBAL VOCSEP ENSEMBLE SWITCH (any orchestration model that supports it) */
+    addAndMakeVisible(vocsepEnsembleLabel);
+    vocsepEnsembleLabel.setText("Voice Ensemble:", juce::dontSendNotification);
+    vocsepEnsembleLabel.attachToComponent(&vocsepEnsemble, true);
+
+    addAndMakeVisible(vocsepEnsemble);
+    vocsepEnsemble.setToggleState(session.getVocsepEnsembleSettings().enabled,
+                                  juce::dontSendNotification);
+    vocsepEnsemble.onClick = [this] {
+        auto settings = session.getVocsepEnsembleSettings();
+        settings.enabled = vocsepEnsemble.getToggleState();
+        session.setVocsepEnsembleSettings(settings);
+    };
+    refreshVocsepEnsembleToggle();
 
     /* PIANO REDUCTION ANTI-REPETITION BIAS */
     addAndMakeVisible(pianoReductionBiasLabel);
@@ -951,6 +967,7 @@ void MainComponent::loadPresetFromName(const juce::String &presetName) {
                     "Error",
                     "Failed to load orchestration model '" + orchName + "'.");
             }
+            refreshVocsepEnsembleToggle();
         } else {
             juce::AlertWindow::showMessageBoxAsync(
                 juce::AlertWindow::WarningIcon,
@@ -968,6 +985,22 @@ void MainComponent::loadPresetFromName(const juce::String &presetName) {
     session.presetStore.applyPreset(preset);
     session.rebuildInputFilter();
     resized();
+}
+
+void MainComponent::refreshVocsepEnsembleToggle() {
+    const bool modelOk = session.orchestrationModel != nullptr
+                         && session.orchestrationModel->supportsVocsepEnsemble();
+    const bool vocsepOk = session.voiceSeparation.isLoaded();
+    vocsepEnsemble.setEnabled(modelOk && vocsepOk);
+    if (! modelOk)
+        vocsepEnsemble.setTooltip("The selected orchestration model does not support the voice ensemble.");
+    else if (! vocsepOk)
+        vocsepEnsemble.setTooltip("Needs vocsep.onnx loaded: it stamps the voice ids the ensemble uses.");
+    else
+        vocsepEnsemble.setTooltip("Smooth each note's choice over notes of the same voice "
+                                  "(applies to the current orchestration model).");
+    vocsepEnsemble.setToggleState(session.getVocsepEnsembleSettings().enabled,
+                                  juce::dontSendNotification);
 }
 
 void MainComponent::moveToLeftPreset() {
@@ -1258,6 +1291,9 @@ void MainComponent::resized() {
 
     auto proportionBiasArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
     proportionBias.setBounds(proportionBiasArea.withTrimmedLeft(80));
+
+    auto vocsepEnsembleArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
+    vocsepEnsemble.setBounds(vocsepEnsembleArea.withTrimmedLeft(80));
 
     auto pianoReductionBiasArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
     pianoReductionBias.setBounds(pianoReductionBiasArea.withTrimmedLeft(80));

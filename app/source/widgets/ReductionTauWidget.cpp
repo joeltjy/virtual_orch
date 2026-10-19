@@ -76,8 +76,8 @@ public:
         drawBar(0, pitchTau, juce::CharPointer_UTF8("\xcf\x84"), juce::Colour(0xff6fa8dc));
         drawBar(1, pitchTauPrime, juce::CharPointer_UTF8("\xcf\x84\xe2\x80\xb2"),
                 juce::Colour(0xff82c091));
-        drawBar(2, durationTau, juce::CharPointer_UTF8("\xcf\x84d"), juce::Colour(0xffe6a057));
-        drawBar(3, durationTauPrime, juce::CharPointer_UTF8("\xcf\x84d\xe2\x80\xb2"),
+        drawBar(2, durationTau, juce::CharPointer_UTF8("\xcf\x84" "d"), juce::Colour(0xffe6a057));
+        drawBar(3, durationTauPrime, juce::CharPointer_UTF8("\xcf\x84" "d\xe2\x80\xb2"),
                 juce::Colour(0xffc97b84));
     }
 };

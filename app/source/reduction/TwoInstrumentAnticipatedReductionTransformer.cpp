@@ -1,6 +1,7 @@
 #include "VirtualOrch/reduction/TwoInstrumentAnticipatedReductionTransformer.h"
 
 #include "VirtualOrch/NoteWindow.h"
+#include "VirtualOrch/RegisterRange.h"
 #include "VirtualOrch/vocsep/VoiceSeparation.h"
 #include "VirtualOrch/TemporalDensity.h"
 
@@ -139,6 +140,9 @@ auto TwoInstrumentAnticipatedReductionTransformer::generateOne(int32_t now) -> s
     params.temperatures = {getOnsetTemperature(), getDurationTemperature(), getNoteTemperature(),
                            getVelocityTemperature()};
     params.pitchBias = isPitchBiasEnabled();
+    params.biases = biasesActiveNow();
+    params.pitchLow = RegisterRange::lowPitch();
+    params.pitchHigh = RegisterRange::highPitch();
     const auto note = stage.generate(params);
     if (! note.has_value()) {
         if (! stage.lastError.empty())

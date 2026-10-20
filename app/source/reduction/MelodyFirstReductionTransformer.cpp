@@ -1,6 +1,7 @@
 #include "VirtualOrch/reduction/MelodyFirstReductionTransformer.h"
 
 #include "VirtualOrch/PolyphonyCap.h"
+#include "VirtualOrch/RegisterRange.h"
 #include "VirtualOrch/TemporalDensity.h"
 #include "VirtualOrch/vocsep/VoiceSeparation.h"
 
@@ -203,6 +204,9 @@ auto MelodyFirstReductionTransformer::generateMelodyNote(int32_t now)
     params.now = now;
     params.temperatures = temperatures();
     params.pitchBias = isPitchBiasEnabled();
+    params.biases = biasesActiveNow();
+    params.pitchLow = RegisterRange::lowPitch();
+    params.pitchHigh = RegisterRange::highPitch();
     // Two voices: at most two notes sounding (fewer with the accompaniment cap); the next onset
     // waits for the earliest end when both are busy.
     const int userCap = getMaxPolyphony();
@@ -241,6 +245,9 @@ auto MelodyFirstReductionTransformer::generateReductionNote(int32_t now) -> std:
     params.lowerAbs = std::max(onsetLowerBoundCs(), now);
     params.temperatures = temperatures();
     params.pitchBias = isPitchBiasEnabled();
+    params.biases = biasesActiveNow();
+    params.pitchLow = RegisterRange::lowPitch();
+    params.pitchHigh = RegisterRange::highPitch();
     const auto note = reductionStage.generate(params);
     if (! note.has_value()) {
         if (! reductionStage.lastError.empty())

@@ -93,6 +93,15 @@ AppSession::AppSession()
 
     bindActiveMusicBackend();
     outputPlayback.activityLog = &activityLog;
+    const auto pianoSilent = [this] {
+        return activityLog.pianoSilentForMs(juce::Time::currentTimeMillis());
+    };
+    musicTransformer.pianoSilentForMs = pianoSilent;
+    reductionTransformerV1.pianoSilentForMs = pianoSilent;
+    reductionTransformerV2.pianoSilentForMs = pianoSilent;
+    reductionTransformerPianoReduction.pianoSilentForMs = pianoSilent;
+    reductionTransformerAnticipated.pianoSilentForMs = pianoSilent;
+    reductionTransformerMelodyFirst.pianoSilentForMs = pianoSilent;
     midiInputProcess.activityLog = &activityLog;
     midiInputProcess.getLaunchpadGrid().action_callback =
         [this](const PerformanceActivity::LaunchpadAction &action) {

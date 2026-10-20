@@ -1,5 +1,7 @@
 #include "VirtualOrch/widgets/LogitAdjustmentsWidget.h"
 
+#include "VirtualOrch/BiasSettings.h"
+
 #include "VirtualOrch/AppSession.h"
 #include "VirtualOrch/orchestration-models/IodPretrained.h"
 #include "VirtualOrch/orchestration-models/IodPretrainedTypes.h"
@@ -52,8 +54,8 @@ LogitAdjustmentsWidget::LogitAdjustmentsWidget(AppSession &sessionIn)
     content.addAndMakeVisible(statusLabel);
     styleLive(statusLabel);
 
-    for (auto *toggle:
-         {&pitchToggle, &durationToggle, &onsetGapToggle, &proportionToggle}) {
+    for (auto *toggle: {&biasesOnToggle, &biasGateToggle, &pitchToggle, &durationToggle,
+                        &onsetGapToggle, &proportionToggle}) {
         content.addAndMakeVisible(*toggle);
         toggle->setClickingTogglesState(true);
     }
@@ -97,6 +99,16 @@ LogitAdjustmentsWidget::LogitAdjustmentsWidget(AppSession &sessionIn)
         if (! ignoreToggleCallbacks)
             applyOnsetGapBiasEnabled(onsetGapToggle.getToggleState());
     };
+    biasesOnToggle.onClick = [this] {
+        if (ignoreToggleCallbacks)
+            return;
+        BiasSettings::setEnabled(biasesOnToggle.getToggleState());
+        biasGateToggle.setEnabled(biasesOnToggle.getToggleState());
+    };
+    biasGateToggle.onClick = [this] {
+        if (! ignoreToggleCallbacks)
+            BiasSettings::setOnlyWhenPianoSilent(biasGateToggle.getToggleState());
+    };
     proportionToggle.onClick = [this] {
         if (! ignoreToggleCallbacks)
             applyProportionBiasEnabled(proportionToggle.getToggleState());
@@ -134,6 +146,11 @@ auto LogitAdjustmentsWidget::resized() -> void {
     statusLabel.setBounds(area.removeFromTop(16));
     area.removeFromTop(kGap);
 
+    biasesOnToggle.setBounds(area.removeFromTop(kRowH));
+    area.removeFromTop(kGap);
+    biasGateToggle.setBounds(area.removeFromTop(kRowH).withTrimmedLeft(18));
+    area.removeFromTop(kGap);
+
     const auto placeToggleRow = [&](juce::ToggleButton &toggle, juce::Label &live) {
         auto row = area.removeFromTop(kRowH);
         toggle.setBounds(row.removeFromLeft(juce::jmin(190, row.getWidth() / 2)));
@@ -169,6 +186,9 @@ auto LogitAdjustmentsWidget::timerCallback() -> void {
 
 auto LogitAdjustmentsWidget::syncRtBiasTogglesFromModels() -> void {
     ignoreToggleCallbacks = true;
+    biasesOnToggle.setToggleState(BiasSettings::enabled(), juce::dontSendNotification);
+    biasGateToggle.setToggleState(BiasSettings::onlyWhenPianoSilent(), juce::dontSendNotification);
+    biasGateToggle.setEnabled(BiasSettings::enabled());
     const bool dense =
         session.musicModelArch == MusicModelArch::DenseV2
         || session.musicModelArch == MusicModelArch::DensePianoReduction;

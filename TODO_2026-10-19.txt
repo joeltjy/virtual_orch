@@ -1774,3 +1774,33 @@ Adaptation to the redesigned models T3'' / T8'' / T7'' (2026-10-20, branch adapt
   - Descriptors app/t3_anticipated_reduction.json and app/melody_first_reduction.json now name
     placeholder files (t3pp_dense_rope_kv, t7pp_amt_rope_kv, t8pp_dense_rope_kv) until the exports
     exist; the checkpoints are listed only when those files are found.
+
+Register control, polyphony in Jam mode, bias settings (2026-10-20)
+  Register (Launchpad row 6)
+  - Pads (6,0..2) = LOW / MEDIUM / HIGH and the side pad (6, side column) = AUTO register, like the TD
+    pads. AUTO (default) restricts nothing; turning AUTO off returns to the last selected register
+    (MEDIUM until one is chosen). Works in Edit and Jam. Lit: LOW blue, MEDIUM mint, HIGH magenta;
+    AUTO green on / red off. Shown in the Active Instruments widget and logged in the console.
+  - Ranges (C4 = MIDI 60, overlapping as you specified): LOW 21..59 (below C4), MEDIUM 48..84 (C3 to
+    C6), HIGH 73..108 (above C5). Boundaries are inclusive of the notes named, so "below C4" excludes C4
+    and "above C5" excludes C5.
+  - It limits the pitch of EVERY generated reduction note: the shared sampler of T3'', of T8''
+    (melody + bass) and of T7'' (Y), and the note-logit masks of V1, V2, Piano Reduction and the AMT
+    model (RegisterRange::maskNoteBlock). If the register conflicts with everything the older model
+    may play (no finite note left), the mask is skipped and the note is generated unrestricted.
+  - It does NOT limit the orchestration: the orchestration model can still move a reduction note by an
+    octave (instrument x octave-delta combos), so sounded pitches can leave the register.
+  Polyphony in Jam mode
+  - The polyphony pads (7,0..3) now work in Jam mode with or without accompaniment mode, and the cap
+    applies in plain Jam. There is no cap until a pad is pressed (0 = none); pressing the selected pad
+    again clears the cap. Edit mode: pads ignored, no cap.
+  - Turning accompaniment on starts at polyphony 1 only if no cap was already chosen; turning it off
+    keeps the cap (clear it with the pad). This replaces "accompaniment always starts at 1".
+  Logit biases: two checkboxes (Logit Adjustments widget, top)
+  - "Logit biases on" turns the reduction models' anti-repetition biases (pitch, duration, onset-gap)
+    on or off for every reduction model; "Only when the piano is silent > 1 s" (enabled when the first
+    is on) applies them only while no key is down and the last key was released more than 1 s ago;
+    otherwise they apply all the time. Default: on, always. The per-bias toggles of V2 and Piano
+    Reduction still apply on top. The OT "proportion / IOD groups" bias is a separate toggle and is
+    not touched. Piano silence comes from the keyboard activity log (the keys, not the notes' lengths).
+  - Not persisted across restarts (the settings are global, defaults on / always).

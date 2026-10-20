@@ -7,6 +7,7 @@
 #include <memory>
 #include <vector>
 
+#include "VirtualOrch/BiasSettings.h"
 #include "VirtualOrch/DurationLogitSnapshot.h"
 #include "VirtualOrch/Fifo.h"
 #include "VirtualOrch/Clock.h"
@@ -106,6 +107,17 @@ public:
      * sustain pedal up while held notes are still unresolved.
      */
     [[nodiscard]] auto hasUnresolvedProvisionalInputNotes() const -> bool;
+
+    /**
+     * How long the piano has been silent (set by AppSession: 0 while a key is down, else ms since
+     * the last release). Empty = unknown, treated as silent.
+     */
+    std::function<int64_t()> pianoSilentForMs;
+
+    /** Whether the logit biases apply to the next note (BiasSettings: on/off, and the piano gate). */
+    [[nodiscard]] auto biasesActiveNow() const -> bool {
+        return BiasSettings::allowsNow(pianoSilentForMs ? pianoSilentForMs() : INT64_MAX);
+    }
 
     /** Accompaniment mode: at most this many generated notes sound at once (0 = no cap). */
     auto setMaxPolyphony(int32_t cap) -> void { maxPolyphony.store(cap); }

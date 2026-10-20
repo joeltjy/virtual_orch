@@ -110,14 +110,33 @@ auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid) -> void {
     flush.onPalette = LaunchpadLighting::kFlush;
     flush.lit = true;
 
+    // Register (row 6): LOW / MEDIUM / HIGH pads and the AUTO side button.
+    {
+        static const char *const labels[] = {UiConstants::workspaceActiveInstrumentsRegisterLowLabel,
+                                             UiConstants::workspaceActiveInstrumentsRegisterMediumLabel,
+                                             UiConstants::workspaceActiveInstrumentsRegisterHighLabel};
+        const bool registerAuto = RegisterRange::isAuto();
+        for (int pad = 0; pad < LaunchpadGrid::kRegisterPadCount; ++pad) {
+            const int reg = *LaunchpadGrid::registerForPad(LaunchpadGrid::kRegisterRow, pad);
+            auto &cell = cellAt(LaunchpadGrid::kRegisterRow, pad);
+            cell.label = labels[pad];
+            cell.onPalette = LaunchpadLighting::colourForRegister(reg, true);
+            cell.lit = ! registerAuto && reg == RegisterRange::get();
+        }
+        auto &autoReg = cellAt(LaunchpadGrid::kRegisterRow, LaunchpadGrid::kCols);
+        autoReg.label = UiConstants::workspaceActiveInstrumentsAutoRegisterLabel;
+        autoReg.onPalette = LaunchpadLighting::colourForAutoTd(registerAuto);
+        autoReg.lit = true;
+    }
+
     // Accompaniment (bottom row): polyphony pads 1..4 + the side toggle (dark outside Jam).
-    const bool accompActive = grid.isAccompanimentActive();
+    const bool polyActive = grid.isPolyphonyActive();
     for (int pad = 0; pad < LaunchpadGrid::kPolyphonyPadCount; ++pad) {
         const int polyphony = *LaunchpadGrid::polyphonyForPad(LaunchpadGrid::kAccompRow, pad);
         auto &cell = cellAt(LaunchpadGrid::kAccompRow, pad);
         cell.label = UiConstants::workspaceActiveInstrumentsPolyphonyPrefix + juce::String(polyphony);
         cell.onPalette = LaunchpadLighting::colourForPolyphonyPad(true, true);
-        cell.lit = accompActive && polyphony == grid.getMaxPolyphony();
+        cell.lit = polyActive && polyphony == grid.getMaxPolyphony();
     }
     auto &accomp = cellAt(LaunchpadGrid::kAccompRow, LaunchpadGrid::kCols);
     accomp.label = UiConstants::workspaceActiveInstrumentsAccompanimentLabel;

@@ -32,7 +32,9 @@ auto AnticipationStage::generate(const Params &params) -> std::optional<Anticipa
     if (stream.rebaseForEviction(cache->evictedTokens(), cache->sinkRows()) > 0)
         cache->reset();
 
-    sampler.pitchBias = params.pitchBias;
+    sampler.pitchBias = params.pitchBias && params.biases;
+    sampler.durationBias = params.biases;
+    sampler.onsetGapBias = params.biases;
     AnticipationSampler::Context ctx;
     int32_t onsetModel = 0;
     bool drawn = false;
@@ -87,6 +89,8 @@ auto AnticipationStage::generate(const Params &params) -> std::optional<Anticipa
     ctx.base = base;
     ctx.onsetAbs = onsetModel + base;
     ctx.lowerOnsetModel = 0;
+    ctx.pitchLow = params.pitchLow;
+    ctx.pitchHigh = params.pitchHigh;
     std::vector<int32_t> partial{onsetModel};
     std::array<int32_t, 4> chosen{onsetModel, 0, 0, 0};
     for (int field = 1; field < 4; ++field) {

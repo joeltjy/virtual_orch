@@ -34,6 +34,9 @@ public:
         int32_t lowerAbs = 0;         // earliest onset: polyphony cap, never in the past
         std::array<float, 4> temperatures{0.5f, 0.5f, 0.5f, 0.5f};
         bool pitchBias = true;
+        bool biases = true;           // BiasSettings gate: false turns all three biases off
+        int32_t pitchLow = DenseQuantize::PianoKeyLow;   // register limits (inclusive)
+        int32_t pitchHigh = DenseQuantize::PianoKeyHigh;
     };
 
     AnticipationStage(AnticipatedStream::Vocab vocabIn, bool visibleRestsIn)

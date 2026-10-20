@@ -39,6 +39,8 @@ public:
         int32_t lowerOnsetModel = 0; // onset ids below this are masked
         int32_t onsetAbs = 0;       // the onset already chosen (fields 1..3)
         int32_t clockAbs = 0;       // max(app clock, last generated onset): the bias "now"
+        int32_t pitchLow = DenseQuantize::PianoKeyLow;   // register limits (inclusive)
+        int32_t pitchHigh = DenseQuantize::PianoKeyHigh;
     };
 
     explicit AnticipationSampler(int32_t velocityBaseIn) : velocityBase(velocityBaseIn) {}
@@ -99,11 +101,19 @@ public:
                      cs += DenseQuantize::DurationStepCs)
                     allow(static_cast<int32_t>(DenseVocab::DurOffset) + cs);
                 break;
-            case 2:
-                for (int32_t p = DenseQuantize::PianoKeyLow; p <= DenseQuantize::PianoKeyHigh; ++p)
+            case 2: {
+                // piano range, narrowed to the register; an empty intersection keeps the piano range
+                int32_t lo = std::max(DenseQuantize::PianoKeyLow, ctx.pitchLow);
+                int32_t hi = std::min(DenseQuantize::PianoKeyHigh, ctx.pitchHigh);
+                if (lo > hi) {
+                    lo = DenseQuantize::PianoKeyLow;
+                    hi = DenseQuantize::PianoKeyHigh;
+                }
+                for (int32_t p = lo; p <= hi; ++p)
                     allow(static_cast<int32_t>(DenseVocab::NoteOffset)
                           + DenseConfig::MaxPitch * kEventInstrument + p);
                 break;
+            }
             default:
                 // v = 0 would read as a note-off: only 8..120
                 for (int32_t v = DenseQuantize::VelocityStep; v <= DenseQuantize::VelocityMax;

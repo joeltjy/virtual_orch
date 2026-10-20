@@ -116,6 +116,16 @@ public:
         pianoReleasedMs = nowMs;
     }
 
+    /** 0 while a piano key is down, else ms since the last release (INT64_MAX if none yet). */
+    [[nodiscard]] auto pianoSilentForMs(int64_t nowMs) const -> int64_t {
+        const juce::ScopedLock lock(mutex);
+        if (! keysDown.empty())
+            return 0;
+        if (pianoReleasedMs == kNever)
+            return INT64_MAX;
+        return std::max<int64_t>(0, nowMs - pianoReleasedMs);
+    }
+
     [[nodiscard]] auto activeSectors(int64_t nowMs) const -> std::array<bool, kSectorCount> {
         const juce::ScopedLock lock(mutex);
         std::array<bool, kSectorCount> active{};
@@ -225,9 +235,11 @@ struct LaunchpadAction {
         TdAuto,        // on = AUTO now on
         Mode,          // value = 0 Edit, 1 Jam
         Accompaniment, // on = now on
-        Polyphony,     // value = max polyphony
+        Polyphony,     // value = max polyphony, 0 = off
         Pause,         // value = 1 RT, 2 OT; on = now paused
         ForceRestart,
+        Register,      // value = 1 LOW, 2 MEDIUM, 3 HIGH
+        RegisterAuto,  // on = AUTO now on
     };
     Kind kind = Kind::Flush;
     int32_t local = 0;
@@ -255,9 +267,16 @@ template <typename NameFn>
         case Kind::Accompaniment:
             return a.on ? "Accompaniment on (max polyphony 1)" : "Accompaniment off";
         case Kind::Polyphony:
-            return "Max polyphony " + juce::String(a.value);
+            return a.value > 0 ? "Max polyphony " + juce::String(a.value)
+                               : juce::String("Max polyphony off");
         case Kind::ForceRestart:
             return "Force restart";
+        case Kind::Register:
+            return a.value == 1   ? juce::String("Register LOW (below C4)")
+                   : a.value == 2 ? juce::String("Register MEDIUM (C3 to C6)")
+                                  : juce::String("Register HIGH (above C5)");
+        case Kind::RegisterAuto:
+            return a.on ? "Register AUTO on (no limit)" : "Register AUTO off";
         case Kind::Pause: {
             const juce::String who = a.value == 1 ? "Reduction" : "Orchestration";
             return who + (a.on ? " paused" : " resumed");

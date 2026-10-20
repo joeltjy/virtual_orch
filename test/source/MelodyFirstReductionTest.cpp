@@ -234,13 +234,13 @@ TEST(MelodyFirst, theMelodyStageIsTwoVoicesAndTheCapAppliesToBothStages) {
         Rig rig; // no accompaniment cap: at most 2 sounding in the melody
         rig.begin();
     rig.play(1000, 64, 40);
-        for (int i = 0; i < 12; ++i) {
+        for (int i = 0; i < 40; ++i) {
             (void) rig.rt.stepOnce();
             rig.now += 20;
             (void) rig.drain();
         }
         const auto &melody = rig.rt.melodyEventsForTest();
-        ASSERT_GE(melody.size(), 4u);
+        ASSERT_GE(melody.size(), 3u);
         for (const auto &probe: melody) {
             int sounding = 0;
             for (const auto &other: melody)

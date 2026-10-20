@@ -17,6 +17,7 @@
 #include "VirtualOrch/OrchestrationTransformer.h"
 #include "VirtualOrch/PerformanceActivity.h"
 #include "VirtualOrch/PolyphonyCap.h"
+#include "VirtualOrch/RegisterRange.h"
 #include "VirtualOrch/TemporalDensity.h"
 
 /** Launchpad pad state + instrument updates.
@@ -38,6 +39,7 @@
  *  LEDs: instrument pads lit in their family colour when on; unmapped pads stay off.
  *  Top-row CCs use `scene_callback(idx)` with idx = cc - 104 (0..7).
  *  App wiring: 0 (CC104) force restart (stop + start), 1 (CC105) RT pause, 2 (CC106) OT pause; 3..7 unused.
+ *  Row 6: register LOW / MEDIUM / HIGH (pads 0-2) and an AUTO side pad (RegisterRange).
  *  Pause buttons light red via setTopLed while paused.
  */
 class LaunchpadGrid {
@@ -61,6 +63,9 @@ public:
     static constexpr int kTdLevelCount = static_cast<int>(TemporalDensity::kLevels.size());
     /** Bottom row: pads 0..3 pick the max polyphony 1..4, the side pad toggles accompaniment. */
     static constexpr int kAccompRow = kRows - 1;
+    /** Row 6: pads 0..2 = register LOW / MEDIUM / HIGH, the side pad = AUTO register. */
+    static constexpr int kRegisterRow = kRows - 2;
+    static constexpr int kRegisterPadCount = 3;
     static constexpr int kPolyphonyPadCount = PolyphonyCap::kMaxCap;
 
     /** Accompaniment on/off or max polyphony changed (the app applies the cap). */
@@ -137,9 +142,15 @@ public:
             return;
         }
 
+        if (const auto reg = registerForPad(rowIdx, colIdx)) {
+            set_led(*note, LaunchpadLighting::colourForRegister(
+                               *reg, ! RegisterRange::isAuto() && *reg == RegisterRange::get()));
+            return;
+        }
+
         if (const auto polyphony = polyphonyForPad(rowIdx, colIdx)) {
             set_led(*note, LaunchpadLighting::colourForPolyphonyPad(
-                               isAccompanimentActive(), *polyphony == getMaxPolyphony()));
+                               isPolyphonyActive(), *polyphony == getMaxPolyphony()));
             return;
         }
 
@@ -192,6 +203,10 @@ public:
         return accompanimentOn.load(std::memory_order_relaxed)
                && getSelectedMode() == OrchestrationMode::Jam;
     }
+    /** The polyphony pads work in Jam mode, with or without accompaniment mode on. */
+    [[nodiscard]] auto isPolyphonyActive() const -> bool {
+        return getSelectedMode() == OrchestrationMode::Jam;
+    }
     [[nodiscard]] auto isAccompanimentOn() const -> bool {
         return accompanimentOn.load(std::memory_order_relaxed);
     }
@@ -199,22 +214,37 @@ public:
         return maxPolyphony.load(std::memory_order_relaxed);
     }
 
-    /** Cap the reduction transformers must apply now: 0 unless accompaniment is active. */
+    /**
+     * Cap the reduction transformers must apply now: the selected max polyphony in Jam mode (with
+     * or without accompaniment mode), 0 = no cap (nothing selected, or Edit mode).
+     */
     [[nodiscard]] auto effectivePolyphonyCap() const -> int {
-        return isAccompanimentActive() ? getMaxPolyphony() : 0;
+        return isPolyphonyActive() ? getMaxPolyphony() : 0;
     }
 
     auto setAccompanimentOn(bool on) -> void {
         accompanimentOn.store(on, std::memory_order_relaxed);
-        if (on)
+        // Accompaniment starts at polyphony 1 unless a cap was already chosen in Jam mode.
+        if (on && getMaxPolyphony() == 0)
             maxPolyphony.store(PolyphonyCap::kMinCap, std::memory_order_relaxed);
         refreshAccompanimentLeds();
     }
 
     auto setMaxPolyphony(int cap) -> void {
-        maxPolyphony.store(std::clamp(cap, PolyphonyCap::kMinCap, PolyphonyCap::kMaxCap),
-                           std::memory_order_relaxed);
+        maxPolyphony.store(std::clamp(cap, 0, PolyphonyCap::kMaxCap), std::memory_order_relaxed);
         refreshAccompanimentLeds();
+    }
+
+    /** Register value (RegisterRange::kLow..kHigh) of the first pads of the register row. */
+    [[nodiscard]] static auto registerForPad(int rowIdx, int colIdx) -> std::optional<int> {
+        if (rowIdx != kRegisterRow || colIdx < 0 || colIdx >= kRegisterPadCount)
+            return std::nullopt;
+        return RegisterRange::kLow + colIdx;
+    }
+
+    /** Register used when AUTO is off (the last one selected; MEDIUM until one is). */
+    [[nodiscard]] auto getManualRegister() const -> int {
+        return manualRegister.load(std::memory_order_relaxed);
     }
 
     [[nodiscard]] static auto tdLevelIndexForPad(int rowIdx, int colIdx) -> std::optional<int> {
@@ -239,6 +269,8 @@ public:
             colour = LaunchpadLighting::colourForAutoTd(TemporalDensity::isAuto());
         else if (rowIdx == kFlushRow)
             colour = LaunchpadLighting::kFlush;
+        else if (rowIdx == kRegisterRow)
+            colour = LaunchpadLighting::colourForAutoTd(RegisterRange::isAuto());
         else if (rowIdx == kAccompRow)
             colour = LaunchpadLighting::colourForAccompanimentToggle(
                 getSelectedMode() == OrchestrationMode::Jam, isAccompanimentOn());
@@ -320,6 +352,25 @@ public:
             return;
         }
 
+        if (const auto reg = registerForPad(rowIdx, colIdx)) {
+            auto &lastMs = gridLastAcceptMs[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
+            if (acceptPress(lastMs, now)) {
+                selectRegister(*reg);
+                emitAction({PerformanceActivity::LaunchpadAction::Kind::Register, 0, *reg, false, false});
+            }
+            return;
+        }
+
+        if (colIdx == kSideCol && rowIdx == kRegisterRow) {
+            auto &lastMs = sideLastAcceptMs[static_cast<size_t>(rowIdx)];
+            if (acceptPress(lastMs, now)) {
+                setRegisterAuto(! RegisterRange::isAuto());
+                emitAction({PerformanceActivity::LaunchpadAction::Kind::RegisterAuto, 0, 0,
+                            RegisterRange::isAuto(), false});
+            }
+            return;
+        }
+
         if (colIdx == kSideCol && rowIdx == kAccompRow) {
             auto &lastMs = sideLastAcceptMs[static_cast<size_t>(rowIdx)];
             if (acceptPress(lastMs, now) && getSelectedMode() == OrchestrationMode::Jam) {
@@ -334,10 +385,12 @@ public:
 
         if (const auto polyphony = polyphonyForPad(rowIdx, colIdx)) {
             auto &lastMs = gridLastAcceptMs[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
-            if (acceptPress(lastMs, now) && isAccompanimentActive()) {
-                setMaxPolyphony(*polyphony);
-                emitAction({PerformanceActivity::LaunchpadAction::Kind::Polyphony, 0, *polyphony,
-                            false, false});
+            if (acceptPress(lastMs, now) && isPolyphonyActive()) {
+                // pressing the selected pad again clears the cap
+                const int cap = *polyphony == getMaxPolyphony() ? 0 : *polyphony;
+                setMaxPolyphony(cap);
+                emitAction({PerformanceActivity::LaunchpadAction::Kind::Polyphony, 0, cap, false,
+                            false});
                 if (accompaniment_callback)
                     accompaniment_callback();
             }
@@ -425,6 +478,23 @@ private:
             action_callback(action);
     }
 
+    auto selectRegister(int reg) -> void {
+        manualRegister.store(reg, std::memory_order_relaxed);
+        RegisterRange::set(reg);
+        refreshRegisterLeds();
+    }
+
+    auto setRegisterAuto(bool on) -> void {
+        RegisterRange::set(on ? RegisterRange::kAuto : getManualRegister());
+        refreshRegisterLeds();
+    }
+
+    auto refreshRegisterLeds() -> void {
+        for (int col = 0; col < kRegisterPadCount; ++col)
+            refreshPadLed(kRegisterRow, col);
+        refreshSideLed(kRegisterRow);
+    }
+
     auto refreshAccompanimentLeds() -> void {
         for (int col = 0; col < kPolyphonyPadCount; ++col)
             refreshPadLed(kAccompRow, col);
@@ -472,8 +542,9 @@ private:
     std::atomic<OrchestrationMode> selectedMode{OrchestrationMode::Jam};
 
     std::atomic<int> manualTdLevelIndex{0};
+    std::atomic<int> manualRegister{RegisterRange::kMedium};
     std::atomic<bool> accompanimentOn{false};
-    std::atomic<int> maxPolyphony{PolyphonyCap::kMinCap};
+    std::atomic<int> maxPolyphony{0}; // 0 = no cap
 
     std::array<std::array<uint32_t, kCols>, kRows> gridLastAcceptMs{};
     std::array<uint32_t, kRows> sideLastAcceptMs{};

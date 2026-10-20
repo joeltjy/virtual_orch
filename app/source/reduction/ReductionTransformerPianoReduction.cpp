@@ -245,13 +245,6 @@ void ReductionTransformerPianoReduction::threadRun() {
             continue;
         }
 
-        // Pedal up (or no pause) but live MIDI still at provisional inputDuration —
-        // wait for note-off updates to snap real durations before sampling.
-        if (hasUnresolvedProvisionalInputNotes()) {
-            wait(5);
-            recordThreadLoopMs(loopStartMs);
-            continue;
-        }
 
         wasGenerationPaused = false;
 
@@ -341,6 +334,13 @@ auto ReductionTransformerPianoReduction::applyQueuedInputToInputData() -> bool {
             }
         }
 
+        // A held key (no note-off yet) gets the median length of its recent neighbours
+        // within an octave; generation does not wait for its note-off (see HeldKey).
+        const bool heldKey = isHeldInput(inputToken);
+        if (heldKey)
+            inputToken.duration = static_cast<int32_t>(Vocab::DurOffset)
+                                  + provisionalLengthCs(inputToken.time, inputToken.getPitch());
+
         const int32_t velocity = DenseQuantize::snapVelocity(
             juce::jlimit(0, DenseConfig::MaxVelocity - 1,
                          inputToken.velocity > 0 ? inputToken.velocity : DenseConfig::DefaultVelocity));
@@ -381,6 +381,9 @@ auto ReductionTransformerPianoReduction::applyQueuedInputToInputData() -> bool {
             }
         }
 
+        if (heldKey)
+            rememberHeldKey(inputToken);
+
         // Accompaniment keeps generating from the end of the context (no rewind).
         currentTime = keepsQueueOnInput() ? std::max(currentTime, inputToken.time) : inputToken.time;
         inputApplied = true;
@@ -420,6 +423,11 @@ auto ReductionTransformerPianoReduction::applyUpdatesFromFilter() -> bool {
     do {
         if (orchestrationUpdatesIncoming != nullptr)
             orchestrationUpdatesIncoming->push(update);
+        // A held key's note-off: find it by key, not by the length it was written with.
+        if (resolveHeldKey(history, update)) {
+            changed = true;
+            continue;
+        }
         TokenUpdate snapped{.oldNote = snapForMatch(update.oldNote),
                             .newNote = snapForMatch(update.newNote)};
         if (applyTokenUpdateToHistory(history, snapped))

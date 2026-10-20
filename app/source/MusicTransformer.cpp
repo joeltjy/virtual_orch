@@ -198,6 +198,13 @@ auto MusicTransformer::applyQueuedInputToInputData() -> bool {
             }
         }
 
+        // A held key (no note-off yet) gets the median length of its recent neighbours
+        // within an octave; generation does not wait for its note-off (see HeldKey).
+        const bool heldKey = isHeldInput(inputToken);
+        if (heldKey)
+            inputToken.duration = static_cast<int32_t>(Vocab::DurOffset)
+                                  + provisionalLengthCs(inputToken.time, inputToken.getPitch());
+
         // ADD TOKEN TO INPUT DATA (IF BUFFER DO SOME PROCESSING)
         if (modelConfig.inputMode != InputMode::Buffer) {
             inputData.push_back(inputToken.time);
@@ -227,6 +234,9 @@ auto MusicTransformer::applyQueuedInputToInputData() -> bool {
         DBG("In prompt: " + inputToken.toUnderstandableString());
 
         // Set current time to last token time
+        if (heldKey)
+            rememberHeldKey(inputToken);
+
         // Accompaniment keeps generating from the end of the context (no rewind).
         currentTime = keepsQueueOnInput() ? std::max(currentTime, inputToken.time) : inputToken.time;
 
@@ -254,6 +264,11 @@ auto MusicTransformer::applyUpdatesFromFilter() -> bool {
     do {
         if (orchestrationUpdatesIncoming != nullptr)
             orchestrationUpdatesIncoming->push(update);
+        // A held key's note-off: find it by key, not by the length it was written with.
+        if (resolveHeldKey(history, update)) {
+            changed = true;
+            continue;
+        }
         if (applyTokenUpdateToHistory(history, update))
             changed = true;
     } while (updatesFromFilter.pull(update));

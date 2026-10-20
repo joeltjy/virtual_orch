@@ -238,6 +238,48 @@ protected:
      */
     auto rewindInputDataFrom(int32_t timeCs) -> void;
 
+    /**
+     * Held keys (AMT, V1, V2, Piano Reduction). A key still down when the input flushes arrives
+     * with the placeholder length (inputDuration). It is written into the context with the
+     * MEDIAN length of the notes in the kHeldWindowCs before its onset that are within an
+     * octave of it (fallback: all notes in that window, then inputDuration), and generation
+     * goes on. Its note-off later replaces that length, longer or shorter.
+     *
+     * The note-off must find the same context entry although its length is no longer the
+     * placeholder: each held key is remembered with its keyId and exactly the time, note token
+     * and duration token written for it, and the first context entry with those three values
+     * is the live key (it is written before anything generated at that onset).
+     */
+    struct HeldKey {
+        int32_t keyId = -1;
+        int32_t onsetCs = 0;
+        int32_t rawPitch = 0;
+        int32_t noteToken = 0;
+        int32_t durationToken = 0;
+    };
+    static constexpr int32_t kHeldWindowCs = 1000;
+    static constexpr int32_t kHeldPitchRange = 12;
+    /** Held keys older than this are forgotten (e.g. a bass hold that never gets a note-off). */
+    static constexpr int32_t kHeldForgetCs = 6000;
+
+    /** Live input still held: Direct input with the placeholder length. */
+    [[nodiscard]] auto isHeldInput(const Token &token) const -> bool;
+
+    /** Median length (cs) for a held key at `onsetCs` / `pitch`, from the current context. */
+    [[nodiscard]] auto provisionalLengthCs(int32_t onsetCs, int32_t pitch) const -> int32_t;
+
+    /** Call right after writing a held key's event (the last event of inputData). */
+    auto rememberHeldKey(const Token &token) -> void;
+
+    /**
+     * If `update` is the note-off of a remembered held key, give its entry in `history` (the
+     * context as Tokens, in context order) the real length and forget the key; returns true.
+     * Otherwise returns false and the caller matches the update by its fields as before.
+     */
+    auto resolveHeldKey(std::vector<Token> &history, const TokenUpdate &update) -> bool;
+
+    [[nodiscard]] auto heldKeysForTest() const -> const std::vector<HeldKey> & { return heldKeys; }
+
     /** Remove the `width`-wide events of `strided` whose onset (first field) is >= timeCs. */
     static auto eraseStridedFrom(std::vector<int32_t> &strided, size_t width, int32_t timeCs)
         -> void;
@@ -270,6 +312,7 @@ protected:
     std::atomic<int32_t> pedalClearTimeCs{-1};
 
     std::atomic<bool> keepQueueOnInput{false};
+    std::vector<HeldKey> heldKeys; // reduction thread only
     /** Pending mode cut (cs), -1 when none; consumed by consumeModeCut. */
     std::atomic<int32_t> modeCutTimeCs{-1};
 

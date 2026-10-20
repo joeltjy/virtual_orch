@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 ReductionTransformer::ReductionTransformer(const juce::String &threadName, ModelConfig &modelConfigIn)
     : Thread(threadName),
@@ -202,6 +203,97 @@ auto ReductionTransformer::consumeModeCut() -> std::optional<int32_t> {
     }
     pushOutputToken(PedalClear::makeClearToken(cut));
     return cut;
+}
+
+namespace {
+
+[[nodiscard]] auto isContextNoteToken(int32_t note) -> bool {
+    return note >= static_cast<int32_t>(Vocab::NoteOffset) && note < static_cast<int32_t>(Vocab::Rest);
+}
+
+[[nodiscard]] auto pitchOfContextNote(int32_t note) -> int32_t {
+    return (note - static_cast<int32_t>(Vocab::NoteOffset)) % Config::MaxPitch;
+}
+
+[[nodiscard]] auto medianCs(std::vector<int32_t> values) -> int32_t {
+    std::ranges::sort(values);
+    const size_t n = values.size();
+    if (n % 2 == 1)
+        return values[n / 2];
+    return (values[n / 2 - 1] + values[n / 2] + 1) / 2;
+}
+
+} // namespace
+
+auto ReductionTransformer::isHeldInput(const Token &token) const -> bool {
+    return modelConfig.inputMode == InputMode::Direct
+           && token.duration == static_cast<int32_t>(Vocab::DurOffset) + modelConfig.inputDuration;
+}
+
+auto ReductionTransformer::provisionalLengthCs(int32_t onsetCs, int32_t pitch) const -> int32_t {
+    const size_t width = inputEventWidth();
+    const auto isHeldEntry = [this](int32_t time, int32_t note, int32_t dur) {
+        return std::ranges::any_of(heldKeys, [&](const HeldKey &k) {
+            return k.onsetCs == time && k.noteToken == note && k.durationToken == dur;
+        });
+    };
+    std::vector<int32_t> near;
+    std::vector<int32_t> all;
+    for (size_t i = 0; width >= 3 && i + width <= inputData.size(); i += width) {
+        const int32_t time = inputData[i];
+        const int32_t dur = inputData[i + 1];
+        const int32_t note = inputData[i + 2];
+        if (time < onsetCs - kHeldWindowCs || time > onsetCs || ! isContextNoteToken(note))
+            continue;
+        if (isHeldEntry(time, note, dur))
+            continue; // another key still held: its length is not known either
+        const int32_t lengthCs = dur - static_cast<int32_t>(Vocab::DurOffset);
+        if (lengthCs <= 0)
+            continue;
+        all.push_back(lengthCs);
+        if (std::abs(pitchOfContextNote(note) - pitch) <= kHeldPitchRange)
+            near.push_back(lengthCs);
+    }
+    if (! near.empty())
+        return medianCs(std::move(near));
+    if (! all.empty())
+        return medianCs(std::move(all));
+    return modelConfig.inputDuration;
+}
+
+auto ReductionTransformer::rememberHeldKey(const Token &token) -> void {
+    const size_t width = inputEventWidth();
+    if (width < 3 || inputData.size() < width)
+        return;
+    const size_t last = inputData.size() - width;
+    const int32_t onset = inputData[last];
+    std::erase_if(heldKeys, [onset](const HeldKey &k) { return k.onsetCs < onset - kHeldForgetCs; });
+    heldKeys.push_back({.keyId = token.keyId,
+                        .onsetCs = onset,
+                        .rawPitch = token.getPitch(),
+                        .noteToken = inputData[last + 2],
+                        .durationToken = inputData[last + 1]});
+}
+
+auto ReductionTransformer::resolveHeldKey(std::vector<Token> &history, const TokenUpdate &update)
+    -> bool {
+    const auto &old = update.oldNote;
+    const auto it = std::ranges::find_if(heldKeys, [&](const HeldKey &k) {
+        if (old.keyId >= 0 && k.keyId >= 0)
+            return k.keyId == old.keyId;
+        return k.onsetCs == old.time && k.rawPitch == old.getPitch();
+    });
+    if (it == heldKeys.end())
+        return false;
+    // First entry in context order with what was written for the key = the live key.
+    for (auto &t: history) {
+        if (t.time == it->onsetCs && t.note == it->noteToken && t.duration == it->durationToken) {
+            t.duration = update.newNote.duration;
+            break;
+        }
+    }
+    heldKeys.erase(it); // also when its entry already left the context window
+    return true;
 }
 
 auto ReductionTransformer::eraseStridedFrom(std::vector<int32_t> &strided, size_t width,

@@ -12,6 +12,11 @@ auto PerformanceView::applyTo(WorkspaceCanvas &canvas) -> void {
                               UiConstants::workspacePerformanceViewLaunchpadY,
                               UiConstants::workspacePerformanceViewLaunchpadWidth,
                               UiConstants::workspacePerformanceViewLaunchpadHeight});
+    canvas.placeWidgetOfType(UiConstants::workspaceWidgetTypeScore,
+                             {UiConstants::workspacePerformanceViewScoreX,
+                              UiConstants::workspacePerformanceViewScoreY,
+                              UiConstants::workspacePerformanceViewScoreWidth,
+                              UiConstants::workspacePerformanceViewScoreHeight});
     canvas.placeWidgetOfType(UiConstants::workspaceWidgetTypeInstrumentActiveLight,
                              {UiConstants::workspacePerformanceViewSeatingX,
                               UiConstants::workspacePerformanceViewSeatingY,

@@ -34,7 +34,18 @@ juce_add_binary_data(VirtualOrchData
         "${CMAKE_CURRENT_SOURCE_DIR}/resources/general_midi_instruments.csv"
         "${CMAKE_CURRENT_SOURCE_DIR}/resources/orch_seating_plan_no_perc.png"
         "${CMAKE_CURRENT_SOURCE_DIR}/resources/orch_seating_plan_sectors.png"
+        "${CMAKE_CURRENT_SOURCE_DIR}/resources/NotoMusic-Regular.ttf"
 )
+
+# Chord names for the ScoreWidget: CppChordNamer vendored with fixes in third_party/chordnamer
+# (see its README.md), without the upstream demo.
+set(CHORDNAMER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/chordnamer")
+add_library(chordnamer STATIC
+    ${CHORDNAMER_DIR}/src/chord.cpp
+    ${CHORDNAMER_DIR}/src/interval.cpp
+    ${CHORDNAMER_DIR}/src/note.cpp
+)
+target_include_directories(chordnamer PUBLIC ${CHORDNAMER_DIR}/include)
 
 target_link_libraries(${PROJECT_NAME}
     PRIVATE
@@ -43,6 +54,7 @@ target_link_libraries(${PROJECT_NAME}
         onnxruntime
         cmp_plot
         VirtualOrchData
+        chordnamer
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
@@ -94,6 +106,7 @@ target_link_libraries(VirtualOrchLibrary
         cmp_plot
     PUBLIC
         VirtualOrchData
+        chordnamer
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags

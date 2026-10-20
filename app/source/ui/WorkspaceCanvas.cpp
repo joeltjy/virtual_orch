@@ -9,6 +9,7 @@
 #include "VirtualOrch/widgets/ActiveInstrumentsWidget.h"
 #include "VirtualOrch/widgets/InstrumentActiveLightWidget.h"
 #include "VirtualOrch/widgets/InstrumentGroupActivityWidget.h"
+#include "VirtualOrch/widgets/ScoreWidget.h"
 #include "VirtualOrch/widgets/TdViewerWidget.h"
 #include "VirtualOrch/widgets/UserSelectionWidget.h"
 #include "VirtualOrch/widgets/ConditioningPianoRollWidget.h"
@@ -213,6 +214,12 @@ auto WorkspaceCanvas::createWidgetForType(const juce::String &type) const
 
     if (type == UiConstants::workspaceWidgetTypeTdViewer)
         return std::make_unique<TdViewerWidget>();
+
+    if (type == UiConstants::workspaceWidgetTypeScore) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<ScoreWidget>(*session);
+    }
 
     if (type == UiConstants::workspaceWidgetTypeUserSelection) {
         if (session == nullptr)

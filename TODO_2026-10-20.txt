@@ -1,0 +1,359 @@
+TODOs for 20 Oct (virtual orchestra)
+(Planning only. No code has been changed for any of these yet.)
+
+Coordinates: Launchpad grid rows are written as in the code: row 0 = top row of the 8x8,
+row 7 = bottom row; the side column is "side" (code kSideCol = 9). The top CC row is
+written "top". So the Edit pad is (0, 0) and the bottom row's side pad is (7, side).
+
+Suggested order: 1 (bug, small) -> 4a (seating diagnosis, needs one run by you) ->
+2 (mode change) -> 4b (seating speed-up) -> 3 (new widget). Open questions are listed
+at the end of each task and collected at the bottom.
+
+=====================================================================
+1. BUG: in Edit mode note-offs are not applied; every note keeps the provisional length
+=====================================================================
+STATUS (20 Oct): DONE, not committed, not yet tried with a keyboard. Token::keyId
+(MusicToken.h) is set per key press in MidiInputProcess, copied into orchestra notes by
+InstrumentCombinations (by note index), IodPretrained and IodPretrainedTD (from the input
+record; TestModel copies the token), and note-off updates match on it
+(tokenMatchesUpdateSource) in OT applyTokenUpdates, OutputPlayback and the Playback
+Output record. Duration only; the scaled velocity is kept (default 1.1). Tests:
+test/source/KeyboardNoteOffTest.cpp (5, both test/ folders).
+--- Description (from you) ---
+  - In Edit mode the note-offs are not sent, and every note I play has the provisional
+    note length.
+
+--- What happens (read from the code; root cause found, not yet fixed) ---
+  - A key that is still held when the 0.1 s direct-input window flushes is sent with the
+    provisional duration (modelConfig.inputDuration, default 400 cs). On release,
+    MidiInputProcess::handleNoteOff sends a TokenUpdate {oldNote, newNote} with the same
+    onset / pitch / velocity and the real held duration.
+  - The update reaches OrchestrationTransformer::applyTokenUpdates (every reduction class
+    forwards it via orchestrationUpdatesIncoming), which pushes it to
+    outputDurationUpdates. OutputPlayback::applyOneDurationUpdate then looks for the
+    queued / sounding orchestra note with tokenEqualsByOnsetPitch, which requires the
+    SAME onset, duration, velocity and pitch.
+  - In Edit mode the user branch orchestrates the keyboard notes directly, and the
+    orchestra note no longer equals the key that produced it:
+      a. velocity: InstrumentCombinations and IodPretrained (decodeComboToNotes) write
+         InstrumentConstants::scaleVelocityForInstrument(...) into token.velocity
+         (brass scaled down, woodwinds up). Present since 6165586 (22 Sep).
+      b. pitch: IodPretrained moves notes by an octave delta (basePitch + 12 * delta).
+      c. onset: OrchestrationTransformer::snapNearbyOnsets averages the onsets of
+         chord notes before getOutput.
+    Any one of these makes the match fail, so the update is dropped and the note plays
+    for the full 400 cs. Only strings with no octave shift and no chord can match.
+  - Jam mode is not affected the same way: the reduction's generated notes are final
+    when generated and get no note-off updates.
+
+--- Plan ---
+  1. Give every keyboard token a stable id when it is created (Token already has a
+     noteId field, used today for reduction notes and vocsep restamps), and carry it in
+     the TokenUpdate.
+  2. Make each orchestration model copy the source token's noteId into every
+     OrchestrationNote it produces from that token (IC, IodPretrained, IodPretrainedTD,
+     TestModel), through snapNearbyOnsets as well.
+  3. In OT applyTokenUpdates and OutputPlayback::applyOneDurationUpdate, match keyboard
+     updates by noteId (fall back to today's field match when the id is -1), and only
+     change the duration (keep the instrument's scaled velocity).
+  4. Tests: Edit-mode chord, brass/woodwind instrument, and IodPretrained octave delta;
+     each must get its note-off at the real release time.
+
+--- Questions ---
+  1.1 On a note-off update, should the orchestra note keep its scaled velocity (my
+      plan) or take the key's velocity again? (Today the update would overwrite it.)
+
+=====================================================================
+2. ACCOMPANIMENT becomes a separate mode (Edit / Jam / Accompaniment)
+=====================================================================
+STATUS (20 Oct): DONE except one open point, not committed, not tried on the Launchpad.
+OrchestrationMode::Accompaniment (isJamLike), pad (0, 2), Mode widget button, presets
+"accompaniment"; the (7, side) toggle is removed (default 2.2); polyphony pads (7, 0..3)
+only in Accompaniment, choice kept. In Accompaniment the reductions skip the rewind, the
+clock pull-back and the input-triggered ClearQueues (keepsQueueOnInput). Entering clears
+nothing. Leaving -> OutputPlayback::modeCutRequests (drop queued + drop window; sounding notes
+finish, changed 20 Oct, not committed)
++ requestModeCut on the active reduction (drops generated notes from now on; V1, V2,
+PianoReduction, AMT also rewind their context). Committed in 53cabe8.
+2.5 (20 Oct, not committed yet): TwoInstrumentAnticipated and MelodyFirst now rewind too
+(AnticipatedStream::rewindTo / MelodyStream::rewindTo; MelodyFirst also drops the planned
+melody and its M controls from the cut on; the KV caches rebuild from the changed prefix).
+Tests: ModeCutRewindTest (both test/ folders): a rewound stream equals one that never
+generated those notes.
+--- Description (from you) ---
+  - Accompaniment mode is a separate mode, so put it beside Edit on the mode row.
+  - Only in this mode is the last row (row 7) applicable.
+  - In this mode, DO NOT clear the playback queue when a note is input (as is done now).
+  - DO clear the queue when I switch out of Accompaniment into Edit or Jam.
+
+--- What exists (read from the code) ---
+  - Modes: OrchestrationMode { Edit, Jam } (OrchestrationTransformer.h); 14 places in
+    app/ test for OrchestrationMode::Jam (OT orchestration branch, input thru,
+    Launchpad LEDs, Mode widget, presets...). All mode changes go through
+    AppSession::setOrchestrationMode, which also lights the mode pads.
+  - Mode pads: (0, 0) Edit, (0, 1) Jam (LaunchpadGrid kModeRow / kEditCol / kJamCol).
+  - Accompaniment today (task 5, d339f4f) is a toggle inside Jam: (7, side) turns it
+    on/off (only lit and only works in Jam), (7, 0..3) pick max polyphony 1..4
+    (PolyphonyCap; default 1; kept across Jam -> Edit -> Jam). The cap reaches every
+    reduction via AppSession::applyAccompanimentCap.
+  - "Clear the queue on input": while generating, ReductionTransformerV1, V2 and
+    PianoReduction (and MusicTransformer) push a ClearQueue token stamped at time 0
+    whenever live input was applied (the inputApplied branch after a generated note),
+    which makes OutputPlayback drop every not-yet-played note. The newer
+    TwoInstrumentAnticipated and MelodyFirst only push a ClearQueue (now + 1 s) on input
+    while generation is stopped (overflow pause).
+  - Clearing the queue at once already exists in OutputPlayback (the pedal fast path /
+    flushModelSchedule: note-off everything sounding, drop everything pending).
+
+--- Decisions (from you, 20 Oct) ---
+  - 2.1 Mode row: Edit (0, 0), Jam stays at (0, 1), Accompaniment at (0, 2).
+  - 2.3 In Accompaniment the reduction KEEPS GENERATING as in Jam. Your notes are added
+    to the model's context as usual (so later generations follow you), but with NO
+    rewind of already-generated notes and NO playback-queue clear. Your notes themselves
+    are not orchestrated: only the model's notes go to OT.
+  - 2.4 Leaving Accompaniment for Edit or Jam drops every note that has not started yet.
+    CHANGED (20 Oct, you): notes that are already sounding finish sounding (they are not
+    cut).
+  - (added 20 Oct) ENTERING Accompaniment from Edit or Jam must not remove anything
+    either: if the model has generated ahead while you were not playing, those queued
+    notes stay and play. No ClearQueue, no flush, no reduction rewind on the switch.
+
+--- Plan ---
+  1. Add OrchestrationMode::Accompaniment. It orchestrates like Jam (reduction stream,
+     user + model instruments, input thru as in Jam) plus the polyphony cap. Replace the
+     Jam-only checks with an "is Jam-like" helper where Accompaniment should behave as
+     Jam.
+  2. Launchpad: Accompaniment pad at (0, 2) (kAccompanimentCol); lit white when
+     selected like Edit/Jam. Remove the (7, side) toggle. (7, 0..3) work and the
+     selected one is lit only in Accompaniment mode. Mode widget gets a third button;
+     presets accept "accompaniment".
+  3. The polyphony cap is on exactly while the mode is Accompaniment (applied on every
+     mode change); the chosen polyphony is remembered across mode changes.
+  4. In Accompaniment, the reductions skip the input-triggered ClearQueue (the time-0
+     clear in V1 / V2 / PianoReduction / MusicTransformer, and the "now + 1 s" clear on
+     input while overflow-paused in all classes). Pause / pedal clears are unchanged.
+  4b. In Accompaniment, live input is inserted into the context by onset WITHOUT the
+     rewind (today applyQueuedInputToInputData erases every entry at or after an
+     earlier-onset input token, i.e. drops generated notes); generation continues from
+     the current end of the context. Check each reduction class (V1, V2, PianoReduction,
+     MusicTransformer, TwoInstrumentAnticipated, MelodyFirst) for its own rewind.
+  4c. The keyboard stream is not orchestrated in Accompaniment (as in Jam, OT uses only
+     the reduction stream); input thru behaves as in Jam.
+  5. On a mode change FROM Accompaniment TO Edit or Jam, clear the playback queue at
+     once (same as the pedal fast path) and send a ClearQueue so the reduction / OT
+     streams agree. Edit <-> Jam and changes INTO Accompaniment do not clear, and the
+     switch into Accompaniment keeps every already-generated (queued or sounding) note:
+     check that nothing in the mode-change path (setOrchestrationMode, the OT branch
+     switch, the polyphony cap being applied) drops or regenerates queued notes. Test:
+     queue generated notes in Jam and in Edit, switch to Accompaniment, all still play.
+  6. Update the Launchpad widget labels, docs/SYSTEM.md, LaunchpadGridTest and
+     AccompanimentTest.
+
+--- Questions ---
+  2.1 ANSWERED: (b) Accompaniment at (0, 2), Jam stays at (0, 1).
+  2.2 Remove the old (7, side) accompaniment toggle? Default: yes, remove it.
+  2.3 ANSWERED: keep generating; input added to context without rewind or queue clear.
+  2.4 ANSWERED: drop everything not yet started; sounding notes finish (changed 20 Oct).
+
+=====================================================================
+3. ScoreWidget: rolling grand-staff score of the instrument-1 skyline, with chord names
+=====================================================================
+STATUS (20 Oct): DONE, not committed, not seen in the running app yet. ScoreLayout.h (pure
+layout), widgets/ScoreWidget (ScoreView + 30 Hz feed from the active reduction's output
+history), ChordNaming (CppChordNamer with fixes a + b, vendored in app/third_party/chordnamer,
+built from its 3 sources without demo.cpp; libs/chordnamer is no longer used), Noto Music embedded (OFL notice in app/resources/NotoMusic-NOTICE.txt). Defaults
+used: 3.3 no name for < 3 pitch classes, 3.4 4 s each side, 3.5 sharps / flats for a flat root,
+3.6 generated notes only, 3.7 below the Launchpad (PerformanceView items below moved down).
+Your saved PerformanceView is not re-seeded: add it from the Add menu ("Score") or delete
+Documents/virtual-orch/Views/PerformanceView.* to get the new layout.
+Tests: ChordNamingTest, ScoreLayoutTest (+ a sample render; VIRTUAL_ORCH_SCORE_PNG=<file>).
+The repo build no longer needs libs/chordnamer (checked by building with it hidden);
+libs/chordnamer itself is back to upstream aef76a8.
+--- Description (from you) ---
+  - A new widget, ScoreWidget: a rolling score (treble + bass staff) with a nowbar and
+    noteheads, no beams.
+  - It tracks the skyline of the instrument-1 generations (the reduction band).
+  - The generations can go past the nowbar (future notes are already generated).
+  - For any instrument-1 chord, show the chord name.
+
+--- Decisions (from you / agreed) ---
+  - Draw it natively in JUCE, NOT VexFlow. VexFlow is JavaScript (would need a
+    WebBrowserComponent + WebKitGTK and a JS bridge at ~100 Hz) and lays notes out by
+    rhythmic value in measures (would need quantising durations and suppressing
+    beams/rests/ties). A time-proportional rolling staff is a piano roll mapped onto a
+    grand staff, in the style of PianoRollView / NoteIoWidget.
+  - Chord names: use the vendored libs/chordnamer (CppChordNamer) after fixing it (you:
+    "isn't too far off"). Not linked into the app yet. Causes found (tested on a copy in
+    the scratchpad; libs/chordnamer itself is unchanged):
+      a. "Dm/B" for B D F A: in the half-diminished branch "b5" is pushed to
+         `additional`, so Bm7b5 gets ranking 1. Dm/B uses the rootless trick (the bass B
+         is hidden, leaving a D minor triad, ranking 0) plus the slash penalty +1 = 1. On
+         a tie the shorter name wins, so "Dm/B" (4 chars) beats "Bm7b5" (5). F6/B also
+         ties and beats it. Fix: treat b5 as part of the m7b5 quality (append it after the
+         extension, not in `additional`) -> Bm7b5 ranking 0.
+      b. "C57" for C Eb G Bb: Note's parser takes the LAST character in a-g as the
+         letter, so the flat sign of "Eb" is read as B -> Bb (also Ab, Db, Gb ... -> Bb;
+         "Bb" is right by luck; sharps are fine). Fix: break on the first letter (and
+         the upper-case range check `c <= 'g'` should be 'G'). -> Cm7.
+      With a + b: B D F A -> Bm7b5, C Eb G Bb -> Cm7; C, C/E, G7, Cadd9, Adim7, Cdim,
+      Db, Ebmaj7, Fmaj7, C6, Cm6, Dm7 unchanged.
+      c. Not fixed: C D G -> "G5/C" (Csus2 second), same tie. Preferring root position
+         on ties fixes it but breaks E G C (Em#5 instead of C/E), so it was dropped.
+    Still to handle when integrating: it takes note-name strings (feed sharps, e.g.
+    "D#", from MIDI pitch), throws std::length_error for fewer than 2 notes (skip those),
+    and its CMake builds demo.cpp (with main()) into the static library (remove it from
+    the library sources before linking).
+
+--- Plan ---
+  1. Data: poll the active reduction's getOutputHistorySince(clock - window), keep
+     instrument-1 sounding notes (includes notes ahead of the clock).
+  2. Layout: x = nowbarX + (onset - clock) * pxPerSecond; grand staff with middle C
+     (MIDI 60) and above on treble; ledger lines; sharps by default (spelling from the
+     chord root when a chord name exists); noteheads only, no stems/beams/rests.
+  3. Skyline (3.1): every instrument-1 note is drawn; at each onset the highest note
+     (the skyline) is drawn in a highlight colour, the other chord notes dimmer.
+  4. Chords (3.2): instrument-1 notes whose onsets are within 50 ms (5 cs) of each other
+     form one chord (cluster by onset, like snapNearbyOnsets but with a 5 cs
+     tolerance); one name per chord, drawn above the treble staff at the chord's x.
+  5. Chord names: apply fixes a + b to libs/chordnamer, add it to the build (without
+     demo.cpp), wrap it in a small app helper (MIDI pitches -> note names, lowest note
+     first as the bass, < 2 notes -> no name, catch exceptions), unit-test with the
+     chords listed above.
+  6. Glyphs: Bravura (SMuFL, OFL licence) embedded with juce_add_binary_data for clefs,
+     noteheads and accidentals; plain ellipses/text as a fallback.
+  7. Register the widget type (UiConstants type/title, WorkspaceCanvas factory) and add it
+     to PerformanceView.
+
+--- Questions ---
+  3.1 ANSWERED: draw all notes, the top (skyline) note highlighted.
+  3.2 ANSWERED: same onset, within 50 ms.
+  3.3 Two-note chords: show nothing, the interval, or a power-chord style name ("C5")?
+  3.4 Time window: how many seconds before and after the nowbar?
+  3.5 Spelling: always sharps, or flats for flat-root chords (Bb, Eb...)? Is there a key?
+  3.6 Show the user's (instrument-0) notes too, e.g. greyed, or instrument 1 only?
+  3.7 Where in PerformanceView, and how big?
+  3.8 Apply the chordnamer fixes a + b now, on their own, before the widget?
+
+=====================================================================
+4. Seating plan (InstrumentActiveLightWidget): sectors do not light up as they are played
+=====================================================================
+STATUS (20 Oct): 4a done. With the temporary readout in, you reported the widget works
+fine. Caveat: the readout repainted the widget on every tick, which could hide a
+missed-repaint bug, so it was removed again (back to the committed code) and the app
+rebuilt; please confirm it still lights without the readout. Earlier "everything stays
+dim" may have come from an older build or from the Edit-mode note-off bug (fixed in
+b0bab7b).
+4b DONE (20 Oct, not committed): dimmed background + per-section bright patches built once,
+pre-scaled in resized(), setActive repaints only the changed sections. setActive ~0 ms (was
+~10 ms), full paint with every section lit ~10 ms incl. the test snapshot (was ~26 ms).
+Tests: SeatingPlanViewTest (+ end-to-end note -> section lit, + cost).
+4c DONE (20 Oct, not committed): outer test/ and inner test/ are now the same 48 files
+(union; no file differed), plus the inner CMakeLists (test resources path) and resources/.
+Found and fixed on the way: PerformanceActivityTest used the Accompaniment console action
+removed in 53cabe8; InstrumentCombinationsTest expected unscaled flute/tuba velocity.
+Suite: 307 pass, 4 skipped (real models), 7 MusicTransformer fail only because
+Documents/virtual-orch/Models/bassAndChords.onnx is missing on this machine.
+--- Description (from you) ---
+  - In the seating instrument widget, the instrument sectors are not lighting up as
+    they're played.
+  - What you see (Edit mode, Out: OT): every sector stays dim; the Piano sector does
+    light when you press keys; the section bars widget does move.
+
+--- How it works now (read from the code, task 6 / 450bc43) ---
+  - OutputPlayback::recordNoteOn (only for notes whose instrument has a MIDI channel)
+    calls activityLog.noteOn(now, instrument, pitch, duration). ActivityLog maps the
+    instrument to sectors (violin -> both violin sections; tremolo / pizzicato /
+    string ensemble -> the solo string whose range holds the pitch; each wind and brass
+    instrument -> its own section; timpani, snare, guitar, choir -> none) and keeps a
+    sector on until the note ends + 2 s.
+  - Piano bypasses playback: lit while a keyboard key is down, + 2 s after release.
+  - The widget polls activeSectors() at 20 Hz. SeatingPlanView::setActive rebuilds a
+    full 1832 x 859 black overlay (65 % opaque over inactive sectors, from the pixel mask
+    orch_seating_plan_sectors.png) pixel by pixel; paint resamples the full-size plan +
+    overlay to the widget with high-quality filtering.
+
+--- What was checked ---
+  - The mask is fine: grey, same size as the plan, values 1..14 = the Sector order.
+  - Strings / woodwinds / brass all have a channel in the current map, so their notes
+    are recorded (the moving bars confirm notes reach the log with sector-mapped ids).
+  - A temporary end-to-end test (real ActivityLog + real SeatingPlanView; deleted after)
+    lit cellos, horns and string ensemble (viola) correctly: 0.80-0.84 brightness vs
+    0.17 dimmed. So the logic works outside the running app; the cause is something
+    that only happens at runtime. Still unknown.
+  - Cost in the Debug build: about 10 ms per overlay rebuild + 26 ms per paint at half
+    size (more at full size), i.e. about 70 % of the message thread at 20 updates/s.
+    Heavy, but by itself it should not keep every sector dim.
+  - The tests for this widget (PerformanceActivityTest, SeatingPlanViewTest) exist only
+    in the inner repo's test/; the outer build (the one you run) does not compile them.
+
+--- Plan ---
+  4a. Diagnosis (needs one run by you): add a temporary readout on the widget (or in the
+      log) of the active sectors, the last few logged notes (instrument, pitch,
+      duration, time), and how often setActive / paint actually run. You play in Edit
+      with Out: OT and report what it shows; fix the cause; remove the readout.
+  4b. Speed-up (do regardless):
+      - When the plan loads, once: for each of the 14 sectors, crop a BRIGHT patch to the
+        sector's bounding box with the mask as its alpha; keep a DIM copy of the whole
+        plan as the background.
+      - In resized(): pre-scale the background and the patches to the widget size, so
+        paint never resamples.
+      - setActive: only record which sectors changed and repaint their rectangles; no
+        pixel work.
+      - paint: dim background + one bright patch per active sector (at most 14 small
+        unscaled draws, well under 1 ms).
+      - Test: a logged orchestra note lights its sector and not the others (end to end,
+        like the temporary test, with test points that are not on dark parts of the
+        drawing).
+  4c. Bring the inner-repo tests for this widget into the outer test/ (or make both
+      test/ folders match), so the build you run checks it.
+
+--- Questions ---
+  4.1 Dimming: keep plain black dimming (65 %), or a tinted / desaturated look for
+      inactive sectors?
+  4.2 Hold: keep 2 s after a note ends, or a different hold?
+
+=====================================================================
+5. Held keys in AMT, V1, V2, Piano Reduction (added 20 Oct)
+=====================================================================
+--- Description (from you) ---
+  - Except TwoInstrumentAnticipated and MelodyFirst: the provisional note length is the
+    median of the lengths of the notes in the past 10 s that are within an octave of it.
+    Do not stop generation. On the note-off, propagate the update (update the context),
+    generation still does not stop. Also in Accompaniment (all modes).
+  - The provisional length may be shorter than the real one; make sure the right note is
+    still found for the update.
+STATUS: DONE (not committed, not tried with a keyboard). ReductionTransformer::HeldKey /
+isHeldInput / provisionalLengthCs / rememberHeldKey / resolveHeldKey; the wait
+(hasUnresolvedProvisionalInputNotes) is removed from V1, V2, Piano Reduction. Fallbacks
+(my choice): no note within an octave -> median of all notes in the 10 s; none at all ->
+inputDuration. Tests: HeldKeyLengthTest (both test/ folders).
+Correction to an earlier remark: V1/V2 cannot stall on a generated 4 s note; generated
+durations are already nudged off inputDuration (snapGeneratedDurationToken).
+
+=====================================================================
+OPEN QUESTIONS (updated 20 Oct)
+=====================================================================
+BLOCKING (needed before that task starts): none.
+
+DEFAULTS (used unless you say otherwise):
+  1.1 After a note-off the orchestra note keeps its instrument-scaled velocity.
+  2.2 Remove the old (7, side) accompaniment toggle.
+  3.3 Two-note chords: no name.
+  3.4 Window: 4 s before and 4 s after the nowbar.
+  3.5 Sharps, except flats when the chord root is a flat.
+  3.6 Instrument 1 only (your notes are not drawn).
+  3.7 ScoreWidget below the Launchpad widget in PerformanceView.
+  3.8 Apply the chordnamer fixes a + b as part of task 3.
+  4.1 Seating plan: plain black dimming (65 %).
+  4.2 Seating plan: keep the 2 s hold after a note ends.
+
+ANSWERED (task 2): 2.5 Leaving Accompaniment with TwoInstrumentAnticipated / MelodyFirst:
+  REWIND THEM PROPERLY: drop only the generated notes from the cut on (keep everything
+  before it, including your notes), rewind their KV-cached context to match, and continue
+  generating from the cut time.
+
+ANSWERED: 2.1 (b), 2.3 keep generating / no rewind / no queue clear, 2.4 drop not-yet-started notes (sounding ones finish),
+  3.1 all notes with the skyline highlighted, 3.2 chord = onsets within 50 ms.
+
+Ready to start with no further answers: all tasks (1, 4a, 2, 4b, 3), using the
+defaults above.

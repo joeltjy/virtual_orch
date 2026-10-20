@@ -72,27 +72,15 @@ inline constexpr std::array<int32_t, 4> kSoloStringLocalIds{{0, 1, 2, 3}};
  * (`relayMidi`) is forced here in Jam mode only (never through OT).
  * Orchestrated piano (local 15) also maps here.
  */
-// inline constexpr std::array<int32_t, 20> kLocalInstrumentOutputChannels{{
-//     1, 2, 3, 3, 4, 5, // 0–5: violin, viola, cello, contrabass (shared 3), tremolo, pizz
-//     kNoOutputChannel, // 6: string ens. → pitch remap
-//     6, 7, 8, 9, // 7–10: flute, oboe, clarinet, bassoon
-//     10, 11, 12, 13, // 11–14: trumpet, horn, trombone, tuba
-//     16, // 15: piano
-//     14, // 16: timpani\
-//     15, kNoOutputChannel, // 17–18: snare; guitar dropped
-//     kNoOutputChannel, // 19: choir
-// }};
-
 inline constexpr std::array<int32_t, 20> kLocalInstrumentOutputChannels{{
-    1, 1, 1, 1, 1, 1,
-    kNoOutputChannel,
-    2, 2, 2, 2,
-    3, 3, 3, 3,
-    kNoOutputChannel,
-    kNoOutputChannel,
-    kNoOutputChannel,
-    kNoOutputChannel,
-    kNoOutputChannel,
+    1, 2, 3, 3, 4, 5, // 0–5: violin, viola, cello, contrabass (shared 3), tremolo, pizz
+    kNoOutputChannel, // 6: string ens. → pitch remap
+    6, 7, 8, 9, // 7–10: flute, oboe, clarinet, bassoon
+    10, 11, 12, 13, // 11–14: trumpet, horn, trombone, tuba
+    16, // 15: piano
+    14, // 16: timpani
+    15, kNoOutputChannel, // 17–18: snare; guitar dropped
+    kNoOutputChannel, // 19: choir
 }};
 
 /** MIDI channel for keyboard input-thru and reduction / piano monitor bus. */

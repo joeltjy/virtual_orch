@@ -1684,3 +1684,32 @@ Eviction-driven rebase (requested via the orchestration session, 2026-10-20; rep
     T7 export on the Desktop was replaced by da_ctlvocab_rope_tdorch64_T7_best_step6000_kv.onnx, so
     app/melody_first_reduction.json ("onnx": the old T7 dummy name) and the MelodyFirstReal test no
     longer find a file until the token layout and the file name are updated.
+
+Force restart and locked-in vs provisional notes (2026-10-20)
+  Force restart
+  - Launchpad TOP-ROW button 0 (CC104, "(0, 0)" in the Active Instruments widget's own grid, where
+    row 0 is the top CC row). I read your "(0, 0)" that way because the grid pad (row 0, col 0) is
+    the Edit pad; top-row button 0 was unused (1 = RT pause, 2 = OT pause). Lit orange; shown as
+    "Restart" in the Active Instruments widget; logged as "Force restart" in the console.
+  - It is stopGeneration() followed by startGeneration(), nothing else: the stop joins the workers
+    on another thread, so the restart waits for that join (up to 20 s), then starts on the message
+    thread. Pause flags are NOT cleared (a stop + start does not clear them either). Presses while a
+    restart is in flight are ignored. The clock restarts at 0 and the reduction thread resets, as with
+    Stop/Start.
+  - One addition to Start (not only restart): OrchestrationTransformer::threadRun now calls
+    OrchestrationModel::resetState(), so the model's own memory (the input-note list from Task 1,
+    its history, the TD boundary map) is cleared on every Start. Before, those survived a Stop/Start
+    while the clock went back to 0, so old notes would have been mixed with new ones.
+  Locked in vs provisional
+  - Already done? No: no piano roll made the distinction. Now PianoRollView draws a note whose
+    duration is still the provisional hold duration (ModelConfig::inputDuration, the same sentinel
+    hasUnresolvedProvisionalInputNotes uses for every model) as an outline with a 30 % fill, and every
+    other note solid. It looks only at the duration token, so it does not depend on the active
+    reduction model. When the note-off resolves the duration the note becomes solid by itself.
+  - It is switched on (NoteIoWidget::setShowsProvisionalNotes) for the rolls that show notes from the
+    MIDI input path: Token Input, Conditioning, OT Midi, OT Conditioning, and the OT output and
+    playback rolls (notes made from held keys carry the same duration until they are corrected). It is
+    OFF for the OT Reduction roll, the Reduction Output roll and the Vocsep roll: those show generated
+    reduction notes, whose durations are never provisional, and a sampled duration that happens to be
+    exactly the sentinel (default 400 cs) would otherwise look unlocked. Known limit: an orchestrated or
+    played note whose duration equals the sentinel without coming from a held key looks provisional.

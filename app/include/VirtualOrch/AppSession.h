@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 
 #include <atomic>
+#include <functional>
 #include <memory>
 
 #include "VirtualOrch/Clock.h"
@@ -126,6 +127,24 @@ public:
     /** Accompaniment mode (Jam only): push the Launchpad's polyphony cap to every reduction. */
     auto applyAccompanimentCap() -> void;
 
+    /**
+     * Force restart (Launchpad top-row button 0) = stopGeneration() followed by
+     * startGeneration(), exactly what the Stop and Start buttons do. The stop joins the workers
+     * on another thread, so this waits for that join and then starts on the message thread.
+     * Returns at once; pause flags are left as they are.
+     */
+    auto forceRestart() -> void;
+
+    /** Runs a function on the message thread (tests replace it with a queue they pump). */
+    std::function<void(std::function<void()>)> postToMessageThread = [](std::function<void()> f) {
+        juce::MessageManager::callAsync(std::move(f));
+    };
+
+    /** Number of force restarts that have completed (tests / UI). */
+    [[nodiscard]] auto getRestartsCompleted() const -> int {
+        return restartsCompleted.load(std::memory_order_acquire);
+    }
+
     /** Update Launchpad CC105/106 LEDs from current pause flags. */
     auto syncPauseTopLeds() -> void;
 
@@ -138,4 +157,10 @@ public:
     }
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AppSession)
+
+private:
+    /** Cleared when the session is destroyed, so a pending restart never touches freed state. */
+    std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>>(true);
+    std::atomic<bool> restartInFlight{false};
+    std::atomic<int> restartsCompleted{0};
 };

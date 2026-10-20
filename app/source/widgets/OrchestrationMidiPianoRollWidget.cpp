@@ -7,6 +7,7 @@ OrchestrationMidiPianoRollWidget::OrchestrationMidiPianoRollWidget(AppSession &s
     : NoteIoWidget(sessionIn,
                    UiConstants::workspaceOrchestrationMidiPianoRollTitle,
                    UiConstants::workspaceWidgetTypeOrchestrationMidiPianoRoll) {
+    setShowsProvisionalNotes(true);
     setNoteColours(UiConstants::pianoRollHistoryNoteColour, UiConstants::pianoRollPendingNoteColour);
     refreshFromSession();
 }

@@ -217,6 +217,7 @@ struct LaunchpadAction {
         Accompaniment, // on = now on
         Polyphony,     // value = max polyphony
         Pause,         // value = 1 RT, 2 OT; on = now paused
+        ForceRestart,
     };
     Kind kind = Kind::Flush;
     int32_t local = 0;
@@ -245,6 +246,8 @@ template <typename NameFn>
             return a.on ? "Accompaniment on (max polyphony 1)" : "Accompaniment off";
         case Kind::Polyphony:
             return "Max polyphony " + juce::String(a.value);
+        case Kind::ForceRestart:
+            return "Force restart";
         case Kind::Pause: {
             const juce::String who = a.value == 1 ? "Reduction" : "Orchestration";
             return who + (a.on ? " paused" : " resumed");

@@ -92,6 +92,7 @@ inline constexpr const char *workspaceOrchestrationMidiPianoRollTitle = "OT Midi
 inline constexpr const char *workspaceOrchestrationConditioningPianoRollTitle = "OT Conditioning";
 inline constexpr const char *workspaceOrchestrationReductionPianoRollTitle = "OT Reduction";
 inline constexpr const char *workspaceActiveInstrumentsTitle = "Active Instruments";
+inline constexpr const char *workspaceActiveInstrumentsRestartLabel = "Restart";
 inline constexpr const char *workspaceActiveInstrumentsRtPauseLabel = "RT Pause";
 inline constexpr const char *workspaceActiveInstrumentsOtPauseLabel = "OT Pause";
 inline constexpr const char *workspaceActiveInstrumentsEditLabel = "Edit";
@@ -385,6 +386,8 @@ inline const juce::Colour pianoRollBackground{juce::Colours::black.brighter(0.05
 inline const juce::Colour pianoRollGridColour{juce::Colours::grey.withAlpha(0.25f)};
 inline const juce::Colour pianoRollNoteColour{juce::Colours::cornflowerblue.withAlpha(0.85f)};
 inline const juce::Colour pianoRollHistoryNoteColour{juce::Colours::red.withAlpha(0.85f)};
+/** Fill opacity of a provisional (still held) note; its outline stays solid. */
+inline constexpr float pianoRollProvisionalFillOpacity = 0.3f;
 inline const juce::Colour pianoRollPendingNoteColour{juce::Colours::grey.withAlpha(0.85f)};
 inline const juce::Colour pianoRollNowbarColour{juce::Colours::orange};
 

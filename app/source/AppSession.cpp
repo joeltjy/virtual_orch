@@ -150,6 +150,13 @@ AppSession::AppSession()
                 {PerformanceActivity::LaunchpadAction::Kind::Pause, 0, which, paused, false},
                 [](int32_t) { return juce::String(); }));
         };
+        if (idx == 0) {
+            consoleLog.add(PerformanceActivity::describe(
+                {PerformanceActivity::LaunchpadAction::Kind::ForceRestart, 0, 0, false, false},
+                [](int32_t) { return juce::String(); }));
+            forceRestart();
+            return;
+        }
         if (idx == 1) {
             auto &reduction = activeReduction();
             reduction.setGenerationPause(! reduction.generationPause.get());
@@ -230,6 +237,7 @@ AppSession::AppSession()
 }
 
 AppSession::~AppSession() {
+    alive->store(false);
     testOrchestrationTransformerThread.stop();
     // Ensure any detached stop join finished before members are destroyed.
     while (stopJoinInFlight.load(std::memory_order_acquire))
@@ -516,8 +524,38 @@ auto AppSession::applyAccompanimentCap() -> void {
     reductionTransformerMelodyFirst.setMaxPolyphony(cap);
 }
 
+auto AppSession::forceRestart() -> void {
+    if (restartInFlight.exchange(true, std::memory_order_acq_rel))
+        return;
+
+    auto aliveFlag = alive;
+    postToMessageThread([this, aliveFlag] {
+        if (! aliveFlag->load())
+            return;
+        stopGeneration();
+
+        // stopGeneration joins the workers off the message thread: wait for that, then start.
+        std::thread([this, aliveFlag] {
+            for (int waitedMs = 0;
+                 aliveFlag->load() && stopJoinInFlight.load(std::memory_order_acquire)
+                 && waitedMs < 20000;
+                 waitedMs += 10)
+                juce::Thread::sleep(10);
+            postToMessageThread([this, aliveFlag] {
+                if (! aliveFlag->load())
+                    return;
+                startGeneration();
+                syncPauseTopLeds();
+                restartsCompleted.fetch_add(1, std::memory_order_acq_rel);
+                restartInFlight.store(false, std::memory_order_release);
+            });
+        }).detach();
+    });
+}
+
 auto AppSession::syncPauseTopLeds() -> void {
     auto &grid = midiInputProcess.getLaunchpadGrid();
+    grid.setTopLed(0, LaunchpadLighting::kOrange); // force restart
     grid.setTopLed(1, activeReduction().generationPause.get() ? LaunchpadLighting::kRed
                                                               : LaunchpadLighting::kOff);
     grid.setTopLed(2, orchestrationTransformer.paused.get() ? LaunchpadLighting::kRed

@@ -74,6 +74,17 @@ public:
     static constexpr float kEnsembleAddPDefault = 0.67f;
     static constexpr float kEnsembleRemovePDefault = 0.3f;
 
+    /**
+     * Forget everything the model remembers about the performance so far (its note list, its
+     * history, per-model windows). Called when the orchestration thread (re)starts, so a Start
+     * or a force restart begins from a clean slate. Subclasses clear their own state and call
+     * this base version.
+     */
+    virtual auto resetState() -> void {
+        inputNotes.clear();
+        tokenHistorySequence.clear();
+    }
+
     /** Models that can smooth their per-note choice over a voice return true. */
     [[nodiscard]] virtual auto supportsVocsepEnsemble() const -> bool { return false; }
 

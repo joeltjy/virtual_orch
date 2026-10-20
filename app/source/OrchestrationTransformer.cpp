@@ -426,8 +426,10 @@ void OrchestrationTransformer::threadRun() {
         modelBalance.syncActive(modelInstruments);
     }
     resetOrchProfile();
-    if (orchestrationModel != nullptr)
+    if (orchestrationModel != nullptr) {
+        orchestrationModel->resetState();
         orchestrationModel->getOutputTimings = &getOutputAccum;
+    }
 
     while (! threadShouldExit()) {
         const double loopStartMs = juce::Time::getMillisecondCounterHiRes();

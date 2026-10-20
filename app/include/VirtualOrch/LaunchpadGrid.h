@@ -37,7 +37,7 @@
  *  Presses within kBurstMs on the same pad are ignored.
  *  LEDs: instrument pads lit in their family colour when on; unmapped pads stay off.
  *  Top-row CCs use `scene_callback(idx)` with idx = cc - 104 (0..7).
- *  App wiring: 1 (CC105) RT pause, 2 (CC106) OT pause; 0 and 3..7 unused.
+ *  App wiring: 0 (CC104) force restart (stop + start), 1 (CC105) RT pause, 2 (CC106) OT pause; 3..7 unused.
  *  Pause buttons light red via setTopLed while paused.
  */
 class LaunchpadGrid {

@@ -71,6 +71,12 @@ auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid) -> void {
         cell.lit = grid.getTopLedColour(idx) != LaunchpadLighting::kOff;
     };
     setPause(1, UiConstants::workspaceActiveInstrumentsRtPauseLabel);
+    {
+        auto &restart = cells[0][0];
+        restart.label = UiConstants::workspaceActiveInstrumentsRestartLabel;
+        restart.onPalette = LaunchpadLighting::kOrange;
+        restart.lit = true;
+    }
     setPause(2, UiConstants::workspaceActiveInstrumentsOtPauseLabel);
 
     // Mode row.

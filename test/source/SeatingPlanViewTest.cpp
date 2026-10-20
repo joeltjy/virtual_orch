@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <cstdio>
+
 #include <VirtualOrch/widgets/InstrumentActiveLightWidget.h>
 
 namespace {
@@ -45,6 +47,53 @@ TEST(SeatingPlanView, dimsOnlyTheInactiveSectors) {
     const auto lit = view.createComponentSnapshot(view.getLocalBounds(), false);
     EXPECT_GT(brightness(lit, 900.0f / 1832.0f, 520.0f / 859.0f), 0.6f);
     EXPECT_GT(brightness(lit, 700.0f / 1832.0f, 770.0f / 859.0f), 0.5f);
+}
+
+// End to end: a logged orchestra note lights its section and only it.
+TEST(SeatingPlanView, aLoggedOrchestraNoteLightsItsSection) {
+    const juce::ScopedJuceInitialiser_GUI gui;
+
+    SeatingPlanView view;
+    view.setBounds(0, 0, 916, 430);
+    PerformanceActivity::ActivityLog log;
+    const int64_t now = 100000;
+    log.noteOn(now, 2, 45, 500); // cello
+
+    view.setActive(log.activeSectors(now + 100));
+    const auto image = view.createComponentSnapshot(view.getLocalBounds(), false);
+    EXPECT_GT(brightness(image, 1250.0f / 1832.0f, 560.0f / 859.0f), 0.6f) << "cellos lit";
+    EXPECT_LT(brightness(image, 900.0f / 1832.0f, 520.0f / 859.0f), 0.45f) << "violas dim";
+
+    // Two seconds after the note ends the section goes dim again.
+    view.setActive(log.activeSectors(now + 500 + PerformanceActivity::ActivityLog::kHoldMs + 1));
+    const auto later = view.createComponentSnapshot(view.getLocalBounds(), false);
+    EXPECT_LT(brightness(later, 1250.0f / 1832.0f, 560.0f / 859.0f), 0.45f) << "cellos dim again";
+}
+
+// An update is cheap: no pixel work in setActive, and paint only blits pre-scaled images.
+TEST(SeatingPlanView, updatesAreCheap) {
+    const juce::ScopedJuceInitialiser_GUI gui;
+
+    SeatingPlanView view;
+    view.setBounds(0, 0, 916, 430);
+    std::array<bool, PerformanceActivity::kSectorCount> active{};
+
+    const auto t0 = juce::Time::getMillisecondCounterHiRes();
+    for (int i = 0; i < 200; ++i) {
+        active[static_cast<size_t>(i % PerformanceActivity::kSectorCount)] ^= true;
+        view.setActive(active);
+    }
+    const double setActiveMs = (juce::Time::getMillisecondCounterHiRes() - t0) / 200.0;
+
+    active.fill(true); // worst case: every patch drawn
+    view.setActive(active);
+    const auto p0 = juce::Time::getMillisecondCounterHiRes();
+    for (int i = 0; i < 10; ++i)
+        (void) view.createComponentSnapshot(view.getLocalBounds(), false);
+    const double paintMs = (juce::Time::getMillisecondCounterHiRes() - p0) / 10.0;
+    std::printf("seating plan: setActive %.3f ms, paint (all lit, incl. snapshot) %.1f ms\n",
+                setActiveMs, paintMs);
+    EXPECT_LT(setActiveMs, 1.0);
 }
 
 } // namespace virtual_orch_test

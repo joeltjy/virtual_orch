@@ -97,6 +97,8 @@ private:
                      const DensePitchBias::PitchWindowStats *pitchWindow, float tau, float tauPrime)
         -> int32_t;
     auto resetStream(int32_t now) -> void;
+    /** Leaving Accompaniment: drop the generated notes from `cutCs` on (stream, windows, UI). */
+    auto rewindGeneratedFrom(int32_t cutCs) -> void;
 
     std::unique_ptr<StreamingKv::Backend> backend;
     std::unique_ptr<StreamingKv::CommittedScratchCache> cache;

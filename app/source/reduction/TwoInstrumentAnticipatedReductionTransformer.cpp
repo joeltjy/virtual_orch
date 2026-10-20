@@ -82,6 +82,15 @@ auto TwoInstrumentAnticipatedReductionTransformer::resetStream(int32_t now) -> v
     currentTime = stream.clock();
 }
 
+auto TwoInstrumentAnticipatedReductionTransformer::rewindGeneratedFrom(int32_t cutCs) -> void {
+    // The stream is cut; the KV cache sees a changed committed prefix and rebuilds by itself.
+    stream.rewindTo(cutCs);
+    eraseStridedFrom(generatedDense, kDenseEventWidth, cutCs);
+    rewindInputDataFrom(cutCs);
+    pitchTauScheduler.reset();
+    currentTime = stream.clock();
+}
+
 // ---- input ----
 
 auto TwoInstrumentAnticipatedReductionTransformer::drainInput(int32_t now) -> bool {
@@ -266,6 +275,8 @@ auto TwoInstrumentAnticipatedReductionTransformer::stepOnce() -> bool {
     const int32_t now = nowCs();
     if (! stream.isStarted())
         resetStream(now);
+    if (const auto cut = consumeModeCut())
+        rewindGeneratedFrom(*cut);
     drainInput(now);
     if (isGenerationStopped())
         return false;
@@ -294,9 +305,9 @@ void TwoInstrumentAnticipatedReductionTransformer::threadRun() {
         const double loopStartMs = juce::Time::getMillisecondCounterHiRes();
         finishAheadThrottleIfDue();
 
-        // Leaving Accompaniment: send the cut marker downstream. TODO(task 2): this class keeps
-        // its generated notes in the KV-cached stream, so it does not rewind them yet.
-        (void) consumeModeCut();
+        // Leaving Accompaniment: drop the generated notes from the cut on.
+        if (const auto cut = consumeModeCut())
+            rewindGeneratedFrom(*cut);
 
         const int32_t now = nowCs();
         const bool inputApplied = drainInput(now);

@@ -73,15 +73,59 @@ public:
         c.deltaCs = deltaCs;
         c.priority = priority;
         pending.push_back(c);
-        std::stable_sort(pending.begin(), pending.end(), [](const Control &a, const Control &b) {
-            if (a.actualCs() != b.actualCs())
-                return a.actualCs() < b.actualCs();
-            if (a.priority != b.priority)
-                return a.priority < b.priority;
-            if (a.note.onsetCs != b.note.onsetCs)
-                return a.note.onsetCs < b.note.onsetCs;
-            return a.note.pitch < b.note.pitch;
-        });
+        sortPending();
+    }
+
+    /**
+     * Undo the model's notes from cutCs on (leaving Accompaniment). The stream is cut at the
+     * first event with onset >= cutCs; controls after that point go back to pending (they are
+     * inserted again once the clock passes them), TD tokens after it are dropped and written
+     * again, and the clock moves back to the last kept event. Controls of `dropInstrument` with
+     * onset >= cutCs are removed wherever they are (MelodyFirst: the M controls of the melody
+     * notes that are rewound too). Returns true when anything changed (the cache then rebuilds).
+     */
+    auto rewindTo(int32_t cutCs, int32_t dropInstrument = -1) -> bool {
+        const auto dropped = [&](const Control &c) {
+            return c.instrument == dropInstrument && c.note.onsetCs >= cutCs;
+        };
+        size_t cut = items.size();
+        for (size_t i = 0; i < items.size(); ++i)
+            if (items[i].kind == Kind::Event && items[i].control.note.onsetCs >= cutCs) {
+                cut = i;
+                break;
+            }
+        bool changed = cut < items.size();
+        bool droppedBoundary = false;
+        int32_t firstDroppedBoundary = 0;
+        for (size_t i = cut; i < items.size(); ++i) {
+            const auto &item = items[i];
+            if (item.kind == Kind::Control && ! dropped(item.control)) {
+                pending.push_back(item.control);
+            } else if (item.kind == Kind::Td && ! droppedBoundary) {
+                droppedBoundary = true;
+                firstDroppedBoundary = item.tdBoundaryCs;
+            }
+        }
+        items.erase(items.begin() + static_cast<std::ptrdiff_t>(cut), items.end());
+
+        const size_t itemsBefore = items.size();
+        items.erase(std::remove_if(items.begin(), items.end(),
+                                   [&](const Item &i) {
+                                       return i.kind == Kind::Control && dropped(i.control);
+                                   }),
+                    items.end());
+        const size_t pendingBefore = pending.size();
+        pending.erase(std::remove_if(pending.begin(), pending.end(), dropped), pending.end());
+        changed = changed || items.size() != itemsBefore || pending.size() != pendingBefore;
+        sortPending();
+
+        if (droppedBoundary)
+            nextBoundaryCs = firstDroppedBoundary;
+        clockCs = baseCs;
+        for (const auto &item: items)
+            if (item.kind == Kind::Event)
+                clockCs = std::max(clockCs, item.control.note.onsetCs);
+        return changed;
     }
 
     /** True when a pending control would be inserted at event clock `clockCsNow`. */
@@ -217,6 +261,18 @@ private:
         int32_t tdBoundaryCs = 0;
         int32_t tdToken = 0;
     };
+
+    auto sortPending() -> void {
+        std::stable_sort(pending.begin(), pending.end(), [](const Control &a, const Control &b) {
+            if (a.actualCs() != b.actualCs())
+                return a.actualCs() < b.actualCs();
+            if (a.priority != b.priority)
+                return a.priority < b.priority;
+            if (a.note.onsetCs != b.note.onsetCs)
+                return a.note.onsetCs < b.note.onsetCs;
+            return a.note.pitch < b.note.pitch;
+        });
+    }
 
     [[nodiscard]] static auto itemTime(const Item &i) -> int32_t {
         return i.kind == Kind::Td ? i.tdBoundaryCs : i.control.note.onsetCs;

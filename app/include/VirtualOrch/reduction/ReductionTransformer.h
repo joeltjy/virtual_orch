@@ -238,6 +238,10 @@ protected:
      */
     auto rewindInputDataFrom(int32_t timeCs) -> void;
 
+    /** Remove the `width`-wide events of `strided` whose onset (first field) is >= timeCs. */
+    static auto eraseStridedFrom(std::vector<int32_t> &strided, size_t width, int32_t timeCs)
+        -> void;
+
     /** Log first generated onset after generationPause clears (diagnose pedal-up lag). */
     auto logGeneratedTokenIfResumed(int32_t onset) -> void;
 

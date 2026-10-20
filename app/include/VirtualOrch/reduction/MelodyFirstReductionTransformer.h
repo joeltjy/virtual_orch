@@ -111,6 +111,11 @@ public:
 private:
     auto nowCs() const -> int32_t;
     auto resetAll(int32_t now) -> void;
+    /**
+     * Leaving Accompaniment: drop the generated reduction notes AND the planned melody from
+     * `cutCs` on (both streams, their M controls, windows, UI); your notes are kept.
+     */
+    auto rewindGeneratedFrom(int32_t cutCs) -> void;
     auto drainInput(int32_t now) -> bool;
     auto generateMelodyNote(int32_t now) -> std::optional<MelodyStream::Note>;
     auto generateReductionNote(int32_t now) -> std::optional<Token>;

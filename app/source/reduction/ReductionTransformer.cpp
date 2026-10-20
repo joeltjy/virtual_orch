@@ -204,17 +204,21 @@ auto ReductionTransformer::consumeModeCut() -> std::optional<int32_t> {
     return cut;
 }
 
-auto ReductionTransformer::rewindInputDataFrom(int32_t timeCs) -> void {
-    const size_t width = inputEventWidth();
+auto ReductionTransformer::eraseStridedFrom(std::vector<int32_t> &strided, size_t width,
+                                            int32_t timeCs) -> void {
     std::vector<int32_t> kept;
-    kept.reserve(inputData.size());
-    for (size_t i = 0; i + width <= inputData.size(); i += width) {
-        if (inputData[i] >= timeCs)
+    kept.reserve(strided.size());
+    for (size_t i = 0; i + width <= strided.size(); i += width) {
+        if (strided[i] >= timeCs)
             continue;
-        kept.insert(kept.end(), inputData.begin() + static_cast<std::ptrdiff_t>(i),
-                    inputData.begin() + static_cast<std::ptrdiff_t>(i + width));
+        kept.insert(kept.end(), strided.begin() + static_cast<std::ptrdiff_t>(i),
+                    strided.begin() + static_cast<std::ptrdiff_t>(i + width));
     }
-    inputData = std::move(kept);
+    strided = std::move(kept);
+}
+
+auto ReductionTransformer::rewindInputDataFrom(int32_t timeCs) -> void {
+    eraseStridedFrom(inputData, inputEventWidth(), timeCs);
     currentTime = timeCs;
     notifyInputDataChanged();
 }

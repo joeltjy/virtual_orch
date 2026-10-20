@@ -115,6 +115,22 @@ auto MelodyFirstReductionTransformer::melodyIsTooFarAhead() const -> bool {
     return latestMelodyOnset - latestReductionOnset > kMaxMelodyAheadCs;
 }
 
+auto MelodyFirstReductionTransformer::rewindGeneratedFrom(int32_t cutCs) -> void {
+    // Both KV caches see a changed committed prefix and rebuild by themselves.
+    melodyStream.rewindTo(cutCs);
+    reductionStream.rewindTo(cutCs, /*drop the melody's M controls*/ 2);
+    std::erase_if(melodyEvents, [cutCs](const Token &t) { return t.time >= cutCs; });
+    eraseStridedFrom(generatedDense, kEventWidth, cutCs);
+    rewindInputDataFrom(cutCs);
+    pitchTauScheduler.reset();
+
+    latestMelodyOnset = melodyStream.base();
+    for (const auto &t: melodyEvents)
+        latestMelodyOnset = std::max(latestMelodyOnset, t.time);
+    latestReductionOnset = reductionStream.clock();
+    currentTime = reductionStream.clock();
+}
+
 // ---- input ----
 
 auto MelodyFirstReductionTransformer::drainInput(int32_t now) -> bool {
@@ -443,6 +459,8 @@ auto MelodyFirstReductionTransformer::stepOnce() -> bool {
     const int32_t now = nowCs();
     if (! melodyStream.isStarted())
         resetAll(now);
+    if (const auto cut = consumeModeCut())
+        rewindGeneratedFrom(*cut);
     drainInput(now);
     if (aDirty) {
         state.runWindow(now);
@@ -486,9 +504,9 @@ void MelodyFirstReductionTransformer::threadRun() {
         const double loopStartMs = juce::Time::getMillisecondCounterHiRes();
         finishAheadThrottleIfDue();
 
-        // Leaving Accompaniment: send the cut marker downstream. TODO(task 2): this class keeps
-        // its generated notes in the KV-cached stream, so it does not rewind them yet.
-        (void) consumeModeCut();
+        // Leaving Accompaniment: drop the generated reduction and melody from the cut on.
+        if (const auto cut = consumeModeCut())
+            rewindGeneratedFrom(*cut);
 
         const int32_t now = nowCs();
         drainInput(now);

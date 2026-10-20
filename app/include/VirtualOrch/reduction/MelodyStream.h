@@ -97,14 +97,44 @@ public:
             c.provisional = p.provisional;
             next.push_back(c);
         }
-        std::stable_sort(next.begin(), next.end(), [](const Control &a, const Control &b) {
-            if (a.note.onsetCs != b.note.onsetCs)
-                return a.note.onsetCs < b.note.onsetCs;
-            if (a.note.durationCs != b.note.durationCs)
-                return a.note.durationCs < b.note.durationCs;
-            return a.note.pitch < b.note.pitch;
-        });
+        sortControls(next);
         pending = std::move(next);
+    }
+
+    /**
+     * Undo the model's melody from cutCs on (leaving Accompaniment). The stream is cut at the
+     * first event or rest with onset >= cutCs; controls after that point are offered again
+     * (back to pending, no longer "inserted"), the per-line monophony ends are recomputed and
+     * the clock moves back to the last kept event or rest. Returns true when anything changed.
+     */
+    auto rewindTo(int32_t cutCs) -> bool {
+        size_t cut = items.size();
+        for (size_t i = 0; i < items.size(); ++i)
+            if (items[i].kind != Kind::Control && items[i].control.note.onsetCs >= cutCs) {
+                cut = i;
+                break;
+            }
+        if (cut == items.size())
+            return false;
+        for (size_t i = cut; i < items.size(); ++i)
+            if (items[i].kind == Kind::Control) {
+                inserted.erase(idOf(items[i].control));
+                pending.push_back(items[i].control);
+            }
+        items.erase(items.begin() + static_cast<std::ptrdiff_t>(cut), items.end());
+        sortControls(pending);
+
+        lastEnd = {INT32_MIN, INT32_MIN};
+        clockCs = baseCs;
+        for (const auto &item: items) {
+            const auto &n = item.control.note;
+            if (item.kind == Kind::Control)
+                lastEnd[static_cast<size_t>(item.control.line)] =
+                    std::max(lastEnd[static_cast<size_t>(item.control.line)], n.onsetCs + n.durationCs);
+            else
+                clockCs = std::max(clockCs, n.onsetCs);
+        }
+        return true;
     }
 
     /** Held controls older than the hold limit are committed with the duration they have. */
@@ -246,6 +276,16 @@ private:
         Kind kind = Kind::Event;
         Control control;
     };
+
+    static auto sortControls(std::vector<Control> &controls) -> void {
+        std::stable_sort(controls.begin(), controls.end(), [](const Control &a, const Control &b) {
+            if (a.note.onsetCs != b.note.onsetCs)
+                return a.note.onsetCs < b.note.onsetCs;
+            if (a.note.durationCs != b.note.durationCs)
+                return a.note.durationCs < b.note.durationCs;
+            return a.note.pitch < b.note.pitch;
+        });
+    }
 
     [[nodiscard]] static auto idOf(const Control &c) -> Id {
         return {c.key, c.note.onsetCs, c.note.pitch, c.line};

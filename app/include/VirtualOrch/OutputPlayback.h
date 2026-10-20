@@ -36,6 +36,7 @@ struct PlaybackNoteOnRecord {
     int32_t velocity = 0; // MIDI 0–127
     int32_t localInstrumentId = 0;
     int32_t channel = 0; // 1-based MIDI channel
+    int32_t keyId = -1; // Token::keyId of the keyboard note it came from (-1 = none)
 };
 
 /**

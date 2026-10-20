@@ -521,6 +521,8 @@ auto IodPretrained::getOutput(const std::vector<Token> &incomingTokens,
                     basePitch,
                     window.velocity[static_cast<size_t>(i)],
                     safeCombo);
+                for (auto &n: notes)
+                    n.token.keyId = inputNotes[listIdx].token.keyId;
                 if (balance != nullptr && ! notes.empty()) {
                     std::vector<int32_t> ids;
                     ids.reserve(notes.size());

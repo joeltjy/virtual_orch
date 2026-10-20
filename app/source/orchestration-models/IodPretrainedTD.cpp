@@ -388,9 +388,11 @@ auto IodPretrainedTD::getOutput(const std::vector<Token> &incomingTokens,
             const auto role = roleAmongOverlapping(inputNotes, idx, begin);
             const auto safePairs = filterPairsUniqueOctave(filterPairsByDeltaAllows(
                 pairsFromCombo(comboFromData(rec.dataB)), role.allowMinus1, role.allowPlus1));
-            const auto notes = decodeComboToNotes(
+            auto notes = decodeComboToNotes(
                 rec.token.time, rec.token.duration, rec.token.getPitch(),
                 rec.token.velocity > 0 ? rec.token.velocity : 64, comboFromPairs(safePairs));
+            for (auto &n: notes)
+                n.token.keyId = rec.token.keyId;
             if (balance != nullptr && ! notes.empty()) {
                 std::vector<int32_t> noteInstruments;
                 noteInstruments.reserve(notes.size());

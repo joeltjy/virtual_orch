@@ -113,7 +113,12 @@ private:
         uint32_t onset = 0;
         std::optional<int32_t> flushedTime;
         int32_t velocity = 100;
+        /** Token::keyId of this key press (flushed token and its note-off update). */
+        int32_t keyId = -1;
     };
+
+    /** Next Token::keyId for a keyboard note-on. */
+    int32_t nextKeyId = 0;
 
     std::deque<Token> tokensToSend;
     uint32_t lastTokenAddedTime = 0;

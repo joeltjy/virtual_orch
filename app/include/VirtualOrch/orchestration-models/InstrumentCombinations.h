@@ -66,8 +66,12 @@ public:
 
     [[nodiscard]] auto supportsVocsepEnsemble() const -> bool override { return true; }
 
-    /** Decode each 9-token group into one OrchestrationNote per active instrument. */
-    [[nodiscard]] auto encodedCombinationToInstruments(const std::vector<int32_t> &sampledTokens) const
+    /**
+     * Decode each 9-token group into one OrchestrationNote per active instrument.
+     * sourceKeyIds[i], when given, is the Token::keyId of the input note of group i.
+     */
+    [[nodiscard]] auto encodedCombinationToInstruments(const std::vector<int32_t> &sampledTokens,
+                                                       const std::vector<int32_t> &sourceKeyIds = {}) const
         -> std::vector<OrchestrationNote>;
 
     /** Allowed vocab ids for family slot 0=strings..3=other given active local instruments. */

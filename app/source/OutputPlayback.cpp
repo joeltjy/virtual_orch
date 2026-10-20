@@ -116,6 +116,7 @@ auto OutputPlayback::recordNoteOn(const OrchestrationNote &note, int32_t channel
     record.velocity = note.velocity > 0 ? note.velocity : 100;
     record.localInstrumentId = note.localInstrumentId;
     record.channel = channel;
+    record.keyId = note.token.keyId;
     if (activityLog != nullptr)
         activityLog->noteOn(juce::Time::currentTimeMillis(), record.localInstrumentId,
                             record.pitch, static_cast<int64_t>(record.durationCs) * 10);
@@ -134,7 +135,11 @@ auto OutputPlayback::updateNoteOnHistoryDuration(const Token &oldNote, const Tok
     const auto pitch = oldNote.getPitch();
     const juce::ScopedLock lock(noteOnHistoryLock);
     for (auto &record: noteOnHistory) {
-        if (record.onsetCs == oldNote.time && record.pitch == pitch && record.durationCs == oldDur)
+        const bool matches = oldNote.keyId >= 0
+                                 ? record.keyId == oldNote.keyId
+                                 : record.onsetCs == oldNote.time && record.pitch == pitch
+                                       && record.durationCs == oldDur;
+        if (matches)
             record.durationCs = newDur;
     }
 }
@@ -186,30 +191,35 @@ void OutputPlayback::run() {
         nextTokens.insert(note);
     };
 
+    // Keyboard notes are matched by keyId and keep their onset (chord snapping) and their
+    // instrument-scaled velocity: only the duration changes.
+    auto revise = [](OrchestrationNote note, const TokenUpdate &update) {
+        note.token.duration = update.newNote.duration;
+        if (update.oldNote.keyId < 0)
+            note.token.velocity = update.newNote.velocity;
+        return note;
+    };
+
     auto applyOneDurationUpdate = [&](const TokenUpdate &durationUpdate) -> int {
         int matched = 0;
         for (auto it = nextTokens.begin(); it != nextTokens.end();) {
-            if (! tokenEqualsByOnsetPitch(it->token, durationUpdate.oldNote)) {
+            if (! tokenMatchesUpdateSource(it->token, durationUpdate.oldNote)) {
                 ++it;
                 continue;
             }
             ++matched;
-            OrchestrationNote revised = *it;
-            revised.token.duration = durationUpdate.newNote.duration;
-            revised.token.velocity = durationUpdate.newNote.velocity;
+            const OrchestrationNote revised = revise(*it, durationUpdate);
             it = nextTokens.erase(it);
             nextTokens.insert(revised);
         }
 
         for (auto it = currentlyPlaying.begin(); it != currentlyPlaying.end();) {
-            if (! tokenEqualsByOnsetPitch(it->token, durationUpdate.oldNote)) {
+            if (! tokenMatchesUpdateSource(it->token, durationUpdate.oldNote)) {
                 ++it;
                 continue;
             }
             ++matched;
-            OrchestrationNote revised = *it;
-            revised.token.duration = durationUpdate.newNote.duration;
-            revised.token.velocity = durationUpdate.newNote.velocity;
+            const OrchestrationNote revised = revise(*it, durationUpdate);
             it = currentlyPlaying.erase(it);
 
             if (revised.token.time + revised.token.getRealDuration() <= playbackTime)

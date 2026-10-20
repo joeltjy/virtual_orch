@@ -78,10 +78,12 @@ auto OrchestrationTransformer::applyTokenUpdates() -> void {
     while (updatesIncoming.pull(update)) {
         for (auto &note: outputHistory) {
             // Orch notes store pitch-only note ids; keyboard updates embed instrument.
-            if (! tokenEqualsByOnsetPitch(note.token, update.oldNote))
+            // Keyboard notes match by keyId (onset / pitch / velocity may have changed).
+            if (! tokenMatchesUpdateSource(note.token, update.oldNote))
                 continue;
             note.token.duration = update.newNote.duration;
-            note.token.velocity = update.newNote.velocity;
+            if (update.oldNote.keyId < 0)
+                note.token.velocity = update.newNote.velocity;
         }
 
         // OT midi history is retagged as piano (15); note-off updates use reduction instr 0.

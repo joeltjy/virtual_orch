@@ -273,7 +273,8 @@ void MidiInputProcess::timerCallback() {
             .duration = defaultDur,
             .note = static_cast<int32_t>(Vocab::NoteOffset + Config::MaxPitch * InstrumentConstants::kReductionInputLocalInstrumentId
                                          + pitch),
-            .velocity = note.velocity
+            .velocity = note.velocity,
+            .keyId = note.keyId
         });
         note.flushedTime = noteOnset;
     }
@@ -494,8 +495,10 @@ void MidiInputProcess::handleNoteOn(int midiNoteNumber, float velocity) {
             bassHeld = inputToken.note;
             DBG("Setting bass to " + std::to_string(bassHeld.value()));
         } else {
-            notesOnToSend[midiNoteNumber] = HeldDirectNote{
-                .onset = time, .flushedTime = std::nullopt, .velocity = inputToken.velocity};
+            notesOnToSend[midiNoteNumber] = HeldDirectNote{.onset = time,
+                                                           .flushedTime = std::nullopt,
+                                                           .velocity = inputToken.velocity,
+                                                           .keyId = nextKeyId++};
         }
         lastTokenAddedTime = time;
         if (!isTimerRunning()) {
@@ -555,14 +558,18 @@ void MidiInputProcess::handleNoteOff(int midiNoteNumber) {
         if (it->second.flushedTime.has_value()) {
             const int32_t stamp = *it->second.flushedTime;
             const int32_t vel = it->second.velocity;
+            const int32_t keyId = it->second.keyId;
             inputFilter->updatesFromMain.push({
-                .oldNote = Token{stamp, defaultDur, noteId, vel},
-                .newNote = Token{stamp, correctDur, noteId, vel}
+                .oldNote = Token{.time = stamp, .duration = defaultDur, .note = noteId,
+                                 .velocity = vel, .keyId = keyId},
+                .newNote = Token{.time = stamp, .duration = correctDur, .note = noteId,
+                                 .velocity = vel, .keyId = keyId}
             });
             inputFilter->processUpdates();
         } else {
-            inputFilter->filter(
-                Token{static_cast<int32_t>(onset), correctDur, noteId, it->second.velocity});
+            inputFilter->filter(Token{.time = static_cast<int32_t>(onset), .duration = correctDur,
+                                      .note = noteId, .velocity = it->second.velocity,
+                                      .keyId = it->second.keyId});
         }
     }
 

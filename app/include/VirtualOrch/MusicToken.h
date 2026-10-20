@@ -202,6 +202,12 @@ struct Token {
      * so a later vocsep re-stamp can find the same note downstream. -1 = none.
      */
     int32_t noteId = -1;
+    /**
+     * Stable id of a live keyboard note, set by MidiInputProcess on note-on and kept by every
+     * orchestra note made from it, so the note-off update finds them even after the
+     * orchestration changed onset (chord snapping), pitch (octave delta) or velocity. -1 = none.
+     */
+    int32_t keyId = -1;
 
     auto getRealDuration() const -> int32_t {
         return duration - Vocab::DurOffset;
@@ -285,6 +291,19 @@ inline bool operator<(const Token &lhs, const Token &rhs) {
 inline auto tokenEquals(const Token &lhs, const Token &rhs) -> bool {
     return lhs.time == rhs.time && lhs.duration == rhs.duration && lhs.note == rhs.note
            && lhs.velocity == rhs.velocity;
+}
+
+/** Match onset/dur/vel/pitch, ignoring local-instrument embedding in `note`. */
+inline auto tokenEqualsByOnsetPitch(const Token &lhs, const Token &rhs) -> bool;
+
+/**
+ * Whether `token` is a note that the note-off update for `source` must revise: by keyId when
+ * the update carries one (keyboard notes), otherwise by onset/dur/vel/pitch.
+ */
+inline auto tokenMatchesUpdateSource(const Token &token, const Token &source) -> bool {
+    if (source.keyId >= 0)
+        return token.keyId == source.keyId;
+    return tokenEqualsByOnsetPitch(token, source);
 }
 
 /** Match onset/dur/vel/pitch, ignoring local-instrument embedding in `note`. */

@@ -537,7 +537,8 @@ auto InstrumentCombinations::sample(const std::vector<int32_t> &maskedTokens,
     return sampled;
 }
 
-auto InstrumentCombinations::encodedCombinationToInstruments(const std::vector<int32_t> &sampledTokens) const
+auto InstrumentCombinations::encodedCombinationToInstruments(const std::vector<int32_t> &sampledTokens,
+                                                             const std::vector<int32_t> &sourceKeyIds) const
     -> std::vector<OrchestrationNote> {
     jassert(sampledTokens.size() % static_cast<size_t>(tokensPerNote) == 0);
 
@@ -581,11 +582,13 @@ auto InstrumentCombinations::encodedCombinationToInstruments(const std::vector<i
             }
         }
 
+        const int32_t keyId = noteIndex < sourceKeyIds.size() ? sourceKeyIds[noteIndex] : -1;
         for (const int32_t instrument: allInstruments) {
             OrchestrationNote assigned;
             assigned.token.time = onset;
             assigned.token.duration = durToken;
             assigned.token.note = static_cast<int32_t>(Vocab::NoteOffset) + pitch;
+            assigned.token.keyId = keyId;
             assigned.localInstrumentId = instrument;
             const int32_t scaledVel =
                 InstrumentConstants::scaleVelocityForInstrument(instrument, velocity);
@@ -777,7 +780,14 @@ auto InstrumentCombinations::getOutput(const std::vector<Token> &incomingTokens,
     std::vector<OrchestrationNote> result;
     {
         const ScopedMs decodeMs(getOutputTimings != nullptr ? &getOutputTimings->decode : nullptr);
-        result = encodedCombinationToInstruments(sampled);
+        // Sampled group i is input note (noteTokens.size() - groups + i): newTokens may have
+        // been trimmed from the front to fit the context.
+        const size_t groups = sampled.size() / static_cast<size_t>(tokensPerNote);
+        std::vector<int32_t> keyIds;
+        keyIds.reserve(groups);
+        for (size_t i = noteTokens.size() - std::min(groups, noteTokens.size()); i < noteTokens.size(); ++i)
+            keyIds.push_back(noteTokens[i].keyId);
+        result = encodedCombinationToInstruments(sampled, keyIds);
         updateHistories(result, sampled);
         if (balance != nullptr)
             recordBalanceFromSampled(*balance, sampled);

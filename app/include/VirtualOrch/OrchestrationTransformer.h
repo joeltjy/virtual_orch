@@ -19,8 +19,15 @@
 
 enum class OrchestrationMode : uint8_t {
     Edit,
-    Jam
+    Jam,
+    /** Jam plus the polyphony cap; live input never clears the queue or rewinds the model. */
+    Accompaniment
 };
+
+/** Jam and Accompaniment orchestrate the reduction stream with user + model instruments. */
+[[nodiscard]] inline auto isJamLike(OrchestrationMode mode) -> bool {
+    return mode == OrchestrationMode::Jam || mode == OrchestrationMode::Accompaniment;
+}
 
 enum class InstrumentUpdateTarget : uint8_t {
     User,

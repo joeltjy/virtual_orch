@@ -486,6 +486,10 @@ void MelodyFirstReductionTransformer::threadRun() {
         const double loopStartMs = juce::Time::getMillisecondCounterHiRes();
         finishAheadThrottleIfDue();
 
+        // Leaving Accompaniment: send the cut marker downstream. TODO(task 2): this class keeps
+        // its generated notes in the KV-cached stream, so it does not rewind them yet.
+        (void) consumeModeCut();
+
         const int32_t now = nowCs();
         drainInput(now);
         const bool inputApplied = aDirty;
@@ -497,7 +501,8 @@ void MelodyFirstReductionTransformer::threadRun() {
 
         if (isGenerationStopped()) {
             maybeEmitGenerationPauseSoftStopClear();
-            if (inputApplied && ! generationPause.get() && clock != nullptr) {
+            if (inputApplied && ! generationPause.get() && clock != nullptr
+                && ! keepsQueueOnInput()) {
                 const Token clearToken{now + Config::TimeResolution,
                                        static_cast<int32_t>(DenseVocab::DurOffset),
                                        static_cast<int32_t>(Vocab::ClearQueue)};

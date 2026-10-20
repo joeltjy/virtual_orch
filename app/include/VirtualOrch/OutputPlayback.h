@@ -65,6 +65,11 @@ public:
      * threads. See PedalClear.h for the rule.
      */
     CircularFifo<int32_t> pedalClearRequests;
+    /**
+     * Leaving Accompaniment at this clock time (cs): note-off everything sounding, drop
+     * everything queued, then drop late arrivals until the reduction's cut marker passes.
+     */
+    CircularFifo<int32_t> modeCutRequests;
 
     /** Optional: true when reduction generation is stopped (manual or overflow). */
     std::function<bool()> isReductionPaused;

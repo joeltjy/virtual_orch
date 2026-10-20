@@ -22,7 +22,8 @@
 /** Launchpad pad state + instrument updates.
  *
  *  Grid rows (row 0 = top of the 8x8):
- *    kModeRow (0)        Edit (col 0) / Jam (col 1); the selected one is lit
+ *    kModeRow (0)        Edit (col 0) / Jam (col 1) / Accompaniment (col 2); the selected
+ *                        one is lit
  *    kTdRow (1)          TD levels 1..32 (cols 0..5); side = AUTO_TD toggle (starts on).
  *                        AUTO on: side green, levels unlit. AUTO off: side red, the
  *                        selected level lit. A level press turns AUTO off and selects it.
@@ -31,7 +32,9 @@
  *                        every input instrument that is on is switched on in the model
  *                        set (added, not replaced), then all input pads switch off.
  *    kModelRowFirst (4)  model instruments, 2 rows (same layout as User)
- *    6..7                unused
+ *    6                   unused
+ *    kAccompRow (7)      max polyphony 1..4 (cols 0..3); only works and lit in
+ *                        Accompaniment mode (the choice is kept across modes)
  *  Instrument pads: On (1) / Off (0), toggled on press; unmapped pads ignore presses.
  *  Instrument pad press → one InstrumentUpdate for that pad.
  *  Presses within kBurstMs on the same pad are ignored.
@@ -57,13 +60,14 @@ public:
     static constexpr int kInstrumentRowsPerSet = 2;
     static constexpr int kEditCol = 0;
     static constexpr int kJamCol = 1;
+    static constexpr int kAccompanimentCol = 2;
     static constexpr int kFlushRow = kUserRowFirst;
     static constexpr int kTdLevelCount = static_cast<int>(TemporalDensity::kLevels.size());
-    /** Bottom row: pads 0..3 pick the max polyphony 1..4, the side pad toggles accompaniment. */
+    /** Bottom row: pads 0..3 pick the max polyphony 1..4 (Accompaniment mode only). */
     static constexpr int kAccompRow = kRows - 1;
     static constexpr int kPolyphonyPadCount = PolyphonyCap::kMaxCap;
 
-    /** Accompaniment on/off or max polyphony changed (the app applies the cap). */
+    /** Max polyphony changed (the app applies the cap). */
     using AccompanimentCallback = std::function<void()>;
     using GridCallback = std::function<void(int rowIdx, int colIdx, bool on)>;
     using SceneCallback = std::function<void(int idx)>;
@@ -76,7 +80,7 @@ public:
     /** Every accepted user action on the grid (the console widget); MIDI thread. */
     std::function<void(const PerformanceActivity::LaunchpadAction &)> action_callback;
     SceneCallback scene_callback;
-    /** Edit/Jam pad pressed; the app applies the mode and calls setSelectedMode. */
+    /** Mode pad pressed; the app applies the mode and calls setSelectedMode. */
     ModeCallback mode_callback;
     LedCallback set_led;
 
@@ -163,6 +167,7 @@ public:
         selectedMode.store(mode, std::memory_order_relaxed);
         refreshPadLed(kModeRow, kEditCol);
         refreshPadLed(kModeRow, kJamCol);
+        refreshPadLed(kModeRow, kAccompanimentCol);
         refreshAccompanimentLeds();
     }
 
@@ -177,6 +182,8 @@ public:
             return OrchestrationMode::Edit;
         if (colIdx == kJamCol)
             return OrchestrationMode::Jam;
+        if (colIdx == kAccompanimentCol)
+            return OrchestrationMode::Accompaniment;
         return std::nullopt;
     }
 
@@ -187,28 +194,16 @@ public:
         return colIdx + PolyphonyCap::kMinCap;
     }
 
-    /** Accompaniment is a Jam-mode feature: it is switched on in the grid but only active in Jam. */
     [[nodiscard]] auto isAccompanimentActive() const -> bool {
-        return accompanimentOn.load(std::memory_order_relaxed)
-               && getSelectedMode() == OrchestrationMode::Jam;
-    }
-    [[nodiscard]] auto isAccompanimentOn() const -> bool {
-        return accompanimentOn.load(std::memory_order_relaxed);
+        return getSelectedMode() == OrchestrationMode::Accompaniment;
     }
     [[nodiscard]] auto getMaxPolyphony() const -> int {
         return maxPolyphony.load(std::memory_order_relaxed);
     }
 
-    /** Cap the reduction transformers must apply now: 0 unless accompaniment is active. */
+    /** Cap the reduction transformers must apply now: 0 unless in Accompaniment mode. */
     [[nodiscard]] auto effectivePolyphonyCap() const -> int {
         return isAccompanimentActive() ? getMaxPolyphony() : 0;
-    }
-
-    auto setAccompanimentOn(bool on) -> void {
-        accompanimentOn.store(on, std::memory_order_relaxed);
-        if (on)
-            maxPolyphony.store(PolyphonyCap::kMinCap, std::memory_order_relaxed);
-        refreshAccompanimentLeds();
     }
 
     auto setMaxPolyphony(int cap) -> void {
@@ -239,9 +234,6 @@ public:
             colour = LaunchpadLighting::colourForAutoTd(TemporalDensity::isAuto());
         else if (rowIdx == kFlushRow)
             colour = LaunchpadLighting::kFlush;
-        else if (rowIdx == kAccompRow)
-            colour = LaunchpadLighting::colourForAccompanimentToggle(
-                getSelectedMode() == OrchestrationMode::Jam, isAccompanimentOn());
         set_led(*note, colour);
     }
 
@@ -316,18 +308,6 @@ public:
                 setTdAuto(! TemporalDensity::isAuto());
                 emitAction({PerformanceActivity::LaunchpadAction::Kind::TdAuto, 0, 0,
                             TemporalDensity::isAuto(), false});
-            }
-            return;
-        }
-
-        if (colIdx == kSideCol && rowIdx == kAccompRow) {
-            auto &lastMs = sideLastAcceptMs[static_cast<size_t>(rowIdx)];
-            if (acceptPress(lastMs, now) && getSelectedMode() == OrchestrationMode::Jam) {
-                setAccompanimentOn(! isAccompanimentOn());
-                emitAction({PerformanceActivity::LaunchpadAction::Kind::Accompaniment, 0, 0,
-                            isAccompanimentOn(), false});
-                if (accompaniment_callback)
-                    accompaniment_callback();
             }
             return;
         }
@@ -472,7 +452,6 @@ private:
     std::atomic<OrchestrationMode> selectedMode{OrchestrationMode::Jam};
 
     std::atomic<int> manualTdLevelIndex{0};
-    std::atomic<bool> accompanimentOn{false};
     std::atomic<int> maxPolyphony{PolyphonyCap::kMinCap};
 
     std::array<std::array<uint32_t, kCols>, kRows> gridLastAcceptMs{};

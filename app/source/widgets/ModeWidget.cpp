@@ -96,6 +96,7 @@ ModeWidget::ModeWidget(AppSession &sessionIn)
       session(sessionIn),
       editButton(UiConstants::workspaceModeEditButtonText),
       jamButton(UiConstants::workspaceModeJamButtonText),
+      accompanimentButton(UiConstants::workspaceModeAccompanimentButtonText),
       playbackOtButton(UiConstants::workspaceModePlaybackOtButtonText),
       playbackRtButton(UiConstants::workspaceModePlaybackRtButtonText),
       reductionStatusButton(UiConstants::workspaceModeRunningText),
@@ -106,8 +107,10 @@ ModeWidget::ModeWidget(AppSession &sessionIn)
 
     editButton.setClickingTogglesState(true);
     jamButton.setClickingTogglesState(true);
+    accompanimentButton.setClickingTogglesState(true);
     editButton.setRadioGroupId(1);
     jamButton.setRadioGroupId(1);
+    accompanimentButton.setRadioGroupId(1);
 
     playbackOtButton.setClickingTogglesState(true);
     playbackRtButton.setClickingTogglesState(true);
@@ -121,6 +124,10 @@ ModeWidget::ModeWidget(AppSession &sessionIn)
     };
     jamButton.onClick = [this] {
         session.setOrchestrationMode(OrchestrationMode::Jam);
+        refreshFromSession();
+    };
+    accompanimentButton.onClick = [this] {
+        session.setOrchestrationMode(OrchestrationMode::Accompaniment);
         refreshFromSession();
     };
     playbackOtButton.onClick = [this] {
@@ -198,6 +205,7 @@ ModeWidget::ModeWidget(AppSession &sessionIn)
 
     body.addAndMakeVisible(editButton);
     body.addAndMakeVisible(jamButton);
+    body.addAndMakeVisible(accompanimentButton);
     body.addAndMakeVisible(playbackOtButton);
     body.addAndMakeVisible(playbackRtButton);
     body.addAndMakeVisible(modeStatusLabel);
@@ -233,6 +241,8 @@ auto ModeWidget::resized() -> void {
     editButton.setBounds(modeRow.removeFromLeft(UiConstants::workspaceModeButtonWidth));
     modeRow.removeFromLeft(UiConstants::workspaceModeRowGap);
     jamButton.setBounds(modeRow.removeFromLeft(UiConstants::workspaceModeButtonWidth));
+    modeRow.removeFromLeft(UiConstants::workspaceModeRowGap);
+    accompanimentButton.setBounds(modeRow.removeFromLeft(UiConstants::workspaceModeButtonWidth));
     modeRow.removeFromLeft(UiConstants::workspaceModeRowGap * 2);
     playbackOtButton.setBounds(
         modeRow.removeFromLeft(UiConstants::workspaceModePlaybackButtonWidth));
@@ -305,11 +315,16 @@ auto ModeWidget::timerCallback() -> void {
 }
 
 auto ModeWidget::refreshFromSession() -> void {
-    const bool isEdit = session.orchestrationTransformer.getMode() == OrchestrationMode::Edit;
-    editButton.setToggleState(isEdit, juce::dontSendNotification);
-    jamButton.setToggleState(! isEdit, juce::dontSendNotification);
-    modeStatusLabel.setText(isEdit ? UiConstants::workspaceModeEditStatusText
-                                   : UiConstants::workspaceModeJamStatusText,
+    const auto mode = session.orchestrationTransformer.getMode();
+    editButton.setToggleState(mode == OrchestrationMode::Edit, juce::dontSendNotification);
+    jamButton.setToggleState(mode == OrchestrationMode::Jam, juce::dontSendNotification);
+    accompanimentButton.setToggleState(mode == OrchestrationMode::Accompaniment,
+                                       juce::dontSendNotification);
+    modeStatusLabel.setText(mode == OrchestrationMode::Edit
+                                ? UiConstants::workspaceModeEditStatusText
+                                : (mode == OrchestrationMode::Jam
+                                       ? UiConstants::workspaceModeJamStatusText
+                                       : UiConstants::workspaceModeAccompanimentStatusText),
                             juce::dontSendNotification);
 
     const bool playbackOt = session.getPlaybackSource() == PlaybackSource::Orchestration;

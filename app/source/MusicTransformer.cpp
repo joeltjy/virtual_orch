@@ -98,6 +98,10 @@ void MusicTransformer::threadRun() {
 
         finishAheadThrottleIfDue();
 
+        // Leaving Accompaniment: drop the generated notes from the cut on (see consumeModeCut).
+        if (const auto cut = consumeModeCut())
+            rewindInputDataFrom(*cut);
+
         // DIRECT INPUT: WAIT FOR INPUT BLOCK
         if (modelConfig.inputMode == InputMode::Direct && modelConfig.directInputStartOnInput
             && directInputBlock.value) {
@@ -115,7 +119,8 @@ void MusicTransformer::threadRun() {
             maybeEmitGenerationPauseSoftStopClear();
             // overflowPause + live input: soft-stop clear (now + 1 s), same as manual
             // generationPause — avoids wiping Out: RT schedule with ClearQueue at time 0.
-            if (inputApplied && ! generationPause.get() && clock != nullptr) {
+            if (inputApplied && ! generationPause.get() && clock != nullptr
+                && ! keepsQueueOnInput()) {
                 const auto clearAt =
                     static_cast<int32_t>(clock->getTime()) + Config::TimeResolution;
                 const Token clearToken{clearAt, static_cast<int32_t>(Vocab::DurOffset),
@@ -152,8 +157,10 @@ void MusicTransformer::threadRun() {
             logGeneratedTokenIfResumed(newToken.time);
 
             if (inputApplied) {
-                const Token clearToken{Vocab::TimeOffset, Vocab::DurOffset, Vocab::ClearQueue};
-                pushOutputToken(clearToken);
+                if (! keepsQueueOnInput()) {
+                    const Token clearToken{Vocab::TimeOffset, Vocab::DurOffset, Vocab::ClearQueue};
+                    pushOutputToken(clearToken);
+                }
                 inputApplied = false;
             }
 
@@ -182,7 +189,7 @@ auto MusicTransformer::applyQueuedInputToInputData() -> bool {
     while (inputTokenQueue.pull(inputToken)) {
         DBG("input: " + inputToken.toUnderstandableString());
         // CLEARING FUTURE INPUT DATA IF FIRST TOKEN
-        if (!inputApplied) {
+        if (! inputApplied && ! keepsQueueOnInput()) {
             for (size_t i = 0; i < inputData.size(); i += 3) {
                 if (inputData[i] > inputToken.time) {
                     inputData.erase(inputData.begin() + i, inputData.end());
@@ -220,7 +227,8 @@ auto MusicTransformer::applyQueuedInputToInputData() -> bool {
         DBG("In prompt: " + inputToken.toUnderstandableString());
 
         // Set current time to last token time
-        currentTime = inputToken.time;
+        // Accompaniment keeps generating from the end of the context (no rewind).
+        currentTime = keepsQueueOnInput() ? std::max(currentTime, inputToken.time) : inputToken.time;
 
         inputApplied = true;
     }

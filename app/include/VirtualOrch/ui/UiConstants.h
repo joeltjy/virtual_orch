@@ -60,12 +60,15 @@ inline constexpr const char *workspaceLogitAdjustmentsTitle = "Logit Adjustments
 inline constexpr const char *workspaceReductionModelInputTitle = "RT Model Input";
 inline constexpr const char *workspaceModeEditButtonText = "Edit";
 inline constexpr const char *workspaceModeJamButtonText = "Jam";
+inline constexpr const char *workspaceModeAccompanimentButtonText = "Accomp";
 inline constexpr const char *workspaceModePlaybackOtButtonText = "Out: OT";
 inline constexpr const char *workspaceModePlaybackRtButtonText = "Out: RT";
 inline constexpr const char *workspaceModePlaybackRtTooltip =
     "Reduction monitor (ch 16). Keyboard thru is unchanged.";
 inline constexpr const char *workspaceModeEditStatusText = "User input is orchestrated";
 inline constexpr const char *workspaceModeJamStatusText = "Only model input is orchestrated";
+inline constexpr const char *workspaceModeAccompanimentStatusText =
+    "Jam with max polyphony; input keeps the queue";
 inline constexpr int workspaceModePlaybackButtonWidth = 80;
 inline constexpr const char *workspaceModeReductionLabel = "Reduction";
 inline constexpr const char *workspaceModeOrchestrationLabel = "Orchestration";

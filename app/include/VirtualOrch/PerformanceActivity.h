@@ -213,8 +213,7 @@ struct LaunchpadAction {
         Flush,
         TdLevel,       // value = level
         TdAuto,        // on = AUTO now on
-        Mode,          // value = 0 Edit, 1 Jam
-        Accompaniment, // on = now on
+        Mode,          // value = 0 Edit, 1 Jam, 2 Accompaniment
         Polyphony,     // value = max polyphony
         Pause,         // value = 1 RT, 2 OT; on = now paused
     };
@@ -240,9 +239,7 @@ template <typename NameFn>
         case Kind::TdAuto:
             return a.on ? "Temporal density AUTO on" : "Temporal density AUTO off";
         case Kind::Mode:
-            return a.value == 1 ? "Mode: Jam" : "Mode: Edit";
-        case Kind::Accompaniment:
-            return a.on ? "Accompaniment on (max polyphony 1)" : "Accompaniment off";
+            return a.value == 2 ? "Mode: Accompaniment" : (a.value == 1 ? "Mode: Jam" : "Mode: Edit");
         case Kind::Polyphony:
             return "Max polyphony " + juce::String(a.value);
         case Kind::Pause: {

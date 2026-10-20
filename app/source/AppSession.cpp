@@ -104,7 +104,7 @@ AppSession::AppSession()
         outputPlayback.pedalClearRequests.push(pedalTimeCs);
     };
     midiInputProcess.allowInputThru = [this] {
-        return orchestrationTransformer.getMode() == OrchestrationMode::Jam;
+        return isJamLike(orchestrationTransformer.getMode());
     };
     midiInputProcess.getLaunchpadGrid().instrumentUpdates =
         &orchestrationTransformer.instrumentUpdates;
@@ -136,8 +136,8 @@ AppSession::AppSession()
     midiInputProcess.getLaunchpadGrid().mode_callback = [this](OrchestrationMode mode) {
         setOrchestrationMode(mode);
         consoleLog.add(PerformanceActivity::describe(
-            {PerformanceActivity::LaunchpadAction::Kind::Mode, 0,
-             mode == OrchestrationMode::Jam ? 1 : 0, false, false},
+            {PerformanceActivity::LaunchpadAction::Kind::Mode, 0, static_cast<int32_t>(mode),
+             false, false},
             [](int32_t) { return juce::String(); }));
     };
     midiInputProcess.getLaunchpadGrid().setSelectedMode(orchestrationTransformer.getMode());
@@ -501,9 +501,28 @@ auto AppSession::stopGeneration() -> void {
 }
 
 auto AppSession::setOrchestrationMode(OrchestrationMode mode) -> void {
+    const auto previous = orchestrationTransformer.getMode();
     orchestrationTransformer.setMode(mode);
     midiInputProcess.getLaunchpadGrid().setSelectedMode(mode);
+
+    // Accompaniment: input never rewinds the model or clears the queue. Entering it keeps
+    // every note already generated; leaving it for Edit / Jam cuts everything at once.
+    const bool accompaniment = mode == OrchestrationMode::Accompaniment;
+    for (ReductionTransformer *reduction:
+         {static_cast<ReductionTransformer *>(&musicTransformer),
+          static_cast<ReductionTransformer *>(&reductionTransformerV1),
+          static_cast<ReductionTransformer *>(&reductionTransformerV2),
+          static_cast<ReductionTransformer *>(&reductionTransformerPianoReduction),
+          static_cast<ReductionTransformer *>(&reductionTransformerAnticipated),
+          static_cast<ReductionTransformer *>(&reductionTransformerMelodyFirst)})
+        reduction->setKeepQueueOnInput(accompaniment);
     applyAccompanimentCap();
+
+    if (previous == OrchestrationMode::Accompaniment && ! accompaniment) {
+        const auto now = static_cast<int32_t>(clock.getTime());
+        outputPlayback.modeCutRequests.push(now);
+        activeReduction().requestModeCut(now);
+    }
 }
 
 auto AppSession::applyAccompanimentCap() -> void {

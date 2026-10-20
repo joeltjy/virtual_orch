@@ -192,6 +192,33 @@ auto ReductionTransformer::getOutputHistorySince(int32_t cutoffCs) const -> std:
     return NoteWindow::filteredTokens(outputHistory, cutoffCs);
 }
 
+auto ReductionTransformer::consumeModeCut() -> std::optional<int32_t> {
+    const int32_t cut = modeCutTimeCs.exchange(-1, std::memory_order_acq_rel);
+    if (cut < 0)
+        return std::nullopt;
+    {
+        const juce::ScopedLock lock(outputHistoryLock);
+        std::erase_if(outputHistory, [cut](const Token &token) { return token.time >= cut; });
+    }
+    pushOutputToken(PedalClear::makeClearToken(cut));
+    return cut;
+}
+
+auto ReductionTransformer::rewindInputDataFrom(int32_t timeCs) -> void {
+    const size_t width = inputEventWidth();
+    std::vector<int32_t> kept;
+    kept.reserve(inputData.size());
+    for (size_t i = 0; i + width <= inputData.size(); i += width) {
+        if (inputData[i] >= timeCs)
+            continue;
+        kept.insert(kept.end(), inputData.begin() + static_cast<std::ptrdiff_t>(i),
+                    inputData.begin() + static_cast<std::ptrdiff_t>(i + width));
+    }
+    inputData = std::move(kept);
+    currentTime = timeCs;
+    notifyInputDataChanged();
+}
+
 auto ReductionTransformer::clearOutputHistory() -> void {
     const juce::ScopedLock lock(outputHistoryLock);
     outputHistory.clear();

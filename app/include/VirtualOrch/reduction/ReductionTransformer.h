@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 
 #include <atomic>
+#include <optional>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -111,6 +112,26 @@ public:
     auto setMaxPolyphony(int32_t cap) -> void { maxPolyphony.store(cap); }
     [[nodiscard]] auto getMaxPolyphony() const -> int32_t { return maxPolyphony.load(); }
 
+    /**
+     * Accompaniment mode: live input is added to the context without rewinding the generated
+     * notes after it, and without the input-triggered ClearQueue. Set on every mode change.
+     */
+    auto setKeepQueueOnInput(bool keep) -> void {
+        keepQueueOnInput.store(keep, std::memory_order_relaxed);
+    }
+    [[nodiscard]] auto keepsQueueOnInput() const -> bool {
+        return keepQueueOnInput.load(std::memory_order_relaxed);
+    }
+
+    /**
+     * Leaving Accompaniment at clock time `timeCs` (message / MIDI thread): the reduction thread
+     * drops its generated notes from that time on and sends the cut marker downstream
+     * (a PedalClear ClearQueue token, which ends OutputPlayback's drop window).
+     */
+    auto requestModeCut(int32_t timeCs) -> void {
+        modeCutTimeCs.store(timeCs, std::memory_order_release);
+    }
+
     /** Most recent threadRun iteration duration in milliseconds. */
     [[nodiscard]] auto getLastThreadLoopMs() const -> float {
         return lastThreadLoopMs.load(std::memory_order_relaxed);
@@ -204,6 +225,19 @@ protected:
      */
     auto maybeEmitGenerationPauseSoftStopClear() -> void;
 
+    /**
+     * Reduction thread: a pending mode cut, if any (consumed). Drops outputHistory notes from
+     * the cut time on and pushes the cut marker; the caller rewinds its own context.
+     */
+    [[nodiscard]] auto consumeModeCut() -> std::optional<int32_t>;
+
+    /**
+     * Drop the events of the strided inputData (inputEventWidth()) whose onset is at or after
+     * `timeCs` (the generated notes ahead of the clock; live input is never ahead), and move
+     * currentTime back to `timeCs`.
+     */
+    auto rewindInputDataFrom(int32_t timeCs) -> void;
+
     /** Log first generated onset after generationPause clears (diagnose pedal-up lag). */
     auto logGeneratedTokenIfResumed(int32_t onset) -> void;
 
@@ -230,6 +264,10 @@ protected:
 
     /** Pending pedal press (cs), -1 when none; consumed by maybeEmitGenerationPauseSoftStopClear. */
     std::atomic<int32_t> pedalClearTimeCs{-1};
+
+    std::atomic<bool> keepQueueOnInput{false};
+    /** Pending mode cut (cs), -1 when none; consumed by consumeModeCut. */
+    std::atomic<int32_t> modeCutTimeCs{-1};
 
     uint32_t aheadThrottleUntilMs = 0;
     std::atomic<float> lastThreadLoopMs{0.0f};

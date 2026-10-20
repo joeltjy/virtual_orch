@@ -257,6 +257,15 @@ void OutputPlayback::run() {
                 clearedQueueThisRun = true;
                 DBG("Pedal clear at time " + juce::String(pedalTime));
             }
+
+            // Leaving Accompaniment: cut everything at once, sounding notes included.
+            int32_t cutTime = 0;
+            while (modeCutRequests.pull(cutTime)) {
+                flushModelSchedule();
+                pedalDrop.start(cutTime, time);
+                clearedQueueThisRun = true;
+                DBG("Mode cut at time " + juce::String(cutTime));
+            }
         }
 
         const auto source = playbackSource.load(std::memory_order_relaxed);

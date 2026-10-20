@@ -27,6 +27,7 @@ private:
     AppSession &session;
     juce::TextButton editButton;
     juce::TextButton jamButton;
+    juce::TextButton accompanimentButton;
     juce::TextButton playbackOtButton;
     juce::TextButton playbackRtButton;
     juce::Label modeStatusLabel;

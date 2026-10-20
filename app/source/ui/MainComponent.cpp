@@ -19,8 +19,15 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
         return orchestrationModelList.getText();
     });
     session.presetStore.setOrchestrationModeProvider([this]() -> juce::String {
-        return session.orchestrationTransformer.getMode() == OrchestrationMode::Jam ? "jam"
-                                                                                    : "edit";
+        switch (session.orchestrationTransformer.getMode()) {
+            case OrchestrationMode::Jam:
+                return "jam";
+            case OrchestrationMode::Accompaniment:
+                return "accompaniment";
+            case OrchestrationMode::Edit:
+            default:
+                return "edit";
+        }
     });
     session.presetStore.setReductionTypeProvider([this]() -> juce::String {
         switch (reductionTypeList.getSelectedId()) {
@@ -991,6 +998,8 @@ void MainComponent::loadPresetFromName(const juce::String &presetName) {
         session.setOrchestrationMode(OrchestrationMode::Jam);
     else if (orchMode.equalsIgnoreCase("edit"))
         session.setOrchestrationMode(OrchestrationMode::Edit);
+    else if (orchMode.equalsIgnoreCase("accompaniment"))
+        session.setOrchestrationMode(OrchestrationMode::Accompaniment);
 
     session.presetStore.applyPreset(preset);
     session.rebuildInputFilter();

@@ -83,6 +83,10 @@ auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid) -> void {
     jam.label = UiConstants::workspaceActiveInstrumentsJamLabel;
     jam.onPalette = LaunchpadLighting::colourForModePad(true);
     jam.lit = mode == OrchestrationMode::Jam;
+    auto &accompaniment = cellAt(LaunchpadGrid::kModeRow, LaunchpadGrid::kAccompanimentCol);
+    accompaniment.label = UiConstants::workspaceActiveInstrumentsAccompanimentLabel;
+    accompaniment.onPalette = LaunchpadLighting::colourForModePad(true);
+    accompaniment.lit = mode == OrchestrationMode::Accompaniment;
 
     // TD row + AUTO_TD side button.
     const bool tdAuto = TemporalDensity::isAuto();
@@ -104,7 +108,7 @@ auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid) -> void {
     flush.onPalette = LaunchpadLighting::kFlush;
     flush.lit = true;
 
-    // Accompaniment (bottom row): polyphony pads 1..4 + the side toggle (dark outside Jam).
+    // Bottom row: polyphony pads 1..4, lit only in Accompaniment mode.
     const bool accompActive = grid.isAccompanimentActive();
     for (int pad = 0; pad < LaunchpadGrid::kPolyphonyPadCount; ++pad) {
         const int polyphony = *LaunchpadGrid::polyphonyForPad(LaunchpadGrid::kAccompRow, pad);
@@ -113,11 +117,6 @@ auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid) -> void {
         cell.onPalette = LaunchpadLighting::colourForPolyphonyPad(true, true);
         cell.lit = accompActive && polyphony == grid.getMaxPolyphony();
     }
-    auto &accomp = cellAt(LaunchpadGrid::kAccompRow, LaunchpadGrid::kCols);
-    accomp.label = UiConstants::workspaceActiveInstrumentsAccompanimentLabel;
-    accomp.onPalette = LaunchpadLighting::colourForAccompanimentToggle(
-        true, grid.isAccompanimentOn());
-    accomp.lit = mode == OrchestrationMode::Jam;
 
     // Instrument pads (input + model rows).
     for (int padRow = 0; padRow < LaunchpadGrid::kRows; ++padRow) {

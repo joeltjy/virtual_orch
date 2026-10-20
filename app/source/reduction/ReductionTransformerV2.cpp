@@ -209,6 +209,10 @@ void ReductionTransformerV2::threadRun() {
 
         finishAheadThrottleIfDue();
 
+        // Leaving Accompaniment: drop the generated notes from the cut on (see consumeModeCut).
+        if (const auto cut = consumeModeCut())
+            rewindInputDataFrom(*cut);
+
         if (modelConfig.inputMode == InputMode::Direct && modelConfig.directInputStartOnInput
             && directInputBlock.value) {
             wait(5);
@@ -224,7 +228,8 @@ void ReductionTransformerV2::threadRun() {
 
         if (isGenerationStopped()) {
             maybeEmitGenerationPauseSoftStopClear();
-            if (inputApplied && ! generationPause.get() && clock != nullptr) {
+            if (inputApplied && ! generationPause.get() && clock != nullptr
+                && ! keepsQueueOnInput()) {
                 const auto clearAt =
                     static_cast<int32_t>(clock->getTime()) + Config::TimeResolution;
                 const Token clearToken{clearAt, static_cast<int32_t>(DenseVocab::DurOffset),
@@ -276,10 +281,12 @@ void ReductionTransformerV2::threadRun() {
             logGeneratedTokenIfResumed(newToken.time);
 
             if (inputApplied) {
-                const Token clearToken{static_cast<int32_t>(DenseVocab::TimeOffset),
-                                       static_cast<int32_t>(DenseVocab::DurOffset),
-                                       static_cast<int32_t>(Vocab::ClearQueue)};
-                pushOutputToken(clearToken);
+                if (! keepsQueueOnInput()) {
+                    const Token clearToken{static_cast<int32_t>(DenseVocab::TimeOffset),
+                                           static_cast<int32_t>(DenseVocab::DurOffset),
+                                           static_cast<int32_t>(Vocab::ClearQueue)};
+                    pushOutputToken(clearToken);
+                }
                 inputApplied = false;
             }
 
@@ -305,7 +312,7 @@ auto ReductionTransformerV2::applyQueuedInputToInputData() -> bool {
     Token inputToken{-1, -1, -1};
 
     while (inputTokenQueue.pull(inputToken)) {
-        if (! inputApplied) {
+        if (! inputApplied && ! keepsQueueOnInput()) {
             for (size_t i = 0; i + 3 < inputData.size(); i += denseEventWidth) {
                 if (inputData[i] > inputToken.time) {
                     inputData.erase(inputData.begin() + static_cast<std::ptrdiff_t>(i), inputData.end());
@@ -351,7 +358,8 @@ auto ReductionTransformerV2::applyQueuedInputToInputData() -> bool {
             }
         }
 
-        currentTime = inputToken.time;
+        // Accompaniment keeps generating from the end of the context (no rewind).
+        currentTime = keepsQueueOnInput() ? std::max(currentTime, inputToken.time) : inputToken.time;
         inputApplied = true;
     }
 

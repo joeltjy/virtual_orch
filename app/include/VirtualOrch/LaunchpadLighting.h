@@ -76,19 +76,12 @@ inline constexpr std::array<uint8_t, 7> kTdGradient{{kCyan, kSky, kBlue, kPurple
     return autoOn ? kGreen : kRed;
 }
 
-/** Accompaniment side pad: dark in Edit mode (not applicable); in Jam green on / red off. */
-[[nodiscard]] inline auto colourForAccompanimentToggle(bool jamMode, bool accompanimentOn) -> uint8_t {
-    if (! jamMode)
-        return kOff;
-    return accompanimentOn ? kGreen : kRed;
-}
-
-/** Polyphony pads: only the selected one is lit, and only while accompaniment is active. */
+/** Polyphony pads: only the selected one is lit, and only in Accompaniment mode. */
 [[nodiscard]] inline auto colourForPolyphonyPad(bool accompanimentActive, bool selected) -> uint8_t {
     return accompanimentActive && selected ? kYellow : kOff;
 }
 
-/** Edit/Jam pads: the selected mode is lit. */
+/** Edit / Jam / Accompaniment pads: the selected mode is lit. */
 [[nodiscard]] inline auto colourForModePad(bool selected) -> uint8_t {
     return selected ? kWhite : kOff;
 }

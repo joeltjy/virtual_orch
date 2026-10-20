@@ -495,7 +495,7 @@ void OrchestrationTransformer::threadRun() {
                                  + clearFromReduction.size());
                 toOutput.insert(toOutput.end(), userNotes.begin(), userNotes.end());
                 toOutput.insert(toOutput.end(), modelNotes.begin(), modelNotes.end());
-            } else if (mode == OrchestrationMode::Jam) {
+            } else if (isJamLike(mode)) {
                 const ScopedMs modelMs(&step.model);
                 std::set<int32_t> instrumentUnion(userInstrumentList.begin(),
                                                   userInstrumentList.end());

@@ -120,7 +120,7 @@ TEST(AnticipatedReduction, generatesOnlyLegalQ5V8Notes) {
     }
 }
 
-TEST(AnticipatedReduction, controlsEnterOncePastDueAsInstrumentThree) {
+TEST(AnticipatedReduction, controlsEnterOncePastDueAsInstrumentZero) {
     Rig rig;
     rig.playNote(990, 64, 50);
     ASSERT_TRUE(rig.rt.stepOnce()); // first note: clock moves to the sampled onset
@@ -136,7 +136,7 @@ TEST(AnticipatedReduction, controlsEnterOncePastDueAsInstrumentThree) {
         if (isTd(tokens[i]))
             continue;
         const int32_t note = tokens[i + 2];
-        if (note >= 11000 && note < 11640 && (note - 11000) / 128 == 3) {
+        if (note >= 11000 && note < 11640 && (note - 11000) / 128 == 0) {
             ++controls;
             controlPitches.insert((note - 11000) % 128);
         }
@@ -370,6 +370,26 @@ TEST(AnticipatedReductionReal, kvPiecesMatchOnePrefillAndTheTransformerRuns) {
         EXPECT_LE(out.getPitch(), 108);
     }
     EXPECT_EQ(count, 4);
+}
+
+} // namespace virtual_orch_test
+
+namespace virtual_orch_test {
+
+TEST(AnticipatedReduction, thePianoNoteComesFirstAtATieByDefault) {
+    Rig rig;
+    EXPECT_FALSE(rig.rt.getTieFirstGenerated()) << "default: given (piano) first at a shared onset";
+    rig.rt.setTieFirstGenerated(true);
+    EXPECT_TRUE(rig.rt.getTieFirstGenerated());
+    rig.rt.setTieFirstGenerated(false);
+    EXPECT_FALSE(rig.rt.getTieFirstGenerated());
+
+    // A note at exactly the event clock is written before the next generated note.
+    rig.playNote(1000, 60, 20);
+    ASSERT_TRUE(rig.rt.stepOnce());
+    const auto tokens = rig.rt.streamForTest().tokens();
+    ASSERT_GE(tokens.size(), 8u);
+    EXPECT_EQ((tokens[2] - 11000) / 128, 0) << "the piano note is the first quad";
 }
 
 } // namespace virtual_orch_test

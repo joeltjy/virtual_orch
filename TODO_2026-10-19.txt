@@ -1740,3 +1740,37 @@ Orchestration redo on an instrument toggle: hold-back queue (2026-10-20)
     blurred with a separable gaussian), so freezing and thawing only draw it. It is the plain plan, not
     the current dimming, so it does not change while frozen. It looks only at the pedal, not at the RT
     pause button.
+
+Adaptation to the redesigned models T3'' / T8'' / T7'' (2026-10-20, branch adapt-t3pp-t7pp-t8pp)
+  Source of the spec: the orchestration session's messages (tokenizations and sampling) and its
+  14:25 changes (one tie rule for all models, T7'' M = T8'' output). All three models are still
+  training and no ONNX exists, so everything is built and tested against fake backends of the right
+  vocab sizes (11776 dense, 55293 AMT-native); the old Desktop exports are stale and not used.
+  - New AnticipationStage = one generating model (stream + committed/scratch KV cache + sampler +
+    TD ids + the draw loop). T3'', the T8'' stage and the T7'' stage are all instances of it.
+  - Draw loop (all three): given notes whose actual time the event clock has reached go in first;
+    if the drawn onset is at or after the next GIVEN note, that note is written first and the onset is
+    drawn again. T7'' also writes a visible REST quad for every 1 s step before the drawn onset and
+    catches up with the app clock one rest at a time (whichever of next given note / next rest is
+    earlier goes first); its melody controls are released by the clock alone.
+  - Tie order: given first, then generated, ascending pitch within each, for ALL models (your
+    choice for T3''; the orchestration session's later message made it the single rule). The T3''
+    training order (first generated note first) stays as an option, off (setTieFirstGenerated).
+  - T3'': piano = GIVEN events on instrument 0 (was instrument-3 controls), dense 11776, TD 11768+.
+  - T8'' stage of Melody First: dense, RoPE, no mode token, no rests, no 256 -> 128 cut, no position
+    ids. Given = melody + bass R from algorithm A on instrument 0 (strictly monophonic per line);
+    generated = instrument 1 with an onset floor of at most 2 sounding (min(2, accompaniment cap)).
+    The old learned-position T8 path and MelodyStream are removed.
+  - T7'' stage: AMT-native vocab 55293: ANTICIPATE first, piano L as instrument-0 EVENTS (velocity
+    55028 + v), T8'' output as instrument-0 CONTROLS (ATIME 27513 + t, ADUR 37513 + d, ANOTE 38513 +
+    pitch, AVEL 55156 + v) anticipated 3 s (M before piano on equal actual times), TD ids
+    55285..55292 by REAL time (controls: onset - 3 s), Y on instrument 1.
+  - Sampling for all three (AnticipationSampler): onset-gap 0.5, duration 0.5 / 0, pitch 0.2 / 0.2
+    biases (no per-instrument adjustment), then masks, then top-p 0.98 and temperature 0.5 for EVERY
+    field including velocity (the older dense models keep 0.3 / 1.0). Durations 10..995 step 5 (your
+    10 cs floor; the orchestration session would like 5 cs back, it is the most common duration for
+    fast notes in training), velocities 8..120 step 8.
+  - Rebase: the 30 s eviction rebase is unchanged; the T7'' ANTICIPATE flag stays the first token.
+  - Descriptors app/t3_anticipated_reduction.json and app/melody_first_reduction.json now name
+    placeholder files (t3pp_dense_rope_kv, t7pp_amt_rope_kv, t8pp_dense_rope_kv) until the exports
+    exist; the checkpoints are listed only when those files are found.

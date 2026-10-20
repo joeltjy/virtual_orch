@@ -6,34 +6,35 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <set>
+#include <tuple>
 #include <vector>
 
 #include "VirtualOrch/MusicToken.h"
 #include "VirtualOrch/TdTokens.h"
-#include "VirtualOrch/reduction/AnticipatedStream.h"
-#include "VirtualOrch/reduction/DensePitchBias.h"
+#include "VirtualOrch/reduction/AnticipationStage.h"
 #include "VirtualOrch/reduction/DenseTypes.h"
 #include "VirtualOrch/reduction/MelodyBassState.h"
-#include "VirtualOrch/reduction/MelodyStream.h"
 #include "VirtualOrch/reduction/ReductionTransformer.h"
 #include "VirtualOrch/reduction/StreamingKvCache.h"
 
 /**
- * Melody first, then the reduction.
+ * Melody first, then the reduction (the T8'' -> T7'' pipeline).
  *
  *   1. The user's notes go on instrument 0: L = all of them (q5v8), R = their running melody +
  *      bass (algorithm A on the last 2 s, see MelodyBassState).
- *   2. The mb model (T8, learned positions) generates melody + bass events (instrument 1) with R
- *      as anticipated controls and visible 1 s rest quads (MelodyStream). Three notes per loop,
- *      unless the melody is already more than 3 s ahead of the latest reduction note.
- *   3. The double-anticipation model (T7/T6, RoPE + StreamingLLM) samples ONE reduction note
- *      (instrument 1) with the piano L as controls X (instrument 0, delta 0) and the generated
- *      melody as controls M (instrument 2, delta 3 s), hidden 1 s rest steps and Launchpad TD
- *      tokens. Only these reduction notes go downstream.
+ *   2. T8'' (dense vocab 11776, RoPE) takes R as GIVEN events on instrument 0 and generates a two-
+ *      voice reduction melody + bass on instrument 1 (onset floor: at most 2 notes sounding).
+ *      Three notes per loop, unless the melody is already more than 3 s ahead of the latest
+ *      reduction note.
+ *   3. T7'' (AMT-native vocab 55293, RoPE, visible 1 s REST quads, ANTICIPATE first) takes the
+ *      piano L as given events on instrument 0 and T8'''s notes as melody+bass CONTROLS anticipated
+ *      3 s, with TD tokens from the Launchpad, and samples ONE reduction note (instrument 1, the
+ *      reduction minus the melody and bass). Only these notes go downstream.
  *
- * Both models use the committed + scratch KV cache. T8 has learned positions: its stream is cut
- * to 128 tokens whenever it passes 256 and the cache is rebuilt at positions 0..127.
- * The polyphony cap of accompaniment mode applies to the melody notes and to the reduction notes.
+ * Both models use the committed + scratch KV cache and the 30 s eviction rebase (see
+ * AnticipationStage). The polyphony cap of accompaniment mode applies to both stages (the melody
+ * stage is held to min(cap, 2)).
  */
 class MelodyFirstReductionTransformer : public ReductionTransformer {
 public:
@@ -41,6 +42,8 @@ public:
     /** The melody may be at most this far ahead of the latest reduction note. */
     static constexpr int32_t kMaxMelodyAheadCs = 300;
     static constexpr int32_t kMelodyDeltaCs = 300;
+    /** T8'' targets are two voices: never more than this many sounding. */
+    static constexpr int kMelodyVoices = 2;
 
     explicit MelodyFirstReductionTransformer(ModelConfig &modelConfig);
 
@@ -50,7 +53,7 @@ public:
         threadStop();
     }
 
-    /** Load the double-anticipation KV export and the mb KV export. */
+    /** Load the T7'' (reduction) and T8'' (melody) KV exports. */
     auto init(const char *reductionModelPath, const char *melodyModelPath) -> bool;
 
     /** Tests: other backends (vocab sizes = logits widths). */
@@ -59,7 +62,7 @@ public:
                           size_t reductionVocab) -> void;
 
     [[nodiscard]] auto isModelLoaded() const -> bool override {
-        return melodyBackend != nullptr && reductionBackend != nullptr;
+        return melodyStage.isLoaded() && reductionStage.isLoaded();
     }
     [[nodiscard]] auto inputEventWidth() const -> size_t override { return 4; }
 
@@ -93,18 +96,20 @@ public:
 
     // ---- for tests ----
     [[nodiscard]] auto stateForTest() const -> const MelodyBassState & { return state; }
-    [[nodiscard]] auto melodyStreamForTest() const -> const MelodyStream & { return melodyStream; }
+    [[nodiscard]] auto melodyStreamForTest() const -> const AnticipatedStream & {
+        return melodyStage.stream;
+    }
     [[nodiscard]] auto reductionStreamForTest() const -> const AnticipatedStream & {
-        return reductionStream;
+        return reductionStage.stream;
     }
     [[nodiscard]] auto melodyEventsForTest() const -> const std::vector<Token> & {
         return melodyEvents;
     }
     [[nodiscard]] auto melodyCacheForTest() const -> const StreamingKv::CommittedScratchCache * {
-        return melodyCache.get();
+        return melodyStage.cache.get();
     }
     [[nodiscard]] auto reductionCacheForTest() const -> const StreamingKv::CommittedScratchCache * {
-        return reductionCache.get();
+        return reductionStage.cache.get();
     }
     [[nodiscard]] auto melodyIsTooFarAhead() const -> bool;
 
@@ -112,25 +117,19 @@ private:
     auto nowCs() const -> int32_t;
     auto resetAll(int32_t now) -> void;
     auto drainInput(int32_t now) -> bool;
-    auto generateMelodyNote(int32_t now) -> std::optional<MelodyStream::Note>;
+    /** R changed (or the stream restarted): feed new pieces to T8'' and confirm finished ones. */
+    auto syncMelodyGiven() -> void;
+    auto generateMelodyNote(int32_t now) -> std::optional<AnticipatedStream::Note>;
     auto generateReductionNote(int32_t now) -> std::optional<Token>;
-    auto sampleMelodyField(int field, const std::vector<float> &logits, int32_t lowerModelOnset)
-        -> int32_t;
-    auto sampleReductionField(int field, const std::vector<float> &logits, int32_t lowerModelOnset,
-                              const DensePitchBias::PitchWindowStats *pitchWindow, float tau,
-                              float tauPrime) -> int32_t;
+    [[nodiscard]] auto temperatures() const -> std::array<float, 4>;
 
-    std::unique_ptr<StreamingKv::Backend> melodyBackend;
-    std::unique_ptr<StreamingKv::Backend> reductionBackend;
-    std::unique_ptr<StreamingKv::CommittedScratchCache> melodyCache;
-    std::unique_ptr<StreamingKv::CommittedScratchCache> reductionCache;
-    size_t melodyVocab = 0;
-    size_t reductionVocab = 0;
+    AnticipationStage melodyStage{AnticipatedStream::Vocab::Dense, /*visibleRests*/ false};
+    AnticipationStage reductionStage{AnticipatedStream::Vocab::Amt, /*visibleRests*/ true};
 
     MelodyBassState state;
-    MelodyStream melodyStream;
-    AnticipatedStream reductionStream;
-    TdTokens::DenseTdResolver tdResolver;
+    using PieceId = std::tuple<int64_t, int32_t, int, int>; // key, onset, pitch, line
+    std::set<PieceId> fedPieces;
+    std::set<PieceId> heldPieces;
 
     bool aDirty = false;
     bool userHasPlayed = false;
@@ -139,13 +138,10 @@ private:
 
     /** Generated melody events (absolute onsets) for the polyphony cap. */
     std::vector<Token> melodyEvents;
-    /** Generated reduction notes as dense instrument-1 quads for the pitch window. */
-    std::vector<int32_t> generatedDense;
-    DensePitchBias::PitchTauScheduler pitchTauScheduler;
 
     std::atomic<float> onsetTemperature{DenseSampling::OnsetTemperature};
     std::atomic<float> durationTemperature{DenseSampling::DurationTemperature};
     std::atomic<float> noteTemperature{DenseSampling::NoteTemperature};
-    std::atomic<float> velocityTemperature{DenseSampling::VelocityTemperature};
+    std::atomic<float> velocityTemperature{DenseSampling::OnsetTemperature}; // 0.5 like the others
     std::atomic<bool> pitchBiasEnabled{true};
 };

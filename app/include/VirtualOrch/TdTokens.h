@@ -26,32 +26,59 @@ inline constexpr int32_t kDenseLevels[kDenseLevelCount] = {0, 1, 2, 4, 8, 16, 32
 /** Level written for AUTO until the user has chosen one. */
 inline constexpr int32_t kDenseDefaultLevel = 8;
 
-/** Id for a dense level; levels above the vocab's top level clamp to it. -1 if not a level. */
-[[nodiscard]] inline auto denseIdForLevel(int32_t level, int32_t vocabSize) -> int32_t {
+/** Id of `level` in a block of 8 level ids starting at `first`; clamps to the vocab. -1 if no level. */
+[[nodiscard]] inline auto levelIdFor(int32_t first, int32_t level, int32_t vocabSize) -> int32_t {
     int32_t idx = -1;
     for (int32_t i = 0; i < kDenseLevelCount; ++i)
         if (kDenseLevels[i] == level)
             idx = i;
     if (idx < 0)
         return -1;
-    const int32_t maxIdx = std::max(0, std::min(kDenseLevelCount, vocabSize - kDenseFirst) - 1);
-    return kDenseFirst + std::min(idx, maxIdx);
+    const int32_t maxIdx = std::max(0, std::min(kDenseLevelCount, vocabSize - first) - 1);
+    return first + std::min(idx, maxIdx);
+}
+
+/** Id for a dense level; levels above the vocab's top level clamp to it. -1 if not a level. */
+[[nodiscard]] inline auto denseIdForLevel(int32_t level, int32_t vocabSize) -> int32_t {
+    return levelIdFor(kDenseFirst, level, vocabSize);
+}
+
+// ---- AMT-native vocab (T7'', vocab 55293): ids 55285..55292 = levels 0,1,2,4,8,16,32,64 ----
+
+inline constexpr int32_t kAmtFirst = 55285;
+
+[[nodiscard]] inline auto amtIdForLevel(int32_t level, int32_t vocabSize) -> int32_t {
+    return levelIdFor(kAmtFirst, level, vocabSize);
 }
 
 /**
  * The dense vocab has no "unknown" id, so AUTO repeats the last level the user chose
  * (kDenseDefaultLevel before any choice).
  */
-class DenseTdResolver {
+class LevelTdResolver {
 public:
+    explicit LevelTdResolver(int32_t firstId) : first(firstId) {}
+
     [[nodiscard]] auto resolve(int32_t launchpadValue, int32_t vocabSize) -> int32_t {
         if (launchpadValue != TemporalDensity::kAuto && TemporalDensity::isValid(launchpadValue))
             lastLevel = launchpadValue;
-        return denseIdForLevel(lastLevel, vocabSize);
+        return levelIdFor(first, lastLevel, vocabSize);
     }
 
 private:
+    int32_t first;
     int32_t lastLevel = kDenseDefaultLevel;
+};
+
+class DenseTdResolver : public LevelTdResolver {
+public:
+    DenseTdResolver() : LevelTdResolver(kDenseFirst) {}
+};
+
+/** Same rule for the AMT-native vocab. */
+class AmtTdResolver : public LevelTdResolver {
+public:
+    AmtTdResolver() : LevelTdResolver(kAmtFirst) {}
 };
 
 // ---- IOD orchestration model with TD (T14, vocab 20178) ----

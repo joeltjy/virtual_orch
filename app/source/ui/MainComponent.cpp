@@ -398,8 +398,8 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     reductionTypeList.addItem("V1 (initial version)", 2);
     reductionTypeList.addItem("V2 (smart sampling)", 3);
     reductionTypeList.addItem("Piano Reduction (2-instrument)", 4);
-    reductionTypeList.addItem("Anticipated Piano Reduction (T3)", 5);
-    reductionTypeList.addItem("Melody First (mb + double anticipation)", 6);
+    reductionTypeList.addItem("Anticipated Piano Reduction (T3'')", 5);
+    reductionTypeList.addItem("Melody First (T8'' + T7'')", 6);
     reductionTypeList.setSelectedId(2, juce::dontSendNotification);
     reductionTypeList.onChange = [this] {
         stop();
@@ -1208,9 +1208,9 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
                         modelPathStr.toRawUTF8(), melodyFile.getFullPathName().toRawUTF8())) {
                     juce::AlertWindow::showMessageBoxAsync(
                         juce::AlertWindow::WarningIcon, "Error",
-                        "Failed to load '" + modelName + "': it needs the double-anticipation KV "
-                        "export and the mb KV export ('" + melodyStem + "') in an onnx_export_* "
-                        "folder.");
+                        "Failed to load '" + modelName + "': it needs the T7'' KV export (AMT vocab "
+                        "55293) and the T8'' KV export ('" + melodyStem + "', dense vocab 11776) in an "
+                        "onnx_export_* folder.");
                     checkpointList.setSelectedId(0, juce::dontSendNotification);
                     return;
                 }

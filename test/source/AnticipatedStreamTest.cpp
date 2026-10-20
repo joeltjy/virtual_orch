@@ -12,7 +12,7 @@ auto note(int32_t onset, int32_t dur, int32_t pitch, int32_t vel = 64) -> Note {
 
 constexpr int32_t kTimeOf(int32_t t) { return t; }
 constexpr int32_t kPitch1(int32_t p) { return 11000 + 128 + p; }
-constexpr int32_t kPitch3(int32_t p) { return 11000 + 128 * 3 + p; }
+constexpr int32_t kPitch3(int32_t p) { return 11000 + 128 * 0 + p; } // the given instrument (0)
 
 struct Fixture {
     AnticipatedStream stream;
@@ -89,7 +89,7 @@ TEST(AnticipatedStream, heldControlIsFrozenAndHoldsBackTheCommittedBoundary) {
     f.stream.insertDue(300, 320);               // held for 300 cs so far
     auto t = f.stream.tokens();
     EXPECT_EQ(f.stream.committedLen(), before + 0) << "commit stops at the held control's first token";
-    // find the control quad (instrument 3 band) and check its frozen duration
+    // find the given quad (instrument 0 band) and check its frozen duration
     size_t at = 0;
     for (size_t i = 0; i + 3 < t.size(); ++i)
         if (t[i + 2] == kPitch3(64)) { at = i; break; }
@@ -195,6 +195,141 @@ TEST(AnticipatedStream, tdBoundariesFollowTheActualTimeOfAControlQuad) {
         if (id >= 11768)
             ++td;
     EXPECT_EQ(td, 1 + 3) << "TD(0), then TD 200, 400, 600 after the melody quad (actual 700)";
+}
+
+} // namespace virtual_orch_test
+
+namespace virtual_orch_test {
+
+TEST(AnticipatedStream, insertNextTakesOnePendingNoteAtATime) {
+    Fixture f;
+    f.stream.reset(0);
+    f.stream.addControl(note(100, 50, 60), false);
+    f.stream.addControl(note(300, 50, 62), false);
+    EXPECT_TRUE(f.stream.insertNext(0));
+    EXPECT_EQ(f.stream.pendingCount(), 1u);
+    EXPECT_EQ(f.stream.nextPendingActual(), 300);
+    EXPECT_TRUE(f.stream.insertNext(0));
+    EXPECT_FALSE(f.stream.insertNext(0));
+}
+
+TEST(AnticipatedStream, theT3TieRuleWritesTheFirstGeneratedNoteBeforeTheGivenOnesAtThatOnset) {
+    Fixture f;
+    f.stream.reset(0);
+    f.stream.addControl(note(500, 50, 60), false);
+    f.stream.appendEvent(note(500, 50, 70));
+    EXPECT_TRUE(f.stream.eventEmittedAt(500));
+    EXPECT_FALSE(f.stream.eventEmittedAt(400));
+    // the given note at 500 is released only inclusively; exclusive leaves it for after the event
+    f.stream.addControl(note(700, 50, 61), false);
+    EXPECT_EQ(f.stream.insertDue(500, 0, /*inclusive*/ true), 1);
+    const auto t = f.stream.tokens();
+    std::vector<int32_t> instruments;
+    for (size_t i = 0; i + 3 < t.size();) {
+        if (t[i] >= 11768) { ++i; continue; }
+        instruments.push_back((t[i + 2] - 11000) / 128);
+        i += 4;
+    }
+    ASSERT_EQ(instruments.size(), 2u);
+    EXPECT_EQ(instruments[0], 1) << "generated first";
+    EXPECT_EQ(instruments[1], 0) << "then the given note at the same onset";
+
+    Fixture g;
+    g.stream.reset(0);
+    g.stream.addControl(note(500, 50, 60), false);
+    EXPECT_EQ(g.stream.insertDue(500, 0, /*inclusive*/ false), 0) << "exclusive: not yet at 500";
+    EXPECT_EQ(g.stream.insertDue(501, 0, false), 1);
+}
+
+TEST(AnticipatedStream, amtVocabHasTheFlagControlQuadsRestsAndEventVelocities) {
+    AnticipatedStream stream(AnticipatedStream::Vocab::Amt);
+    int32_t td = 55289;
+    stream.tdTokenProvider = [&] { return td; };
+    stream.reset(0);
+    AnticipatedStream::ControlSpec melody;
+    melody.instrument = 0;
+    melody.deltaCs = 300;
+    melody.priority = 0;
+    melody.controlToken = true;
+    stream.addControl(note(700, 100, 64, 80), false, melody); // M, due at 400
+    stream.addControl(note(450, 60, 72, 96), false);          // piano event (given)
+    stream.appendEvent(note(10, 40, 61, 64));
+    stream.appendRest(110);
+    stream.insertDue(400, 0);
+    auto t = stream.tokens();
+    EXPECT_EQ(t[0], 55027) << "ANTICIPATE";
+    EXPECT_EQ(stream.prefixTokens(), 1u);
+    // event quad: time, dur, note (instr 1), velocity 55028 + v ; TD(0) ; rest quad ; M control
+    EXPECT_EQ(t[1], 10);
+    EXPECT_EQ(t[2], 10040);
+    EXPECT_EQ(t[3], 11000 + 128 + 61);
+    EXPECT_EQ(t[4], 55028 + 64);
+    EXPECT_EQ(t[5], 55289) << "TD id of the AMT block";
+    EXPECT_EQ(t[6], 110);
+    EXPECT_EQ(t[7], 10000);
+    EXPECT_EQ(t[8], 27512);
+    EXPECT_EQ(t[9], 55028);
+    // M control quad written with the control ids (time 700, dur 100, instr 0 pitch 64, vel 80)
+    bool sawControl = false;
+    for (size_t i = 1; i + 3 < t.size(); ++i)
+        if (t[i] == 27513 + 700) {
+            sawControl = true;
+            EXPECT_EQ(t[i + 1], 37513 + 100);
+            EXPECT_EQ(t[i + 2], 38513 + 64);
+            EXPECT_EQ(t[i + 3], 55156 + 80);
+        }
+    EXPECT_TRUE(sawControl);
+
+    // the piano event (due at 450) goes in as an ordinary instrument-0 event quad
+    stream.insertDue(450, 0);
+    t = stream.tokens();
+    bool sawPiano = false;
+    for (size_t i = 1; i + 3 < t.size(); ++i)
+        if (t[i] == 450) {
+            sawPiano = true;
+            EXPECT_EQ(t[i + 2], 11000 + 72);
+            EXPECT_EQ(t[i + 3], 55028 + 96);
+        }
+    EXPECT_TRUE(sawPiano);
+    EXPECT_EQ(stream.committedLen(), t.size());
+}
+
+TEST(AnticipatedStream, amtEvictionRebaseKeepsTheAnticipateFlagAsFirstToken) {
+    AnticipatedStream stream(AnticipatedStream::Vocab::Amt);
+    stream.tdTokenProvider = [] { return 55289; };
+    stream.reset(0);
+    for (int32_t onset = 0; onset <= 7000; onset += 400)
+        stream.appendEvent(note(onset, 50, 60 + (onset / 400) % 12));
+    const auto before = stream.tokens();
+    // pretend the cache evicted 60 tokens after the 4 sink rows
+    const int32_t k = stream.rebaseForEviction(60, 4);
+    ASSERT_GT(k, 0);
+    EXPECT_EQ(k % 3000, 0);
+    const auto after = stream.tokens();
+    EXPECT_EQ(after[0], 55027);
+    EXPECT_LT(after.size(), before.size());
+    for (const auto id: after)
+        EXPECT_GE(id, 0);
+}
+
+TEST(AnticipatedStream, perLineMonophonyShortensAPredecessorInTheBatchAndSkipsAgainstWrittenOnes) {
+    Fixture f;
+    f.stream.reset(0);
+    AnticipatedStream::ControlSpec mel;
+    mel.line = 0;
+    f.stream.addControl(note(0, 100, 60), false, mel);
+    f.stream.addControl(note(60, 100, 62), false, mel);
+    EXPECT_EQ(f.stream.insertDue(100, 0), 2);
+    bool cut = false;
+    const auto t = f.stream.tokens();
+    for (size_t i = 0; i + 3 < t.size();) {
+        if (t[i] >= 11768) { ++i; continue; }
+        if (t[i + 2] == 11000 + 60 && t[i] == 0) { cut = true; EXPECT_EQ(t[i + 1], 10060); }
+        i += 4;
+    }
+    EXPECT_TRUE(cut) << "the first note was cut at the onset of the second";
+    f.stream.addControl(note(120, 100, 65), false, mel);
+    EXPECT_EQ(f.stream.insertDue(300, 0), 0) << "starts before the written note ends: skipped";
 }
 
 } // namespace virtual_orch_test

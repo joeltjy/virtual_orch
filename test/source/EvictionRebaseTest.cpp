@@ -4,7 +4,6 @@
 #include <cmath>
 
 #include <VirtualOrch/reduction/AnticipatedStream.h>
-#include <VirtualOrch/reduction/MelodyStream.h>
 #include <VirtualOrch/reduction/StreamingKvCache.h>
 
 namespace {
@@ -243,41 +242,6 @@ TEST(EvictionRebase, pendingControlsOlderThanTheNewOriginAreDroppedFutureOnesKee
     EXPECT_EQ(h.stream.pendingCount(), 1u);
     EXPECT_TRUE(h.stream.hasPendingDueBy(99000));
     EXPECT_FALSE(h.stream.hasPendingDueBy(98999));
-}
-
-// ---- T8: the stream cut is its eviction ----
-
-TEST(EvictionRebaseT8, aCutThatDropsANoteOlderThanThirtySecondsMovesTheOrigin) {
-    MelodyStream s;
-    s.reset(0);
-    // 80 events, 0.5 s apart: the cut at 256 tokens drops notes up to ~4 s... use 1 s spacing
-    for (int i = 0; i < 80; ++i)
-        s.appendEvent({i * 100, 50, 60 + i % 12, 64});
-    const int32_t baseBefore = s.base();
-    ASSERT_TRUE(s.trimIfNeeded());
-    // dropped about 50 events (onsets up to ~5000): older than 30 s -> shifted by 3000 or 6000...
-    EXPECT_GT(s.lastCutShift(), 0);
-    EXPECT_EQ(s.lastCutShift() % 3000, 0);
-    EXPECT_EQ(s.base(), baseBefore + s.lastCutShift());
-    for (size_t i = 1; i + 3 < s.tokens().size(); i += 4) {
-        EXPECT_GE(s.tokens()[i], 0);
-        EXPECT_LE(s.tokens()[i], 9999);
-    }
-    // continuity: the newest event still has its absolute onset 7900
-    const auto t = s.tokens();
-    EXPECT_EQ(t[t.size() - 4] + s.base(), 7900);
-    EXPECT_EQ(t[0], 55027) << "ANTICIPATE stays the first token";
-    EXPECT_EQ(s.clock(), 7900);
-}
-
-TEST(EvictionRebaseT8, aCutOfYoungNotesDoesNotMoveTheOrigin) {
-    MelodyStream s;
-    s.reset(0);
-    for (int i = 0; i < 80; ++i)
-        s.appendEvent({i * 30, 50, 60, 64}); // 2.4 s of notes
-    ASSERT_TRUE(s.trimIfNeeded());
-    EXPECT_EQ(s.lastCutShift(), 0);
-    EXPECT_EQ(s.base(), 0);
 }
 
 } // namespace virtual_orch_test

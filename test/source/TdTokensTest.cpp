@@ -48,6 +48,17 @@ TEST(TdTokens, denseAutoRepeatsTheLastChosenLevel) {
     EXPECT_EQ(resolver.resolve(64, 11775), TdTokens::denseIdForLevel(32, 11775));
 }
 
+TEST(TdTokens, amtNativeIdsFollowTheSameLevels) {
+    EXPECT_EQ(TdTokens::amtIdForLevel(0, 55293), 55285);
+    EXPECT_EQ(TdTokens::amtIdForLevel(8, 55293), 55289);
+    EXPECT_EQ(TdTokens::amtIdForLevel(64, 55293), 55292);
+    EXPECT_EQ(TdTokens::amtIdForLevel(3, 55293), -1);
+    TdTokens::AmtTdResolver resolver;
+    EXPECT_EQ(resolver.resolve(TemporalDensity::kAuto, 55293), 55289) << "default level 8";
+    EXPECT_EQ(resolver.resolve(32, 55293), 55291);
+    EXPECT_EQ(resolver.resolve(TemporalDensity::kAuto, 55293), 55291) << "AUTO repeats the last level";
+}
+
 TEST(TdTokens, iodIdsAndUnknown) {
     EXPECT_EQ(TdTokens::iodIdForLaunchpad(TemporalDensity::kAuto), 20177);
     EXPECT_EQ(TdTokens::iodIdForLaunchpad(1), 20170);

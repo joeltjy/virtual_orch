@@ -258,10 +258,11 @@ void OutputPlayback::run() {
                 DBG("Pedal clear at time " + juce::String(pedalTime));
             }
 
-            // Leaving Accompaniment: cut everything at once, sounding notes included.
+            // Leaving Accompaniment: drop every note that has not started; notes already
+            // sounding play to their end (their note-off updates still apply).
             int32_t cutTime = 0;
             while (modeCutRequests.pull(cutTime)) {
-                flushModelSchedule();
+                nextTokens.clear();
                 pedalDrop.start(cutTime, time);
                 clearedQueueThisRun = true;
                 DBG("Mode cut at time " + juce::String(cutTime));

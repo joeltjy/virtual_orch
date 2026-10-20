@@ -506,7 +506,8 @@ auto AppSession::setOrchestrationMode(OrchestrationMode mode) -> void {
     midiInputProcess.getLaunchpadGrid().setSelectedMode(mode);
 
     // Accompaniment: input never rewinds the model or clears the queue. Entering it keeps
-    // every note already generated; leaving it for Edit / Jam cuts everything at once.
+    // every note already generated; leaving it for Edit / Jam drops every note that has not
+    // started (sounding notes finish) and rewinds the model to now.
     const bool accompaniment = mode == OrchestrationMode::Accompaniment;
     for (ReductionTransformer *reduction:
          {static_cast<ReductionTransformer *>(&musicTransformer),

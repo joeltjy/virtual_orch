@@ -66,8 +66,8 @@ public:
      */
     CircularFifo<int32_t> pedalClearRequests;
     /**
-     * Leaving Accompaniment at this clock time (cs): note-off everything sounding, drop
-     * everything queued, then drop late arrivals until the reduction's cut marker passes.
+     * Leaving Accompaniment at this clock time (cs): drop every queued (not yet started) note,
+     * then drop late arrivals until the reduction's cut marker passes. Sounding notes finish.
      */
     CircularFifo<int32_t> modeCutRequests;
 

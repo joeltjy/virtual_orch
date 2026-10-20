@@ -45,6 +45,8 @@ public:
     static constexpr int32_t kMaxTokens = 256;
     static constexpr int32_t kKeepTokens = 128;
     static constexpr int32_t kHoldCommitCs = 1000;
+    /** Same rule as AnticipatedStream::kEvictRebaseCs, applied when the stream is cut. */
+    static constexpr int32_t kEvictRebaseCs = 3000;
     static constexpr int32_t kRebaseAtCs = 9000;
     static constexpr int32_t kRebaseShiftCs = 6000;
 
@@ -70,6 +72,8 @@ public:
     [[nodiscard]] auto base() const -> int32_t { return baseCs; }
     [[nodiscard]] auto clock() const -> int32_t { return clockCs; }
     [[nodiscard]] auto forcedCommitCount() const -> int { return forcedCommits; }
+    /** The origin shift of the last cut (0 when the cut did not rebase). */
+    [[nodiscard]] auto lastCutShift() const -> int32_t { return lastShift; }
     [[nodiscard]] auto pendingCount() const -> size_t { return pending.size(); }
 
     /** Bring the controls in line with R: new pieces become pending, note-offs fix durations. */
@@ -197,15 +201,39 @@ public:
 
     /** Drop the oldest items once the stream passes kMaxTokens (cache rebuild at 0..127). */
     auto trimIfNeeded() -> bool {
+        lastShift = 0;
         if (tokenCount() <= kMaxTokens)
             return false;
         size_t drop = 0;
         while (tokenCount(drop) > kKeepTokens && drop < items.size())
             ++drop;
-        for (size_t i = 0; i < drop; ++i)
+        int32_t droppedOnset = INT32_MIN;
+        for (size_t i = 0; i < drop; ++i) {
             if (items[i].kind == Kind::Control && items[i].control.provisional)
                 ++forcedCommits; // safety rule: the dropped held control is final now
+            droppedOnset = std::max(droppedOnset, items[i].control.note.onsetCs);
+        }
         items.erase(items.begin(), items.begin() + static_cast<std::ptrdiff_t>(drop));
+
+        // A note older than 30 s was cut away: move the origin forward by the largest multiple of
+        // 30 s that keeps every retained note at onset >= 0 (the cache is rebuilt right now
+        // anyway, so the shifted times cost nothing extra). ANTICIPATE stays token 0.
+        if (droppedOnset != INT32_MIN && droppedOnset - baseCs > kEvictRebaseCs && ! items.empty()) {
+            int32_t minOnset = INT32_MAX;
+            for (const auto &item: items)
+                minOnset = std::min(minOnset, item.control.note.onsetCs);
+            const int32_t k = ((minOnset - baseCs) / kEvictRebaseCs) * kEvictRebaseCs;
+            if (k > 0) {
+                baseCs += k;
+                pending.erase(std::remove_if(pending.begin(), pending.end(),
+                                             [this](const Control &c) { return c.note.onsetCs < baseCs; }),
+                              pending.end());
+                for (auto it = inserted.begin(); it != inserted.end();)
+                    it = std::get<1>(*it) < baseCs ? inserted.erase(it) : std::next(it);
+                clockCs = std::max(clockCs, baseCs);
+                lastShift = k;
+            }
+        }
         return true;
     }
 
@@ -288,6 +316,7 @@ private:
     int32_t clockCs = 0;
     bool started = false;
     int forcedCommits = 0;
+    int32_t lastShift = 0;
     std::array<int32_t, 2> lastEnd{INT32_MIN, INT32_MIN};
     std::vector<Item> items;
     std::vector<Control> pending;

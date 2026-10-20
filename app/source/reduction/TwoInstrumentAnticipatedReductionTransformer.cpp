@@ -184,6 +184,9 @@ auto TwoInstrumentAnticipatedReductionTransformer::generateOne(int32_t now) -> s
     while (stream.needsRebase(lower))
         stream.rebase();
     stream.insertDue(std::max(stream.clock(), now), now);
+    // The cache evicted a note older than 30 s: move the origin, rebuild from the retained window.
+    if (stream.rebaseForEviction(cache->evictedTokens(), cache->sinkRows()) > 0)
+        cache->reset();
 
     const auto tokens = stream.tokens();
     if (tokens.empty())

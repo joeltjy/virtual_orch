@@ -340,6 +340,8 @@ auto MelodyFirstReductionTransformer::generateReductionNote(int32_t now) -> std:
     while (reductionStream.needsRebase(lower))
         reductionStream.rebase();
     reductionStream.insertDue(clock0, now);
+    if (reductionStream.rebaseForEviction(reductionCache->evictedTokens(), reductionCache->sinkRows()) > 0)
+        reductionCache->reset();
 
     int32_t restBase = clock0;
     int32_t onsetModel = 0;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <climits>
 #include <cstdint>
 #include <functional>
 #include <vector>
@@ -34,6 +35,12 @@ public:
     static constexpr int32_t kRebaseAtCs = 9000;
     static constexpr int32_t kRebaseShiftCs = 6000;
     static constexpr int32_t kHoldCommitCs = 1000;
+    /**
+     * Eviction rebase (the models are trained on onsets up to ~30-40 s): when the cache evicts a
+     * note whose onset is more than this far from the origin, the origin moves forward by the
+     * largest multiple of this that keeps every retained note at onset >= 0.
+     */
+    static constexpr int32_t kEvictRebaseCs = 3000;
 
     struct Note {
         int32_t onsetCs = 0;
@@ -163,6 +170,64 @@ public:
                       pending.end());
         nextBoundaryCs = std::max(nextBoundaryCs, baseCs);
         clockCs = std::max(clockCs, baseCs);
+    }
+
+    /**
+     * The cache evicted `evictedTokens` tokens after its `sinkTokens` sink rows. When one of the
+     * evicted notes lies more than kEvictRebaseCs after the origin, move the origin forward by
+     * k = the largest multiple of kEvictRebaseCs that keeps every retained note at onset >= 0
+     * (so a multiple of the TD boundary spacing too), and keep only the retained window:
+     *   - everything evicted, and the old sink tokens, are dropped (their times would go
+     *     negative); the first retained quad becomes the new sink, because the cache is rebuilt
+     *     from the retained tokens by a full prefill (fresh RoPE positions);
+     *   - leading TD tokens are skipped so the window starts on a quad;
+     *   - pending controls older than the new origin are dropped.
+     * Every note keeps its absolute onset; only the origin (baseCs) and the written times change.
+     * Returns k (0 = nothing happened).
+     */
+    auto rebaseForEviction(size_t evictedTokens, size_t sinkTokens) -> int32_t {
+        if (! started || evictedTokens == 0)
+            return 0;
+        const size_t evictedBegin = sinkTokens;
+        const size_t evictedEnd = sinkTokens + evictedTokens;
+
+        int32_t lastEvictedOnset = INT32_MIN;
+        size_t tokenIndex = 0;
+        size_t firstRetained = items.size();
+        for (size_t i = 0; i < items.size(); ++i) {
+            const size_t begin = tokenIndex;
+            const size_t end = begin + (items[i].kind == Kind::Td ? 1u : 4u);
+            tokenIndex = end;
+            if (begin >= evictedEnd) {
+                firstRetained = i;
+                break;
+            }
+            if (end > evictedBegin && items[i].kind != Kind::Td)
+                lastEvictedOnset = std::max(lastEvictedOnset, items[i].control.note.onsetCs);
+        }
+        if (lastEvictedOnset == INT32_MIN || lastEvictedOnset - baseCs <= kEvictRebaseCs)
+            return 0;
+        while (firstRetained < items.size() && items[firstRetained].kind == Kind::Td)
+            ++firstRetained;
+        if (firstRetained >= items.size())
+            return 0;
+
+        int32_t minOnset = INT32_MAX;
+        for (size_t i = firstRetained; i < items.size(); ++i)
+            if (items[i].kind != Kind::Td)
+                minOnset = std::min(minOnset, items[i].control.note.onsetCs);
+        const int32_t k = ((minOnset - baseCs) / kEvictRebaseCs) * kEvictRebaseCs;
+        if (k <= 0)
+            return 0;
+
+        items.erase(items.begin(), items.begin() + static_cast<std::ptrdiff_t>(firstRetained));
+        baseCs += k;
+        pending.erase(std::remove_if(pending.begin(), pending.end(),
+                                     [this](const Control &c) { return c.note.onsetCs < baseCs; }),
+                      pending.end());
+        nextBoundaryCs = std::max(nextBoundaryCs, baseCs);
+        clockCs = std::max(clockCs, baseCs);
+        return k;
     }
 
     [[nodiscard]] auto tokens() const -> std::vector<int32_t> {

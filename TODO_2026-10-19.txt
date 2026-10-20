@@ -1650,3 +1650,37 @@ Task 2 (MelodyFirstReductionTransformer)
     bound is kept across the rest-step resampling.
   - Not done: the logit-adjustment / tau widgets do not know this transformer (temperature
     sliders only), as for Task 3.
+
+Eviction-driven rebase (requested via the orchestration session, 2026-10-20; replaces the fixed
+"clock reaches 90 s, shift 60 s" rule as the primary rule)
+  - Rule: times are absolute; the streams write onset = absolute - origin. When the KV cache has
+    evicted a note whose onset is more than 30 s (3000 cs) after the origin, the origin moves
+    forward by k = the largest multiple of 30 s that keeps every retained note at onset >= 0
+    (a multiple of the 2 s TD spacing too). Retained notes keep their absolute onsets, so outputs
+    and control insertion stay in absolute time; pending controls older than the new origin are
+    dropped; future and pending ones keep their absolute time (M lookahead, TD boundaries too).
+    The cache is rebuilt from the retained window with a full prefill (fresh RoPE positions).
+    Code: AnticipatedStream::rebaseForEviction (T3 and the DA stage of MelodyFirst),
+    MelodyStream::trimIfNeeded (T8: its 256 -> 128 cut is its eviction, and the cache is rebuilt
+    there anyway), CommittedScratchCache::evictedTokens / sinkRows.
+  - SINK DECISION: the dense RoPE models have no mode token (the first token is a note), and the
+    sink rows are just the first 4 tokens of the stream (the first quad). The evicted tokens AND
+    the old sink quad are dropped on a rebase (their times would go negative); the window starts at
+    the first retained quad (leading TD tokens skipped), and its first 4 tokens become the new sink,
+    i.e. the sink is re-seeded from the start of the retained window. T8 keeps ANTICIPATE as token 0
+    (the cut always keeps it); it has no sink rows (learned positions, rebuilt every cut).
+  - Safety net kept: if the retained notes cannot be shifted (k = 0, e.g. a late control with an old
+    onset sits in the window), the old rule still applies when the clock is 90 s past the origin
+    (shift 60 s), so a token id can never go past 9999.
+  - Not shifted by the rule: onsets inside the window that is shorter than 30 s (no rebase until a
+    note older than 30 s is evicted), so a very sparse performance can still reach onset tokens
+    above the 3000-4000 range the new models are trained on (up to 9000 before the safety net).
+  - Tests: test/source/EvictionRebaseTest.cpp (rebases exactly when a >30 s note is evicted, k is the
+    largest multiple, absolute times continuous, retained tokens = old tokens with times - k, logits
+    after the rebuild equal a fresh prefill of the shifted window, pending-control handling, the T8
+    cut) and a transformer-level case in AnticipatedReductionTest.
+  - Heads-up from the peer messages, NOT implemented: the DA model (#2) moves to a separate control
+    vocab (control id = event id + 11768, TD 23536.., vocab 23544/23536), T3' will too, and the
+    T7 export on the Desktop was replaced by da_ctlvocab_rope_tdorch64_T7_best_step6000_kv.onnx, so
+    app/melody_first_reduction.json ("onnx": the old T7 dummy name) and the MelodyFirstReal test no
+    longer find a file until the token layout and the file name are updated.

@@ -110,7 +110,8 @@ TEST(Console, describesActionsInWordsAndKeepsTheNewestLines) {
     EXPECT_EQ(describe({K::TdLevel, 0, 16, false, false}, name), "Temporal density set to 16");
     EXPECT_EQ(describe({K::TdAuto, 0, 0, true, false}, name), "Temporal density AUTO on");
     EXPECT_EQ(describe({K::Mode, 0, 1, false, false}, name), "Mode: Jam");
-    EXPECT_EQ(describe({K::Accompaniment, 0, 0, false, false}, name), "Accompaniment off");
+    EXPECT_EQ(describe({K::Mode, 0, 0, false, false}, name), "Mode: Edit");
+    EXPECT_EQ(describe({K::Mode, 0, 2, false, false}, name), "Mode: Accompaniment");
     EXPECT_EQ(describe({K::Polyphony, 0, 3, false, false}, name), "Max polyphony 3");
     EXPECT_EQ(describe({K::Pause, 0, 2, true, false}, name), "Orchestration paused");
 

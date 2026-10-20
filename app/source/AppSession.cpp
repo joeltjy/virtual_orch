@@ -202,6 +202,7 @@ AppSession::AppSession()
     }
 
     orchestrationTransformer.orchestrationModel = orchestrationModel.get();
+    orchestrationTransformer.clock = &clock;
     outputPlayback.isReductionPaused = [this] {
         return activeReduction().isGenerationStopped();
     };

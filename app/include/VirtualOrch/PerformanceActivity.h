@@ -190,6 +190,16 @@ private:
     int64_t pianoReleasedMs = kNever;
 };
 
+// ---- Pedal freeze ---------------------------------------------------------------------------
+
+/** The orchestra is shown as frozen once the pedal has been down this long. */
+inline constexpr int64_t kPedalFreezeShowAfterMs = 1000;
+
+/** pedalDownForMs: -1 while the pedal is up (MidiInputProcess::getPedalDownForMs). */
+[[nodiscard]] inline auto pedalShowsFrozen(int64_t pedalDownForMs) -> bool {
+    return pedalDownForMs >= kPedalFreezeShowAfterMs;
+}
+
 // ---- TD bar -------------------------------------------------------------------------------
 
 /** Position (0..1) of the manual TD value on the log-spaced bar of 7 steps; nullopt for AUTO. */

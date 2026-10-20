@@ -10,6 +10,8 @@
 #include <vector>
 
 #include "Fifo.h"
+#include "VirtualOrch/Clock.h"
+#include "VirtualOrch/HoldBackQueue.h"
 #include "VirtualOrch/InstrumentLogitSnapshot.h"
 #include "VirtualOrch/MusicTransformer.h"
 #include "VirtualOrch/OctaveDeltaTracker.h"
@@ -72,6 +74,16 @@ public:
 
     /** Vocsep re-stamps of notes the reduction already sent (see VoiceRestamp). */
     CircularFifo<VoiceRestamp> restampsIncoming;
+
+    /**
+     * App clock (set by AppSession). Reduction notes are held back un-orchestrated until their
+     * onset is within holdBackWindowCs of it (see HoldBackQueue.h). Without a clock every note
+     * is orchestrated on arrival, as before.
+     */
+    Clock *clock = nullptr;
+    std::atomic<int32_t> holdBackWindowCs{HoldBackQueue::kDefaultWindowCs};
+    /** Reduction notes currently waiting for their turn (debug). */
+    [[nodiscard]] auto heldCount() const -> size_t { return heldCountValue.load(); }
     /** Duration/content corrections for notes already pushed to OutputPlayback. */
     CircularFifo<TokenUpdate> outputDurationUpdates;
 
@@ -265,6 +277,9 @@ private:
      * note list. Runs on the OT thread, before the model sees the batch.
      */
     auto applyVoiceRestamps(std::vector<Token> &reductionBatch) -> void;
+
+    HoldBackQueue holdBack;
+    std::atomic<size_t> heldCountValue{0};
 
     auto clearUpdatesIncoming() -> void {
         TokenUpdate u{};

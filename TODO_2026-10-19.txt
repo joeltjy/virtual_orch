@@ -1713,3 +1713,30 @@ Force restart and locked-in vs provisional notes (2026-10-20)
     reduction notes, whose durations are never provisional, and a sampled duration that happens to be
     exactly the sentinel (default 400 cs) would otherwise look unlocked. Known limit: an orchestrated or
     played note whose duration equals the sentinel without coming from a held key looks provisional.
+
+Orchestration redo on an instrument toggle: hold-back queue (2026-10-20)
+  - Chosen design (yours): reduction notes are held un-orchestrated in the OT until their onset is
+    within 1 s of the app clock (HoldBackQueue.h, OrchestrationTransformer::holdBackWindowCs = 100 cs).
+    An instrument toggle therefore decides the instruments of every note still beyond that window,
+    with nothing removed from playback and nothing recomputed. Notes already inside the 1 s window
+    keep the old instruments, so a toggle is heard after at most 1 s.
+  - Held notes and clears: a ClearQueue token (pedal, or an old-style regenerate clear at time 0)
+    erases the held notes with onset >= its time, in arrival order, and is still forwarded to
+    playback unchanged. Voice re-stamps patch held notes. Rests and bar separators are not held.
+  - Edit mode: your own notes arrive at their onset and are not held; the reduction notes that Edit
+    mode also orchestrates for the model instruments are held like in Jam.
+  - OT pause: nothing is released while paused, and held notes that are already past are dropped
+    (before, notes queued before a pause kept playing; notes that arrived during a pause were never
+    orchestrated). Without a clock (tests) every note is released on arrival, as before.
+  - The OT loop never sleeps, so held notes are released on time with no new input (that busy loop
+    already existed).
+  - The debug piano rolls still show reduction notes when they arrive (not when released);
+    OrchestrationTransformer::heldCount() gives the number waiting.
+  Pedal freeze overlay
+  - Pedal down for 1 s or more (MidiInputProcess::getPedalDownForMs, set from CC64 on any press
+    that was up before) fades a blurred copy of the seating plan, a dark scrim and "Pianist soloing /
+    orchestra frozen while the pedal is down" over the Orchestra widget; it fades out when the pedal
+    is released. The blurred plan is PRECOMPUTED once when the view is created (a quarter-size copy
+    blurred with a separable gaussian), so freezing and thawing only draw it. It is the plain plan, not
+    the current dimming, so it does not change while frozen. It looks only at the pedal, not at the RT
+    pause button.

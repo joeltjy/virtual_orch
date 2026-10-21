@@ -71,6 +71,12 @@ auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid) -> void {
         cell.lit = grid.getTopLedColour(idx) != LaunchpadLighting::kOff;
     };
     setPause(1, UiConstants::workspaceActiveInstrumentsRtPauseLabel);
+    {
+        auto &restart = cells[0][0];
+        restart.label = UiConstants::workspaceActiveInstrumentsRestartLabel;
+        restart.onPalette = LaunchpadLighting::kOrange;
+        restart.lit = true;
+    }
     setPause(2, UiConstants::workspaceActiveInstrumentsOtPauseLabel);
 
     // Mode row.
@@ -108,14 +114,33 @@ auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid) -> void {
     flush.onPalette = LaunchpadLighting::kFlush;
     flush.lit = true;
 
-    // Bottom row: polyphony pads 1..4, lit only in Accompaniment mode.
-    const bool accompActive = grid.isAccompanimentActive();
+    // Register (row 6): LOW / MEDIUM / HIGH pads and the AUTO side button.
+    {
+        static const char *const labels[] = {UiConstants::workspaceActiveInstrumentsRegisterLowLabel,
+                                             UiConstants::workspaceActiveInstrumentsRegisterMediumLabel,
+                                             UiConstants::workspaceActiveInstrumentsRegisterHighLabel};
+        const bool registerAuto = RegisterRange::isAuto();
+        for (int pad = 0; pad < LaunchpadGrid::kRegisterPadCount; ++pad) {
+            const int reg = *LaunchpadGrid::registerForPad(LaunchpadGrid::kRegisterRow, pad);
+            auto &cell = cellAt(LaunchpadGrid::kRegisterRow, pad);
+            cell.label = labels[pad];
+            cell.onPalette = LaunchpadLighting::colourForRegister(reg, true);
+            cell.lit = ! registerAuto && reg == RegisterRange::get();
+        }
+        auto &autoReg = cellAt(LaunchpadGrid::kRegisterRow, LaunchpadGrid::kCols);
+        autoReg.label = UiConstants::workspaceActiveInstrumentsAutoRegisterLabel;
+        autoReg.onPalette = LaunchpadLighting::colourForAutoTd(registerAuto);
+        autoReg.lit = true;
+    }
+
+    // Bottom row: polyphony pads 1..4, lit in Jam and Accompaniment.
+    const bool polyActive = grid.isPolyphonyActive();
     for (int pad = 0; pad < LaunchpadGrid::kPolyphonyPadCount; ++pad) {
         const int polyphony = *LaunchpadGrid::polyphonyForPad(LaunchpadGrid::kAccompRow, pad);
         auto &cell = cellAt(LaunchpadGrid::kAccompRow, pad);
         cell.label = UiConstants::workspaceActiveInstrumentsPolyphonyPrefix + juce::String(polyphony);
         cell.onPalette = LaunchpadLighting::colourForPolyphonyPad(true, true);
-        cell.lit = accompActive && polyphony == grid.getMaxPolyphony();
+        cell.lit = polyActive && polyphony == grid.getMaxPolyphony();
     }
 
     // Instrument pads (input + model rows).

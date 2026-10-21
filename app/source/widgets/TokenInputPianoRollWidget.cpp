@@ -8,6 +8,7 @@ TokenInputPianoRollWidget::TokenInputPianoRollWidget(AppSession &sessionIn)
     : NoteIoWidget(sessionIn,
                    UiConstants::workspaceTokenPianoRollTitle,
                    UiConstants::workspaceWidgetTypeTokenPianoRoll) {
+    setShowsProvisionalNotes(true);
     refreshFromSession();
 }
 

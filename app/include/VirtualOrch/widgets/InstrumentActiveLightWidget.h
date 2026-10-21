@@ -17,16 +17,30 @@ class AppSession;
  * (the background) and, per section, a bright patch cropped to the section's bounding box with
  * the sector mask as its alpha. resized() pre-scales both to the widget; paint draws the
  * background plus one patch per lit section, and setActive repaints only the changed sections.
+ * While frozen (pedal down) a pre-blurred plan and a "Pianist soloing" caption fade in on top.
  */
-class SeatingPlanView : public juce::Component {
+class SeatingPlanView : public juce::Component, private juce::Timer {
 public:
     SeatingPlanView();
+    ~SeatingPlanView() override;
 
     auto setActive(const std::array<bool, PerformanceActivity::kSectorCount> &active) -> void;
     auto paint(juce::Graphics &g) -> void override;
     auto resized() -> void override;
 
+    /**
+     * Frozen = the orchestra is stopped because the pedal is down: the plan is blurred and a
+     * "Pianist soloing" caption fades in over it. `immediate` skips the fade (tests).
+     */
+    auto setFrozen(bool frozen, bool immediate = false) -> void;
+    [[nodiscard]] auto isFrozen() const -> bool { return freezeTarget; }
+    [[nodiscard]] auto hasPrecomputedBlur() const -> bool { return blurred.isValid(); }
+    [[nodiscard]] auto freezeOpacity() const -> float { return freezeAlpha; }
+
 private:
+    auto timerCallback() -> void override;
+    auto precomputeBlur(const juce::Image &plan) -> void;
+
     static constexpr int kSectors = PerformanceActivity::kSectorCount;
 
     juce::Image dimBase;                              // plan, sections dimmed (source size)
@@ -41,6 +55,11 @@ private:
     std::array<juce::Rectangle<int>, kSectors> scaledBounds;
 
     std::array<bool, kSectors> active{};
+
+    bool freezeTarget = false;
+    float freezeAlpha = 0.0f;
+    /** The plain plan, blurred once when the view is created (quarter size); drawn when frozen. */
+    juce::Image blurred;
 };
 
 class InstrumentActiveLightWidget : public WorkspaceWidget, private juce::Timer {

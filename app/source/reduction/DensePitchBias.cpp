@@ -179,8 +179,9 @@ auto PitchTauScheduler::evaluate(int32_t nowCs,
         // Hold until 2 s *or* 10 notes, whichever is earlier.
         if (heldSeconds < TauHoldSeconds && notesSinceReset < TauHoldNotes)
             return base;
-        return base
-               * std::pow(TauRampBase, static_cast<float>(notesSinceReset) / 10.0f);
+        // Capped: unbounded doubling overflows the logits after ~1280 notes.
+        return std::min(base * TauRampCapMultiplier,
+                        base * std::pow(TauRampBase, static_cast<float>(notesSinceReset) / 10.0f));
     };
 
     // τ: empty S → base. Else reset when S gains a pitch.

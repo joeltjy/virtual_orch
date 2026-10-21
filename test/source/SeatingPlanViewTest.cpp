@@ -1,7 +1,10 @@
 #include <gtest/gtest.h>
 
 #include <cstdio>
+#include <cstdlib>
 
+#include <VirtualOrch/AppSession.h>
+#include <VirtualOrch/PerformanceActivity.h>
 #include <VirtualOrch/widgets/InstrumentActiveLightWidget.h>
 
 namespace {
@@ -94,6 +97,115 @@ TEST(SeatingPlanView, updatesAreCheap) {
     std::printf("seating plan: setActive %.3f ms, paint (all lit, incl. snapshot) %.1f ms\n",
                 setActiveMs, paintMs);
     EXPECT_LT(setActiveMs, 1.0);
+}
+
+// Mean absolute difference between neighbouring pixels: how sharp the picture is.
+static auto sharpness(const juce::Image &image) -> double {
+    double sum = 0.0;
+    int n = 0;
+    for (int y = 0; y < image.getHeight(); y += 2)
+        for (int x = 0; x + 1 < image.getWidth(); x += 1) {
+            sum += std::abs(image.getPixelAt(x, y).getBrightness()
+                            - image.getPixelAt(x + 1, y).getBrightness());
+            ++n;
+        }
+    return sum / std::max(1, n);
+}
+
+TEST(SeatingPlanFreeze, theBlurIsPrecomputedAndFrozenShowsABlurredDimmedPlan) {
+    const juce::ScopedJuceInitialiser_GUI gui;
+    SeatingPlanView view;
+    EXPECT_TRUE(view.hasPrecomputedBlur()) << "computed when the view is created, not when painting";
+    view.setBounds(0, 0, 916, 430);
+
+    std::array<bool, PerformanceActivity::kSectorCount> all{};
+    all.fill(true);
+    view.setActive(all);
+    const auto live = view.createComponentSnapshot(view.getLocalBounds(), false);
+
+    view.setFrozen(true, /*immediate*/ true);
+    EXPECT_TRUE(view.isFrozen());
+    EXPECT_FLOAT_EQ(view.freezeOpacity(), 1.0f);
+    const auto frozen = view.createComponentSnapshot(view.getLocalBounds(), false);
+    EXPECT_LT(sharpness(frozen), sharpness(live) * 0.7) << "blurred: much less edge contrast";
+
+    // brightness drops (scrim) but the plan is still recognisable (not black)
+    double liveMean = 0, frozenMean = 0;
+    int n = 0;
+    for (int y = 0; y < live.getHeight(); y += 4)
+        for (int x = 0; x < live.getWidth(); x += 4) {
+            liveMean += live.getPixelAt(x, y).getBrightness();
+            frozenMean += frozen.getPixelAt(x, y).getBrightness();
+            ++n;
+        }
+    EXPECT_LT(frozenMean / n, liveMean / n);
+    EXPECT_GT(frozenMean / n, 0.2 * liveMean / n);
+
+    // painting again does not change the picture (nothing is recomputed lazily)
+    const auto again = view.createComponentSnapshot(view.getLocalBounds(), false);
+    EXPECT_NEAR(sharpness(again), sharpness(frozen), 1e-9);
+
+    view.setFrozen(false, true);
+    const auto thawed = view.createComponentSnapshot(view.getLocalBounds(), false);
+    EXPECT_NEAR(sharpness(thawed), sharpness(live), sharpness(live) * 0.02);
+}
+
+// Writes the live and frozen views as PNGs when VIRTUAL_ORCH_SNAPSHOT_DIR is set (to look at them).
+TEST(SeatingPlanFreeze, writesSnapshotsWhenAskedTo) {
+    const char *dir = std::getenv("VIRTUAL_ORCH_SNAPSHOT_DIR");
+    if (dir == nullptr)
+        GTEST_SKIP() << "VIRTUAL_ORCH_SNAPSHOT_DIR not set";
+    const juce::ScopedJuceInitialiser_GUI gui;
+    SeatingPlanView view;
+    view.setBounds(0, 0, 980, 460);
+    std::array<bool, PerformanceActivity::kSectorCount> some{};
+    some[static_cast<size_t>(Sector::Flutes)] = true;
+    some[static_cast<size_t>(Sector::FirstViolins)] = true;
+    view.setActive(some);
+    const auto write = [&](const char *name) {
+        juce::File out = juce::File(dir).getChildFile(name);
+        out.deleteFile();
+        juce::FileOutputStream stream(out);
+        juce::PNGImageFormat().writeImageToStream(
+            view.createComponentSnapshot(view.getLocalBounds(), false), stream);
+    };
+    write("seating_live.png");
+    view.setFrozen(true, true);
+    write("seating_frozen.png");
+}
+
+TEST(SeatingPlanFreeze, theFadeMovesTowardsTheTargetOverTime) {
+    const juce::ScopedJuceInitialiser_GUI gui;
+    SeatingPlanView view;
+    view.setBounds(0, 0, 400, 200);
+    view.setFrozen(true); // animated: starts at 0
+    EXPECT_FLOAT_EQ(view.freezeOpacity(), 0.0f);
+    EXPECT_TRUE(view.isFrozen());
+}
+
+TEST(PedalFreeze, showsFrozenOnlyAfterTheThresholdAndNotWhenTheOrchestraIsNotStopped) {
+    using PerformanceActivity::pedalShowsFrozen;
+    EXPECT_FALSE(pedalShowsFrozen(-1)) << "pedal up";
+    EXPECT_FALSE(pedalShowsFrozen(0));
+    EXPECT_FALSE(pedalShowsFrozen(999));
+    EXPECT_TRUE(pedalShowsFrozen(1000));
+    EXPECT_TRUE(pedalShowsFrozen(30000));
+}
+
+TEST(PedalFreeze, midiInputTracksHowLongThePedalHasBeenDown) {
+    const juce::ScopedJuceInitialiser_GUI gui;
+    AppSession session;
+    auto &midi = session.midiInputProcess;
+    EXPECT_EQ(midi.getPedalDownForMs(5000), -1);
+    midi.notePedalState(true, 1000);
+    EXPECT_EQ(midi.getPedalDownForMs(1000), 0);
+    EXPECT_EQ(midi.getPedalDownForMs(2500), 1500);
+    midi.notePedalState(true, 3000); // a repeated "down" does not restart the timer
+    EXPECT_EQ(midi.getPedalDownForMs(3500), 2500);
+    midi.notePedalState(false, 4000);
+    EXPECT_EQ(midi.getPedalDownForMs(4100), -1);
+    midi.notePedalState(true, 9000); // the next press starts again
+    EXPECT_EQ(midi.getPedalDownForMs(9200), 200);
 }
 
 } // namespace virtual_orch_test

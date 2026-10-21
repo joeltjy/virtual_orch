@@ -1,6 +1,7 @@
 #include "VirtualOrch/widgets/PianoRollView.h"
 
 #include "VirtualOrch/NoteWindow.h"
+#include "VirtualOrch/reduction/DenseTypes.h"
 #include "VirtualOrch/ui/UiConstants.h"
 
 #include <algorithm>
@@ -47,6 +48,13 @@ auto PianoRollView::setNoteColours(juce::Colour history, juce::Colour pending) -
 auto PianoRollView::setPitchRange(int32_t low, int32_t high) -> void {
     pitchLow = low;
     pitchHigh = std::max(high, low);
+    repaint();
+}
+
+auto PianoRollView::setProvisionalDurationCs(int32_t cs) -> void {
+    if (cs == provisionalDurationCs)
+        return;
+    provisionalDurationCs = cs;
     repaint();
 }
 
@@ -132,9 +140,11 @@ auto PianoRollView::paintNotes(juce::Graphics &g,
         int32_t time = 0;
         int32_t duration = 0;
         int32_t pitch = 0;
+        bool provisional = false;
 
         auto operator==(const NoteKey &other) const -> bool {
-            return time == other.time && duration == other.duration && pitch == other.pitch;
+            return time == other.time && duration == other.duration && pitch == other.pitch
+                   && provisional == other.provisional;
         }
     };
 
@@ -143,6 +153,7 @@ auto PianoRollView::paintNotes(juce::Graphics &g,
             size_t h = static_cast<size_t>(key.time);
             h ^= static_cast<size_t>(key.duration) + 0x9e3779b9 + (h << 6) + (h >> 2);
             h ^= static_cast<size_t>(key.pitch) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= static_cast<size_t>(key.provisional) + 0x9e3779b9 + (h << 6) + (h >> 2);
             return h;
         }
     };
@@ -156,9 +167,13 @@ auto PianoRollView::paintNotes(juce::Graphics &g,
         if (! isDrawableNote(token))
             continue;
 
+        const bool provisional =
+            provisionalDurationCs > 0
+            && DenseSampling::isProvisionalDurationToken(token.duration, provisionalDurationCs);
         const NoteKey key{.time = token.time,
                           .duration = std::max(1, token.getRealDuration()),
-                          .pitch = token.getPitch()};
+                          .pitch = token.getPitch(),
+                          .provisional = provisional};
         const auto colour = usePerNote ? colours[i] : fallbackColour;
         auto &bucket = grouped[key];
         if (std::find(bucket.begin(), bucket.end(), colour) == bucket.end())
@@ -177,30 +192,43 @@ auto PianoRollView::paintNotes(juce::Graphics &g,
         const auto bounds = juce::Rectangle<float>(x, y, w, bodyHeight);
         const float radius = UiConstants::pianoRollNoteCornerRadius;
 
-        if (noteColoursForKey.size() <= 1) {
-            g.setColour(noteColoursForKey.empty() ? fallbackColour : noteColoursForKey.front());
-            g.fillRoundedRectangle(bounds, radius);
+        const auto fillBody = [&](float alphaScale) {
+            if (noteColoursForKey.size() <= 1) {
+                g.setColour((noteColoursForKey.empty() ? fallbackColour : noteColoursForKey.front())
+                                .withMultipliedAlpha(alphaScale));
+                g.fillRoundedRectangle(bounds, radius);
+                return;
+            }
+
+            // Time stripes: cycle instrument colours every pianoRollMultiColourStripeCs.
+            juce::Path clip;
+            clip.addRoundedRectangle(bounds, radius);
+            const juce::Graphics::ScopedSaveState save(g);
+            g.reduceClipRegion(clip);
+
+            const auto stripeCs = UiConstants::pianoRollMultiColourStripeCs;
+            const auto colourCount = noteColoursForKey.size();
+            const int32_t endTime = key.time + key.duration;
+            for (int32_t t = key.time; t < endTime; t += stripeCs) {
+                const auto stripeEnd = std::min(t + stripeCs, endTime);
+                const auto sx = timeToX(t, window, width);
+                const auto ex = timeToX(stripeEnd, window, width);
+                const auto colourIndex =
+                    static_cast<size_t>((t - key.time) / stripeCs) % colourCount;
+                g.setColour(noteColoursForKey[colourIndex].withMultipliedAlpha(alphaScale));
+                g.fillRect(sx, bounds.getY(), std::max(1.0f, ex - sx + 0.5f), bounds.getHeight());
+            }
+        };
+
+        if (! key.provisional) {
+            fillBody(1.0f); // locked in: solid
             continue;
         }
 
-        // Time stripes: cycle instrument colours every pianoRollMultiColourStripeCs.
-        juce::Path clip;
-        clip.addRoundedRectangle(bounds, radius);
-        const juce::Graphics::ScopedSaveState save(g);
-        g.reduceClipRegion(clip);
-
-        const auto stripeCs = UiConstants::pianoRollMultiColourStripeCs;
-        const auto colourCount = noteColoursForKey.size();
-        const int32_t endTime = key.time + key.duration;
-        for (int32_t t = key.time; t < endTime; t += stripeCs) {
-            const auto stripeEnd = std::min(t + stripeCs, endTime);
-            const auto sx = timeToX(t, window, width);
-            const auto ex = timeToX(stripeEnd, window, width);
-            const auto colourIndex =
-                static_cast<size_t>((t - key.time) / stripeCs) % colourCount;
-            g.setColour(noteColoursForKey[colourIndex]);
-            g.fillRect(sx, bounds.getY(), std::max(1.0f, ex - sx + 0.5f), bounds.getHeight());
-        }
+        // Provisional (key still held): faint fill and a solid outline.
+        fillBody(UiConstants::pianoRollProvisionalFillOpacity);
+        g.setColour(noteColoursForKey.empty() ? fallbackColour : noteColoursForKey.front());
+        g.drawRoundedRectangle(bounds.reduced(0.75f), radius, 1.5f);
     }
 }
 

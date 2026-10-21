@@ -47,6 +47,7 @@ auto NoteIoWidget::resized() -> void {
 }
 
 auto NoteIoWidget::timerCallback() -> void {
+    pianoRoll.setProvisionalDurationCs(showsProvisional ? session.modelConfig.inputDuration : 0);
     refreshFromSession();
 }
 

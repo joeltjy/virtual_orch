@@ -2,6 +2,8 @@
 
 #include <JuceHeader.h>
 
+#include <algorithm>
+#include <atomic>
 #include <deque>
 #include <functional>
 #include <map>
@@ -59,6 +61,22 @@ public:
      */
     std::function<void(int32_t pedalTimeCs)> onPedalDown;
 
+    /** Record the pedal state (called for every CC64 at wall-clock `nowMs`). */
+    auto notePedalState(bool down, int64_t nowMs) -> void {
+        if (down) {
+            int64_t expected = -1;
+            pedalDownSinceMs.compare_exchange_strong(expected, nowMs);
+        } else {
+            pedalDownSinceMs.store(-1);
+        }
+    }
+
+    /** How long the pedal has been down, in ms; -1 while it is up. */
+    [[nodiscard]] auto getPedalDownForMs(int64_t nowMs) const -> int64_t {
+        const auto since = pedalDownSinceMs.load();
+        return since < 0 ? -1 : std::max<int64_t>(0, nowMs - since);
+    }
+
     /** Play-keyboard notes are reported here for the seating plan; set by AppSession. */
     PerformanceActivity::ActivityLog *activityLog = nullptr;
 
@@ -91,6 +109,8 @@ private:
     Clock &clock;
     std::function<ReductionTransformer &()> activeReduction;
     bool pedalDown = false;
+    /** Wall-clock ms of the last pedal press, -1 while the pedal is up. */
+    std::atomic<int64_t> pedalDownSinceMs{-1};
     ModelConfig &modelConfig;
     std::unique_ptr<OutputProcessor> &outputProcessor;
     std::unique_ptr<InputFilter> &inputFilter;

@@ -1650,3 +1650,169 @@ Task 2 (MelodyFirstReductionTransformer)
     bound is kept across the rest-step resampling.
   - Not done: the logit-adjustment / tau widgets do not know this transformer (temperature
     sliders only), as for Task 3.
+
+Eviction-driven rebase (requested via the orchestration session, 2026-10-20; replaces the fixed
+"clock reaches 90 s, shift 60 s" rule as the primary rule)
+  - Rule: times are absolute; the streams write onset = absolute - origin. When the KV cache has
+    evicted a note whose onset is more than 30 s (3000 cs) after the origin, the origin moves
+    forward by k = the largest multiple of 30 s that keeps every retained note at onset >= 0
+    (a multiple of the 2 s TD spacing too). Retained notes keep their absolute onsets, so outputs
+    and control insertion stay in absolute time; pending controls older than the new origin are
+    dropped; future and pending ones keep their absolute time (M lookahead, TD boundaries too).
+    The cache is rebuilt from the retained window with a full prefill (fresh RoPE positions).
+    Code: AnticipatedStream::rebaseForEviction (T3 and the DA stage of MelodyFirst),
+    MelodyStream::trimIfNeeded (T8: its 256 -> 128 cut is its eviction, and the cache is rebuilt
+    there anyway), CommittedScratchCache::evictedTokens / sinkRows.
+  - SINK DECISION: the dense RoPE models have no mode token (the first token is a note), and the
+    sink rows are just the first 4 tokens of the stream (the first quad). The evicted tokens AND
+    the old sink quad are dropped on a rebase (their times would go negative); the window starts at
+    the first retained quad (leading TD tokens skipped), and its first 4 tokens become the new sink,
+    i.e. the sink is re-seeded from the start of the retained window. T8 keeps ANTICIPATE as token 0
+    (the cut always keeps it); it has no sink rows (learned positions, rebuilt every cut).
+  - Safety net kept: if the retained notes cannot be shifted (k = 0, e.g. a late control with an old
+    onset sits in the window), the old rule still applies when the clock is 90 s past the origin
+    (shift 60 s), so a token id can never go past 9999.
+  - Not shifted by the rule: onsets inside the window that is shorter than 30 s (no rebase until a
+    note older than 30 s is evicted), so a very sparse performance can still reach onset tokens
+    above the 3000-4000 range the new models are trained on (up to 9000 before the safety net).
+  - Tests: test/source/EvictionRebaseTest.cpp (rebases exactly when a >30 s note is evicted, k is the
+    largest multiple, absolute times continuous, retained tokens = old tokens with times - k, logits
+    after the rebuild equal a fresh prefill of the shifted window, pending-control handling, the T8
+    cut) and a transformer-level case in AnticipatedReductionTest.
+  - Heads-up from the peer messages, NOT implemented: the DA model (#2) moves to a separate control
+    vocab (control id = event id + 11768, TD 23536.., vocab 23544/23536), T3' will too, and the
+    T7 export on the Desktop was replaced by da_ctlvocab_rope_tdorch64_T7_best_step6000_kv.onnx, so
+    app/melody_first_reduction.json ("onnx": the old T7 dummy name) and the MelodyFirstReal test no
+    longer find a file until the token layout and the file name are updated.
+
+Force restart and locked-in vs provisional notes (2026-10-20)
+  Force restart
+  - Launchpad TOP-ROW button 0 (CC104, "(0, 0)" in the Active Instruments widget's own grid, where
+    row 0 is the top CC row). I read your "(0, 0)" that way because the grid pad (row 0, col 0) is
+    the Edit pad; top-row button 0 was unused (1 = RT pause, 2 = OT pause). Lit orange; shown as
+    "Restart" in the Active Instruments widget; logged as "Force restart" in the console.
+  - It is stopGeneration() followed by startGeneration(), nothing else: the stop joins the workers
+    on another thread, so the restart waits for that join (up to 20 s), then starts on the message
+    thread. Pause flags are NOT cleared (a stop + start does not clear them either). Presses while a
+    restart is in flight are ignored. The clock restarts at 0 and the reduction thread resets, as with
+    Stop/Start.
+  - One addition to Start (not only restart): OrchestrationTransformer::threadRun now calls
+    OrchestrationModel::resetState(), so the model's own memory (the input-note list from Task 1,
+    its history, the TD boundary map) is cleared on every Start. Before, those survived a Stop/Start
+    while the clock went back to 0, so old notes would have been mixed with new ones.
+  Locked in vs provisional
+  - Already done? No: no piano roll made the distinction. Now PianoRollView draws a note whose
+    duration is still the provisional hold duration (ModelConfig::inputDuration, the same sentinel
+    hasUnresolvedProvisionalInputNotes uses for every model) as an outline with a 30 % fill, and every
+    other note solid. It looks only at the duration token, so it does not depend on the active
+    reduction model. When the note-off resolves the duration the note becomes solid by itself.
+  - It is switched on (NoteIoWidget::setShowsProvisionalNotes) for the rolls that show notes from the
+    MIDI input path: Token Input, Conditioning, OT Midi, OT Conditioning, and the OT output and
+    playback rolls (notes made from held keys carry the same duration until they are corrected). It is
+    OFF for the OT Reduction roll, the Reduction Output roll and the Vocsep roll: those show generated
+    reduction notes, whose durations are never provisional, and a sampled duration that happens to be
+    exactly the sentinel (default 400 cs) would otherwise look unlocked. Known limit: an orchestrated or
+    played note whose duration equals the sentinel without coming from a held key looks provisional.
+
+Orchestration redo on an instrument toggle: hold-back queue (2026-10-20)
+  - Chosen design (yours): reduction notes are held un-orchestrated in the OT until their onset is
+    within 1 s of the app clock (HoldBackQueue.h, OrchestrationTransformer::holdBackWindowCs = 100 cs).
+    An instrument toggle therefore decides the instruments of every note still beyond that window,
+    with nothing removed from playback and nothing recomputed. Notes already inside the 1 s window
+    keep the old instruments, so a toggle is heard after at most 1 s.
+  - Held notes and clears: a ClearQueue token (pedal, or an old-style regenerate clear at time 0)
+    erases the held notes with onset >= its time, in arrival order, and is still forwarded to
+    playback unchanged. Voice re-stamps patch held notes. Rests and bar separators are not held.
+  - Edit mode: your own notes arrive at their onset and are not held; the reduction notes that Edit
+    mode also orchestrates for the model instruments are held like in Jam.
+  - OT pause: nothing is released while paused, and held notes that are already past are dropped
+    (before, notes queued before a pause kept playing; notes that arrived during a pause were never
+    orchestrated). Without a clock (tests) every note is released on arrival, as before.
+  - The OT loop never sleeps, so held notes are released on time with no new input (that busy loop
+    already existed).
+  - The debug piano rolls still show reduction notes when they arrive (not when released);
+    OrchestrationTransformer::heldCount() gives the number waiting.
+  Pedal freeze overlay
+  - Pedal down for 1 s or more (MidiInputProcess::getPedalDownForMs, set from CC64 on any press
+    that was up before) fades a blurred copy of the seating plan, a dark scrim and "Pianist soloing /
+    orchestra frozen while the pedal is down" over the Orchestra widget; it fades out when the pedal
+    is released. The blurred plan is PRECOMPUTED once when the view is created (a quarter-size copy
+    blurred with a separable gaussian), so freezing and thawing only draw it. It is the plain plan, not
+    the current dimming, so it does not change while frozen. It looks only at the pedal, not at the RT
+    pause button.
+
+Adaptation to the redesigned models T3'' / T8'' / T7'' (2026-10-20, branch adapt-t3pp-t7pp-t8pp)
+  Source of the spec: the orchestration session's messages (tokenizations and sampling) and its
+  14:25 changes (one tie rule for all models, T7'' M = T8'' output). All three models are still
+  training and no ONNX exists, so everything is built and tested against fake backends of the right
+  vocab sizes (11776 dense, 55293 AMT-native); the old Desktop exports are stale and not used.
+  - New AnticipationStage = one generating model (stream + committed/scratch KV cache + sampler +
+    TD ids + the draw loop). T3'', the T8'' stage and the T7'' stage are all instances of it.
+  - Draw loop (all three): given notes whose actual time the event clock has reached go in first;
+    if the drawn onset is at or after the next GIVEN note, that note is written first and the onset is
+    drawn again. T7'' also writes a visible REST quad for every 1 s step before the drawn onset and
+    catches up with the app clock one rest at a time (whichever of next given note / next rest is
+    earlier goes first); its melody controls are released by the clock alone.
+  - Tie order: given first, then generated, ascending pitch within each, for ALL models (your
+    choice for T3''; the orchestration session's later message made it the single rule). The T3''
+    training order (first generated note first) stays as an option, off (setTieFirstGenerated).
+  - T3'': piano = GIVEN events on instrument 0 (was instrument-3 controls), dense 11776, TD 11768+.
+  - T8'' stage of Melody First: dense, RoPE, no mode token, no rests, no 256 -> 128 cut, no position
+    ids. Given = melody + bass R from algorithm A on instrument 0 (strictly monophonic per line);
+    generated = instrument 1 with an onset floor of at most 2 sounding (min(2, accompaniment cap)).
+    The old learned-position T8 path and MelodyStream are removed.
+  - T7'' stage: AMT-native vocab 55293: ANTICIPATE first, piano L as instrument-0 EVENTS (velocity
+    55028 + v), T8'' output as instrument-0 CONTROLS (ATIME 27513 + t, ADUR 37513 + d, ANOTE 38513 +
+    pitch, AVEL 55156 + v) anticipated 3 s (M before piano on equal actual times), TD ids
+    55285..55292 by REAL time (controls: onset - 3 s), Y on instrument 1.
+  - Sampling for all three (AnticipationSampler): onset-gap 0.5, duration 0.5 / 0, pitch 0.2 / 0.2
+    biases (no per-instrument adjustment), then masks, then top-p 0.98 and temperature 0.5 for EVERY
+    field including velocity (the older dense models keep 0.3 / 1.0). Durations 10..995 step 5 (your
+    10 cs floor; the orchestration session would like 5 cs back, it is the most common duration for
+    fast notes in training), velocities 8..120 step 8.
+  - Rebase: the 30 s eviction rebase is unchanged; the T7'' ANTICIPATE flag stays the first token.
+  - Descriptors app/t3_anticipated_reduction.json and app/melody_first_reduction.json now name
+    placeholder files (t3pp_dense_rope_kv, t7pp_amt_rope_kv, t8pp_dense_rope_kv) until the exports
+    exist; the checkpoints are listed only when those files are found.
+
+Register control, polyphony in Jam mode, bias settings (2026-10-20)
+  Register (Launchpad row 6)
+  - Pads (6,0..2) = LOW / MEDIUM / HIGH and the side pad (6, side column) = AUTO register, like the TD
+    pads. AUTO (default) restricts nothing; turning AUTO off returns to the last selected register
+    (MEDIUM until one is chosen). Works in Edit and Jam. Lit: LOW blue, MEDIUM mint, HIGH magenta;
+    AUTO green on / red off. Shown in the Active Instruments widget and logged in the console.
+  - Ranges (C4 = MIDI 60, overlapping as you specified): LOW 21..59 (below C4), MEDIUM 48..84 (C3 to
+    C6), HIGH 73..108 (above C5). Boundaries are inclusive of the notes named, so "below C4" excludes C4
+    and "above C5" excludes C5.
+  - It limits the pitch of EVERY generated reduction note: the shared sampler of T3'', of T8''
+    (melody + bass) and of T7'' (Y), and the note-logit masks of V1, V2, Piano Reduction and the AMT
+    model (RegisterRange::maskNoteBlock). If the register conflicts with everything the older model
+    may play (no finite note left), the mask is skipped and the note is generated unrestricted.
+  - It does NOT limit the orchestration: the orchestration model can still move a reduction note by an
+    octave (instrument x octave-delta combos), so sounded pitches can leave the register.
+  Polyphony in Jam mode
+  - The polyphony pads (7,0..3) now work in Jam mode with or without accompaniment mode, and the cap
+    applies in plain Jam. There is no cap until a pad is pressed (0 = none); pressing the selected pad
+    again clears the cap. Edit mode: pads ignored, no cap.
+  - Turning accompaniment on starts at polyphony 1 only if no cap was already chosen; turning it off
+    keeps the cap (clear it with the pad). This replaces "accompaniment always starts at 1".
+  Logit biases: two checkboxes (Logit Adjustments widget, top)
+  - "Logit biases on" turns the reduction models' anti-repetition biases (pitch, duration, onset-gap)
+    on or off for every reduction model; "Only when the piano is silent > 1 s" (enabled when the first
+    is on) applies them only while no key is down and the last key was released more than 1 s ago;
+    otherwise they apply all the time. Default: on, always. The per-bias toggles of V2 and Piano
+    Reduction still apply on top. The OT "proportion / IOD groups" bias is a separate toggle and is
+    not touched. Piano silence comes from the keyboard activity log (the keys, not the notes' lengths).
+  - Not persisted across restarts (the settings are global, defaults on / always).
+
+--- 2026-10-20: cap on the app's ramped bias strengths ---
+* The pitch (tau, tau') and duration (tau_d, tau'_d) schedulers doubled/1.5x'd every 10 notes after
+  the hold with no limit; after ~1280 unchanged-pitch notes the logits overflowed, and sampleTopP
+  returned token 0 (an illegal id). Decision (user): cap the ramped value at 8 x base
+  (TauRampCapMultiplier in DensePitchBias.h / DenseDurationBias.h). A base of 0 (duration tau')
+  stays 0. Onset-gap tau is fixed, unchanged.
+* AnticipationSampler::sample also falls back to the unbiased logits if the biased, masked scores
+  have no finite value, so a bad bias can never produce an illegal token.
+* Tests: AnticipationSampler.*CappedAtEightTimesBase, repeatedNotesForAThousandDrawsStayLegal,
+  nonFiniteBiasedLogitsFallBackToTheUnbiasedOnes. Full suite: 167 pass; the 7 MusicTransformer.*
+  failures are pre-existing (bassAndChords.onnx is not on this Mac).

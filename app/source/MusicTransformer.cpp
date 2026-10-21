@@ -1,6 +1,7 @@
 #include "VirtualOrch/MusicTransformer.h"
 #include "VirtualOrch/InstrumentConstants.h"
 #include "VirtualOrch/NoteWindow.h"
+#include "VirtualOrch/RegisterRange.h"
 #include "VirtualOrch/OrtEnv.h"
 #include "VirtualOrch/vocsep/VoiceSeparation.h"
 #include <onnxruntime_cxx_api.h>
@@ -521,8 +522,11 @@ Token MusicTransformer::generateNewToken(int32_t forceAtTime) {
                              forceAtTime != -1 ? forceAtTime - offset : -1);
             else if (i == 1)
                 durLogits(scores);
-            else
+            else {
                 instrLogits(scores);
+                RegisterRange::maskNoteBlock(scores, Vocab::NoteOffset, Config::MaxInstr,
+                                             Config::MaxPitch);
+            }
         }
         int32_t token = 0;
         {

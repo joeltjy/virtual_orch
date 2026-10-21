@@ -23,6 +23,15 @@ public:
 
     auto setPitchRange(int32_t low, int32_t high) -> void;
 
+    /**
+     * Locked in vs provisional. A note whose duration is still the MIDI provisional hold
+     * duration (`cs`, ModelConfig::inputDuration: the key is down and the note-off has not
+     * resolved it) is drawn as an outline with a faint fill; every other note is drawn solid
+     * (locked in). 0 turns the distinction off. The test only looks at the duration token, so it
+     * does not depend on which reduction model is running.
+     */
+    auto setProvisionalDurationCs(int32_t cs) -> void;
+
     auto paint(juce::Graphics &g) -> void override;
 
 private:
@@ -60,6 +69,7 @@ private:
     std::vector<juce::Colour> pendingNoteColours;
     juce::Colour historyNoteColour;
     juce::Colour pendingNoteColour;
+    int32_t provisionalDurationCs = 0;
     int32_t pitchLow = 36;
     int32_t pitchHigh = 96;
 

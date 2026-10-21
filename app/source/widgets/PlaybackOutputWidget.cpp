@@ -8,6 +8,7 @@ PlaybackOutputWidget::PlaybackOutputWidget(AppSession &sessionIn)
                    UiConstants::workspacePlaybackOutputTitle,
                    UiConstants::workspaceWidgetTypePlaybackOutput,
                    true) {
+    setShowsProvisionalNotes(true);
     setNoteColours(UiConstants::pianoRollHistoryNoteColour, UiConstants::pianoRollPendingNoteColour);
     refreshFromSession();
 }

@@ -1,5 +1,6 @@
 #include "VirtualOrch/reduction/ReductionTransformerV1.h"
 #include "VirtualOrch/InstrumentConstants.h"
+#include "VirtualOrch/RegisterRange.h"
 #include "VirtualOrch/NoteWindow.h"
 #include "VirtualOrch/OrtEnv.h"
 #include "VirtualOrch/SamplingRelativeTime.h"
@@ -634,9 +635,10 @@ Token ReductionTransformerV1::generateNewToken(int32_t forceAtTime) {
                              forceAtTime != -1 ? forceAtTime - offset : -1);
             else if (i == 1)
                 durLogits(scores);
-            else if (i == 2)
+            else if (i == 2) {
                 instrLogits(scores);
-            else
+                RegisterRange::maskNoteBlock(scores, DenseVocab::NoteOffset, DenseConfig::MaxInstr);
+            } else
                 velocityLogits(scores);
         }
 

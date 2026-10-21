@@ -26,6 +26,8 @@ inline constexpr float TauHoldSeconds = 2.0f;
 inline constexpr int TauHoldNotes = 10;
 /** After hold: τ_d = base · TauRampPerSecond^(notesSinceReset / 10). */
 inline constexpr float TauRampPerSecond = 1.5f;
+/** The ramped τ_d / τ′ never exceeds base · TauRampCapMultiplier (keeps logits finite). */
+inline constexpr float TauRampCapMultiplier = 8.0f;
 /** Default τ′ for consecutive duration-delta bias (off unless raised in UI). */
 inline constexpr float TauPrimeBase = 0.0f;
 

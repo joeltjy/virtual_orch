@@ -38,6 +38,10 @@ private:
 
     juce::Label statusLabel;
 
+    /** Global (BiasSettings): biases on/off, and if on, only while the piano is silent > 1 s. */
+    juce::ToggleButton biasesOnToggle{"Logit biases on"};
+    juce::ToggleButton biasGateToggle{"Only when the piano is silent > 1 s"};
+
     juce::ToggleButton pitchToggle{"Pitch bias"};
     juce::ToggleButton durationToggle{"Duration bias"};
     juce::ToggleButton onsetGapToggle{"Onset-gap bias"};

@@ -3,6 +3,7 @@
 #include <VirtualOrch/LaunchpadGrid.h>
 #include <VirtualOrch/LaunchpadLighting.h>
 #include <VirtualOrch/LaunchpadProgrammerMap.h>
+#include <VirtualOrch/RegisterRange.h>
 #include <VirtualOrch/TemporalDensity.h>
 
 #include <map>
@@ -282,7 +283,10 @@ TEST(LaunchpadGrid, LedsFollowFamilyColoursAndSideButtons) {
     EXPECT_EQ(ledFor(leds, kUser, 0), LaunchpadLighting::kOff);
     EXPECT_EQ(ledFor(leds, LaunchpadGrid::kFlushRow, LaunchpadGrid::kSideCol),
               LaunchpadLighting::kFlush);
-    EXPECT_EQ(ledFor(leds, 6, LaunchpadGrid::kSideCol), LaunchpadLighting::kOff);
+    EXPECT_EQ(ledFor(leds, 0, LaunchpadGrid::kSideCol), LaunchpadLighting::kOff) << "unused side pad";
+    EXPECT_EQ(ledFor(leds, LaunchpadGrid::kRegisterRow, LaunchpadGrid::kSideCol),
+              LaunchpadLighting::colourForAutoTd(RegisterRange::isAuto()))
+        << "row 6 side = register AUTO";
 
     grid.handleInput(kUser, 0, true, 1000);
     grid.handleInput(kUser, 4, true, 1000);

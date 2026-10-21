@@ -70,6 +70,12 @@ public:
     [[nodiscard]] auto committedFed() const -> size_t { return cFed.size(); }
     [[nodiscard]] auto scratchFed() const -> size_t { return wValid ? wFed.size() : 0; }
     [[nodiscard]] auto committedRows() const -> int { return c.rows; }
+    /** Tokens the committed cache has evicted so far (rows fed minus rows kept). */
+    [[nodiscard]] auto evictedTokens() const -> size_t {
+        return cFed.size() - static_cast<size_t>(c.rows);
+    }
+    /** Sink rows that are never evicted (the first tokens of the stream). */
+    [[nodiscard]] auto sinkRows() const -> size_t { return static_cast<size_t>(dims.sinkRows); }
     [[nodiscard]] auto backendCalls() const -> int { return calls; }
     [[nodiscard]] auto tokensFed() const -> size_t { return fedTotal; }
     [[nodiscard]] auto lastFailed() const -> bool { return failed; }

@@ -45,6 +45,12 @@ public:
 
     [[nodiscard]] auto supportsVocsepEnsemble() const -> bool override { return true; }
 
+    auto resetState() -> void override {
+        OrchestrationModel::resetState();
+        history.clear();
+        recentGroupsMasks.clear();
+    }
+
     auto setGroupsBiasTau(float tau) -> void { groupsBiasTau.store(tau); }
     [[nodiscard]] auto getGroupsBiasTau() const -> float { return groupsBiasTau.load(); }
 

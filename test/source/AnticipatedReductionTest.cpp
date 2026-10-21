@@ -120,7 +120,7 @@ TEST(AnticipatedReduction, generatesOnlyLegalQ5V8Notes) {
     }
 }
 
-TEST(AnticipatedReduction, controlsEnterOncePastDueAsInstrumentThree) {
+TEST(AnticipatedReduction, controlsEnterOncePastDueAsInstrumentZero) {
     Rig rig;
     rig.playNote(990, 64, 50);
     ASSERT_TRUE(rig.rt.stepOnce()); // first note: clock moves to the sampled onset
@@ -136,7 +136,7 @@ TEST(AnticipatedReduction, controlsEnterOncePastDueAsInstrumentThree) {
         if (isTd(tokens[i]))
             continue;
         const int32_t note = tokens[i + 2];
-        if (note >= 11000 && note < 11640 && (note - 11000) / 128 == 3) {
+        if (note >= 11000 && note < 11640 && (note - 11000) / 128 == 0) {
             ++controls;
             controlPitches.insert((note - 11000) % 128);
         }
@@ -252,6 +252,41 @@ TEST(AnticipatedReduction, streamsLongerThanOneHundredSecondsRebase) {
     }
 }
 
+TEST(AnticipatedReduction, theCacheEvictingAnOldNoteRebasesAndOutputTimesStayAbsoluteAndContinuous) {
+    Rig rig;
+    rig.playNote(1000, 60, 80);
+    ASSERT_TRUE(rig.rt.stepOnce()); // starts the stream
+    int32_t previousBase = rig.rt.streamForTest().base();
+    int32_t previousOnset = 0;
+    (void) rig.drainOutput();
+    bool earlyRebase = false;
+    int rebases = 0;
+    for (int i = 0; i < 500 && rebases < 3; ++i) {
+        const int32_t clockBefore = rig.rt.streamForTest().clock();
+        ASSERT_TRUE(rig.rt.stepOnce()) << i;
+        rig.now += 60;
+        if (i % 3 == 0)
+            rig.playNote(rig.now - 10, 50 + i % 24, 40);
+        for (const auto &t: rig.drainOutput()) {
+            EXPECT_GE(t.time, previousOnset) << "absolute output times never go back";
+            previousOnset = t.time;
+        }
+        const int32_t base = rig.rt.streamForTest().base();
+        if (base != previousBase) {
+            ++rebases;
+            EXPECT_EQ((base - previousBase) % 3000, 0);
+            if (clockBefore - previousBase < 8900)
+                earlyRebase = true; // not the 90 s safety net: the eviction rule
+            previousBase = base;
+        }
+        // every time token the model sees is relative to the origin and in range
+        for (const auto id: rig.rt.streamForTest().tokens())
+            EXPECT_LT(id, 11776);
+    }
+    EXPECT_GE(rebases, 1);
+    EXPECT_TRUE(earlyRebase) << "the first rebase came from an eviction, before 90 s of context";
+}
+
 TEST(AnticipatedReduction, pausedGenerationProducesNothing) {
     Rig rig;
     rig.playNote(1000, 60, 80);
@@ -335,6 +370,26 @@ TEST(AnticipatedReductionReal, kvPiecesMatchOnePrefillAndTheTransformerRuns) {
         EXPECT_LE(out.getPitch(), 108);
     }
     EXPECT_EQ(count, 4);
+}
+
+} // namespace virtual_orch_test
+
+namespace virtual_orch_test {
+
+TEST(AnticipatedReduction, thePianoNoteComesFirstAtATieByDefault) {
+    Rig rig;
+    EXPECT_FALSE(rig.rt.getTieFirstGenerated()) << "default: given (piano) first at a shared onset";
+    rig.rt.setTieFirstGenerated(true);
+    EXPECT_TRUE(rig.rt.getTieFirstGenerated());
+    rig.rt.setTieFirstGenerated(false);
+    EXPECT_FALSE(rig.rt.getTieFirstGenerated());
+
+    // A note at exactly the event clock is written before the next generated note.
+    rig.playNote(1000, 60, 20);
+    ASSERT_TRUE(rig.rt.stepOnce());
+    const auto tokens = rig.rt.streamForTest().tokens();
+    ASSERT_GE(tokens.size(), 8u);
+    EXPECT_EQ((tokens[2] - 11000) / 128, 0) << "the piano note is the first quad";
 }
 
 } // namespace virtual_orch_test

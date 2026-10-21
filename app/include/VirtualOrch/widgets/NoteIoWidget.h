@@ -39,6 +39,13 @@ protected:
 
     auto setPitchRange(int32_t low, int32_t high) -> void;
 
+    /**
+     * Draw held (provisional) notes as outlines and locked-in notes solid. Turn it on for rolls
+     * that show notes from the MIDI input path (user input, and what is made from it); leave it
+     * off for rolls of generated reduction notes, whose durations are never provisional.
+     */
+    auto setShowsProvisionalNotes(bool shows) -> void { showsProvisional = shows; }
+
     auto setNoteColours(juce::Colour history, juce::Colour pending) -> void;
 
     /** Earliest time still drawable on this roll; histories are trimmed to it before copying. */
@@ -49,6 +56,8 @@ protected:
     PianoRollView pianoRoll;
 
 private:
+    bool showsProvisional = false;
+
     auto timerCallback() -> void override;
 
     static auto rowFromToken(const Token &token) -> NoteIoRow;

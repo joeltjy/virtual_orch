@@ -71,14 +71,26 @@ inline constexpr std::array<uint8_t, 7> kTdGradient{{kCyan, kSky, kBlue, kPurple
     return kTdGradient[static_cast<size_t>(levelIndex)];
 }
 
+/** Register pads LOW / MEDIUM / HIGH (RegisterRange values 1..3): lit only when selected. */
+[[nodiscard]] inline auto colourForRegister(int registerValue, bool selected) -> uint8_t {
+    if (! selected)
+        return kOff;
+    switch (registerValue) {
+        case 1: return kBlue;
+        case 2: return kMint;
+        case 3: return kMagenta;
+        default: return kOff;
+    }
+}
+
 /** AUTO_TD side button: green when on, red when off. */
 [[nodiscard]] inline auto colourForAutoTd(bool autoOn) -> uint8_t {
     return autoOn ? kGreen : kRed;
 }
 
-/** Polyphony pads: only the selected one is lit, and only in Accompaniment mode. */
-[[nodiscard]] inline auto colourForPolyphonyPad(bool accompanimentActive, bool selected) -> uint8_t {
-    return accompanimentActive && selected ? kYellow : kOff;
+/** Polyphony pads: only the selected one is lit, and only in Jam / Accompaniment (where they work). */
+[[nodiscard]] inline auto colourForPolyphonyPad(bool active, bool selected) -> uint8_t {
+    return active && selected ? kYellow : kOff;
 }
 
 /** Edit / Jam / Accompaniment pads: the selected mode is lit. */

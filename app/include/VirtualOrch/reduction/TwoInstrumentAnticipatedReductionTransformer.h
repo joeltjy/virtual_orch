@@ -11,25 +11,30 @@
 #include "VirtualOrch/MusicToken.h"
 #include "VirtualOrch/TdTokens.h"
 #include "VirtualOrch/reduction/AnticipatedStream.h"
+#include "VirtualOrch/reduction/AnticipationSampler.h"
+#include "VirtualOrch/reduction/AnticipationStage.h"
 #include "VirtualOrch/reduction/DensePitchBias.h"
 #include "VirtualOrch/reduction/DenseTypes.h"
 #include "VirtualOrch/reduction/ReductionTransformer.h"
 #include "VirtualOrch/reduction/StreamingKvCache.h"
 
 /**
- * Piano -> piano reduction with an anticipation-style model (maestro_rope_td_T3 export):
- * RoPE with a StreamingLLM KV cache (4 sink + 508 recent rows).
+ * Piano -> piano reduction with the T3'' model (maestro replay, dense vocab 11776, RoPE with a
+ * StreamingLLM KV cache: 4 sink + 508 recent rows).
  *
- *   - The user's piano notes are anticipated CONTROLS on instrument 3: never sampled, written
- *     into the stream once the event clock has passed their onset (see AnticipatedStream).
- *   - The model samples instrument-1 reduction notes, one [time, duration, note, velocity]
- *     quad at a time, with the clock = onset of the last generated note.
+ *   - The user's piano notes are GIVEN events on instrument 0, in onset order with the generated
+ *     notes (instrument 1). A given note is never sampled; it is inserted once the event clock
+ *     (onset of the last generated note) has reached its onset, or earlier when a sampled onset
+ *     lies at or after it (it goes in first and the onset is drawn again).
+ *   - Tie order at a shared onset: the piano (given) note comes FIRST. This was chosen over the
+ *     T3'' training order (first generated note first), which setTieFirstGenerated(true) restores.
  *   - Temporal-density (TD) tokens come from the Launchpad (AUTO repeats the last level, the
  *     dense vocab has no "unknown").
  *   - A held key is used for inference with the duration it has so far (frozen), but is not
- *     written into the committed cache until its note-off (or 1 s... see AnticipatedStream::
- *     kHoldCommitCs): the cache is split into committed + scratch (StreamingKvCache.h).
- *   - Everything is q5v8 with the app's 10 cs duration floor and A0..C8 pitch clamp.
+ *     written into the committed cache until its note-off or the hold limit (see
+ *     AnticipatedStream): the cache is split into committed + scratch (StreamingKvCache.h).
+ *   - The shared AnticipationSampler draws every field (onset-gap, duration and pitch biases, masks,
+ *     top-p 0.98, temperature 0.5), q5v8 with the app's 10 cs duration floor and A0..C8 pitches.
  *   - The polyphony cap of accompaniment mode raises the earliest allowed onset
  *     (ReductionTransformer::onsetLowerBoundCs).
  */
@@ -49,7 +54,7 @@ public:
     /** Tests: use another backend (vocabSize = its logits width). */
     auto initWithBackend(std::unique_ptr<StreamingKv::Backend> newBackend, size_t vocabSize) -> void;
 
-    [[nodiscard]] auto isModelLoaded() const -> bool override { return backend != nullptr; }
+    [[nodiscard]] auto isModelLoaded() const -> bool override { return stage.isLoaded(); }
     [[nodiscard]] auto inputEventWidth() const -> size_t override { return 4; }
 
     void threadInit() {}
@@ -75,6 +80,13 @@ public:
     [[nodiscard]] auto isPitchBiasEnabled() const -> bool { return pitchBiasEnabled.load(); }
     auto setPitchBiasEnabled(bool on) -> void { pitchBiasEnabled.store(on); }
 
+    /**
+     * T3'' training order at a shared onset: the first generated note before the given notes.
+     * Off by default: the piano note comes first.
+     */
+    auto setTieFirstGenerated(bool on) -> void { stage.tieFirstGenerated = on; }
+    [[nodiscard]] auto getTieFirstGenerated() const -> bool { return stage.tieFirstGenerated; }
+
     /** App clock in cs (defaults to the Clock set by AppSession); tests replace it. */
     std::function<int32_t()> nowCsProvider;
     /** Launchpad TD value (TemporalDensity::kAuto or a level); tests replace it. */
@@ -83,9 +95,9 @@ public:
     /** One loop iteration without waiting: drain input, then generate one note if allowed. */
     auto stepOnce() -> bool;
 
-    [[nodiscard]] auto streamForTest() const -> const AnticipatedStream & { return stream; }
+    [[nodiscard]] auto streamForTest() const -> const AnticipatedStream & { return stage.stream; }
     [[nodiscard]] auto cacheForTest() const -> const StreamingKv::CommittedScratchCache * {
-        return cache.get();
+        return stage.cache.get();
     }
 
 private:
@@ -93,27 +105,16 @@ private:
     /** Apply queued user notes and note-offs. Returns true when a new note arrived. */
     auto drainInput(int32_t now) -> bool;
     auto generateOne(int32_t now) -> std::optional<Token>;
-    auto sampleField(int field, const std::vector<float> &logits, int32_t lowerModelOnset,
-                     const DensePitchBias::PitchWindowStats *pitchWindow, float tau, float tauPrime)
-        -> int32_t;
     auto resetStream(int32_t now) -> void;
     /** Leaving Accompaniment: drop the generated notes from `cutCs` on (stream, windows, UI). */
     auto rewindGeneratedFrom(int32_t cutCs) -> void;
 
-    std::unique_ptr<StreamingKv::Backend> backend;
-    std::unique_ptr<StreamingKv::CommittedScratchCache> cache;
-    size_t vocabSize = 0;
-
-    AnticipatedStream stream;
-    TdTokens::DenseTdResolver tdResolver;
-
-    /** Generated notes as dense instrument-1 quads (absolute onsets) for the pitch window. */
-    std::vector<int32_t> generatedDense;
-    DensePitchBias::PitchTauScheduler pitchTauScheduler;
+    /** Stream, KV cache, sampler and the draw loop of the T3'' model (dense, given on instr. 0). */
+    AnticipationStage stage{AnticipatedStream::Vocab::Dense, /*visibleRests*/ false};
 
     std::atomic<float> onsetTemperature{DenseSampling::OnsetTemperature};
     std::atomic<float> durationTemperature{DenseSampling::DurationTemperature};
     std::atomic<float> noteTemperature{DenseSampling::NoteTemperature};
-    std::atomic<float> velocityTemperature{DenseSampling::VelocityTemperature};
+    std::atomic<float> velocityTemperature{DenseSampling::OnsetTemperature}; // 0.5: same as the other fields
     std::atomic<bool> pitchBiasEnabled{true};
 };

@@ -1,6 +1,7 @@
 #include "VirtualOrch/reduction/ReductionTransformerV2.h"
 #include "VirtualOrch/InstrumentConstants.h"
 #include "VirtualOrch/NoteWindow.h"
+#include "VirtualOrch/RegisterRange.h"
 #include "VirtualOrch/OrtEnv.h"
 #include "VirtualOrch/SamplingRelativeTime.h"
 #include "VirtualOrch/vocsep/VoiceSeparation.h"
@@ -633,9 +634,10 @@ Token ReductionTransformerV2::generateNewToken(int32_t forceAtTime) {
     if (inputData.empty())
         return {-1, -1, -1, DenseConfig::DefaultVelocity};
 
-    const bool pitchBiasOn = isPitchBiasEnabled();
-    const bool durationBiasOn = isDurationBiasEnabled();
-    const bool onsetGapBiasOn = isOnsetGapBiasEnabled();
+    const bool biasesAllowed = biasesActiveNow(); // BiasSettings: on/off and the piano-silence gate
+    const bool pitchBiasOn = biasesAllowed && isPitchBiasEnabled();
+    const bool durationBiasOn = biasesAllowed && isDurationBiasEnabled();
+    const bool onsetGapBiasOn = biasesAllowed && isOnsetGapBiasEnabled();
 
     // UI / silence path: hybrid now. Note-field bias is refreshed again after onset
     // is sampled (amt_causal: τ/π from the prefix that already contains the new onset).
@@ -757,6 +759,7 @@ Token ReductionTransformerV2::generateNewToken(int32_t forceAtTime) {
                     DenseDurationBias::applyDurationLogitsBias(scores, durationWindow, durTau,
                                                                durTauPrime);
             } else if (i == 2) {
+                RegisterRange::maskNoteBlock(scores, DenseVocab::NoteOffset, DenseConfig::MaxInstr);
                 if (pitchBiasOn)
                     DensePitchBias::applyNoteLogitsBias(scores, pitchWindow, tau, tauPrime);
             } else if (i == 3)

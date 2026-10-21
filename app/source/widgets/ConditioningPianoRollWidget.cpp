@@ -8,6 +8,7 @@ ConditioningPianoRollWidget::ConditioningPianoRollWidget(AppSession &sessionIn)
     : NoteIoWidget(sessionIn,
                    UiConstants::workspaceConditioningPianoRollTitle,
                    UiConstants::workspaceWidgetTypeConditioningPianoRoll) {
+    setShowsProvisionalNotes(true);
     refreshFromSession();
 }
 

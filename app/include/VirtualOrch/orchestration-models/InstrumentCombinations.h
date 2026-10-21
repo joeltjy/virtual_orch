@@ -54,6 +54,11 @@ public:
 
     [[nodiscard]] auto getName() const -> std::string override;
 
+    auto resetState() -> void override {
+        OrchestrationModel::resetState();
+        history.clear();
+    }
+
     [[nodiscard]] auto tokenHistory() const -> const std::vector<OrchestrationNote> & override;
 
     [[nodiscard]] auto getOutput(

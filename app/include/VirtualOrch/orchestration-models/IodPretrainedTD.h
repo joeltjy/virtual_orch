@@ -51,6 +51,14 @@ public:
     [[nodiscard]] auto isModelLoaded() const -> bool { return session != nullptr; }
     [[nodiscard]] auto supportsVocsepEnsemble() const -> bool override { return true; }
 
+    auto resetState() -> void override {
+        OrchestrationModel::resetState();
+        history.clear();
+        boundaryTd.clear();
+        boundariesStarted = false;
+        lastAssignedBoundary = 0;
+    }
+
     [[nodiscard]] auto getOutput(
         const std::vector<Token> &incomingTokens,
         const std::vector<int32_t> &instruments,

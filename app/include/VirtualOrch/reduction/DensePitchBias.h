@@ -29,6 +29,8 @@ inline constexpr float TauHoldSeconds = 2.0f;
 inline constexpr int TauHoldNotes = 10;
 /** After hold: τ = base · TauRampBase^(notesSinceReset / 10). */
 inline constexpr float TauRampBase = 2.0f;
+/** The ramped τ / τ′ never exceeds base · TauRampCapMultiplier (keeps logits finite). */
+inline constexpr float TauRampCapMultiplier = 8.0f;
 
 /** amt_causal / offline: only leaps in [-12, 12] enter D and s_y. */
 inline constexpr int DeltaLo = -12;

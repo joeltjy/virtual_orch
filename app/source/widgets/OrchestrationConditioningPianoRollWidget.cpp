@@ -8,6 +8,7 @@ OrchestrationConditioningPianoRollWidget::OrchestrationConditioningPianoRollWidg
     : NoteIoWidget(sessionIn,
                    UiConstants::workspaceOrchestrationConditioningPianoRollTitle,
                    UiConstants::workspaceWidgetTypeOrchestrationConditioningPianoRoll) {
+    setShowsProvisionalNotes(true);
     setNoteColours(UiConstants::pianoRollHistoryNoteColour, UiConstants::pianoRollPendingNoteColour);
     refreshFromSession();
 }

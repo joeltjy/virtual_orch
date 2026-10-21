@@ -7,6 +7,7 @@ OrchestrationOutputVisualizerWidget::OrchestrationOutputVisualizerWidget(AppSess
     : NoteIoWidget(sessionIn,
                    UiConstants::workspaceOrchestrationOutputVisualizerTitle,
                    UiConstants::workspaceWidgetTypeOrchestrationOutputVisualizer) {
+    setShowsProvisionalNotes(true);
     setNoteColours(UiConstants::pianoRollHistoryNoteColour, UiConstants::pianoRollPendingNoteColour);
     refreshFromSession();
 }

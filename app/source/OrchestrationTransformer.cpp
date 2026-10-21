@@ -68,6 +68,7 @@ auto OrchestrationTransformer::applyVoiceRestamps(std::vector<Token> &reductionB
     while (restampsIncoming.pull(restamp)) {
         applyVoiceRestampToTokens(reductionBatch, restamp);
         applyVoiceRestampToTokens(reductionHistory, restamp);
+        holdBack.applyRestamp(restamp);
         if (orchestrationModel != nullptr)
             orchestrationModel->applyVoiceRestamp(restamp.noteId, restamp.newVoiceId);
     }
@@ -398,6 +399,8 @@ auto OrchestrationTransformer::clearOutputNotes() -> void {
 }
 
 void OrchestrationTransformer::threadRun() {
+    holdBack.clear();
+    heldCountValue.store(0);
     midiInputHistory.clear();
     conditioningHistory.clear();
     reductionHistory.clear();
@@ -428,8 +431,10 @@ void OrchestrationTransformer::threadRun() {
         modelBalance.syncActive(modelInstruments);
     }
     resetOrchProfile();
-    if (orchestrationModel != nullptr)
+    if (orchestrationModel != nullptr) {
+        orchestrationModel->resetState();
         orchestrationModel->getOutputTimings = &getOutputAccum;
+    }
 
     while (! threadShouldExit()) {
         const double loopStartMs = juce::Time::getMillisecondCounterHiRes();
@@ -448,6 +453,24 @@ void OrchestrationTransformer::threadRun() {
             reductionUpdate = drainIncoming(reductionIncoming);
         }
         applyVoiceRestamps(reductionUpdate);
+        // Reduction notes wait here (un-orchestrated) until their onset is within the hold-back
+        // window; clears erase what they cover, in arrival order. Only the released notes reach
+        // the model, with the instrument list that is current now.
+        std::vector<Token> reductionForModel;
+        {
+            holdBack.accept(reductionUpdate);
+            const int32_t nowCs = clock != nullptr ? static_cast<int32_t>(clock->getTime()) : -1;
+            if (paused.get()) {
+                // Paused: nothing is released, and notes that are already past are dropped.
+                if (nowCs >= 0)
+                    holdBack.dropPast(nowCs);
+                else
+                    holdBack.clear();
+            } else {
+                reductionForModel = holdBack.release(nowCs, holdBackWindowCs.load());
+            }
+            heldCountValue.store(holdBack.size());
+        }
         step.midiIn = static_cast<int>(midiUpdate.size());
         step.reductionIn = static_cast<int>(reductionUpdate.size());
 
@@ -490,7 +513,7 @@ void OrchestrationTransformer::threadRun() {
             if (mode == OrchestrationMode::Edit) {
                 const ScopedMs modelMs(&step.model);
                 auto [userNotes, modelNotes] = getEditOrchestrationOutput(
-                    midiUpdate, reductionUpdate, userInstrumentList, modelInstrumentList, signal);
+                    midiUpdate, reductionForModel, userInstrumentList, modelInstrumentList, signal);
                 toOutput.reserve(userNotes.size() + modelNotes.size() + clearFromMidi.size()
                                  + clearFromReduction.size());
                 toOutput.insert(toOutput.end(), userNotes.begin(), userNotes.end());
@@ -502,7 +525,7 @@ void OrchestrationTransformer::threadRun() {
                 instrumentUnion.insert(modelInstrumentList.begin(), modelInstrumentList.end());
                 const std::vector<int32_t> orchestrationInstruments(instrumentUnion.begin(),
                                                                     instrumentUnion.end());
-                toOutput = getJamOrchestrationOutput(reductionUpdate, orchestrationInstruments,
+                toOutput = getJamOrchestrationOutput(reductionForModel, orchestrationInstruments,
                                                      signal);
                 toOutput.reserve(toOutput.size() + clearFromMidi.size() + clearFromReduction.size());
             } else {

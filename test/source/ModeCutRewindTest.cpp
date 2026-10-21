@@ -5,16 +5,15 @@
 #include <VirtualOrch/PedalClear.h>
 #include <VirtualOrch/reduction/AnticipatedStream.h>
 #include <VirtualOrch/reduction/MelodyFirstReductionTransformer.h>
-#include <VirtualOrch/reduction/MelodyStream.h>
 #include <VirtualOrch/reduction/TwoInstrumentAnticipatedReductionTransformer.h>
 
-// Leaving Accompaniment rewinds the KV-cached reduction models to the cut time: the result must
+// Leaving Accompaniment rewinds the KV-cached anticipation models to the cut time: the result must
 // be the same as if the notes from the cut on had never been generated.
 
 namespace {
 
 using namespace StreamingKv;
-using ANote = AnticipatedStream::Note;
+using Spec = AnticipatedStream::ControlSpec;
 
 /** Pseudo-random logits seeded by the cache contents, preferring early onsets. */
 class FakeBackend : public Backend {
@@ -55,22 +54,36 @@ auto keyToken(int32_t onset, int pitch, int32_t durCs) -> Token {
     return t;
 }
 
-/** Quads of a dense anticipated stream (TD tokens skipped): absolute onset + instrument. */
+auto lineSpec(int line) -> Spec {
+    Spec s;
+    s.line = line;
+    return s;
+}
+
+/** Note quads of a stream (TD / ANTICIPATE skipped): absolute onset, instrument, control flag. */
 struct Quad {
     int32_t onsetAbs;
     int32_t instrument;
+    bool control; // AMT control ids (the T7'' melody controls)
+    bool rest;
 };
 auto quadsOf(const AnticipatedStream &s) -> std::vector<Quad> {
     const auto t = s.tokens();
     std::vector<Quad> out;
     for (size_t i = 0; i + 3 < t.size();) {
-        if (t[i] >= static_cast<int32_t>(DenseVocab::VocabSize)) { // TD token (ids past the dense vocab)
-            ++i;
-            continue;
+        const int32_t id = t[i];
+        if (id < 10000) { // event or rest quad: time first
+            const bool rest = t[i + 2] == AnticipatedStream::kRestId;
+            const int32_t note = t[i + 2] - static_cast<int32_t>(DenseVocab::NoteOffset);
+            out.push_back({id + s.base(), rest ? -1 : note / DenseConfig::MaxPitch, false, rest});
+            i += 4;
+        } else if (id >= AnticipatedStream::kAmtTimeCtl && id < AnticipatedStream::kAmtDurCtl) {
+            const int32_t note = t[i + 2] - AnticipatedStream::kAmtNoteCtl;
+            out.push_back({id - AnticipatedStream::kAmtTimeCtl + s.base(), note / 128, true, false});
+            i += 4;
+        } else {
+            ++i; // TD or ANTICIPATE
         }
-        const int32_t note = t[i + 2] - static_cast<int32_t>(DenseVocab::NoteOffset);
-        out.push_back({t[i] + s.base(), note / DenseConfig::MaxPitch});
-        i += 4;
     }
     return out;
 }
@@ -81,112 +94,93 @@ namespace virtual_orch_test {
 
 // ---- AnticipatedStream ----------------------------------------------------------------------
 
-TEST(ModeCutRewind, anticipatedStreamRewindEqualsNeverGenerated) {
-    const auto tdA = [] { return 11770; };
+TEST(ModeCutRewind, streamRewindEqualsNeverGenerated) {
     AnticipatedStream a;
-    a.tdTokenProvider = tdA;
     a.reset(0);
-    a.addControl({100, 50, 64, 64}, false);
+    a.addControl({100, 50, 64, 64}, false, lineSpec(0));
     a.appendEvent({50, 40, 60, 64});
     a.insertDue(a.clock(), 0);
     a.appendEvent({150, 40, 61, 64});
-    a.insertDue(a.clock(), 0); // control 100
-    a.appendEvent({300, 40, 62, 64}); // crosses boundary 200: generated ahead
-    a.addControl({320, 50, 66, 64}, false);
-    a.appendEvent({450, 40, 63, 64}); // crosses 400
-    a.insertDue(a.clock(), 0); // control 320 lands after the generated notes
+    a.insertDue(a.clock(), 0);            // given 100 (line 0)
+    a.appendEvent({300, 40, 62, 64});     // generated ahead, crosses boundary 200
+    a.addControl({320, 50, 66, 64}, false, lineSpec(0));
+    a.appendEvent({450, 40, 63, 64});     // crosses 400
+    a.insertDue(a.clock(), 0);            // given 320 lands after the generated notes
 
     AnticipatedStream b; // the same history without the notes from 250 on
-    b.tdTokenProvider = tdA;
     b.reset(0);
-    b.addControl({100, 50, 64, 64}, false);
+    b.addControl({100, 50, 64, 64}, false, lineSpec(0));
     b.appendEvent({50, 40, 60, 64});
     b.insertDue(b.clock(), 0);
     b.appendEvent({150, 40, 61, 64});
     b.insertDue(b.clock(), 0);
-    b.addControl({320, 50, 66, 64}, false);
+    b.addControl({320, 50, 66, 64}, false, lineSpec(0));
 
     EXPECT_TRUE(a.rewindTo(250));
     EXPECT_EQ(a.tokens(), b.tokens());
     EXPECT_EQ(a.clock(), b.clock());
     EXPECT_EQ(a.clock(), 150);
-    EXPECT_EQ(a.pendingCount(), b.pendingCount()) << "control 320 is pending again";
+    EXPECT_EQ(a.pendingCount(), b.pendingCount()) << "given 320 is pending again";
+    EXPECT_TRUE(a.eventEmittedAt(150));
 
-    // Both continue the same way (TD 200 is written again, control 320 inserted when due).
+    // Both continue the same way: TD 200 written again, given 320 inserted when due (its line's
+    // monophony end is the recomputed one).
     for (auto *s: {&a, &b}) {
         s->appendEvent({260, 40, 65, 64});
         s->appendEvent({330, 40, 67, 64});
+        s->insertDue(s->clock(), 0);
+        s->addControl({340, 50, 69, 64}, false, lineSpec(0));
+        s->appendEvent({360, 40, 70, 64});
         s->insertDue(s->clock(), 0);
     }
     EXPECT_EQ(a.tokens(), b.tokens());
     EXPECT_FALSE(a.rewindTo(1000)) << "nothing at or after 1000";
 }
 
-TEST(ModeCutRewind, anticipatedStreamDropsTheRewoundMelodyControlsEverywhere) {
-    AnticipatedStream a;
+TEST(ModeCutRewind, amtRestsAfterTheCutAreDroppedAndTheClockFollowsTheKeptOnes) {
+    AnticipatedStream a(AnticipatedStream::Vocab::Amt);
     a.reset(0);
     a.appendEvent({50, 40, 60, 64});
-    // M control for a melody note at 400 (delta 300: written once the clock passes 100).
-    a.addControl({400, 50, 70, 64}, false, 2, 300, 0);
-    // M control for a melody note at 600 (still pending).
-    a.addControl({600, 50, 71, 64}, false, 2, 300, 0);
+    a.appendRest(150);
+    a.appendRest(250);
+    a.appendEvent({280, 40, 61, 64});
+
+    AnticipatedStream b(AnticipatedStream::Vocab::Amt);
+    b.reset(0);
+    b.appendEvent({50, 40, 60, 64});
+    b.appendRest(150);
+
+    EXPECT_TRUE(a.rewindTo(200));
+    EXPECT_EQ(a.tokens(), b.tokens());
+    EXPECT_EQ(a.clock(), 150);
+    EXPECT_TRUE(a.eventEmittedAt(50));
+    EXPECT_FALSE(a.eventEmittedAt(280));
+}
+
+TEST(ModeCutRewind, droppedControlsAreRemovedEverywhere) {
+    Spec melody;
+    melody.deltaCs = 300;
+    melody.controlToken = true;
+    AnticipatedStream a(AnticipatedStream::Vocab::Amt);
+    a.reset(0);
+    a.appendEvent({50, 40, 60, 64});
+    a.addControl({400, 50, 70, 64}, false, melody); // written once the clock passes 100
+    a.addControl({600, 50, 71, 64}, false, melody); // still pending
     a.appendEvent({150, 40, 61, 64});
     a.insertDue(a.clock(), 0);
 
-    AnticipatedStream b;
+    AnticipatedStream b(AnticipatedStream::Vocab::Amt);
     b.reset(0);
     b.appendEvent({50, 40, 60, 64});
     b.appendEvent({150, 40, 61, 64});
 
-    EXPECT_TRUE(a.rewindTo(250, 2));
-    EXPECT_EQ(a.tokens(), b.tokens()) << "the early-written M control of 400 is gone";
-    EXPECT_EQ(a.pendingCount(), 0u) << "the pending M control of 600 is gone";
+    const int32_t cut = 250;
+    EXPECT_TRUE(a.rewindTo(cut, [cut](const Spec &spec, const AnticipatedStream::Note &n) {
+        return spec.controlToken && n.onsetCs >= cut;
+    }));
+    EXPECT_EQ(a.tokens(), b.tokens()) << "the early-written control of 400 is gone";
+    EXPECT_EQ(a.pendingCount(), 0u) << "the pending control of 600 is gone";
     EXPECT_EQ(a.clock(), 150);
-}
-
-// ---- MelodyStream ---------------------------------------------------------------------------
-
-TEST(ModeCutRewind, melodyStreamRewindEqualsNeverGenerated) {
-    const auto piece = [](int64_t key, int32_t onset, int32_t dur, int pitch) {
-        MelodyBassState::Piece p;
-        p.key = key; p.onset = onset; p.durationCs = dur; p.pitch = pitch; p.velocity = 64;
-        p.line = 0; p.provisional = false;
-        return p;
-    };
-    const std::vector<MelodyBassState::Piece> r{piece(1, 50, 40, 60), piece(2, 350, 40, 62)};
-
-    MelodyStream a;
-    a.reset(0);
-    a.syncControls(r);
-    a.insertDue(50);
-    a.appendEvent({60, 50, 70, 80});
-    a.appendRest(160);
-    a.appendEvent({300, 50, 72, 80}); // generated ahead
-    a.appendEvent({400, 50, 74, 80});
-    a.insertDue(a.clock()); // piece 2 written after them
-
-    MelodyStream b;
-    b.reset(0);
-    b.syncControls(r);
-    b.insertDue(50);
-    b.appendEvent({60, 50, 70, 80});
-    b.appendRest(160);
-    b.insertDue(b.clock());
-
-    EXPECT_TRUE(a.rewindTo(250));
-    EXPECT_EQ(a.tokens(), b.tokens());
-    EXPECT_EQ(a.clock(), b.clock());
-    EXPECT_EQ(a.pendingCount(), b.pendingCount());
-
-    // R is re-synced (algorithm A ran again): piece 2 is still offered, piece 1 is not.
-    a.syncControls(r);
-    b.syncControls(r);
-    EXPECT_EQ(a.pendingCount(), 1u);
-    for (auto *s: {&a, &b}) {
-        s->appendEvent({360, 50, 75, 80});
-        s->insertDue(s->clock());
-    }
-    EXPECT_EQ(a.tokens(), b.tokens());
 }
 
 // ---- TwoInstrumentAnticipated ---------------------------------------------------------------
@@ -197,9 +191,8 @@ TEST(ModeCutRewind, anticipatedReductionRewindsToTheSnapshotBeforeTheCut) {
     rt.initWithBackend(std::make_unique<FakeBackend>(11776, 512), 11776);
     int32_t now = 1000;
     rt.nowCsProvider = [&now] { return now; };
-    rt.inputTokenQueue.push(keyToken(950, 64, 80));
+    rt.inputTokenQueue.push(keyToken(900, 64, 80));
 
-    // Generate ahead, keeping the stream as it was before each note.
     std::vector<std::vector<int32_t>> before;
     std::vector<int32_t> clockBefore;
     std::vector<Token> notes;
@@ -245,15 +238,18 @@ TEST(ModeCutRewind, anticipatedReductionRewindsToTheSnapshotBeforeTheCut) {
 TEST(ModeCutRewind, melodyFirstRewindsBothTheReductionAndThePlannedMelody) {
     ModelConfig config;
     MelodyFirstReductionTransformer rt{config};
-    rt.initWithBackends(std::make_unique<FakeBackend>(55285, 288), 55285,
-                        std::make_unique<FakeBackend>(11776, 512), 11776);
+    rt.initWithBackends(std::make_unique<FakeBackend>(11776, 512), 11776,
+                        std::make_unique<FakeBackend>(55293, 512), 55293);
     int32_t now = 1000;
     rt.nowCsProvider = [&now] { return now; };
-    rt.inputTokenQueue.push(keyToken(950, 64, 80));
+    EXPECT_FALSE(rt.stepOnce()); // start the streams at 1000
+    now = 1100;
+    rt.inputTokenQueue.push(keyToken(1000, 64, 40));
 
     std::vector<Token> notes;
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 12; ++i) {
         rt.stepOnce();
+        now += 10;
         Token t{};
         while (rt.outputTokenQueue.pull(t))
             if (t.note != static_cast<int32_t>(Vocab::ClearQueue))
@@ -261,7 +257,9 @@ TEST(ModeCutRewind, melodyFirstRewindsBothTheReductionAndThePlannedMelody) {
     }
     ASSERT_GE(notes.size(), 4u);
     const int32_t cut = notes[notes.size() / 2].time;
-    ASSERT_GT(notes.back().time, cut - 1);
+    bool melodyAhead = false;
+    for (const auto &m: rt.melodyEventsForTest())
+        melodyAhead = melodyAhead || m.time >= cut;
 
     rt.setGenerationPause(true);
     Token drained{};
@@ -274,9 +272,14 @@ TEST(ModeCutRewind, melodyFirstRewindsBothTheReductionAndThePlannedMelody) {
     EXPECT_LT(rt.melodyStreamForTest().clock(), cut);
     for (const auto &m: rt.melodyEventsForTest())
         EXPECT_LT(m.time, cut) << "the planned melody from the cut on is dropped";
+    for (const auto &q: quadsOf(rt.melodyStreamForTest()))
+        if (q.instrument == AnticipatedStream::kEventInstrument)
+            EXPECT_LT(q.onsetAbs, cut) << "no T8'' note at or after the cut";
     for (const auto &q: quadsOf(rt.reductionStreamForTest())) {
-        if (q.instrument == AnticipatedStream::kEventInstrument || q.instrument == 2)
-            EXPECT_LT(q.onsetAbs, cut) << "no reduction note / melody control at or after the cut";
+        if (q.rest || q.instrument == AnticipatedStream::kEventInstrument)
+            EXPECT_LT(q.onsetAbs, cut) << "no T7'' note or rest at or after the cut";
+        if (q.control)
+            EXPECT_LT(q.onsetAbs, cut) << "no melody control at or after the cut";
     }
     bool marker = false;
     while (rt.outputTokenQueue.pull(drained))
@@ -285,6 +288,7 @@ TEST(ModeCutRewind, melodyFirstRewindsBothTheReductionAndThePlannedMelody) {
     for (const auto &t: rt.getOutputHistory())
         if (t.note != static_cast<int32_t>(Vocab::ClearQueue))
             EXPECT_LT(t.time, cut);
+    juce::ignoreUnused(melodyAhead);
 
     rt.setGenerationPause(false);
     EXPECT_TRUE(rt.stepOnce()) << "generation resumes (both caches rebuilt)";

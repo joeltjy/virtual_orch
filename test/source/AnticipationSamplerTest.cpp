@@ -113,4 +113,58 @@ TEST(AnticipationSampler, resetForgetsTheHistory) {
     EXPECT_GT(count, 8) << "no bias left: about 23 of 2000";
 }
 
+TEST(AnticipationSampler, pitchTauRampIsCappedAtEightTimesBase) {
+    DensePitchBias::PitchTauScheduler sched;
+    DensePitchBias::PitchTauScheduler::Result r;
+    for (int n = 0; n < 5000; ++n)
+        r = sched.evaluate(1000 + n, {60}, {0}, 0.2f, 0.3f, true);
+    EXPECT_TRUE(std::isfinite(r.tau));
+    EXPECT_FLOAT_EQ(r.tau, 0.2f * 8.0f);
+    EXPECT_FLOAT_EQ(r.tauPrime, 0.3f * 8.0f);
+}
+
+TEST(AnticipationSampler, durationTauRampIsCappedAtEightTimesBase) {
+    DenseDurationBias::DurationTauScheduler sched;
+    DenseDurationBias::DurationTauScheduler::Result r;
+    for (int n = 0; n < 5000; ++n)
+        r = sched.evaluate(1000 + n, {50}, {0}, 0.5f, 0.0f, true);
+    EXPECT_TRUE(std::isfinite(r.tau));
+    EXPECT_FLOAT_EQ(r.tau, 0.5f * 8.0f);
+    EXPECT_FLOAT_EQ(r.tauPrime, 0.0f) << "a zero base stays zero";
+}
+
+TEST(AnticipationSampler, repeatedNotesForAThousandDrawsStayLegal) {
+    AnticipationSampler s(AnticipationSampler::kDenseVelocityBase);
+    s.onsetGapBias = false;
+    const auto logits = flat(11776);
+    AnticipationSampler::Context ctx;
+    for (int n = 0; n < 1500; ++n) {
+        ctx.onsetAbs = 1000 + n * 40;
+        ctx.clockAbs = ctx.onsetAbs;
+        const auto d = s.sample(1, logits, ctx, 0.5f);
+        const auto p = s.sample(2, logits, ctx, 0.5f);
+        EXPECT_TRUE(d >= 10010 && d <= 10995) << d;
+        EXPECT_TRUE(p >= 11128 + 21 && p <= 11128 + 108) << p;
+        s.recordGenerated(ctx.onsetAbs, 50, 60, 64);
+    }
+}
+
+TEST(AnticipationSampler, nonFiniteBiasedLogitsFallBackToTheUnbiasedOnes) {
+    AnticipationSampler s(AnticipationSampler::kDenseVelocityBase);
+    s.onsetGapBias = false;
+    s.pitchBias = true;
+    s.pitchTau = 1e30f;
+    s.pitchTauPrime = 1e30f;
+    for (int i = 0; i < 40; ++i)
+        s.recordGenerated(1000 + i * 40, 50, 60, 64);
+    AnticipationSampler::Context ctx;
+    ctx.onsetAbs = 1000 + 40 * 40;
+    ctx.clockAbs = ctx.onsetAbs;
+    const auto logits = flat(11776);
+    for (int n = 0; n < 200; ++n) {
+        const auto p = s.sample(2, logits, ctx, 0.5f);
+        EXPECT_TRUE(p >= 11128 + 21 && p <= 11128 + 108) << p;
+    }
+}
+
 } // namespace virtual_orch_test

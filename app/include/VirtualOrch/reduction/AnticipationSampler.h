@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <vector>
@@ -79,6 +80,13 @@ public:
         std::vector<float> raw = logits;
         applyBiases(field, raw, ctx);
         auto scores = masked(field, raw, ctx);
+        const auto hasFinite = [](const std::vector<float> &v) {
+            return std::any_of(v.begin(), v.end(), [](float x) { return std::isfinite(x); });
+        };
+        // Biases must never leave nothing to sample (sampleTopP would return token 0, an
+        // illegal id): fall back to the model's own logits.
+        if (! hasFinite(scores))
+            scores = masked(field, logits, ctx);
         return sampleTopP(scores, topP, temperature);
     }
 

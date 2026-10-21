@@ -176,8 +176,8 @@ auto DurationTauScheduler::evaluate(int32_t nowCs,
             / static_cast<float>(DenseConfig::TimeResolution);
         if (heldSeconds < TauHoldSeconds && notesSinceReset < TauHoldNotes)
             return base;
-        return base
-               * std::pow(TauRampPerSecond, static_cast<float>(notesSinceReset) / 10.0f);
+        return std::min(base * TauRampCapMultiplier,
+                        base * std::pow(TauRampPerSecond, static_cast<float>(notesSinceReset) / 10.0f));
     };
 
     if (uniqueDurations.empty()) {

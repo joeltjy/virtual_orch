@@ -1804,3 +1804,15 @@ Register control, polyphony in Jam mode, bias settings (2026-10-20)
     Reduction still apply on top. The OT "proportion / IOD groups" bias is a separate toggle and is
     not touched. Piano silence comes from the keyboard activity log (the keys, not the notes' lengths).
   - Not persisted across restarts (the settings are global, defaults on / always).
+
+--- 2026-10-20: cap on the app's ramped bias strengths ---
+* The pitch (tau, tau') and duration (tau_d, tau'_d) schedulers doubled/1.5x'd every 10 notes after
+  the hold with no limit; after ~1280 unchanged-pitch notes the logits overflowed, and sampleTopP
+  returned token 0 (an illegal id). Decision (user): cap the ramped value at 8 x base
+  (TauRampCapMultiplier in DensePitchBias.h / DenseDurationBias.h). A base of 0 (duration tau')
+  stays 0. Onset-gap tau is fixed, unchanged.
+* AnticipationSampler::sample also falls back to the unbiased logits if the biased, masked scores
+  have no finite value, so a bad bias can never produce an illegal token.
+* Tests: AnticipationSampler.*CappedAtEightTimesBase, repeatedNotesForAThousandDrawsStayLegal,
+  nonFiniteBiasedLogitsFallBackToTheUnbiasedOnes. Full suite: 167 pass; the 7 MusicTransformer.*
+  failures are pre-existing (bassAndChords.onnx is not on this Mac).

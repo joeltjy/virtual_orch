@@ -74,7 +74,7 @@ private:
      * outer-voice and unique-octave filters over the encoder window [windowBase, end). An empty
      * result falls back to A.
      */
-    [[nodiscard]] auto ensembleComboB(size_t listIdx, size_t windowBase)
+    [[nodiscard]] auto ensembleComboB(size_t listIdx, size_t windowBase, const std::vector<int32_t> &instruments)
         -> std::array<int32_t, IodPretrainedTypes::comboLen>;
 
     [[nodiscard]] static auto comboFromData(const std::vector<int32_t> &data)

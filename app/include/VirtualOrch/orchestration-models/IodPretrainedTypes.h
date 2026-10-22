@@ -573,6 +573,29 @@ struct EncoderWindow {
     return out;
 }
 
+/**
+ * Keep only (GM, Δ) pairs that can play this note now: the instrument is active and
+ * pitch + 12·Δ is inside its range. The vocsep ensemble carries pairs over from earlier notes of
+ * the voice, which may be out of range here (a trumpet an octave down under a low note) or
+ * switched off since.
+ */
+[[nodiscard]] inline auto filterPairsPlayable(const std::vector<int32_t> &pairs, int32_t pitch,
+                                              const std::vector<int32_t> &instruments)
+    -> std::vector<int32_t> {
+    std::vector<int32_t> out;
+    out.reserve(pairs.size());
+    for (const int32_t key: pairs) {
+        const int32_t gm = unpackProgram(key);
+        const auto local = localIdForIodGm(gm);
+        if (! local.has_value() || ! localIdIsActive(instruments, *local))
+            continue;
+        if (! gmPitchInRange(gm, pitch + 12 * unpackDelta(key)))
+            continue;
+        out.push_back(key);
+    }
+    return out;
+}
+
 /** Drop (GM,Δ) pairs whose Δ is disallowed for this note's outer-voice role. */
 [[nodiscard]] inline auto filterPairsByDeltaAllows(const std::vector<int32_t> &pairs,
                                                    bool allowMinus1,

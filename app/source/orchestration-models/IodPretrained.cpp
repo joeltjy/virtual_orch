@@ -344,7 +344,7 @@ auto IodPretrained::writeComboInFromStored(
             combo[static_cast<size_t>(s)];
 }
 
-auto IodPretrained::ensembleComboB(size_t listIdx, size_t windowBase)
+auto IodPretrained::ensembleComboB(size_t listIdx, size_t windowBase, const std::vector<int32_t> &instruments)
     -> std::array<int32_t, IodPretrainedTypes::comboLen> {
     using namespace IodPretrainedTypes;
 
@@ -374,8 +374,8 @@ auto IodPretrained::ensembleComboB(size_t listIdx, size_t windowBase)
             role.allowMinus1 = false;
     }
 
-    const auto filtered = filterPairsUniqueOctave(
-        filterPairsByDeltaAllows(bPairs, role.allowMinus1, role.allowPlus1));
+    const auto filtered = filterPairsUniqueOctave(filterPairsByDeltaAllows(
+        filterPairsPlayable(bPairs, pitch, instruments), role.allowMinus1, role.allowPlus1));
     if (filtered.empty())
         return comboA; // an empty B would silence the note: fall back to the raw choice A
     return comboFromPairs(filtered);
@@ -486,7 +486,7 @@ auto IodPretrained::getOutput(const std::vector<Token> &incomingTokens,
                 }
                 auto comboB = comboA;
                 if (useEnsemble) {
-                    comboB = ensembleComboB(listIdx, windowBase);
+                    comboB = ensembleComboB(listIdx, windowBase, instruments);
                     // Feed B (not A) into combo_in for subsequent notes in this window.
                     writeComboInFromStored(window, i, comboB);
                 }

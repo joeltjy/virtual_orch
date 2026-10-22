@@ -293,13 +293,14 @@ auto IodPretrainedTD::sampleCombo(size_t listIdx,
     return compactFromSlots(slots);
 }
 
-auto IodPretrainedTD::ensembleComboB(size_t listIdx, size_t windowBegin)
+auto IodPretrainedTD::ensembleComboB(size_t listIdx, size_t windowBegin, const std::vector<int32_t> &instruments)
     -> std::array<int32_t, comboLen> {
     const auto comboA = comboFromData(inputNotes[listIdx].dataA);
     const auto bPairs = ensembleKeysB(listIdx);
     const auto role = roleAmongOverlapping(inputNotes, listIdx, windowBegin);
-    const auto filtered =
-        filterPairsUniqueOctave(filterPairsByDeltaAllows(bPairs, role.allowMinus1, role.allowPlus1));
+    const auto filtered = filterPairsUniqueOctave(
+        filterPairsByDeltaAllows(filterPairsPlayable(bPairs, inputNotes[listIdx].token.getPitch(), instruments),
+                                 role.allowMinus1, role.allowPlus1));
     if (filtered.empty())
         return comboA;
     return comboFromPairs(filtered);
@@ -372,7 +373,7 @@ auto IodPretrainedTD::getOutput(const std::vector<Token> &incomingTokens,
             rec.keysA = VocsepEnsemble::sortedUnique(pairsFromCombo(comboA));
             auto comboB = comboA;
             if (useEnsemble)
-                comboB = ensembleComboB(idx, begin);
+                comboB = ensembleComboB(idx, begin, instruments);
             rec.dataB = dataFromCombo(comboB);
             rec.keysB = VocsepEnsemble::sortedUnique(pairsFromCombo(comboB));
             rec.hasResult = true;

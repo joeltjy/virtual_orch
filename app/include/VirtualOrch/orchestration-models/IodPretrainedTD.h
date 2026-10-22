@@ -111,7 +111,7 @@ private:
     /** Write the TD id of every boundary <= onsetCs that has none yet. */
     auto assignBoundaries(int32_t onsetCs) -> void;
 
-    [[nodiscard]] auto ensembleComboB(size_t listIdx, size_t windowBegin)
+    [[nodiscard]] auto ensembleComboB(size_t listIdx, size_t windowBegin, const std::vector<int32_t> &instruments)
         -> std::array<int32_t, IodPretrainedTypes::comboLen>;
 
     [[nodiscard]] static auto comboFromData(const std::vector<int32_t> &data)

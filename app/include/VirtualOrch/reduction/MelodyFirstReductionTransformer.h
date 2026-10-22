@@ -121,6 +121,10 @@ private:
      * `cutCs` on (both streams, their M controls, windows, UI); your notes are kept.
      */
     auto rewindGeneratedFrom(int32_t cutCs) -> void;
+    /** Jam: new input drops the notes generated from now on and both stages regenerate from now. */
+    auto cutFutureOnInput(int32_t now) -> void;
+    /** The clock jumped back: queued notes cleared, both stages start again at the new clock. */
+    auto restartOnClockJumpBack(int32_t now) -> void;
     auto drainInput(int32_t now) -> bool;
     /** R changed (or the stream restarted): feed new pieces to T8'' and confirm finished ones. */
     auto syncMelodyGiven() -> void;

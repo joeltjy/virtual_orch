@@ -15,6 +15,9 @@ public:
 
     auto resized() -> void override;
 
+protected:
+    auto textScaleChanged() -> void override { grid.setTextScale(getTextScale()); }
+
 private:
     auto timerCallback() -> void override;
 

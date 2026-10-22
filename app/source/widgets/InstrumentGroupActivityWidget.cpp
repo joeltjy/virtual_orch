@@ -17,12 +17,13 @@ auto GroupBarsView::paint(juce::Graphics &g) -> void {
                                                      juce::Colour(0xfff07a72)};
     const auto area = getLocalBounds().toFloat().reduced(8.0f);
     const float rowH = area.getHeight() / 3.0f;
-    const float labelW = 86.0f;
-    const float valueW = 48.0f;
+    const float ts = textScale;
+    const float labelW = 86.0f * ts;
+    const float valueW = 48.0f * ts;
     for (size_t i = 0; i < 3; ++i) {
         const auto row = area.withY(area.getY() + rowH * static_cast<float>(i)).withHeight(rowH).reduced(0, 4);
         g.setColour(UiConstants::workspaceWidgetTitleTextColour);
-        g.setFont(juce::Font(15.0f, juce::Font::bold));
+        g.setFont(juce::Font(15.0f * ts, juce::Font::bold));
         g.drawText(names[i], row.withWidth(labelW), juce::Justification::centredLeft);
 
         const auto track = row.withTrimmedLeft(labelW).withTrimmedRight(valueW);
@@ -32,7 +33,7 @@ auto GroupBarsView::paint(juce::Graphics &g) -> void {
         g.fillRoundedRectangle(track.withWidth(track.getWidth() * proportions[i]), 3.0f);
 
         g.setColour(UiConstants::workspaceWidgetTitleTextColour);
-        g.setFont(juce::Font(14.0f));
+        g.setFont(juce::Font(14.0f * ts, ts > 1.0f ? juce::Font::bold : juce::Font::plain));
         g.drawText(juce::String(juce::roundToInt(proportions[i] * 100.0f)) + "%",
                    row.withTrimmedLeft(row.getWidth() - valueW), juce::Justification::centredRight);
     }

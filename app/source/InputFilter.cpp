@@ -1,6 +1,7 @@
 #include "VirtualOrch/InputFilter.h"
 
 #include "VirtualOrch/InstrumentConstants.h"
+#include "VirtualOrch/ReductionInputGate.h"
 
 InputFilter::InputFilter(CircularFifo<Token> &inputTokenQueueIn,
                          CircularFifo<Token> &inputConditioningQueueIn,
@@ -33,7 +34,8 @@ auto InputFilter::processUpdates() -> int {
 }
 
 void InputFilter::pushToken(const Token &token) {
-    inputTokenQueue.push(token);
+    if (! ReductionInputGate::isBlocked()) // CC107: the reduction does not hear the user
+        inputTokenQueue.push(token);
     pastInput.push_back(token);
     if (orchestrationMidiOutgoing != nullptr)
         orchestrationMidiOutgoing->push(
@@ -41,7 +43,8 @@ void InputFilter::pushToken(const Token &token) {
 }
 
 void InputFilter::pushConditioning(const Token &token) {
-    inputConditioningQueue.push(token);
+    if (! ReductionInputGate::isBlocked())
+        inputConditioningQueue.push(token);
     pastConditioning.push_back(token);
     if (orchestrationConditioningOutgoing != nullptr)
         orchestrationConditioningOutgoing->push(token);

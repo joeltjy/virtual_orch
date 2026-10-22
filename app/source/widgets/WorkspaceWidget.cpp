@@ -61,7 +61,7 @@ auto WorkspaceWidget::paint(juce::Graphics &g) -> void {
         inner.getX(),
         inner.getY(),
         inner.getWidth(),
-        (float) UiConstants::workspaceWidgetTitleBarHeight,
+        (float) titleBarHeight(),
         innerRadius,
         innerRadius,
         true,
@@ -78,16 +78,30 @@ auto WorkspaceWidget::hitTest(int x, int y) -> bool {
     return outline.contains((float) x, (float) y);
 }
 
+auto WorkspaceWidget::titleBarHeight() const -> int {
+    return juce::roundToInt(static_cast<float>(UiConstants::workspaceWidgetTitleBarHeight) * textScale);
+}
+
+auto WorkspaceWidget::setTextScale(float scale) -> void {
+    if (scale == textScale)
+        return;
+    textScale = scale;
+    titleLabel.setFont(scale == 1.0f ? juce::Font(15.0f) : juce::Font(15.0f * scale, juce::Font::bold));
+    textScaleChanged();
+    resized();
+    repaint();
+}
+
 auto WorkspaceWidget::getTitleBarBounds() const -> juce::Rectangle<int> {
     return getLocalBounds()
         .reduced(UiConstants::workspaceWidgetBorderThickness)
-        .withHeight(UiConstants::workspaceWidgetTitleBarHeight);
+        .withHeight(titleBarHeight());
 }
 
 auto WorkspaceWidget::resized() -> void {
     auto bounds = getLocalBounds().reduced(UiConstants::workspaceWidgetBorderThickness);
 
-    auto titleBar = bounds.removeFromTop(UiConstants::workspaceWidgetTitleBarHeight);
+    auto titleBar = bounds.removeFromTop(titleBarHeight());
     // Keep the outer resize-handle strip free so close stays clickable.
     titleBar.removeFromRight(UiConstants::workspaceWidgetResizeHandleThickness);
     const auto closeBounds = titleBar.removeFromRight(UiConstants::workspaceWidgetCloseButtonWidth);

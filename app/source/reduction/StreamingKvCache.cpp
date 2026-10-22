@@ -3,7 +3,12 @@
 #include "VirtualOrch/OrtEnv.h"
 
 #include <algorithm>
+#include <array>
 #include <cstring>
+
+#ifdef __linux__
+#include <dlfcn.h>
+#endif
 
 namespace StreamingKv {
 
@@ -30,6 +35,12 @@ auto sliceRows(const std::vector<float> &src, int blocks, int rows, int headDim,
 }
 
 auto keepHeadAndTail(State &state, const Dims &dims, int head, int tailFrom) -> void {
+    if (state.device != nullptr) {
+        // null on failure: the next run() sees rows without data and fails
+        state.device = state.device->keepRows(head, tailFrom);
+        state.rows = head + (state.rows - tailFrom);
+        return;
+    }
     const int blocks = dims.layers * dims.heads;
     state.key = sliceRows(state.key, blocks, state.rows, dims.headDim, head, tailFrom);
     state.value = sliceRows(state.value, blocks, state.rows, dims.headDim, head, tailFrom);
@@ -146,10 +157,107 @@ auto CommittedScratchCache::logitsAfter(const std::vector<int32_t> &desired, siz
 
 // ---- ONNX backend ----
 
+/** What the device states need: the session (their memory comes from its CUDA arena) and cudart. */
+struct OnnxBackend::CudaContext {
+    using Memcpy2D = int (*)(void *, size_t, const void *, size_t, size_t, size_t, int);
+    static constexpr int kDeviceToDevice = 3; // cudaMemcpyDeviceToDevice
+
+    CudaContext(std::shared_ptr<Ort::Session> sessionIn, Memcpy2D memcpy2DIn, const Dims &dimsIn)
+        : session(std::move(sessionIn)), allocator(*session, memory), memcpy2D(memcpy2DIn),
+          dims(dimsIn) {}
+
+    std::shared_ptr<Ort::Session> session;
+    Ort::MemoryInfo memory{"Cuda", OrtDeviceAllocator, 0, OrtMemTypeDefault};
+    Ort::Allocator allocator;
+    Memcpy2D memcpy2D;
+    Dims dims;
+};
+
+namespace {
+
+/** present_key / present_value of one run, left in GPU memory. */
+class CudaKv final : public DeviceKv {
+public:
+    CudaKv(std::shared_ptr<OnnxBackend::CudaContext> contextIn, Ort::Value keyIn,
+           Ort::Value valueIn, int rowsIn)
+        : context(std::move(contextIn)), key(std::move(keyIn)), value(std::move(valueIn)),
+          rows(rowsIn) {}
+
+    [[nodiscard]] auto keepRows(int head, int tailFrom) const
+        -> std::shared_ptr<const DeviceKv> override {
+        const auto &d = context->dims;
+        const int tail = rows - tailFrom;
+        const int newRows = head + tail;
+        const std::array<int64_t, 5> shape{d.layers, 1, d.heads, newRows, d.headDim};
+        const auto blocks = static_cast<size_t>(d.layers) * static_cast<size_t>(d.heads);
+        const size_t rowBytes = static_cast<size_t>(d.headDim) * sizeof(float);
+        try {
+            auto newKey = Ort::Value::CreateTensor<float>(context->allocator, shape.data(), shape.size());
+            auto newValue = Ort::Value::CreateTensor<float>(context->allocator, shape.data(), shape.size());
+            // one strided copy per range: `blocks` rows of `rows` (source) / `newRows` (target)
+            const auto copy = [&](const Ort::Value &src, Ort::Value &dst) {
+                const auto *from = static_cast<const char *>(src.GetTensorRawData());
+                auto *to = static_cast<char *>(dst.GetTensorMutableRawData());
+                const size_t srcPitch = static_cast<size_t>(rows) * rowBytes;
+                const size_t dstPitch = static_cast<size_t>(newRows) * rowBytes;
+                bool ok = true;
+                if (head > 0)
+                    ok = ok && context->memcpy2D(to, dstPitch, from, srcPitch,
+                                                 static_cast<size_t>(head) * rowBytes, blocks,
+                                                 OnnxBackend::CudaContext::kDeviceToDevice) == 0;
+                if (tail > 0)
+                    ok = ok && context->memcpy2D(to + static_cast<size_t>(head) * rowBytes, dstPitch,
+                                                 from + static_cast<size_t>(tailFrom) * rowBytes, srcPitch,
+                                                 static_cast<size_t>(tail) * rowBytes, blocks,
+                                                 OnnxBackend::CudaContext::kDeviceToDevice) == 0;
+                return ok;
+            };
+            if (! copy(key, newKey) || ! copy(value, newValue))
+                return nullptr;
+            return std::make_shared<CudaKv>(context, std::move(newKey), std::move(newValue), newRows);
+        } catch (const Ort::Exception &) {
+            return nullptr;
+        }
+    }
+
+    // context first: the tensors are freed before the session they came from
+    std::shared_ptr<OnnxBackend::CudaContext> context;
+    Ort::Value key;
+    Ort::Value value;
+    int rows;
+};
+
+/** cudaMemcpy2D from the cudart the CUDA provider already loaded (no link-time CUDA dependency). */
+auto findMemcpy2D() -> OnnxBackend::CudaContext::Memcpy2D {
+#ifdef __linux__
+    for (const char *name: {"libcudart.so.12", "libcudart.so"}) {
+        void *lib = dlopen(name, RTLD_NOW | RTLD_NOLOAD);
+        if (lib == nullptr)
+            lib = dlopen(name, RTLD_NOW);
+        if (lib == nullptr)
+            continue;
+        if (void *fn = dlsym(lib, "cudaMemcpy2D"); fn != nullptr)
+            return reinterpret_cast<OnnxBackend::CudaContext::Memcpy2D>(fn);
+    }
+#endif
+    return nullptr;
+}
+
+/** Rows with no data behind them (a failed device slice, or a foreign state). */
+auto missingData(const State &past, const Dims &d) -> bool {
+    const auto expected = static_cast<size_t>(d.layers) * static_cast<size_t>(d.heads)
+                          * static_cast<size_t>(past.rows) * static_cast<size_t>(d.headDim);
+    return past.device == nullptr && (past.key.size() != expected || past.value.size() != expected);
+}
+
+} // namespace
+
 auto OnnxBackend::init(const char *modelPath, std::string &error) -> bool {
     session.reset();
+    cuda.reset();
+    bool onCuda = false;
     const auto tryCreate = [&](Ort::SessionOptions &opts) {
-        session = std::make_unique<Ort::Session>(sharedOrtEnv(), modelPath, opts);
+        session = std::make_shared<Ort::Session>(sharedOrtEnv(), modelPath, opts);
     };
 #ifdef __linux__
     try {
@@ -157,6 +265,7 @@ auto OnnxBackend::init(const char *modelPath, std::string &error) -> bool {
         OrtCUDAProviderOptions cudaProvider{};
         cudaOptions.AppendExecutionProvider_CUDA(cudaProvider);
         tryCreate(cudaOptions);
+        onCuda = true;
     } catch (const Ort::Exception &) {
         session.reset();
     }
@@ -205,6 +314,16 @@ auto OnnxBackend::init(const char *modelPath, std::string &error) -> bool {
     const auto logitShape =
         session->GetOutputTypeInfo(logitsIndex).GetTensorTypeAndShapeInfo().GetShape();
     vocab = (! logitShape.empty() && logitShape.back() > 0) ? static_cast<size_t>(logitShape.back()) : 0;
+
+    if (onCuda) {
+        if (const auto memcpy2D = findMemcpy2D(); memcpy2D != nullptr) {
+            try {
+                cuda = std::make_shared<CudaContext>(session, memcpy2D, dimsValue);
+            } catch (const Ort::Exception &) {
+                cuda.reset(); // host KV path on the CUDA session
+            }
+        }
+    }
     return true;
 }
 
@@ -212,6 +331,96 @@ auto OnnxBackend::run(const State &past, const std::vector<int64_t> &ids, State 
                       std::vector<float> &lastLogits) -> bool {
     if (session == nullptr || ids.empty())
         return false;
+    if (missingData(past, dimsValue)) {
+        lastError = "past KV has rows but no data";
+        return false;
+    }
+    if (past.device != nullptr && dynamic_cast<const CudaKv *>(past.device.get()) == nullptr) {
+        lastError = "past KV belongs to another backend";
+        return false;
+    }
+    return cuda != nullptr ? runOnDevice(past, ids, present, lastLogits)
+                           : runOnHost(past, ids, present, lastLogits);
+}
+
+/**
+ * The KV state stays on the GPU: past_* are bound from the previous run's device tensors and
+ * present_* are left where ORT computes them; only the ids go in and the logits come out.
+ */
+auto OnnxBackend::runOnDevice(const State &past, const std::vector<int64_t> &ids, State &present,
+                              std::vector<float> &lastLogits) -> bool {
+    try {
+        std::vector<int64_t> idsCopy = ids;
+        const std::array<int64_t, 2> idsShape{1, static_cast<int64_t>(idsCopy.size())};
+        std::vector<int64_t> positions(idsCopy.size());
+        for (size_t i = 0; i < positions.size(); ++i)
+            positions[i] = static_cast<int64_t>(past.rows) + static_cast<int64_t>(i);
+        const std::array<int64_t, 5> pastShape{dimsValue.layers, 1, dimsValue.heads, past.rows,
+                                               dimsValue.headDim};
+        static float emptyData = 0.0f;
+        const auto *pastDevice = static_cast<const CudaKv *>(past.device.get());
+
+        // host inputs (ids, positions, and a host or empty past) are copied in by ORT
+        std::vector<Ort::Value> hostInputs;
+        Ort::IoBinding binding(*session);
+        for (const auto &name: inputNames) {
+            if (name == "input_ids" || name == "position_ids") {
+                auto &data = name == "input_ids" ? idsCopy : positions;
+                hostInputs.push_back(Ort::Value::CreateTensor<int64_t>(
+                    memoryInfo, data.data(), data.size(), idsShape.data(), idsShape.size()));
+                binding.BindInput(name.c_str(), hostInputs.back());
+            } else if (name == "past_key" || name == "past_value") {
+                const bool isKey = name == "past_key";
+                if (pastDevice != nullptr) {
+                    binding.BindInput(name.c_str(), isKey ? pastDevice->key : pastDevice->value);
+                } else {
+                    const auto &host = isKey ? past.key : past.value;
+                    auto *ptr = const_cast<float *>(host.empty() ? &emptyData : host.data());
+                    hostInputs.push_back(Ort::Value::CreateTensor<float>(
+                        memoryInfo, ptr, host.size(), pastShape.data(), pastShape.size()));
+                    binding.BindInput(name.c_str(), hostInputs.back());
+                }
+            } else {
+                lastError = "unexpected input " + name;
+                return false;
+            }
+        }
+        const std::array<const char *, 3> bound{"logits", "present_key", "present_value"};
+        binding.BindOutput(bound[0], memoryInfo);
+        binding.BindOutput(bound[1], cuda->memory);
+        binding.BindOutput(bound[2], cuda->memory);
+
+        binding.SynchronizeInputs();
+        session->Run(Ort::RunOptions{nullptr}, binding);
+        binding.SynchronizeOutputs();
+        auto outputs = binding.GetOutputValues();
+        if (outputs.size() != bound.size())
+            return false;
+
+        const auto logitShape = outputs[0].GetTensorTypeAndShapeInfo().GetShape();
+        if (logitShape.size() != 3 || logitShape[2] <= 0 || logitShape[1] <= 0)
+            return false;
+        const auto v = static_cast<size_t>(logitShape[2]);
+        const float *row = outputs[0].GetTensorData<float>() + static_cast<size_t>(logitShape[1] - 1) * v;
+        lastLogits.assign(row, row + v);
+
+        const auto kvShape = outputs[1].GetTensorTypeAndShapeInfo().GetShape();
+        if (kvShape.size() != 5)
+            return false;
+        present.key.clear();
+        present.value.clear();
+        present.rows = static_cast<int>(kvShape[3]);
+        present.device = std::make_shared<CudaKv>(cuda, std::move(outputs[1]), std::move(outputs[2]),
+                                                  present.rows);
+        return true;
+    } catch (const Ort::Exception &ex) {
+        lastError = ex.what();
+        return false;
+    }
+}
+
+auto OnnxBackend::runOnHost(const State &past, const std::vector<int64_t> &ids, State &present,
+                            std::vector<float> &lastLogits) -> bool {
     try {
         std::vector<int64_t> idsCopy = ids;
         const std::array<int64_t, 2> idsShape{1, static_cast<int64_t>(idsCopy.size())};
@@ -266,6 +475,7 @@ auto OnnxBackend::run(const State &past, const std::vector<int64_t> &ids, State 
                 if (shape.size() != 5)
                     return false;
                 present.rows = static_cast<int>(shape[3]);
+                present.device.reset();
                 present.key.assign(data, data + info.GetElementCount());
             } else if (name == "present_value") {
                 present.value.assign(data, data + info.GetElementCount());

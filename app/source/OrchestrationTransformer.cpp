@@ -1,5 +1,6 @@
 #include "VirtualOrch/OrchestrationTransformer.h"
 #include "VirtualOrch/PedalClear.h"
+#include "VirtualOrch/SessionLog.h"
 
 #include "VirtualOrch/InstrumentConstants.h"
 #include "VirtualOrch/NoteWindow.h"
@@ -74,9 +75,41 @@ auto OrchestrationTransformer::applyVoiceRestamps(std::vector<Token> &reductionB
     }
 }
 
+auto OrchestrationTransformer::stampInputVoices(std::vector<Token> &midiBatch) -> void {
+    if (inputVoiceSeparation == nullptr || ! inputVoiceSeparation->isLoaded())
+        return;
+    for (auto &token: midiBatch) {
+        if (token.note < static_cast<int32_t>(Vocab::NoteOffset) || token.note >= static_cast<int32_t>(Vocab::Rest)
+            || token.voiceId >= 0)
+            continue;
+        if (token.noteId < 0)
+            token.noteId = nextInputNoteId++;
+        const auto restamps = inputVoiceSeparation->stampVoiceId(token, inputVocsepHistory);
+        for (const auto &r: restamps) {
+            if (r.historyIndex >= inputVocsepHistory.size())
+                continue;
+            auto &old = inputVocsepHistory[r.historyIndex];
+            old.voiceId = r.newVoiceId;
+            const VoiceRestamp restamp{old.noteId, r.newVoiceId};
+            applyVoiceRestampToTokens(midiBatch, restamp);
+            if (orchestrationModel != nullptr)
+                orchestrationModel->applyVoiceRestamp(restamp.noteId, restamp.newVoiceId);
+        }
+        inputVocsepHistory.push_back(token);
+    }
+    constexpr size_t kKeep = static_cast<size_t>(VoiceSeparation::WindowNotes) * 2;
+    if (inputVocsepHistory.size() > kKeep)
+        inputVocsepHistory.erase(inputVocsepHistory.begin(),
+                                 inputVocsepHistory.end() - static_cast<std::ptrdiff_t>(kKeep));
+}
+
 auto OrchestrationTransformer::applyTokenUpdates() -> void {
     TokenUpdate update{};
     while (updatesIncoming.pull(update)) {
+        // The stamped user notes keep their real lengths for vocsep (matched by keyId).
+        for (auto &t: inputVocsepHistory)
+            if (tokenMatchesUpdateSource(t, update.oldNote))
+                t.duration = update.newNote.duration;
         for (auto &note: outputHistory) {
             // Orch notes store pitch-only note ids; keyboard updates embed instrument.
             // Keyboard notes match by keyId (onset / pitch / velocity may have changed).
@@ -385,6 +418,10 @@ auto OrchestrationTransformer::packSortAndPushOutput(const std::vector<Orchestra
 
 auto OrchestrationTransformer::pushOutputNote(const OrchestrationNote &note) -> void {
     currentOTTime = note.token.time;
+    SessionLog::add("OT", juce::String(note.token.toUnderstandableString()) + " instr "
+                              + juce::String(note.localInstrumentId) + " vel "
+                              + juce::String(note.velocity) + " voice "
+                              + juce::String(note.token.voiceId));
     outputTokenQueue.push(note);
     outputHistory.push_back(note);
     NoteWindow::trimToLastNotes(outputHistory);
@@ -402,6 +439,10 @@ void OrchestrationTransformer::threadRun() {
     holdBack.clear();
     heldCountValue.store(0);
     midiInputHistory.clear();
+    inputVocsepHistory.clear();
+    nextInputNoteId = kInputNoteIdBase;
+    if (inputVoiceSeparation != nullptr)
+        inputVoiceSeparation->reset();
     conditioningHistory.clear();
     reductionHistory.clear();
     clearMidiInputIncoming();
@@ -512,6 +553,7 @@ void OrchestrationTransformer::threadRun() {
             const auto mode = getMode();
             if (mode == OrchestrationMode::Edit) {
                 const ScopedMs modelMs(&step.model);
+                stampInputVoices(midiUpdate); // the user's notes through vocsep too
                 auto [userNotes, modelNotes] = getEditOrchestrationOutput(
                     midiUpdate, reductionForModel, userInstrumentList, modelInstrumentList, signal);
                 toOutput.reserve(userNotes.size() + modelNotes.size() + clearFromMidi.size()
@@ -520,9 +562,11 @@ void OrchestrationTransformer::threadRun() {
                 toOutput.insert(toOutput.end(), modelNotes.begin(), modelNotes.end());
             } else if (isJamLike(mode)) {
                 const ScopedMs modelMs(&step.model);
-                std::set<int32_t> instrumentUnion(userInstrumentList.begin(),
-                                                  userInstrumentList.end());
-                instrumentUnion.insert(modelInstrumentList.begin(), modelInstrumentList.end());
+                // Jam: the reduction plays the model instruments only (the user instruments are
+                // for the user's own notes, in Edit). Accompaniment keeps both.
+                std::set<int32_t> instrumentUnion(modelInstrumentList.begin(), modelInstrumentList.end());
+                if (mode != OrchestrationMode::Jam)
+                    instrumentUnion.insert(userInstrumentList.begin(), userInstrumentList.end());
                 const std::vector<int32_t> orchestrationInstruments(instrumentUnion.begin(),
                                                                     instrumentUnion.end());
                 toOutput = getJamOrchestrationOutput(reductionForModel, orchestrationInstruments,

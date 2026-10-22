@@ -37,7 +37,18 @@ public:
 
     std::function<void(WorkspaceWidget *)> onCloseRequested;
 
+    /**
+     * Text size for an audience (the PerformanceView sets UiConstants::performanceTextScale):
+     * the title bar and title grow, and the widget scales its own text (textScaleChanged).
+     */
+    auto setTextScale(float scale) -> void;
+    [[nodiscard]] auto getTextScale() const -> float { return textScale; }
+
 protected:
+    /** The text scale changed: resize fonts / text rows (resized() runs after this). */
+    virtual auto textScaleChanged() -> void {}
+    [[nodiscard]] auto titleBarHeight() const -> int;
+
     juce::Label titleLabel;
     juce::Component content;
     juce::TextButton closeButton;
@@ -52,6 +63,7 @@ private:
     juce::ComponentBoundsConstrainer constrainer;
     std::unique_ptr<juce::ResizableBorderComponent> resizeBorder;
     bool isDragging = false;
+    float textScale = 1.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(WorkspaceWidget)
 };

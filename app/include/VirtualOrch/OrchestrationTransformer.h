@@ -18,6 +18,7 @@
 #include "VirtualOrch/OrchestrationBalanceTracker.h"
 #include "VirtualOrch/OrchLoopProfile.h"
 #include "VirtualOrch/orchestration-models/OrchestrationModel.h"
+#include "VirtualOrch/vocsep/VoiceSeparation.h"
 
 enum class OrchestrationMode : uint8_t {
     Edit,
@@ -88,6 +89,18 @@ public:
      * is orchestrated on arrival, as before.
      */
     Clock *clock = nullptr;
+
+    /**
+     * Edit mode: the user's piano notes get vocsep voice ids too (their own instance, voices and
+     * history, apart from the reduction's), so the user instruments follow voices like the
+     * model instruments do. nullptr / unloaded: user notes have no voice, as before.
+     */
+    VoiceSeparation *inputVoiceSeparation = nullptr;
+    /** Note ids given to stamped user notes (far above the reduction's, so re-stamps never clash). */
+    static constexpr int32_t kInputNoteIdBase = 1 << 30;
+    /** Edit: stamp the voices of a batch of user notes (OT thread; exposed for tests). */
+    auto stampInputVoices(std::vector<Token> &midiBatch) -> void;
+    [[nodiscard]] auto inputVocsepHistoryForTest() const -> const std::vector<Token> & { return inputVocsepHistory; }
     std::atomic<int32_t> holdBackWindowCs{HoldBackQueue::kDefaultWindowCs};
     /** Reduction notes currently waiting for their turn (debug). */
     [[nodiscard]] auto heldCount() const -> size_t { return heldCountValue.load(); }
@@ -208,6 +221,8 @@ private:
     auto publishBusyOrchProfile(OrchLoopStepMs step) -> void;
 
     std::vector<Token> midiInputHistory;
+    std::vector<Token> inputVocsepHistory; // the user notes vocsep has seen (Edit)
+    int32_t nextInputNoteId = kInputNoteIdBase;
     std::vector<Token> conditioningHistory;
     std::vector<Token> reductionHistory;
     std::vector<OrchestrationNote> outputHistory;

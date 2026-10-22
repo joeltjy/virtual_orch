@@ -51,7 +51,13 @@ auto GenerationWidget::resized() -> void {
         progressBar->setBounds(area.removeFromTop(UiConstants::workspaceGenerationProgressHeight));
 
     area.removeFromTop(UiConstants::workspaceGenerationControlGap);
-    timeLabel.setBounds(area.removeFromTop(UiConstants::workspaceGenerationClockHeight));
+    timeLabel.setBounds(area.removeFromTop(
+        juce::roundToInt(static_cast<float>(UiConstants::workspaceGenerationClockHeight) * getTextScale())));
+}
+
+auto GenerationWidget::textScaleChanged() -> void {
+    timeLabel.setFont(juce::Font(UiConstants::workspaceGenerationClockFontHeight * getTextScale(),
+                                 getTextScale() > 1.0f ? juce::Font::bold : juce::Font::plain));
 }
 
 auto GenerationWidget::timerCallback() -> void {

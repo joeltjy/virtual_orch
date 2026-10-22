@@ -89,6 +89,8 @@ public:
     auto addOrchestrationDebugViewWidgets() -> void;
 
     /** Seed the labelled Launchpad grid for PerformanceView. */
+    /** Text scale for every widget but the seating plan (the PerformanceView: large). */
+    auto setTextScale(float scale) -> void;
     auto addPerformanceViewWidgets() -> void;
 
     auto getWidgetCount() const -> int { return (int) widgets.size(); }
@@ -100,6 +102,8 @@ public:
     std::function<void()> onLayoutChanged;
 
 private:
+    float textScale = 1.0f;
+    auto applyTextScale(WorkspaceWidget &widget) const -> void;
     auto removeWidget(WorkspaceWidget *widget) -> void;
 
     auto clearWidgets() -> void;

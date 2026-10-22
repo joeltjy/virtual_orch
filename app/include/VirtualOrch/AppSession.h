@@ -34,6 +34,8 @@
  */
 class AppSession {
 public:
+    /** A TD press keeps this much of the generated future (cs) and regenerates the rest. */
+    static constexpr int32_t kTdCutAheadCs = 100;
     AppSession();
 
     ~AppSession();
@@ -49,6 +51,8 @@ public:
     std::unique_ptr<OSCBufferOutputProcessor> bufferOutputProcessor;
 
     juce::String selectedMidiInputIdentifier;
+    /** A second piano (Additional MIDI): its notes are played exactly like the MIDI Input's. */
+    juce::String selectedAdditionalMidiInputIdentifier;
     /** Separate keyboard used only for sustain (CC64) → generationPause. */
     juce::String selectedPedalMidiInputIdentifier;
     juce::String selectedLaunchpadMidiIdentifier;
@@ -62,9 +66,15 @@ public:
     ReductionTransformerV2 reductionTransformerV2;
     ReductionTransformerPianoReduction reductionTransformerPianoReduction;
     TwoInstrumentAnticipatedReductionTransformer reductionTransformerAnticipated;
+    /** W2/W3: rope_cache_RT_v2 / v3 with the WAIT sampling rules. */
+    TwoInstrumentAnticipatedReductionTransformer reductionTransformerWait;
+    /** HybridTransformer: v1 while the piano is silent, W2/W3 while it plays. */
+    TwoInstrumentAnticipatedReductionTransformer reductionTransformerHybrid;
     MelodyFirstReductionTransformer reductionTransformerMelodyFirst;
     OrchestrationTransformer orchestrationTransformer;
     VoiceSeparation voiceSeparation;
+    /** A second vocsep for the user's notes in Edit mode (OrchestrationTransformer). */
+    VoiceSeparation inputVoiceSeparation;
     std::unique_ptr<OrchestrationModel> orchestrationModel;
     TestOrchestrationTransformerThread testOrchestrationTransformerThread;
     std::unique_ptr<InputFilter> inputFilter;
@@ -123,6 +133,16 @@ public:
 
     /** Set the OT Edit/Jam mode and light the matching Launchpad mode pad. */
     auto setOrchestrationMode(OrchestrationMode mode) -> void;
+
+    /**
+     * Logit adjustments in a preset ("logitAdjustments"): the global BiasSettings switch and
+     * silence gate, the LogitTD strength, the active T3'' / W2-W3 / Hybrid model's own switches
+     * and taus ("model"; W2/W3's side for the Hybrid) and the Hybrid's v1 side ("hybridV1").
+     */
+    [[nodiscard]] auto logitAdjustmentsToVar() -> juce::var;
+    auto applyLogitAdjustments(const juce::var &adjustments) -> void;
+    /** The active T3'' / W2-W3 / Hybrid transformer, else nullptr. */
+    [[nodiscard]] auto activeAnticipated() -> TwoInstrumentAnticipatedReductionTransformer *;
 
     /** Accompaniment mode (Jam only): push the Launchpad's polyphony cap to every reduction. */
     auto applyAccompanimentCap() -> void;

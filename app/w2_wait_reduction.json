@@ -1,0 +1,11 @@
+{
+  "arch": "dense",
+  "contextNotes": 40,
+  "outputInstruments": [
+    1
+  ],
+  "defaultPreset": {},
+  "onnx": "rope_cache_RT_v2",
+  "reductionType": 7,
+  "notes": "W2 = T3pp_jfix_wait_cd_mix80 (rope_cache_RT_v2.onnx, vocab 11777, WAIT = 11776; sha256 65709d08...). Anticipated Reduction + WAIT: piano given on instrument 0 merged within 5 cs, WAIT before every piano onset group, piano first and ascending pitch at ties, threshold rule P(play) >= 0.30, live 1 s wait; onset T 1.0, other fields T 0.5, top-p 0.98, no app biases. See rope_cache_RT_sampling.txt in Documents/onnx_export_102126."
+}

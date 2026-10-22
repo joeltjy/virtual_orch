@@ -9,6 +9,8 @@ class TemporalDensity {
 public:
     static constexpr int32_t kAuto = 0;
     static constexpr std::array<int32_t, 7> kLevels{{1, 2, 4, 8, 16, 32, 64}};
+    /** The app starts at TD 4 (AUTO off). */
+    static constexpr int32_t kDefault = 4;
 
     [[nodiscard]] static auto get() -> int32_t {
         return value.load(std::memory_order_relaxed);
@@ -31,5 +33,5 @@ private:
             value.store(newValue, std::memory_order_relaxed);
     }
 
-    static inline std::atomic<int32_t> value{kAuto};
+    static inline std::atomic<int32_t> value{kDefault};
 };

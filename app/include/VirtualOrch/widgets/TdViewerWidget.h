@@ -7,6 +7,7 @@
 /** The selected temporal density on a log-spaced bar of 7 steps, or AUTO. */
 class TdBarView : public juce::Component {
 public:
+    float textScale = 1.0f;
     auto setValue(int32_t next) -> void;
     auto paint(juce::Graphics &g) -> void override;
 
@@ -20,6 +21,9 @@ public:
     ~TdViewerWidget() override;
 
     auto resized() -> void override;
+
+protected:
+    auto textScaleChanged() -> void override { view.textScale = getTextScale(); view.repaint(); }
 
 private:
     auto timerCallback() -> void override;

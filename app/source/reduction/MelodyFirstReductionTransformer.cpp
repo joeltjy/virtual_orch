@@ -1,4 +1,5 @@
 #include "VirtualOrch/reduction/MelodyFirstReductionTransformer.h"
+#include "VirtualOrch/SessionLog.h"
 
 #include "VirtualOrch/PolyphonyCap.h"
 #include "VirtualOrch/RegisterRange.h"
@@ -292,13 +293,39 @@ auto MelodyFirstReductionTransformer::generateReductionNote(int32_t now) -> std:
 
 // ---- loop ----
 
+auto MelodyFirstReductionTransformer::restartOnClockJumpBack(int32_t now) -> void {
+    SessionLog::add("CLOCK", getThreadName() + " | the clock jumped back to " + juce::String(now)
+                                 + ": queued notes cleared, stream restarted");
+    resetAheadThrottle();
+    clearOutputHistory();
+    pushOutputToken(Token{now, static_cast<int32_t>(DenseVocab::DurOffset),
+                          static_cast<int32_t>(Vocab::ClearQueue)});
+    inputData.clear();
+    notifyInputDataChanged();
+    resetAll(now);
+}
+
+auto MelodyFirstReductionTransformer::cutFutureOnInput(int32_t now) -> void {
+    resetAheadThrottle();
+    if (! hasGeneratedFrom(now))
+        return; // nothing generated from now on: nothing to cut
+    dropOutputHistoryFrom(now);
+    pushOutputToken(Token{now, static_cast<int32_t>(DenseVocab::DurOffset),
+                          static_cast<int32_t>(Vocab::ClearQueue)});
+    rewindGeneratedFrom(now);
+}
+
 auto MelodyFirstReductionTransformer::stepOnce() -> bool {
     const int32_t now = nowCs();
     if (! melodyStage.stream.isStarted())
         resetAll(now);
+    if (clockJumpedBack(now))
+        restartOnClockJumpBack(now);
     if (const auto cut = consumeModeCut())
         rewindGeneratedFrom(*cut);
     drainInput(now);
+    if (aDirty && ! keepsQueueOnInput() && ! generationPause.get())
+        cutFutureOnInput(now);
     if (aDirty) {
         state.runWindow(now);
         syncMelodyGiven();
@@ -332,6 +359,7 @@ void MelodyFirstReductionTransformer::threadRun() {
     clearOutputTokenQueue();
     clearUpdatesFromFilter();
     clearOutputHistory();
+    forgetClock();
     resetAll(nowCs());
     notifyInputDataChanged();
     resetAheadThrottle();
@@ -346,8 +374,13 @@ void MelodyFirstReductionTransformer::threadRun() {
             rewindGeneratedFrom(*cut);
 
         const int32_t now = nowCs();
+        if (clockJumpedBack(now))
+            restartOnClockJumpBack(now);
         drainInput(now);
         const bool inputApplied = aDirty;
+        // Jam: react to the input now (also ends an ahead throttle); not under the pedal.
+        if (inputApplied && ! keepsQueueOnInput() && ! generationPause.get())
+            cutFutureOnInput(now);
         if (aDirty) {
             state.runWindow(now);
             syncMelodyGiven();
@@ -356,13 +389,7 @@ void MelodyFirstReductionTransformer::threadRun() {
 
         if (isGenerationStopped()) {
             maybeEmitGenerationPauseSoftStopClear();
-            if (inputApplied && ! generationPause.get() && clock != nullptr
-                && ! keepsQueueOnInput()) {
-                const Token clearToken{now + Config::TimeResolution,
-                                       static_cast<int32_t>(DenseVocab::DurOffset),
-                                       static_cast<int32_t>(Vocab::ClearQueue)};
-                pushOutputToken(clearToken);
-            } else if (! inputApplied) {
+            if (! inputApplied) {
                 wait(5);
             }
             recordThreadLoopMs(loopStartMs);

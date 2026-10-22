@@ -28,14 +28,19 @@ enum class MusicModelArch : uint8_t {
     /** Anticipation-style piano -> reduction (RoPE + KV): TwoInstrumentAnticipatedReductionTransformer. */
     DenseAnticipatedPiano,
     /** mb melody first, then double-anticipation reduction: MelodyFirstReductionTransformer. */
-    DenseMelodyFirst
+    DenseMelodyFirst,
+    /** W2/W3 with the WAIT token: TwoInstrumentAnticipatedReductionTransformer::Variant::Wait. */
+    DenseAnticipatedWait,
+    /** HybridTransformer (v1 silent / W2-W3 playing): Variant::Hybrid. */
+    DenseHybrid
 };
 
 [[nodiscard]] inline auto isDenseMusicArch(MusicModelArch arch) -> bool {
     return arch == MusicModelArch::DenseV1 || arch == MusicModelArch::DenseV2
         || arch == MusicModelArch::DensePianoReduction
         || arch == MusicModelArch::DenseAnticipatedPiano
-        || arch == MusicModelArch::DenseMelodyFirst;
+        || arch == MusicModelArch::DenseMelodyFirst
+        || arch == MusicModelArch::DenseAnticipatedWait || arch == MusicModelArch::DenseHybrid;
 }
 
 /**
@@ -76,6 +81,9 @@ public:
     juce::Atomic<bool> generationPause{false};
 
     /** Set manual generation pause and sync LEDs/UI when the value changes. */
+    /** Every generated note is played at most this long (5 s), whatever the model drew. */
+    static constexpr int32_t kMaxNoteDurationCs = 500;
+
     auto setGenerationPause(bool paused) -> void;
 
     /**
@@ -136,6 +144,14 @@ public:
     }
 
     /**
+     * Edit mode: live input cuts only the generated notes kEditCutAheadCs (2 s) or more ahead;
+     * the next 2 s play on (T3'', W2/W3, Hybrid). Set on every mode change.
+     */
+    static constexpr int32_t kEditCutAheadCs = 200;
+    auto setEditMode(bool on) -> void { editMode.store(on, std::memory_order_relaxed); }
+    [[nodiscard]] auto isEditMode() const -> bool { return editMode.load(std::memory_order_relaxed); }
+
+    /**
      * Leaving Accompaniment at clock time `timeCs` (message / MIDI thread): the reduction thread
      * drops its generated notes from that time on and sends the cut marker downstream
      * (a PedalClear ClearQueue token, which ends OutputPlayback's drop window).
@@ -178,6 +194,25 @@ public:
 
     /** Append-only copy of tokens pushed to outputTokenQueue (Step 4 UI). */
     [[nodiscard]] auto getOutputHistory() const -> std::vector<Token>;
+    /** Generated notes (not markers) in the output history with onset exactly onsetCs. */
+    [[nodiscard]] auto generatedNotesAtOnset(int32_t onsetCs) const -> int32_t;
+    /** A backward clock jump larger than this restarts the stream-based reductions. */
+    static constexpr int32_t kClockJumpBackCs = 50;
+    /**
+     * True when `nowCs` is more than kClockJumpBackCs before the last time this was called
+     * (transport / MTC rewound, a restart); remembers nowCs. Reset with forgetClock().
+     */
+    [[nodiscard]] auto clockJumpedBack(int32_t nowCs) -> bool {
+        const bool jumped = lastNowCs != INT32_MIN && nowCs < lastNowCs - kClockJumpBackCs;
+        lastNowCs = nowCs;
+        return jumped;
+    }
+    auto forgetClock() -> void { lastNowCs = INT32_MIN; }
+
+    /** Remove the output-history tokens with onset >= cutCs (they were cut from playback). */
+    auto dropOutputHistoryFrom(int32_t cutCs) -> void;
+    /** True when a generated note (not a marker) in the output history has onset >= fromCs. */
+    [[nodiscard]] auto hasGeneratedFrom(int32_t fromCs) const -> bool;
 
     /** Only the tokens still reaching cutoffCs; used by the UI so refresh cost stays bounded. */
     [[nodiscard]] auto getOutputHistorySince(int32_t cutoffCs) const -> std::vector<Token>;
@@ -322,8 +357,10 @@ protected:
 
     /** Pending pedal press (cs), -1 when none; consumed by maybeEmitGenerationPauseSoftStopClear. */
     std::atomic<int32_t> pedalClearTimeCs{-1};
+    int32_t lastNowCs = INT32_MIN; // clockJumpedBack
 
     std::atomic<bool> keepQueueOnInput{false};
+    std::atomic<bool> editMode{false};
     std::vector<HeldKey> heldKeys; // reduction thread only
     /** Pending mode cut (cs), -1 when none; consumed by consumeModeCut. */
     std::atomic<int32_t> modeCutTimeCs{-1};

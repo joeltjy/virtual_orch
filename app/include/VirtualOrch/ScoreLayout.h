@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "VirtualOrch/reduction/MelodyBassSkyline.h"
+
 /**
  * Layout logic of the ScoreWidget (no drawing): a rolling grand staff of the reduction's
  * generated notes with a nowbar, noteheads only (no stems, beams or rests).
@@ -15,10 +17,15 @@
  *  - Step: diatonic position, 7 per octave (C = 0 … B = 6, octave = midi / 12), so a line or
  *    space is one step. Treble lines are E4 G4 B4 D5 F5, bass lines G2 B2 D3 F3 A3.
  *  - Spelling: sharps, or flats for a chord whose name's root is flat.
+ *  - Melody + bass (what the score shows): onsets within kSnapCs (30 ms) of the previous one
+ *    are snapped to the first onset of their cluster, then MelodyBass::skylineAndBass (the port
+ *    of ~/orchestration melody_bass.py, skyline_and_bass) keeps the top and bottom lines; a note
+ *    that continues after a cut is shown once, at its first slice.
  */
 namespace ScoreLayout {
 
 inline constexpr int32_t kChordToleranceCs = 5;
+inline constexpr int32_t kSnapCs = 3; // 30 ms
 inline constexpr int kMiddleC = 60;
 
 /** Bottom / top line steps of each staff. */
@@ -38,6 +45,70 @@ struct Chord {
     std::vector<int> pitches; // ascending, duplicates kept once
     [[nodiscard]] auto topPitch() const -> int { return pitches.empty() ? 0 : pitches.back(); }
 };
+
+/** Onsets chained within `toleranceCs` of the previous one move to their cluster's first onset. */
+[[nodiscard]] inline auto snapOnsets(std::vector<Note> notes, int32_t toleranceCs = kSnapCs) -> std::vector<Note> {
+    std::ranges::stable_sort(notes, [](const Note &a, const Note &b) { return a.onsetCs < b.onsetCs; });
+    int32_t clusterStart = 0;
+    int32_t previous = 0;
+    for (size_t i = 0; i < notes.size(); ++i) {
+        const int32_t onset = notes[i].onsetCs;
+        if (i == 0 || onset - previous > toleranceCs)
+            clusterStart = onset;
+        previous = onset;
+        const int32_t end = onset + notes[i].durationCs;
+        notes[i].onsetCs = clusterStart;
+        notes[i].durationCs = std::max(0, end - clusterStart); // the end time is kept
+    }
+    return notes;
+}
+
+/** The top (melody) and bottom (bass) lines of a passage, one entry per note. */
+struct Lines {
+    std::vector<Note> melody;
+    std::vector<Note> bass;
+};
+
+/**
+ * Melody and bass of `notes` (after snapOnsets): ~/orchestration's skyline_and_bass, one entry
+ * per note at its onset, with its length in that line (a later cut shortens it). The two lines
+ * never share a note.
+ */
+[[nodiscard]] inline auto skylineAndBass(std::vector<Note> notes, int32_t snapCs = kSnapCs) -> Lines {
+    notes = snapOnsets(std::move(notes), snapCs);
+    std::ranges::stable_sort(notes, [](const Note &a, const Note &b) {
+        if (a.onsetCs != b.onsetCs)
+            return a.onsetCs < b.onsetCs;
+        if (a.pitch != b.pitch)
+            return a.pitch < b.pitch;
+        return a.durationCs < b.durationCs;
+    });
+    std::vector<MelodyBass::Note> input;
+    for (size_t i = 0; i < notes.size(); ++i)
+        if (notes[i].durationCs > 0)
+            input.push_back({static_cast<int>(i), notes[i].onsetCs, notes[i].onsetCs + notes[i].durationCs,
+                             notes[i].pitch, 64});
+    const auto merged = [](const std::vector<MelodyBass::Segment> &segments) {
+        std::vector<Note> out;
+        int lastSource = -1;
+        for (const auto &seg: segments) {
+            if (seg.sourceIndex == lastSource && ! out.empty()) {
+                out.back().durationCs = seg.end - out.back().onsetCs; // a continuation: same note
+                continue;
+            }
+            out.push_back({seg.start, seg.end - seg.start, seg.pitch});
+            lastSource = seg.sourceIndex;
+        }
+        return out;
+    };
+    const auto result = MelodyBass::skylineAndBass(input);
+    return {merged(result.melody), merged(result.bass)};
+}
+
+/** The skyline (top line) only. */
+[[nodiscard]] inline auto skyline(std::vector<Note> notes, int32_t snapCs = kSnapCs) -> std::vector<Note> {
+    return skylineAndBass(std::move(notes), snapCs).melody;
+}
 
 /** Group notes into chords by onset (chained within kChordToleranceCs), in onset order. */
 [[nodiscard]] inline auto groupChords(std::vector<Note> notes) -> std::vector<Chord> {

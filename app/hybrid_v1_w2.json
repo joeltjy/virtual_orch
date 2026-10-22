@@ -1,0 +1,12 @@
+{
+  "arch": "dense",
+  "contextNotes": 40,
+  "outputInstruments": [
+    1
+  ],
+  "defaultPreset": {},
+  "onnx": "rope_cache_RT_v2",
+  "silentOnnx": "rope_cache_RT",
+  "reductionType": 8,
+  "notes": "HybridTransformer pair v1 + W2: while the piano has been silent for >= 1 s, v1 (rope_cache_RT.onnx, T3'' rules) draws the next note; otherwise W2 (rope_cache_RT_v2.onnx, WAIT rules). Both models share one context."
+}

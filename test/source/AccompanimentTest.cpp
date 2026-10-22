@@ -162,6 +162,29 @@ TEST(AccompanimentGrid, polyphonyIsKeptAcrossModes) {
     EXPECT_EQ(f.colourOf(kRow, 2), LaunchpadLighting::kYellow);
 }
 
+TEST(TdPress, everyTdLevelAndAutoPressCutsTheFuture) {
+    GridFixture f;
+    int cuts = 0;
+    int32_t tdAtCut = -1;
+    f.grid.td_callback = [&] {
+        ++cuts;
+        tdAtCut = TemporalDensity::get();
+    };
+    f.press(LaunchpadGrid::kTdRow, 4);
+    EXPECT_EQ(cuts, 1);
+    EXPECT_EQ(tdAtCut, 16) << "called after the level is set";
+    f.press(LaunchpadGrid::kTdRow, LaunchpadGrid::kSideCol); // AUTO on
+    EXPECT_EQ(cuts, 2);
+    EXPECT_EQ(tdAtCut, TemporalDensity::kAuto);
+    f.press(LaunchpadGrid::kTdRow, LaunchpadGrid::kSideCol); // AUTO off
+    EXPECT_EQ(cuts, 3);
+    f.press(LaunchpadGrid::kModeRow, LaunchpadGrid::kJamCol);
+    f.press(kRow, 2); // polyphony pad: no cut
+    EXPECT_EQ(cuts, 3);
+    f.press(LaunchpadGrid::kTdRow, LaunchpadGrid::kSideCol); // back to AUTO for later tests
+    EXPECT_TRUE(TemporalDensity::isAuto());
+}
+
 TEST(AccompanimentReduction, capRaisesTheNextOnsetToTheRightOffset) {
     ModelConfig config;
     StubReduction rt(config);

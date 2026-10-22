@@ -16,6 +16,9 @@ public:
 
     auto resized() -> void override;
 
+protected:
+    auto textScaleChanged() -> void override;
+
 private:
     auto timerCallback() -> void override;
 

@@ -83,6 +83,16 @@ ReductionTemperatureWidget::ReductionTemperatureWidget(AppSession &sessionIn)
         const auto duration = static_cast<float>(durationSlider.getValue());
         const auto note = static_cast<float>(noteSlider.getValue());
         const auto velocity = static_cast<float>(velocitySlider.getValue());
+        // W2/W3 and the Hybrid keep their own temperatures (onset 1.0 by default): set only
+        // while active, and the others are left alone then.
+        if (session.musicModelArch == MusicModelArch::DenseAnticipatedWait) {
+            applyTemps(session.reductionTransformerWait, onset, duration, note, velocity);
+            return;
+        }
+        if (session.musicModelArch == MusicModelArch::DenseHybrid) {
+            applyTemps(session.reductionTransformerHybrid, onset, duration, note, velocity);
+            return;
+        }
         applyTemps(session.reductionTransformerV1, onset, duration, note, velocity);
         applyTemps(session.reductionTransformerV2, onset, duration, note, velocity);
         applyTemps(session.reductionTransformerPianoReduction, onset, duration, note, velocity);
@@ -126,6 +136,14 @@ auto ReductionTemperatureWidget::syncSlidersFromSession() -> void {
     }
     if (session.musicModelArch == MusicModelArch::DenseAnticipatedPiano) {
         syncFrom(session.reductionTransformerAnticipated);
+        return;
+    }
+    if (session.musicModelArch == MusicModelArch::DenseAnticipatedWait) {
+        syncFrom(session.reductionTransformerWait);
+        return;
+    }
+    if (session.musicModelArch == MusicModelArch::DenseHybrid) {
+        syncFrom(session.reductionTransformerHybrid);
         return;
     }
     if (session.musicModelArch == MusicModelArch::DensePianoReduction) {

@@ -33,6 +33,14 @@
  * TD boundary spacing). A held key is PROVISIONAL: its duration is frozen at the value it had when
  * it was inserted until the note-off confirms it (or the hold limit commits it); committedLen() is
  * the first token that may still change.
+ *
+ * W2/W3 (waitToken >= 0, vocab 11777): a WAIT token ("the soloist plays next") is written right
+ * before the first quad of every new given onset group, and given notes within mergeGivenCs of a
+ * group's first onset join that group (onset moved to it, end time kept), as in training.
+ *
+ * Late input (holdLate / reorderLate, Accompaniment): given notes behind the event clock are held
+ * back and, at most once a second, the stream is rewound to the earliest of them and rewritten in
+ * onset order with every note generated after it KEPT (WAIT and TD tokens placed again).
  */
 class AnticipatedStream {
 public:
@@ -80,12 +88,20 @@ public:
 
     explicit AnticipatedStream(Vocab v = Vocab::Dense) : vocab(v) {}
 
+    /** W2/W3: the WAIT id (11776); -1 = no WAIT tokens (T3'', T8'', T7''). */
+    int32_t waitToken = -1;
+    /** W2/W3: given notes within this of a group's first onset join the group (0 = off). */
+    int32_t mergeGivenCs = 0;
+
     /** Called when a TD boundary is written; returns the TD token id for it. */
     std::function<int32_t()> tdTokenProvider = [] { return 0; };
 
     auto reset(int32_t nowCs) -> void {
         items.clear();
         pending.clear();
+        late.clear();
+        lastGivenGroupOnsetCs = INT32_MIN;
+        lastEventPitchValue = -1;
         baseCs = (std::max(nowCs, 0) / TdTokens::kBoundaryCs) * TdTokens::kBoundaryCs;
         nextBoundaryCs = baseCs;
         clockCs = baseCs;
@@ -109,8 +125,11 @@ public:
     auto addControl(const Note &note, bool held, const ControlSpec &spec) -> void {
         Control c;
         c.note = note;
+        c.originalOnsetCs = note.onsetCs;
         c.provisional = held;
         c.spec = spec;
+        if (mergeGivenCs > 0 && isGivenNote(c) && mergeIntoGroup(c))
+            return;
         pending.push_back(c);
         sortPending();
     }
@@ -154,6 +173,9 @@ public:
         items.erase(std::remove_if(items.begin(), items.end(),
                                    [&](const Item &i) { return i.kind == Kind::Control && dropped(i.control); }),
                     items.end());
+        for (auto &c: late) // held-back late notes go back to pending: the clock re-inserts them
+            pending.push_back(c);
+        late.clear();
         const size_t pendingBefore = pending.size();
         pending.erase(std::remove_if(pending.begin(), pending.end(), dropped), pending.end());
         changed = changed || items.size() != itemsBefore || pending.size() != pendingBefore;
@@ -161,14 +183,22 @@ public:
 
         if (droppedBoundary)
             nextBoundaryCs = firstDroppedBoundary;
+        // a WAIT left at the end belonged to a group that went back to pending
+        while (! items.empty() && items.back().kind == Kind::Wait)
+            items.pop_back();
         clockCs = baseCs;
         lastEventOnsetCs = INT32_MIN;
+        lastEventPitchValue = -1;
         lastEndByLine = {INT32_MIN, INT32_MIN};
+        lastGivenGroupOnsetCs = INT32_MIN;
         for (const auto &item: items) {
             const auto &n = item.control.note;
+            if (item.kind == Kind::Control && isGivenNote(item.control))
+                lastGivenGroupOnsetCs = n.onsetCs;
             if (item.kind == Kind::Event) {
                 clockCs = std::max(clockCs, n.onsetCs);
                 lastEventOnsetCs = n.onsetCs;
+                lastEventPitchValue = n.pitch;
             } else if (item.kind == Kind::Rest) {
                 clockCs = std::max(clockCs, n.onsetCs);
             } else if (item.kind == Kind::Control && item.control.spec.line >= 0) {
@@ -202,19 +232,29 @@ public:
     auto confirmControl(int32_t onsetCs, int32_t pitch, int32_t finalDurationCs,
                         int32_t instrument = kGivenInstrument) -> bool {
         // Only a HELD note is confirmed (an AMT melody control with the same onset and pitch is not).
+        // Matched on the onset the note arrived with (a merged note's onset moved to its group);
+        // a merged note keeps its end time.
+        const auto confirm = [&](Control &c) {
+            c.note.durationCs = std::max(0, c.originalOnsetCs + finalDurationCs - c.note.onsetCs);
+            c.provisional = false;
+        };
+        const auto matches = [&](const Control &c) {
+            return c.provisional && c.originalOnsetCs == onsetCs && c.note.pitch == pitch
+                   && c.spec.instrument == instrument;
+        };
         for (auto &c: pending)
-            if (c.provisional && c.note.onsetCs == onsetCs && c.note.pitch == pitch
-                && c.spec.instrument == instrument) {
-                c.note.durationCs = finalDurationCs;
-                c.provisional = false;
+            if (matches(c)) {
+                confirm(c);
+                return true;
+            }
+        for (auto &c: late)
+            if (matches(c)) {
+                confirm(c);
                 return true;
             }
         for (auto it = items.rbegin(); it != items.rend(); ++it)
-            if (it->kind == Kind::Control && it->control.provisional
-                && it->control.note.onsetCs == onsetCs && it->control.note.pitch == pitch
-                && it->control.spec.instrument == instrument) {
-                it->control.note.durationCs = finalDurationCs;
-                it->control.provisional = false;
+            if (it->kind == Kind::Control && matches(it->control)) {
+                confirm(it->control);
                 return true;
             }
         return false;
@@ -229,7 +269,160 @@ public:
         for (auto &c: pending)
             if (c.provisional && nowCs - c.note.onsetCs > kHoldCommitCs)
                 c.provisional = false;
+        for (auto &c: late)
+            if (c.provisional && nowCs - c.note.onsetCs > kHoldCommitCs)
+                c.provisional = false;
     }
+
+    // ---- late input (Accompaniment) ----
+
+    /**
+     * Move the pending given notes that can no longer be appended in onset order (onset before
+     * the last note already written, given or generated) to the late queue.
+     */
+    auto holdLate() -> void {
+        int32_t lastWritten = INT32_MIN;
+        for (const auto &item: items)
+            if (item.kind == Kind::Event || item.kind == Kind::Control)
+                lastWritten = std::max(lastWritten, item.control.note.onsetCs);
+        if (lastWritten == INT32_MIN)
+            return;
+        for (auto it = pending.begin(); it != pending.end();) {
+            if (isGivenNote(*it) && it->actualCs() < lastWritten) {
+                late.push_back(*it);
+                it = pending.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    [[nodiscard]] auto hasLate() const -> bool { return ! late.empty(); }
+    [[nodiscard]] auto lateCount() const -> size_t { return late.size(); }
+
+    /**
+     * Rewind to the earliest late note and rewrite everything from there in onset order: the late
+     * notes plus the given and generated notes already written after that point (generated notes
+     * are kept). Ties: given first unless `generatedFirstAtTies`; ascending pitch within each.
+     * WAIT and TD tokens are placed again. The event clock does not change. Returns true when the
+     * stream changed (the KV cache sees the new prefix and rebuilds from it).
+     */
+    auto reorderLate(int32_t nowCs, bool generatedFirstAtTies = false) -> bool {
+        if (late.empty())
+            return false;
+        int32_t cutOnset = INT32_MAX;
+        for (auto &c: late) {
+            freezeProvisional(c, nowCs);
+            cutOnset = std::min(cutOnset, c.note.onsetCs);
+        }
+        size_t cut = items.size();
+        for (size_t i = 0; i < items.size(); ++i)
+            if (items[i].kind != Kind::Td && items[i].control.note.onsetCs >= cutOnset) {
+                cut = i;
+                break;
+            }
+        // the WAIT of a group that starts at the cut is rewritten too
+        while (cut > 0 && items[cut - 1].kind == Kind::Wait)
+            --cut;
+
+        std::vector<Item> notes;
+        bool droppedBoundary = false;
+        int32_t firstDroppedBoundary = 0;
+        for (size_t i = cut; i < items.size(); ++i) {
+            if (items[i].kind == Kind::Event || items[i].kind == Kind::Control)
+                notes.push_back(items[i]);
+            else if (items[i].kind == Kind::Td && ! droppedBoundary) {
+                droppedBoundary = true;
+                firstDroppedBoundary = items[i].tdBoundaryCs;
+            }
+        }
+        for (const auto &c: late) {
+            Item item;
+            item.kind = Kind::Control;
+            item.control = c;
+            notes.push_back(item);
+        }
+        late.clear();
+        std::stable_sort(notes.begin(), notes.end(), [generatedFirstAtTies](const Item &a, const Item &b) {
+            if (a.control.note.onsetCs != b.control.note.onsetCs)
+                return a.control.note.onsetCs < b.control.note.onsetCs;
+            if (a.kind != b.kind) {
+                const bool aGiven = a.kind == Kind::Control;
+                return generatedFirstAtTies ? ! aGiven : aGiven;
+            }
+            return a.control.note.pitch < b.control.note.pitch;
+        });
+
+        items.erase(items.begin() + static_cast<std::ptrdiff_t>(cut), items.end());
+        if (droppedBoundary)
+            nextBoundaryCs = firstDroppedBoundary;
+        lastGivenGroupOnsetCs = INT32_MIN;
+        for (const auto &item: items)
+            if (item.kind == Kind::Control && isGivenNote(item.control))
+                lastGivenGroupOnsetCs = item.control.note.onsetCs;
+        for (const auto &item: notes) {
+            if (item.kind == Kind::Control)
+                writeWaitBeforeGroup(item.control);
+            items.push_back(item);
+            if (item.kind == Kind::Control && isGivenNote(item.control))
+                lastGivenGroupOnsetCs = item.control.note.onsetCs;
+            if (item.kind == Kind::Event)
+                lastEventPitchValue = item.control.note.pitch;
+            writeBoundariesUpTo(item.kind == Kind::Control ? item.control.actualCs()
+                                                           : item.control.note.onsetCs);
+        }
+        return true;
+    }
+
+    // ---- W2/W3 WAIT ----
+
+    /** A given group can be written now (pending or held back as late). */
+    [[nodiscard]] auto hasGivenGroup() const -> bool {
+        if (! late.empty())
+            return true;
+        return std::any_of(pending.begin(), pending.end(), [this](const Control &c) { return isGivenNote(c); });
+    }
+
+    /**
+     * WAIT resolved: write the next given onset group (late ones first), each note no earlier
+     * than `atCs` (the event clock: the soloist "plays next"; a moved note keeps its end time).
+     * Returns how many notes were written.
+     */
+    auto insertNextGroupAt(int32_t atCs, int32_t nowCs) -> int {
+        auto &from = ! late.empty() ? late : pending;
+        std::sort(from.begin(), from.end(), [](const Control &a, const Control &b) {
+            return a.note.onsetCs != b.note.onsetCs ? a.note.onsetCs < b.note.onsetCs
+                                                    : a.note.pitch < b.note.pitch;
+        });
+        auto first = std::find_if(from.begin(), from.end(), [this](const Control &c) { return isGivenNote(c); });
+        if (first == from.end())
+            return 0;
+        const int32_t groupOnset = first->note.onsetCs;
+        std::vector<Control> group;
+        for (auto it = from.begin(); it != from.end();) {
+            if (isGivenNote(*it) && it->note.onsetCs == groupOnset) {
+                group.push_back(*it);
+                it = from.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        if (&from == &pending)
+            sortPending();
+        for (auto &c: group)
+            if (c.note.onsetCs < atCs) {
+                freezeProvisional(c, nowCs);
+                const int32_t end = c.note.onsetCs + c.note.durationCs;
+                c.note.onsetCs = atCs;
+                c.note.durationCs = std::max(0, end - atCs);
+            }
+        return writeBatch(std::move(group), nowCs);
+    }
+
+    /** Onset of the last given onset group written (INT32_MIN before the first). */
+    [[nodiscard]] auto lastGivenGroupOnset() const -> int32_t { return lastGivenGroupOnsetCs; }
+
+    /** Pitch of the last generated event (-1 before the first). */
+    [[nodiscard]] auto lastEventPitch() const -> int32_t { return lastEventPitchValue; }
 
     /**
      * Insert every pending note whose actual time is <= clockCsNow (< when `inclusive` is false:
@@ -278,6 +471,7 @@ public:
         items.push_back(item);
         clockCs = note.onsetCs;
         lastEventOnsetCs = note.onsetCs;
+        lastEventPitchValue = note.pitch;
         writeBoundariesUpTo(note.onsetCs);
     }
 
@@ -304,6 +498,9 @@ public:
         pending.erase(std::remove_if(pending.begin(), pending.end(),
                                      [this](const Control &c) { return c.note.onsetCs < baseCs; }),
                       pending.end());
+        late.erase(std::remove_if(late.begin(), late.end(),
+                                  [this](const Control &c) { return c.note.onsetCs < baseCs; }),
+                   late.end());
         nextBoundaryCs = std::max(nextBoundaryCs, baseCs);
         clockCs = std::max(clockCs, baseCs);
     }
@@ -333,25 +530,26 @@ public:
         size_t firstRetained = items.size();
         for (size_t i = 0; i < items.size(); ++i) {
             const size_t begin = tokenIndex;
-            const size_t end = begin + (items[i].kind == Kind::Td ? 1u : 4u);
+            const size_t end = begin + tokenCount(items[i]);
             tokenIndex = end;
             if (begin >= evictedEnd) {
                 firstRetained = i;
                 break;
             }
-            if (end > evictedBegin && items[i].kind != Kind::Td)
+            if (end > evictedBegin && items[i].kind != Kind::Td && items[i].kind != Kind::Wait)
                 lastEvictedOnset = std::max(lastEvictedOnset, items[i].control.note.onsetCs);
         }
         if (lastEvictedOnset == INT32_MIN || lastEvictedOnset - baseCs <= kEvictRebaseCs)
             return 0;
-        while (firstRetained < items.size() && items[firstRetained].kind == Kind::Td)
+        while (firstRetained < items.size()
+               && (items[firstRetained].kind == Kind::Td || items[firstRetained].kind == Kind::Wait))
             ++firstRetained;
         if (firstRetained >= items.size())
             return 0;
 
         int32_t minOnset = INT32_MAX;
         for (size_t i = firstRetained; i < items.size(); ++i)
-            if (items[i].kind != Kind::Td)
+            if (items[i].kind != Kind::Td && items[i].kind != Kind::Wait)
                 minOnset = std::min(minOnset, items[i].control.note.onsetCs);
         const int32_t k = ((minOnset - baseCs) / kEvictRebaseCs) * kEvictRebaseCs;
         if (k <= 0)
@@ -362,6 +560,9 @@ public:
         pending.erase(std::remove_if(pending.begin(), pending.end(),
                                      [this](const Control &c) { return c.note.onsetCs < baseCs; }),
                       pending.end());
+        late.erase(std::remove_if(late.begin(), late.end(),
+                                  [this](const Control &c) { return c.note.onsetCs < baseCs; }),
+                   late.end());
         nextBoundaryCs = std::max(nextBoundaryCs, baseCs);
         clockCs = std::max(clockCs, baseCs);
         return k;
@@ -383,7 +584,7 @@ public:
         for (const auto &item: items) {
             if (item.kind == Kind::Control && item.control.provisional)
                 return n;
-            n += item.kind == Kind::Td ? 1 : 4;
+            n += tokenCount(item);
         }
         return n;
     }
@@ -408,9 +609,10 @@ public:
     }
 
 private:
-    enum class Kind { Control, Event, Td, Rest };
+    enum class Kind { Control, Event, Td, Rest, Wait };
     struct Control {
         Note note;
+        int32_t originalOnsetCs = 0; // the onset it arrived with (note-offs match on it)
         bool provisional = false;
         ControlSpec spec;
         bool trimmed = false; // shortened by the per-line monophony check
@@ -433,6 +635,70 @@ private:
                 return a.note.onsetCs < b.note.onsetCs;
             return a.note.pitch < b.note.pitch;
         });
+    }
+
+    [[nodiscard]] static auto tokenCount(const Item &i) -> size_t {
+        return i.kind == Kind::Td || i.kind == Kind::Wait ? 1u : 4u;
+    }
+
+    [[nodiscard]] static auto isGivenNote(const Control &c) -> bool {
+        return c.spec.instrument == kGivenInstrument && ! c.spec.controlToken;
+    }
+
+    static auto freezeProvisional(Control &c, int32_t nowCs) -> void {
+        if (c.provisional)
+            c.note.durationCs = std::min(std::max(nowCs - c.note.onsetCs, 0), DenseQuantize::DurationMaxCs);
+    }
+
+    /** WAIT before the first quad of a new given onset group (W2/W3). */
+    auto writeWaitBeforeGroup(const Control &c) -> void {
+        if (waitToken < 0 || ! isGivenNote(c) || c.note.onsetCs == lastGivenGroupOnsetCs)
+            return;
+        Item wait;
+        wait.kind = Kind::Wait;
+        wait.control.note.onsetCs = c.note.onsetCs;
+        items.push_back(wait);
+    }
+
+    /**
+     * Join the group whose first onset is the latest one at most mergeGivenCs before c (pending,
+     * late or written): the onset moves to it and the end time is kept. A repeated pitch in the
+     * group keeps the longer copy. Returns true when c was absorbed by an existing copy.
+     */
+    auto mergeIntoGroup(Control &c) -> bool {
+        int32_t group = INT32_MIN;
+        const auto consider = [&](const Control &o) {
+            if (isGivenNote(o) && o.note.onsetCs <= c.note.onsetCs
+                && c.note.onsetCs - o.note.onsetCs <= mergeGivenCs)
+                group = std::max(group, o.note.onsetCs);
+        };
+        for (const auto &o: pending)
+            consider(o);
+        for (const auto &o: late)
+            consider(o);
+        for (const auto &item: items)
+            if (item.kind == Kind::Control)
+                consider(item.control);
+        if (group == INT32_MIN || group == c.note.onsetCs)
+            return absorbRepeat(c);
+        const int32_t end = c.note.onsetCs + c.note.durationCs;
+        c.note.onsetCs = group;
+        c.note.durationCs = c.provisional ? 0 : std::max(0, end - group);
+        return absorbRepeat(c);
+    }
+
+    /** Same onset and pitch already pending / late: keep the longer copy, drop c. */
+    auto absorbRepeat(const Control &c) -> bool {
+        for (auto *list: {&pending, &late})
+            for (auto &o: *list)
+                if (isGivenNote(o) && o.note.onsetCs == c.note.onsetCs && o.note.pitch == c.note.pitch) {
+                    if (! c.provisional && (o.provisional || c.note.durationCs > o.note.durationCs)) {
+                        o.note.durationCs = c.note.durationCs;
+                        o.provisional = false;
+                    }
+                    return true;
+                }
+        return false;
     }
 
     [[nodiscard]] static auto itemTime(const Item &i) -> int32_t {
@@ -468,7 +734,10 @@ private:
             Item item;
             item.kind = Kind::Control;
             item.control = c;
+            writeWaitBeforeGroup(c);
             items.push_back(item);
+            if (isGivenNote(c))
+                lastGivenGroupOnsetCs = c.note.onsetCs;
             batchItems.push_back(items.size() - 1);
             ++written;
             writeBoundariesUpTo(c.actualCs()); // TD right after this quad
@@ -499,6 +768,10 @@ private:
     auto appendTokens(std::vector<int32_t> &out, const Item &item) const -> void {
         if (item.kind == Kind::Td) {
             out.push_back(item.tdToken);
+            return;
+        }
+        if (item.kind == Kind::Wait) {
+            out.push_back(waitToken);
             return;
         }
         const auto &n = item.control.note;
@@ -539,4 +812,7 @@ private:
     bool started = false;
     std::vector<Item> items;
     std::vector<Control> pending;
+    std::vector<Control> late;           // given notes behind the clock (Accompaniment reorder)
+    int32_t lastGivenGroupOnsetCs = INT32_MIN;
+    int32_t lastEventPitchValue = -1;
 };

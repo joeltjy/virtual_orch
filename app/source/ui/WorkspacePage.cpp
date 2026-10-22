@@ -72,6 +72,10 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
                      UiConstants::workspaceAddMenuInstrumentGroupActivityItem);
         menu.addItem(UiConstants::workspaceAddMenuTdViewerItemId,
                      UiConstants::workspaceAddMenuTdViewerItem);
+        menu.addItem(UiConstants::workspaceAddMenuOnsetGapsItemId,
+                     UiConstants::workspaceAddMenuOnsetGapsItem);
+        menu.addItem(UiConstants::workspaceAddMenuActiveModelItemId,
+                     UiConstants::workspaceAddMenuActiveModelItem);
         menu.addItem(UiConstants::workspaceAddMenuUserSelectionItemId,
                      UiConstants::workspaceAddMenuUserSelectionItem);
         menu.addItem(UiConstants::workspaceAddMenuScoreItemId,
@@ -140,6 +144,10 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
                                        UiConstants::workspaceWidgetTypeInstrumentGroupActivity);
                                else if (result == UiConstants::workspaceAddMenuTdViewerItemId)
                                    canvas.addWidgetByType(UiConstants::workspaceWidgetTypeTdViewer);
+                               else if (result == UiConstants::workspaceAddMenuOnsetGapsItemId)
+                                   canvas.addWidgetByType(UiConstants::workspaceWidgetTypeOnsetGaps);
+                               else if (result == UiConstants::workspaceAddMenuActiveModelItemId)
+                                   canvas.addWidgetByType(UiConstants::workspaceWidgetTypeActiveModel);
                                else if (result == UiConstants::workspaceAddMenuUserSelectionItemId)
                                    canvas.addWidgetByType(UiConstants::workspaceWidgetTypeUserSelection);
                                else if (result == UiConstants::workspaceAddMenuScoreItemId)
@@ -300,6 +308,7 @@ auto WorkspacePage::loadSelectedView() -> void {
     }
 
     currentViewName = name;
+    canvas.setTextScale(name == UiConstants::workspacePerformanceViewName ? UiConstants::performanceTextScale : 1.0f);
     saveButton.setEnabled(true);
     clearDirty();
 }
@@ -312,6 +321,8 @@ auto WorkspacePage::performSave(const juce::String &viewName) -> void {
     }
 
     currentViewName = viewName;
+    canvas.setTextScale(viewName == UiConstants::workspacePerformanceViewName ? UiConstants::performanceTextScale
+                                                                              : 1.0f);
     refreshViewCombo(viewName);
     clearDirty();
 }

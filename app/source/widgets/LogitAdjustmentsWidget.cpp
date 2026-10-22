@@ -9,6 +9,8 @@
 #include "VirtualOrch/reduction/DenseOnsetGapBias.h"
 #include "VirtualOrch/reduction/DensePitchBias.h"
 #include "VirtualOrch/reduction/ReductionTransformer.h"
+#include "VirtualOrch/reduction/TdOnsetBias.h"
+#include "VirtualOrch/reduction/TwoInstrumentAnticipatedReductionTransformer.h"
 #include "VirtualOrch/ui/UiConstants.h"
 
 namespace {
@@ -52,9 +54,13 @@ LogitAdjustmentsWidget::LogitAdjustmentsWidget(AppSession &sessionIn)
     };
 
     content.addAndMakeVisible(statusLabel);
+    content.addAndMakeVisible(hybridSideToggle);
+    hybridSideToggle.setClickingTogglesState(true);
+    hybridSideToggle.setToggleState(true, juce::dontSendNotification);
+    hybridSideToggle.onClick = [this] { refreshFromSession(); };
     styleLive(statusLabel);
 
-    for (auto *toggle: {&biasesOnToggle, &biasGateToggle, &pitchToggle, &durationToggle,
+    for (auto *toggle: {&biasesOnToggle, &biasGateToggle, &logitTdToggle, &shortGapToggle, &pitchToggle, &durationToggle,
                         &onsetGapToggle, &proportionToggle}) {
         content.addAndMakeVisible(*toggle);
         toggle->setClickingTogglesState(true);
@@ -71,6 +77,34 @@ LogitAdjustmentsWidget::LogitAdjustmentsWidget(AppSession &sessionIn)
     configureTauSlider(durationTauPrimeBaseSlider, durationTauPrimeBaseLabel, "td' base");
     configureTauSlider(onsetGapTauBaseSlider, onsetGapTauBaseLabel, "tg base");
     configureTauSlider(groupsTauBaseSlider, groupsTauBaseLabel, "groups tau");
+    configureTauSlider(logitTdStrengthSlider, logitTdStrengthLabel, "TD strength");
+    logitTdStrengthSlider.setRange(0.0, TdOnsetBias::kMaxStrength, 0.5);
+    logitTdStrengthSlider.setNumDecimalPlacesToDisplay(1);
+    logitTdStrengthSlider.setValue(TdOnsetBias::strength(), juce::dontSendNotification);
+    content.addAndMakeVisible(logitTdStrengthLabel);
+    content.addAndMakeVisible(logitTdStrengthSlider);
+    configureTauSlider(waitMinPlaySlider, waitMinPlayLabel, "WAIT P(play)");
+    waitMinPlaySlider.setRange(0.05, 0.9, 0.05);
+    content.addAndMakeVisible(waitMinPlayLabel);
+    content.addAndMakeVisible(waitMinPlaySlider);
+    waitMinPlaySlider.onValueChange = [this] {
+        if (auto *model = anticipatedModel(); model != nullptr && ! ignoreSliderCallbacks)
+            model->setWaitMinPlay(static_cast<float>(waitMinPlaySlider.getValue()));
+    };
+    shortGapToggle.onClick = [this] {
+        if (auto *model = anticipatedModel(); model != nullptr && ! ignoreToggleCallbacks) {
+            if (showsHybridV1())
+                model->hybridV1ShortGapPenalty.store(shortGapToggle.getToggleState());
+            else
+                model->setShortGapPenaltyEnabled(shortGapToggle.getToggleState());
+        }
+    };
+    logitTdStrengthSlider.onValueChange = [this] {
+        const float s = static_cast<float>(logitTdStrengthSlider.getValue());
+        TdOnsetBias::setStrength(s);
+        session.presetStore.settings.getOrCreateChildWithName("logitTd", nullptr)
+            .setProperty("strength", s, nullptr);
+    };
 
     for (auto *c: {static_cast<juce::Component *>(&pitchTauBaseLabel),
                    static_cast<juce::Component *>(&pitchTauPrimeBaseLabel),
@@ -109,6 +143,18 @@ LogitAdjustmentsWidget::LogitAdjustmentsWidget(AppSession &sessionIn)
         if (! ignoreToggleCallbacks)
             BiasSettings::setOnlyWhenPianoSilent(biasGateToggle.getToggleState());
     };
+    logitTdToggle.onClick = [this] {
+        if (ignoreToggleCallbacks)
+            return;
+        if (auto *model = anticipatedModel()) { // T3'' / W2-W3 / Hybrid: their own switch
+            if (showsHybridV1())
+                model->hybridV1LogitTd.store(logitTdToggle.getToggleState());
+            else
+                model->setLogitTdEnabled(logitTdToggle.getToggleState());
+        }
+        else
+            TdOnsetBias::setEnabled(logitTdToggle.getToggleState());
+    };
     proportionToggle.onClick = [this] {
         if (! ignoreToggleCallbacks)
             applyProportionBiasEnabled(proportionToggle.getToggleState());
@@ -145,11 +191,29 @@ auto LogitAdjustmentsWidget::resized() -> void {
 
     statusLabel.setBounds(area.removeFromTop(16));
     area.removeFromTop(kGap);
+    hybridSideToggle.setBounds(area.removeFromTop(kRowH));
+    area.removeFromTop(kGap);
 
     biasesOnToggle.setBounds(area.removeFromTop(kRowH));
     area.removeFromTop(kGap);
     biasGateToggle.setBounds(area.removeFromTop(kRowH).withTrimmedLeft(18));
     area.removeFromTop(kGap);
+    logitTdToggle.setBounds(area.removeFromTop(kRowH));
+    area.removeFromTop(kGap);
+    {
+        auto row = area.removeFromTop(kRowH).withTrimmedLeft(18);
+        logitTdStrengthLabel.setBounds(row.removeFromLeft(kLabelW + 10));
+        logitTdStrengthSlider.setBounds(row);
+        area.removeFromTop(kGap);
+    }
+    shortGapToggle.setBounds(area.removeFromTop(kRowH));
+    area.removeFromTop(kGap);
+    {
+        auto row = area.removeFromTop(kRowH);
+        waitMinPlayLabel.setBounds(row.removeFromLeft(kLabelW + 28));
+        waitMinPlaySlider.setBounds(row);
+        area.removeFromTop(kGap);
+    }
 
     const auto placeToggleRow = [&](juce::ToggleButton &toggle, juce::Label &live) {
         auto row = area.removeFromTop(kRowH);
@@ -189,10 +253,45 @@ auto LogitAdjustmentsWidget::syncRtBiasTogglesFromModels() -> void {
     biasesOnToggle.setToggleState(BiasSettings::enabled(), juce::dontSendNotification);
     biasGateToggle.setToggleState(BiasSettings::onlyWhenPianoSilent(), juce::dontSendNotification);
     biasGateToggle.setEnabled(BiasSettings::enabled());
+    auto *model = anticipatedModel();
+    const bool v1 = showsHybridV1();
+    hybridSideToggle.setVisible(model != nullptr
+                                && model->getVariant() == TwoInstrumentAnticipatedReductionTransformer::Variant::Hybrid);
+    const bool logitTdOn = model == nullptr ? TdOnsetBias::enabled()
+                           : v1             ? model->hybridV1LogitTd.load()
+                                            : model->isLogitTdEnabled();
+    logitTdToggle.setToggleState(logitTdOn, juce::dontSendNotification);
+    shortGapToggle.setToggleState(model == nullptr
+                                      || (v1 ? model->hybridV1ShortGapPenalty.load() : model->isShortGapPenaltyEnabled()),
+                                  juce::dontSendNotification);
+    shortGapToggle.setEnabled(model != nullptr);
+    {
+        const bool waits = model != nullptr
+                           && model->getVariant() != TwoInstrumentAnticipatedReductionTransformer::Variant::T3;
+        waitMinPlaySlider.setEnabled(waits);
+        if (model != nullptr && ! waitMinPlaySlider.isMouseButtonDown())
+            waitMinPlaySlider.setValue(model->getWaitMinPlay(), juce::dontSendNotification);
+    }
+    {
+        const int32_t td = TemporalDensity::get();
+        const juce::String state = ! logitTdOn                    ? "off"
+                                   : td == TemporalDensity::kAuto ? "idle: TD is AUTO"
+                                   : td <= 1                      ? "idle: TD 1"
+                                                                  : "active: TD " + juce::String(td);
+        logitTdToggle.setButtonText("LogitTD (" + state + ")");
+    }
     const bool dense =
         session.musicModelArch == MusicModelArch::DenseV2
-        || session.musicModelArch == MusicModelArch::DensePianoReduction;
-    if (session.musicModelArch == MusicModelArch::DensePianoReduction) {
+        || session.musicModelArch == MusicModelArch::DensePianoReduction || model != nullptr;
+    if (model != nullptr && v1) {
+        pitchToggle.setToggleState(model->hybridV1PitchBias.load(), juce::dontSendNotification);
+        durationToggle.setToggleState(model->hybridV1DurationBias.load(), juce::dontSendNotification);
+        onsetGapToggle.setToggleState(model->hybridV1OnsetGapBias.load(), juce::dontSendNotification);
+    } else if (model != nullptr) {
+        pitchToggle.setToggleState(model->isPitchBiasEnabled(), juce::dontSendNotification);
+        durationToggle.setToggleState(model->isDurationBiasEnabled(), juce::dontSendNotification);
+        onsetGapToggle.setToggleState(model->isOnsetGapBiasEnabled(), juce::dontSendNotification);
+    } else if (session.musicModelArch == MusicModelArch::DensePianoReduction) {
         pitchToggle.setToggleState(
             session.reductionTransformerPianoReduction.isPitchBiasEnabled(),
             juce::dontSendNotification);
@@ -213,11 +312,12 @@ auto LogitAdjustmentsWidget::syncRtBiasTogglesFromModels() -> void {
     pitchToggle.setEnabled(dense);
     durationToggle.setEnabled(dense);
     onsetGapToggle.setEnabled(dense);
-    pitchTauBaseSlider.setEnabled(dense);
-    pitchTauPrimeBaseSlider.setEnabled(dense);
-    durationTauBaseSlider.setEnabled(dense);
-    durationTauPrimeBaseSlider.setEnabled(dense);
-    onsetGapTauBaseSlider.setEnabled(dense);
+    // v1's taus are fixed at the base values: the sliders set W2/W3's only.
+    pitchTauBaseSlider.setEnabled(dense && ! v1);
+    pitchTauPrimeBaseSlider.setEnabled(dense && ! v1);
+    durationTauBaseSlider.setEnabled(dense && ! v1);
+    durationTauPrimeBaseSlider.setEnabled(dense && ! v1);
+    onsetGapTauBaseSlider.setEnabled(dense && ! v1);
     ignoreToggleCallbacks = false;
 }
 
@@ -225,7 +325,13 @@ auto LogitAdjustmentsWidget::syncBaseSlidersFromModels() -> void {
     ignoreSliderCallbacks = true;
     const bool piano = session.musicModelArch == MusicModelArch::DensePianoReduction;
 
-    if (piano) {
+    if (auto *model = anticipatedModel()) {
+        pitchTauBaseSlider.setValue(model->getPitchTauBase(), juce::dontSendNotification);
+        pitchTauPrimeBaseSlider.setValue(model->getPitchTauPrimeBase(), juce::dontSendNotification);
+        durationTauBaseSlider.setValue(model->getDurationTauBase(), juce::dontSendNotification);
+        durationTauPrimeBaseSlider.setValue(model->getDurationTauPrimeBase(), juce::dontSendNotification);
+        onsetGapTauBaseSlider.setValue(model->getOnsetGapTauBase(), juce::dontSendNotification);
+    } else if (piano) {
         pitchTauBaseSlider.setValue(session.reductionTransformerPianoReduction.getPitchTauBase(),
                                     juce::dontSendNotification);
         pitchTauPrimeBaseSlider.setValue(
@@ -261,17 +367,53 @@ auto LogitAdjustmentsWidget::syncBaseSlidersFromModels() -> void {
     ignoreSliderCallbacks = false;
 }
 
+auto LogitAdjustmentsWidget::anticipatedModel() const
+    -> TwoInstrumentAnticipatedReductionTransformer * {
+    switch (session.musicModelArch) {
+        case MusicModelArch::DenseAnticipatedPiano:
+            return &session.reductionTransformerAnticipated;
+        case MusicModelArch::DenseAnticipatedWait:
+            return &session.reductionTransformerWait;
+        case MusicModelArch::DenseHybrid:
+            return &session.reductionTransformerHybrid;
+        default:
+            return nullptr;
+    }
+}
+
+auto LogitAdjustmentsWidget::showsHybridV1() const -> bool {
+    return session.musicModelArch == MusicModelArch::DenseHybrid && hybridSideToggle.getToggleState();
+}
+
 auto LogitAdjustmentsWidget::applyPitchBiasEnabled(bool enabled) -> void {
+    if (showsHybridV1()) {
+        session.reductionTransformerHybrid.hybridV1PitchBias.store(enabled);
+        return;
+    }
+    if (auto *model = anticipatedModel())
+        model->setPitchBiasEnabled(enabled);
     session.reductionTransformerV2.setPitchBiasEnabled(enabled);
     session.reductionTransformerPianoReduction.setPitchBiasEnabled(enabled);
 }
 
 auto LogitAdjustmentsWidget::applyDurationBiasEnabled(bool enabled) -> void {
+    if (showsHybridV1()) {
+        session.reductionTransformerHybrid.hybridV1DurationBias.store(enabled);
+        return;
+    }
+    if (auto *model = anticipatedModel())
+        model->setDurationBiasEnabled(enabled);
     session.reductionTransformerV2.setDurationBiasEnabled(enabled);
     session.reductionTransformerPianoReduction.setDurationBiasEnabled(enabled);
 }
 
 auto LogitAdjustmentsWidget::applyOnsetGapBiasEnabled(bool enabled) -> void {
+    if (showsHybridV1()) {
+        session.reductionTransformerHybrid.hybridV1OnsetGapBias.store(enabled);
+        return;
+    }
+    if (auto *model = anticipatedModel())
+        model->setOnsetGapBiasEnabled(enabled);
     session.reductionTransformerV2.setOnsetGapBiasEnabled(enabled);
     session.reductionTransformerPianoReduction.setOnsetGapBiasEnabled(enabled);
 }
@@ -291,6 +433,13 @@ auto LogitAdjustmentsWidget::applyBaseTausFromSliders() -> void {
     const float gapBase = static_cast<float>(onsetGapTauBaseSlider.getValue());
     const float groupsTau = static_cast<float>(groupsTauBaseSlider.getValue());
 
+    if (auto *model = anticipatedModel()) {
+        model->setPitchTauBase(pitchBase);
+        model->setPitchTauPrimeBase(pitchPrime);
+        model->setDurationTauBase(durBase);
+        model->setDurationTauPrimeBase(durPrime);
+        model->setOnsetGapTauBase(gapBase);
+    }
     session.reductionTransformerV2.setPitchTauBase(pitchBase);
     session.reductionTransformerV2.setPitchTauPrimeBase(pitchPrime);
     session.reductionTransformerV2.setDurationTauBase(durBase);
@@ -324,6 +473,9 @@ auto LogitAdjustmentsWidget::refreshFromSession() -> void {
         && ! groupsTauBaseSlider.isMouseButtonDown()) {
         syncBaseSlidersFromModels();
     }
+    if (! logitTdStrengthSlider.isMouseButtonDown()) {
+        logitTdStrengthSlider.setValue(TdOnsetBias::strength(), juce::dontSendNotification);
+    }
 
     float pitchTau = session.reductionTransformerV2.getPitchTauBase();
     float pitchTauPrime = session.reductionTransformerV2.getPitchTauPrimeBase();
@@ -331,6 +483,18 @@ auto LogitAdjustmentsWidget::refreshFromSession() -> void {
     float durationTauPrime = session.reductionTransformerV2.getDurationTauPrimeBase();
     float onsetGapTau = session.reductionTransformerV2.getOnsetGapTauBase();
     juce::String archLabel = "AMT / no RT bias";
+    if (auto *model = anticipatedModel()) {
+        archLabel = session.musicModelArch == MusicModelArch::DenseAnticipatedPiano ? "T3'' (all off by default)"
+                    : session.musicModelArch == MusicModelArch::DenseAnticipatedWait
+                        ? "W2/W3 (all off by default)"
+                    : showsHybridV1() ? "Hybrid: v1's switches (all on by default)"
+                                      : "Hybrid: W2/W3's switches (all off by default)";
+        pitchTau = model->getPitchTauBase();
+        pitchTauPrime = model->getPitchTauPrimeBase();
+        durationTau = model->getDurationTauBase();
+        durationTauPrime = model->getDurationTauPrimeBase();
+        onsetGapTau = model->getOnsetGapTauBase();
+    }
 
     if (session.musicModelArch == MusicModelArch::DenseV2) {
         archLabel = "Reduction V2";

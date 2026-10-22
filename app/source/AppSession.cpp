@@ -4,6 +4,10 @@
 #include "VirtualOrch/orchestration-models/IodPretrained.h"
 #include "VirtualOrch/orchestration-models/OrchestrationModels.h"
 #include "VirtualOrch/ProjectPaths.h"
+#include "VirtualOrch/ReductionInputGate.h"
+#include "VirtualOrch/BiasSettings.h"
+#include "VirtualOrch/reduction/TdOnsetBias.h"
+#include "VirtualOrch/SessionLog.h"
 #include "VirtualOrch/ui/UiConstants.h"
 #include "onnxruntime_cxx_api.h"
 
@@ -57,6 +61,8 @@ AppSession::AppSession()
       reductionTransformerV2(modelConfig),
       reductionTransformerPianoReduction(modelConfig),
       reductionTransformerAnticipated(modelConfig),
+      reductionTransformerWait(modelConfig, TwoInstrumentAnticipatedReductionTransformer::Variant::Wait),
+      reductionTransformerHybrid(modelConfig, TwoInstrumentAnticipatedReductionTransformer::Variant::Hybrid),
       reductionTransformerMelodyFirst(modelConfig),
       orchestrationModel(createOrchestrationModel("IodPretrained")),
       inputFilter(createInputFilter(modelConfig.inputFilterType,
@@ -73,12 +79,14 @@ AppSession::AppSession()
                        inputFilter,
                        selectedMidiInputIdentifier,
                        selectedPedalMidiInputIdentifier,
+                       selectedAdditionalMidiInputIdentifier,
                        selectedLaunchpadMidiIdentifier,
                        selectedMtcClockIdentifier,
                        mtcClockActive) {
     if (const auto vocsep = findModelCheckpoint("vocsep_reduction_best")) {
         try {
             voiceSeparation.init(vocsep->onnxFile.getFullPathName().toRawUTF8());
+            inputVoiceSeparation.init(vocsep->onnxFile.getFullPathName().toRawUTF8());
             std::cerr << "[vocsep] loaded " << vocsep->onnxFile.getFullPathName() << std::endl;
         } catch (const Ort::Exception &e) {
             std::cerr << "[vocsep] failed to load: " << e.what() << std::endl;
@@ -101,13 +109,18 @@ AppSession::AppSession()
     reductionTransformerV2.pianoSilentForMs = pianoSilent;
     reductionTransformerPianoReduction.pianoSilentForMs = pianoSilent;
     reductionTransformerAnticipated.pianoSilentForMs = pianoSilent;
+    reductionTransformerWait.pianoSilentForMs = pianoSilent;
+    reductionTransformerHybrid.pianoSilentForMs = pianoSilent;
     reductionTransformerMelodyFirst.pianoSilentForMs = pianoSilent;
     midiInputProcess.activityLog = &activityLog;
+    SessionLog::setClock(&clock);
     midiInputProcess.getLaunchpadGrid().action_callback =
         [this](const PerformanceActivity::LaunchpadAction &action) {
-            consoleLog.add(PerformanceActivity::describe(action, [](int32_t local) {
+            const auto text = PerformanceActivity::describe(action, [](int32_t local) {
                 return ActiveInstrumentsView::shortNameForLocal(local);
-            }));
+            });
+            SessionLog::add("LAUNCHPAD", text);
+            consoleLog.add(text);
         };
     midiInputProcess.onPedalDown = [this](int32_t pedalTimeCs) {
         outputPlayback.pedalClearRequests.push(pedalTimeCs);
@@ -142,6 +155,14 @@ AppSession::AppSession()
         }
         orchestrationTransformer.replaceInstrumentSets(std::move(user), std::move(model));
     };
+    // A TD press keeps the next second and regenerates the rest at the new TD: the reduction
+    // drops its notes from now + 1 s, and its cut marker (a ClearQueue at that time) makes
+    // playback drop the queued notes from then on. The next second plays on: no gap.
+    midiInputProcess.getLaunchpadGrid().td_callback = [this] {
+        const auto cut = static_cast<int32_t>(clock.getTime()) + kTdCutAheadCs;
+        SessionLog::add("CUT", "TD press: notes from " + juce::String(cut) + " (now + 1 s) removed");
+        activeReduction().requestModeCut(cut);
+    };
     midiInputProcess.getLaunchpadGrid().mode_callback = [this](OrchestrationMode mode) {
         setOrchestrationMode(mode);
         consoleLog.add(PerformanceActivity::describe(
@@ -154,19 +175,25 @@ AppSession::AppSession()
         applyAccompanimentCap();
     };
     midiInputProcess.getLaunchpadGrid().scene_callback = [this](int idx) {
-        const auto logPause = [this](int32_t which, bool paused) {
-            consoleLog.add(PerformanceActivity::describe(
-                {PerformanceActivity::LaunchpadAction::Kind::Pause, 0, which, paused, false},
-                [](int32_t) { return juce::String(); }));
+        const auto logAction = [this](const PerformanceActivity::LaunchpadAction &action) {
+            const auto text =
+                PerformanceActivity::describe(action, [](int32_t) { return juce::String(); });
+            SessionLog::add("LAUNCHPAD", text);
+            consoleLog.add(text);
+        };
+        const auto logPause = [&](int32_t which, bool paused) {
+            logAction({PerformanceActivity::LaunchpadAction::Kind::Pause, 0, which, paused, false});
         };
         if (idx == 0) {
-            consoleLog.add(PerformanceActivity::describe(
-                {PerformanceActivity::LaunchpadAction::Kind::ForceRestart, 0, 0, false, false},
-                [](int32_t) { return juce::String(); }));
+            logAction({PerformanceActivity::LaunchpadAction::Kind::ForceRestart, 0, 0, false, false});
             forceRestart();
             return;
         }
-        if (idx == 1) {
+        if (idx == 3) {
+            ReductionInputGate::setBlocked(! ReductionInputGate::isBlocked());
+            logAction({PerformanceActivity::LaunchpadAction::Kind::InputBlock, 0, 0,
+                       ReductionInputGate::isBlocked(), false});
+        } else if (idx == 1) {
             auto &reduction = activeReduction();
             reduction.setGenerationPause(! reduction.generationPause.get());
             logPause(1, reduction.generationPause.get());
@@ -212,6 +239,7 @@ AppSession::AppSession()
 
     orchestrationTransformer.orchestrationModel = orchestrationModel.get();
     orchestrationTransformer.clock = &clock;
+    orchestrationTransformer.inputVoiceSeparation = inputVoiceSeparation.isLoaded() ? &inputVoiceSeparation : nullptr;
     outputPlayback.isReductionPaused = [this] {
         return activeReduction().isGenerationStopped();
     };
@@ -224,12 +252,16 @@ AppSession::AppSession()
     reductionTransformerV2.clock = &clock;
     reductionTransformerPianoReduction.clock = &clock;
     reductionTransformerAnticipated.clock = &clock;
+    reductionTransformerWait.clock = &clock;
+    reductionTransformerHybrid.clock = &clock;
     reductionTransformerMelodyFirst.clock = &clock;
     musicTransformer.samplingAlert = &modelSamplingAlert;
     reductionTransformerV1.samplingAlert = &modelSamplingAlert;
     reductionTransformerV2.samplingAlert = &modelSamplingAlert;
     reductionTransformerPianoReduction.samplingAlert = &modelSamplingAlert;
     reductionTransformerAnticipated.samplingAlert = &modelSamplingAlert;
+    reductionTransformerWait.samplingAlert = &modelSamplingAlert;
+    reductionTransformerHybrid.samplingAlert = &modelSamplingAlert;
     reductionTransformerMelodyFirst.samplingAlert = &modelSamplingAlert;
     if (orchestrationModel != nullptr) {
         orchestrationModel->samplingAlert = &modelSamplingAlert;
@@ -243,10 +275,14 @@ AppSession::AppSession()
     reductionTransformerV2.onPausedChanged = syncLeds;
     reductionTransformerPianoReduction.onPausedChanged = syncLeds;
     reductionTransformerAnticipated.onPausedChanged = syncLeds;
+    reductionTransformerWait.onPausedChanged = syncLeds;
+    reductionTransformerHybrid.onPausedChanged = syncLeds;
     reductionTransformerMelodyFirst.onPausedChanged = syncLeds;
 }
 
 AppSession::~AppSession() {
+    if (SessionLog::clock() == &clock)
+        SessionLog::setClock(nullptr);
     alive->store(false);
     testOrchestrationTransformerThread.stop();
     // Ensure any detached stop join finished before members are destroyed.
@@ -257,6 +293,8 @@ AppSession::~AppSession() {
     reductionTransformerV2.stopThread(threadStopTimeoutMs);
     reductionTransformerPianoReduction.stopThread(threadStopTimeoutMs);
     reductionTransformerAnticipated.stopThread(threadStopTimeoutMs);
+    reductionTransformerWait.stopThread(threadStopTimeoutMs);
+    reductionTransformerHybrid.stopThread(threadStopTimeoutMs);
     reductionTransformerMelodyFirst.stopThread(threadStopTimeoutMs);
     orchestrationTransformer.stopThread(threadStopTimeoutMs);
     outputPlayback.stopThread(threadStopTimeoutMs);
@@ -274,6 +312,10 @@ auto AppSession::activeReduction() -> ReductionTransformer & {
             return reductionTransformerPianoReduction;
         case MusicModelArch::DenseAnticipatedPiano:
             return reductionTransformerAnticipated;
+        case MusicModelArch::DenseAnticipatedWait:
+            return reductionTransformerWait;
+        case MusicModelArch::DenseHybrid:
+            return reductionTransformerHybrid;
         case MusicModelArch::DenseMelodyFirst:
             return reductionTransformerMelodyFirst;
         case MusicModelArch::Amt:
@@ -292,6 +334,10 @@ auto AppSession::activeReduction() const -> const ReductionTransformer & {
             return reductionTransformerPianoReduction;
         case MusicModelArch::DenseAnticipatedPiano:
             return reductionTransformerAnticipated;
+        case MusicModelArch::DenseAnticipatedWait:
+            return reductionTransformerWait;
+        case MusicModelArch::DenseHybrid:
+            return reductionTransformerHybrid;
         case MusicModelArch::DenseMelodyFirst:
             return reductionTransformerMelodyFirst;
         case MusicModelArch::Amt:
@@ -321,15 +367,21 @@ auto AppSession::bindActiveMusicBackend() -> void {
     reductionTransformerV2.orchestrationUpdatesIncoming = nullptr;
     reductionTransformerPianoReduction.orchestrationReductionIncoming = nullptr;
     reductionTransformerAnticipated.orchestrationReductionIncoming = nullptr;
+    reductionTransformerWait.orchestrationReductionIncoming = nullptr;
+    reductionTransformerHybrid.orchestrationReductionIncoming = nullptr;
     reductionTransformerMelodyFirst.orchestrationReductionIncoming = nullptr;
     reductionTransformerPianoReduction.orchestrationUpdatesIncoming = nullptr;
     reductionTransformerAnticipated.orchestrationUpdatesIncoming = nullptr;
+    reductionTransformerWait.orchestrationUpdatesIncoming = nullptr;
+    reductionTransformerHybrid.orchestrationUpdatesIncoming = nullptr;
     reductionTransformerMelodyFirst.orchestrationUpdatesIncoming = nullptr;
     musicTransformer.orchestrationRestampsIncoming = nullptr;
     reductionTransformerV1.orchestrationRestampsIncoming = nullptr;
     reductionTransformerV2.orchestrationRestampsIncoming = nullptr;
     reductionTransformerPianoReduction.orchestrationRestampsIncoming = nullptr;
     reductionTransformerAnticipated.orchestrationRestampsIncoming = nullptr;
+    reductionTransformerWait.orchestrationRestampsIncoming = nullptr;
+    reductionTransformerHybrid.orchestrationRestampsIncoming = nullptr;
     reductionTransformerMelodyFirst.orchestrationRestampsIncoming = nullptr;
 
     auto &reduction = activeReduction();
@@ -342,6 +394,8 @@ auto AppSession::bindActiveMusicBackend() -> void {
     reductionTransformerV2.voiceSeparation = nullptr;
     reductionTransformerPianoReduction.voiceSeparation = nullptr;
     reductionTransformerAnticipated.voiceSeparation = nullptr;
+    reductionTransformerWait.voiceSeparation = nullptr;
+    reductionTransformerHybrid.voiceSeparation = nullptr;
     reductionTransformerMelodyFirst.voiceSeparation = nullptr;
     reduction.voiceSeparation = voiceSeparation.isLoaded() ? &voiceSeparation : nullptr;
 
@@ -380,6 +434,8 @@ auto AppSession::setOnInputDataChanged(std::function<void(std::vector<int32_t>)>
     reductionTransformerV2.onInputDataChanged = nullptr;
     reductionTransformerPianoReduction.onInputDataChanged = nullptr;
     reductionTransformerAnticipated.onInputDataChanged = nullptr;
+    reductionTransformerWait.onInputDataChanged = nullptr;
+    reductionTransformerHybrid.onInputDataChanged = nullptr;
     reductionTransformerMelodyFirst.onInputDataChanged = nullptr;
     activeReduction().onInputDataChanged = std::move(callback);
 }
@@ -459,14 +515,16 @@ auto AppSession::startGeneration() -> void {
     if (inputFilter != nullptr)
         inputFilter->reset();
 
-    startThreadOrReport(activeReduction(), modelSamplingAlert);
-    startThreadOrReport(orchestrationTransformer, modelSamplingAlert);
-    startThreadOrReport(outputPlayback, modelSamplingAlert);
+    // The clock goes back to 0 BEFORE the workers start: a reduction stream starts at the clock
+    // it reads first (a Force restart used to start it at the stopped clock's old time).
     if (! mtcClockActive) {
         clock.startAtTime(0);
     } else {
         clock.setMtcTime(0);
     }
+    startThreadOrReport(activeReduction(), modelSamplingAlert);
+    startThreadOrReport(orchestrationTransformer, modelSamplingAlert);
+    startThreadOrReport(outputPlayback, modelSamplingAlert);
     if (orchestrationModel != nullptr && orchestrationModel->getName() == "TestModel")
         testOrchestrationTransformerThread.start(clock, orchestrationTransformer);
 }
@@ -478,6 +536,8 @@ auto AppSession::stopGeneration() -> void {
     reductionTransformerV2.signalThreadShouldExit();
     reductionTransformerPianoReduction.signalThreadShouldExit();
     reductionTransformerAnticipated.signalThreadShouldExit();
+    reductionTransformerWait.signalThreadShouldExit();
+    reductionTransformerHybrid.signalThreadShouldExit();
     reductionTransformerMelodyFirst.signalThreadShouldExit();
     orchestrationTransformer.signalThreadShouldExit();
     outputPlayback.signalThreadShouldExit();
@@ -488,6 +548,8 @@ auto AppSession::stopGeneration() -> void {
     reductionTransformerV2.resetAheadThrottle();
     reductionTransformerPianoReduction.resetAheadThrottle();
     reductionTransformerAnticipated.resetAheadThrottle();
+    reductionTransformerWait.resetAheadThrottle();
+    reductionTransformerHybrid.resetAheadThrottle();
     reductionTransformerMelodyFirst.resetAheadThrottle();
     clock.stop();
     outputPlayback.resetProgress();
@@ -497,6 +559,8 @@ auto AppSession::stopGeneration() -> void {
     reductionTransformerV2.clearOutputHistory();
     reductionTransformerPianoReduction.clearOutputHistory();
     reductionTransformerAnticipated.clearOutputHistory();
+    reductionTransformerWait.clearOutputHistory();
+    reductionTransformerHybrid.clearOutputHistory();
     reductionTransformerMelodyFirst.clearOutputHistory();
     if (outputProcessor != nullptr)
         outputProcessor->clear();
@@ -511,6 +575,8 @@ auto AppSession::stopGeneration() -> void {
         stopThreadOrReport(reductionTransformerV2, modelSamplingAlert);
         stopThreadOrReport(reductionTransformerPianoReduction, modelSamplingAlert);
         stopThreadOrReport(reductionTransformerAnticipated, modelSamplingAlert);
+        stopThreadOrReport(reductionTransformerWait, modelSamplingAlert);
+        stopThreadOrReport(reductionTransformerHybrid, modelSamplingAlert);
         stopThreadOrReport(reductionTransformerMelodyFirst, modelSamplingAlert);
         stopThreadOrReport(orchestrationTransformer, modelSamplingAlert);
         stopThreadOrReport(outputPlayback, modelSamplingAlert);
@@ -518,8 +584,94 @@ auto AppSession::stopGeneration() -> void {
     }).detach();
 }
 
+auto AppSession::activeAnticipated() -> TwoInstrumentAnticipatedReductionTransformer * {
+    switch (musicModelArch) {
+        case MusicModelArch::DenseAnticipatedPiano: return &reductionTransformerAnticipated;
+        case MusicModelArch::DenseAnticipatedWait: return &reductionTransformerWait;
+        case MusicModelArch::DenseHybrid: return &reductionTransformerHybrid;
+        default: return nullptr;
+    }
+}
+
+auto AppSession::logitAdjustmentsToVar() -> juce::var {
+    auto *root = new juce::DynamicObject();
+    root->setProperty("biasesOn", BiasSettings::enabled());
+    root->setProperty("biasesOnlyWhenPianoSilent", BiasSettings::onlyWhenPianoSilent());
+    root->setProperty("logitTdStrength", TdOnsetBias::strength());
+    if (auto *m = activeAnticipated()) {
+        auto *model = new juce::DynamicObject();
+        model->setProperty("pitchBias", m->isPitchBiasEnabled());
+        model->setProperty("durationBias", m->isDurationBiasEnabled());
+        model->setProperty("onsetGapBias", m->isOnsetGapBiasEnabled());
+        model->setProperty("shortGapPenalty", m->isShortGapPenaltyEnabled());
+        model->setProperty("logitTd", m->isLogitTdEnabled());
+        model->setProperty("pitchTau", m->getPitchTauBase());
+        model->setProperty("pitchTauPrime", m->getPitchTauPrimeBase());
+        model->setProperty("durationTau", m->getDurationTauBase());
+        model->setProperty("durationTauPrime", m->getDurationTauPrimeBase());
+        model->setProperty("onsetGapTau", m->getOnsetGapTauBase());
+        model->setProperty("waitMinPlay", m->getWaitMinPlay());
+        root->setProperty("model", juce::var(model));
+        if (musicModelArch == MusicModelArch::DenseHybrid) {
+            auto *v1 = new juce::DynamicObject();
+            v1->setProperty("pitchBias", m->hybridV1PitchBias.load());
+            v1->setProperty("durationBias", m->hybridV1DurationBias.load());
+            v1->setProperty("onsetGapBias", m->hybridV1OnsetGapBias.load());
+            v1->setProperty("shortGapPenalty", m->hybridV1ShortGapPenalty.load());
+            v1->setProperty("logitTd", m->hybridV1LogitTd.load());
+            root->setProperty("hybridV1", juce::var(v1));
+        }
+    }
+    return juce::var(root);
+}
+
+auto AppSession::applyLogitAdjustments(const juce::var &a) -> void {
+    if (! a.isObject())
+        return;
+    if (a.hasProperty("biasesOn"))
+        BiasSettings::setEnabled(static_cast<bool>(a["biasesOn"]));
+    if (a.hasProperty("biasesOnlyWhenPianoSilent"))
+        BiasSettings::setOnlyWhenPianoSilent(static_cast<bool>(a["biasesOnlyWhenPianoSilent"]));
+    if (a.hasProperty("logitTdStrength"))
+        TdOnsetBias::setStrength(static_cast<float>(a["logitTdStrength"]));
+    auto *m = activeAnticipated();
+    if (m == nullptr)
+        return;
+    const auto flag = [](const juce::var &o, const char *key, auto setter) {
+        if (o.hasProperty(key))
+            setter(static_cast<bool>(o[key]));
+    };
+    const auto value = [](const juce::var &o, const char *key, auto setter) {
+        if (o.hasProperty(key))
+            setter(static_cast<float>(o[key]));
+    };
+    if (const auto &model = a["model"]; model.isObject()) {
+        flag(model, "pitchBias", [m](bool on) { m->setPitchBiasEnabled(on); });
+        flag(model, "durationBias", [m](bool on) { m->setDurationBiasEnabled(on); });
+        flag(model, "onsetGapBias", [m](bool on) { m->setOnsetGapBiasEnabled(on); });
+        flag(model, "shortGapPenalty", [m](bool on) { m->setShortGapPenaltyEnabled(on); });
+        flag(model, "logitTd", [m](bool on) { m->setLogitTdEnabled(on); });
+        value(model, "pitchTau", [m](float t) { m->setPitchTauBase(t); });
+        value(model, "pitchTauPrime", [m](float t) { m->setPitchTauPrimeBase(t); });
+        value(model, "durationTau", [m](float t) { m->setDurationTauBase(t); });
+        value(model, "durationTauPrime", [m](float t) { m->setDurationTauPrimeBase(t); });
+        value(model, "onsetGapTau", [m](float t) { m->setOnsetGapTauBase(t); });
+        value(model, "waitMinPlay", [m](float p) { m->setWaitMinPlay(p); });
+    }
+    if (const auto &v1 = a["hybridV1"]; v1.isObject() && musicModelArch == MusicModelArch::DenseHybrid) {
+        flag(v1, "pitchBias", [m](bool on) { m->hybridV1PitchBias.store(on); });
+        flag(v1, "durationBias", [m](bool on) { m->hybridV1DurationBias.store(on); });
+        flag(v1, "onsetGapBias", [m](bool on) { m->hybridV1OnsetGapBias.store(on); });
+        flag(v1, "shortGapPenalty", [m](bool on) { m->hybridV1ShortGapPenalty.store(on); });
+        flag(v1, "logitTd", [m](bool on) { m->hybridV1LogitTd.store(on); });
+    }
+}
+
 auto AppSession::setOrchestrationMode(OrchestrationMode mode) -> void {
     const auto previous = orchestrationTransformer.getMode();
+    SessionLog::add("MODE", juce::String(mode == OrchestrationMode::Edit  ? "Edit"
+                                         : mode == OrchestrationMode::Jam ? "Jam"
+                                                                          : "Accompaniment"));
     orchestrationTransformer.setMode(mode);
     midiInputProcess.getLaunchpadGrid().setSelectedMode(mode);
 
@@ -533,12 +685,18 @@ auto AppSession::setOrchestrationMode(OrchestrationMode mode) -> void {
           static_cast<ReductionTransformer *>(&reductionTransformerV2),
           static_cast<ReductionTransformer *>(&reductionTransformerPianoReduction),
           static_cast<ReductionTransformer *>(&reductionTransformerAnticipated),
+          static_cast<ReductionTransformer *>(&reductionTransformerWait),
+          static_cast<ReductionTransformer *>(&reductionTransformerHybrid),
           static_cast<ReductionTransformer *>(&reductionTransformerMelodyFirst)})
+    {
         reduction->setKeepQueueOnInput(accompaniment);
+        reduction->setEditMode(mode == OrchestrationMode::Edit);
+    }
     applyAccompanimentCap();
 
     if (previous == OrchestrationMode::Accompaniment && ! accompaniment) {
         const auto now = static_cast<int32_t>(clock.getTime());
+        SessionLog::add("CUT", "left Accompaniment: future removed from " + juce::String(now));
         outputPlayback.modeCutRequests.push(now);
         activeReduction().requestModeCut(now);
     }
@@ -551,6 +709,8 @@ auto AppSession::applyAccompanimentCap() -> void {
     reductionTransformerV2.setMaxPolyphony(cap);
     reductionTransformerPianoReduction.setMaxPolyphony(cap);
     reductionTransformerAnticipated.setMaxPolyphony(cap);
+    reductionTransformerWait.setMaxPolyphony(cap);
+    reductionTransformerHybrid.setMaxPolyphony(cap);
     reductionTransformerMelodyFirst.setMaxPolyphony(cap);
 }
 
@@ -590,4 +750,6 @@ auto AppSession::syncPauseTopLeds() -> void {
                                                               : LaunchpadLighting::kOff);
     grid.setTopLed(2, orchestrationTransformer.paused.get() ? LaunchpadLighting::kRed
                                                             : LaunchpadLighting::kOff);
+    grid.setTopLed(3, ReductionInputGate::isBlocked() ? LaunchpadLighting::kRed
+                                                      : LaunchpadLighting::kOff);
 }

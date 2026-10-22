@@ -23,10 +23,14 @@ public:
 
     [[nodiscard]] static auto shortNameForLocal(int32_t localId) -> juce::String;
 
+    /** Larger labels for an audience (the cells stay the same; text fills more of them). */
+    auto setTextScale(float scale) -> void { textScale = scale; resized(); repaint(); }
+
 private:
     static constexpr int kUiRows = 9;
     static constexpr int kUiCols = 9;
     static constexpr int kLabelStripWidth = 64;
+    float textScale = 1.0f;
 
     struct CellState {
         juce::String label;

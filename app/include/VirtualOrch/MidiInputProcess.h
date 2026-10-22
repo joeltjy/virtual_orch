@@ -36,6 +36,7 @@ public:
                      std::unique_ptr<InputFilter> &inputFilter,
                      juce::String &selectedMidiInputIdentifier,
                      juce::String &selectedPedalMidiInputIdentifier,
+                     juce::String &selectedAdditionalMidiInputIdentifier,
                      juce::String &selectedLaunchpadMidiIdentifier,
                      juce::String &selectedMtcClockIdentifier,
                      bool &mtcClockActive);
@@ -98,9 +99,10 @@ private:
     /** CC64 → generationPause (down pauses, up resumes); ignores everything else. */
     void handleSustainPedal(const juce::MidiMessage &message);
 
-    void handleNoteOn(int midiNoteNumber, float velocity);
+    /** `piano`: 0 = MIDI Input, 1 = Additional MIDI (held keys are tracked per piano). */
+    void handleNoteOn(int midiNoteNumber, float velocity, int piano = 0);
 
-    void handleNoteOff(int midiNoteNumber);
+    void handleNoteOff(int midiNoteNumber, int piano = 0);
 
     [[nodiscard]] auto isMusicThreadRunning() const -> bool;
 
@@ -117,6 +119,7 @@ private:
 
     juce::String &selectedMidiInputIdentifier;
     juce::String &selectedPedalMidiInputIdentifier;
+    juce::String &selectedAdditionalMidiInputIdentifier;
     juce::String &selectedLaunchpadMidiIdentifier;
     juce::String &selectedMtcClockIdentifier;
     bool &mtcClockActive;
@@ -143,7 +146,10 @@ private:
     std::deque<Token> tokensToSend;
     uint32_t lastTokenAddedTime = 0;
     std::optional<int32_t> bassHeld = std::nullopt;
+    /** Held keys by heldKeyOf(piano, pitch), so both pianos can hold the same pitch. */
     std::map<int32_t, HeldDirectNote> notesOnToSend;
+    [[nodiscard]] static auto heldKeyOf(int piano, int pitch) -> int32_t { return piano * 128 + pitch; }
+    [[nodiscard]] static auto pitchOfHeldKey(int32_t key) -> int32_t { return key % 128; }
 
     auto hasUnflushedDirectNotes() const -> bool;
 

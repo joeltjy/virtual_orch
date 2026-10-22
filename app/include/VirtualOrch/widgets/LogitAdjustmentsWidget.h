@@ -5,6 +5,7 @@
 #include "VirtualOrch/widgets/WorkspaceWidget.h"
 
 class AppSession;
+class TwoInstrumentAnticipatedReductionTransformer;
 
 /**
  * Live τ readouts + base-τ sliders for RT pitch / duration / onset-gap and IOD
@@ -34,13 +35,29 @@ private:
 
     auto applyBaseTausFromSliders() -> void;
 
+    /** The active T3'' / W2-W3 / Hybrid transformer (their own adjustment settings), else nullptr. */
+    [[nodiscard]] auto anticipatedModel() const -> TwoInstrumentAnticipatedReductionTransformer *;
+    /** Hybrid with "v1" chosen: the switches show and set the v1 side (hybridV1*). */
+    [[nodiscard]] auto showsHybridV1() const -> bool;
+
     AppSession &session;
 
     juce::Label statusLabel;
+    /** Hybrid only: which side the switches below show (on = v1, the default; off = W2/W3). */
+    juce::ToggleButton hybridSideToggle{"Show v1's switches (off: W2/W3's)"};
 
     /** Global (BiasSettings): biases on/off, and if on, only while the piano is silent > 1 s. */
     juce::ToggleButton biasesOnToggle{"Logit biases on"};
     juce::ToggleButton biasGateToggle{"Only when the piano is silent > 1 s"};
+    /** TdOnsetBias: shorter onset gaps for higher Launchpad TD (independent of the toggle above). */
+    juce::ToggleButton logitTdToggle{"LogitTD (shorter onset gaps for higher TD)"};
+    /** T3'' / W2-W3 / Hybrid only (the older models always use it): the 1..8 cs penalty. */
+    juce::ToggleButton shortGapToggle{"Short-gap penalty (1-8 cs)"};
+    /** W2/W3 and Hybrid: play when P(play) >= this (threshold rule, 0.30 recommended). */
+    juce::Label waitMinPlayLabel;
+    juce::Slider waitMinPlaySlider;
+    juce::Label logitTdStrengthLabel;
+    juce::Slider logitTdStrengthSlider; // TdOnsetBias::strength (exponent at TD 64), saved
 
     juce::ToggleButton pitchToggle{"Pitch bias"};
     juce::ToggleButton durationToggle{"Duration bias"};

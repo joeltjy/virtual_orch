@@ -19,12 +19,13 @@ auto TdBarView::paint(juce::Graphics &g) -> void {
     const auto fraction = PerformanceActivity::tdBarFraction(value);
 
     g.setColour(UiConstants::workspaceWidgetTitleTextColour);
-    g.setFont(juce::Font(20.0f, juce::Font::bold));
-    const auto header = area.withHeight(30.0f);
+    const float ts = textScale;
+    g.setFont(juce::Font(20.0f * ts, juce::Font::bold));
+    const auto header = area.withHeight(30.0f * ts);
     g.drawText(fraction.has_value() ? "TD " + juce::String(value) : juce::String("AUTO"), header,
                juce::Justification::centredLeft);
 
-    const auto bar = area.withTrimmedTop(38.0f).withTrimmedBottom(22.0f);
+    const auto bar = area.withTrimmedTop(38.0f * ts).withTrimmedBottom(22.0f * ts);
     const auto steps = static_cast<int>(TemporalDensity::kLevels.size());
     const float gap = 4.0f;
     const float stepW = (bar.getWidth() - gap * static_cast<float>(steps - 1)) / static_cast<float>(steps);
@@ -37,9 +38,9 @@ auto TdBarView::paint(juce::Graphics &g) -> void {
                                  : juce::Colours::white.withAlpha(0.08f));
         g.fillRoundedRectangle(cell, 3.0f);
         g.setColour(UiConstants::workspaceWidgetTitleTextColour.withAlpha(0.8f));
-        g.setFont(juce::Font(12.0f));
+        g.setFont(juce::Font(12.0f * ts, ts > 1.0f ? juce::Font::bold : juce::Font::plain));
         g.drawText(juce::String(TemporalDensity::kLevels[static_cast<size_t>(i)]),
-                   cell.withY(bar.getBottom() + 2.0f).withHeight(18.0f),
+                   cell.withY(bar.getBottom() + 2.0f).withHeight(18.0f * ts),
                    juce::Justification::centred);
     }
 }

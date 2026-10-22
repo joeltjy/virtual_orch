@@ -7,5 +7,6 @@
     1
   ],
   "defaultPreset": {},
-  "notes": "MelodyFirstReductionTransformer: 'melodyOnnx' = T8'' (dense vocab 11776, RoPE KV export: piano melody+bass given on instrument 0 -> two-voice reduction melody+bass on instrument 1); 'onnx' = T7'' (AMT-native vocab 55293, RoPE KV export: ANTICIPATE flag, piano as instrument-0 events, T8'' output as melody+bass controls anticipated 3 s, visible 1 s rests, TD ids 55285..55292 -> reduction minus melody+bass). Both file names are placeholders until the exports exist (Documents/onnx_export_*, then Desktop/onnx_export_*)."
+  "notes": "MelodyFirstReductionTransformer: 'melodyOnnx' = T8'' (dense vocab 11776, RoPE KV export: piano melody+bass given on instrument 0 -> two-voice reduction melody+bass on instrument 1); 'onnx' = T7'' (AMT-native vocab 55293, RoPE KV export: ANTICIPATE flag, piano as instrument-0 events, T8'' output as melody+bass controls anticipated 3 s, visible 1 s rests, TD ids 55285..55292 -> reduction minus melody+bass). Both file names are placeholders until the exports exist (Documents/onnx_export_*, then Desktop/onnx_export_*).",
+  "reductionType": 6
 }

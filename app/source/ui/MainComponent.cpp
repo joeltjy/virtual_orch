@@ -3,6 +3,7 @@
 #include <iostream>
 
 #include "VirtualOrch/MidiOutputProcessor.h"
+#include "VirtualOrch/reduction/TdOnsetBias.h"
 #include "VirtualOrch/OSCOutputProcessor.h"
 #include "VirtualOrch/OSCController.h"
 #include "VirtualOrch/ProjectPaths.h"
@@ -29,8 +30,13 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
                 return "edit";
         }
     });
+    session.presetStore.setLogitAdjustmentsProvider([this] { return session.logitAdjustmentsToVar(); });
     session.presetStore.setReductionTypeProvider([this]() -> juce::String {
         switch (reductionTypeList.getSelectedId()) {
+            case 8:
+                return "hybrid";
+            case 7:
+                return "wait";
             case 6:
                 return "melodyFirst";
             case 5:
@@ -309,6 +315,46 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
         midiInputList.setSelectedItemIndex(0);
     }
 
+    /* ADDITIONAL MIDI LIST (a second piano, played like the MIDI Input) */
+
+    addAndMakeVisible(additionalMidiListLabel);
+    additionalMidiListLabel.setText("Additional MIDI: ", juce::dontSendNotification);
+    additionalMidiListLabel.attachToComponent(&additionalMidiList, true);
+
+    addAndMakeVisible(additionalMidiList);
+    additionalMidiList.setTextWhenNoChoicesAvailable("No MIDI Inputs Enabled");
+    // Id 1 = none (do not claim a device). Device items use ids 2..n+1.
+    additionalMidiList.addItem("(none)", 1);
+    for (int i = 0; i < midiInputNames.size(); ++i)
+        additionalMidiList.addItem(midiInputNames[i], i + 2);
+    additionalMidiList.onChange = [this] {
+        const int id = additionalMidiList.getSelectedId();
+        auto additionalSettings =
+            session.presetStore.settings.getOrCreateChildWithName("additionalInput", nullptr);
+        if (id <= 1) {
+            clearAdditionalMidiInput();
+            additionalSettings.setProperty("identifier", "", nullptr);
+            return;
+        }
+        const int deviceIndex = id - 2;
+        if (! juce::isPositiveAndBelow(deviceIndex, midiInputs.size()))
+            return;
+        setMidiInput(deviceIndex, 3);
+        additionalSettings.setProperty("identifier", midiInputs[deviceIndex].identifier, nullptr);
+    };
+    {
+        const juce::String savedAdditional =
+            session.presetStore.settings.getOrCreateChildWithName("additionalInput", nullptr)
+                .getProperty("identifier", "");
+        int additionalIndex = -1;
+        for (int i = 0; savedAdditional.isNotEmpty() && i < midiInputs.size(); i++)
+            if (midiInputs[i].identifier == savedAdditional) {
+                additionalIndex = i;
+                break;
+            }
+        additionalMidiList.setSelectedId(additionalIndex != -1 ? additionalIndex + 2 : 1);
+    }
+
     /* PEDAL MIDI LIST (CC64 → generationPause only) */
 
     addAndMakeVisible(pedalMidiListLabel);
@@ -318,7 +364,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     addAndMakeVisible(pedalMidiList);
     pedalMidiList.setTextWhenNoChoicesAvailable("No MIDI Inputs Enabled");
     // Id 1 = none (do not claim a device). Device items use ids 2..n+1.
-    pedalMidiList.addItem("(none: use MIDI Input)", 1);
+    pedalMidiList.addItem("(none: use the pianos)", 1);
     for (int i = 0; i < midiInputNames.size(); ++i)
         pedalMidiList.addItem(midiInputNames[i], i + 2);
     pedalMidiList.onChange = [this] {
@@ -350,7 +396,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
         }
         pedalMidiList.setSelectedId(pedalIndex != -1 ? pedalIndex + 2 : 1);
     } else {
-        pedalMidiList.setSelectedId(1); // (none: use MIDI Input)
+        pedalMidiList.setSelectedId(1); // (none: use the pianos)
     }
 
     /* LAUNCHPAD MIDI LIST */
@@ -407,6 +453,8 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     reductionTypeList.addItem("Piano Reduction (2-instrument)", 4);
     reductionTypeList.addItem("Anticipated Piano Reduction (T3'')", 5);
     reductionTypeList.addItem("Melody First (T8'' + T7'')", 6);
+    reductionTypeList.addItem("Anticipated Reduction + WAIT (W2/W3)", 7);
+    reductionTypeList.addItem("HybridTransformer (v1 silent / W2-W3 playing)", 8);
     reductionTypeList.setSelectedId(2, juce::dontSendNotification);
     reductionTypeList.onChange = [this] {
         stop();
@@ -542,6 +590,28 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
         session.presetStore.settings.getOrCreateChildWithName("pianoReduction", nullptr)
             .setProperty("biasEnabled", enabled, nullptr);
         session.reductionTransformerPianoReduction.setBiasEnabled(enabled);
+    };
+
+    /* LOGIT TD (TdOnsetBias: shorter onset gaps for higher Launchpad TD) */
+    addAndMakeVisible(logitTdLabel);
+    logitTdLabel.setText("LogitTD:", juce::dontSendNotification);
+    logitTdLabel.attachToComponent(&logitTd, true);
+
+    addAndMakeVisible(logitTd);
+    auto logitTdSettings =
+        session.presetStore.settings.getOrCreateChildWithName("logitTd", nullptr);
+    const bool savedLogitTd = logitTdSettings.hasProperty("enabled")
+                                  ? static_cast<bool>(logitTdSettings.getProperty("enabled"))
+                                  : true;
+    logitTd.setToggleState(savedLogitTd, juce::dontSendNotification);
+    TdOnsetBias::setEnabled(savedLogitTd);
+    TdOnsetBias::setStrength(static_cast<float>(
+        logitTdSettings.getProperty("strength", TdOnsetBias::kDefaultStrength)));
+    logitTd.onClick = [this] {
+        const bool enabled = logitTd.getToggleState();
+        session.presetStore.settings.getOrCreateChildWithName("logitTd", nullptr)
+            .setProperty("enabled", enabled, nullptr);
+        TdOnsetBias::setEnabled(enabled);
     };
 
     /* MIDI THROUGH */
@@ -873,7 +943,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
             updateModel(true);
     }
 
-    setSize(700, 840);
+    setSize(700, 912);
 
 }
 
@@ -932,7 +1002,11 @@ void MainComponent::loadPresetFromName(const juce::String &presetName) {
     const juce::String reductionKey =
         preset.getProperty("reduction", checkpoint->isDense ? "v1" : "amt").toString().toLowerCase();
     int desiredReductionId = 1;
-    if (reductionKey == "melodyfirst")
+    if (reductionKey == "hybrid")
+        desiredReductionId = 8;
+    else if (reductionKey == "wait")
+        desiredReductionId = 7;
+    else if (reductionKey == "melodyfirst")
         desiredReductionId = 6;
     else if (reductionKey == "anticipated")
         desiredReductionId = 5;
@@ -966,6 +1040,9 @@ void MainComponent::loadPresetFromName(const juce::String &presetName) {
         checkpointList.setSelectedId(checkpointId, juce::dontSendNotification);
         updateModel(false);
     }
+
+    // After the model is loaded: its logit adjustments (and the global ones) from the preset.
+    session.applyLogitAdjustments(preset.getProperty("logitAdjustments", {}));
 
     const juce::String orchName = preset.getProperty("orchestrationModel", "").toString();
     if (orchName.isNotEmpty()) {
@@ -1052,7 +1129,7 @@ void MainComponent::clearModel() {
 
 auto MainComponent::selectedReductionIsDense() const -> bool {
     const auto id = reductionTypeList.getSelectedId();
-    return id == 2 || id == 3 || id == 4 || id == 5 || id == 6;
+    return id >= 2 && id <= 8;
 }
 
 auto MainComponent::selectedCheckpointName() const -> juce::String {
@@ -1065,8 +1142,13 @@ auto MainComponent::refreshCheckpointList() -> void {
     const bool wantDense = selectedReductionIsDense();
     checkpointList.clear(juce::dontSendNotification);
     int nextId = 1;
+    const int typeId = reductionTypeList.getSelectedId();
     for (const auto &cp: listModelCheckpoints()) {
         if (cp.isDense != wantDense)
+            continue;
+        // A checkpoint made for one reduction type ("reductionType" in its JSON) is listed only
+        // there; types 7 and 8 list nothing else.
+        if (cp.reductionType != 0 ? cp.reductionType != typeId : typeId >= 7)
             continue;
         checkpointList.addItem(cp.name, nextId++);
     }
@@ -1089,6 +1171,12 @@ auto MainComponent::selectPreferredCheckpointForCurrentReduction() -> bool {
             break;
         case 6: // Melody First
             preferred = "melody_first_reduction";
+            break;
+        case 7: // W2/W3
+            preferred = "w2_wait_reduction";
+            break;
+        case 8: // HybridTransformer
+            preferred = "hybrid_v1_w2";
             break;
         default:
             // AMT: leave first listed checkpoint if any.
@@ -1223,25 +1311,81 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
                     checkpointList.setSelectedId(0, juce::dontSendNotification);
                     return;
                 }
+            } else if (reductionId == 7) {
+                session.setMusicModelArch(MusicModelArch::DenseAnticipatedWait);
+                if (! session.reductionTransformerWait.init(modelPathStr.toRawUTF8())) {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::AlertWindow::WarningIcon, "Error",
+                        "Failed to load model '" + modelName + "' for Anticipated Reduction + WAIT: "
+                            + juce::String(session.reductionTransformerWait.lastInitError));
+                    checkpointList.setSelectedId(0, juce::dontSendNotification);
+                    return;
+                }
+            } else if (reductionId == 8) {
+                session.setMusicModelArch(MusicModelArch::DenseHybrid);
+                // "onnx" = the W2/W3 model (piano playing), "silentOnnx" = v1 (piano silent).
+                juce::String silentStem = parsedJson.getProperty("silentOnnx", {}).toString().trim();
+                if (silentStem.endsWithIgnoreCase(".onnx"))
+                    silentStem = silentStem.dropLastCharacters(5);
+                juce::File silentFile;
+                for (const auto &dir: onnxExportDirs()) {
+                    const auto candidate = dir.getChildFile(silentStem + ".onnx");
+                    if (silentStem.isNotEmpty() && candidate.existsAsFile()) {
+                        silentFile = candidate;
+                        break;
+                    }
+                }
+                if (! silentFile.existsAsFile()
+                    || ! session.reductionTransformerHybrid.initHybrid(
+                        silentFile.getFullPathName().toRawUTF8(), modelPathStr.toRawUTF8())) {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::AlertWindow::WarningIcon, "Error",
+                        "Failed to load '" + modelName + "' for HybridTransformer: "
+                            + (silentFile.existsAsFile()
+                                   ? juce::String(session.reductionTransformerHybrid.lastInitError)
+                                   : "the v1 model '" + silentStem + ".onnx' is not in an onnx_export_* folder."));
+                    checkpointList.setSelectedId(0, juce::dontSendNotification);
+                    return;
+                }
             } else if (reductionId == 5) {
                 session.setMusicModelArch(MusicModelArch::DenseAnticipatedPiano);
                 if (! session.reductionTransformerAnticipated.init(modelPathStr.toRawUTF8())) {
                     juce::AlertWindow::showMessageBoxAsync(
                         juce::AlertWindow::WarningIcon, "Error",
-                        "Failed to load model '" + modelName
-                            + "' (needs a KV export: input_ids, past_key, past_value).");
+                        "Failed to load model '" + modelName + "' for Anticipated Piano Reduction "
+                        "(T3''): " + juce::String(session.reductionTransformerAnticipated.lastInitError));
                     checkpointList.setSelectedId(0, juce::dontSendNotification);
                     return;
                 }
-            } else if (reductionId == 4) {
-                session.setMusicModelArch(MusicModelArch::DensePianoReduction);
-                session.reductionTransformerPianoReduction.init(modelPathStr.toRawUTF8());
-            } else if (reductionId == 3) {
-                session.setMusicModelArch(MusicModelArch::DenseV2);
-                session.reductionTransformerV2.init(modelPathStr.toRawUTF8());
             } else {
-                session.setMusicModelArch(MusicModelArch::DenseV1);
-                session.reductionTransformerV1.init(modelPathStr.toRawUTF8());
+                // Full-sequence reductions refuse a KV export (it would fail on every draw).
+                bool loaded = false;
+                std::string why;
+                juce::String typeName;
+                if (reductionId == 4) {
+                    session.setMusicModelArch(MusicModelArch::DensePianoReduction);
+                    loaded = session.reductionTransformerPianoReduction.init(modelPathStr.toRawUTF8());
+                    why = session.reductionTransformerPianoReduction.lastInitError;
+                    typeName = "Piano Reduction";
+                } else if (reductionId == 3) {
+                    session.setMusicModelArch(MusicModelArch::DenseV2);
+                    loaded = session.reductionTransformerV2.init(modelPathStr.toRawUTF8());
+                    why = session.reductionTransformerV2.lastInitError;
+                    typeName = "V2";
+                } else {
+                    session.setMusicModelArch(MusicModelArch::DenseV1);
+                    loaded = session.reductionTransformerV1.init(modelPathStr.toRawUTF8());
+                    why = session.reductionTransformerV1.lastInitError;
+                    typeName = "V1";
+                }
+                if (! loaded) {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::AlertWindow::WarningIcon, "Error",
+                        "Failed to load model '" + modelName + "' for " + typeName + ": "
+                            + juce::String(why));
+                    checkpointList.setSelectedId(0, juce::dontSendNotification);
+                    return;
+                }
             }
         } else {
             session.setMusicModelArch(MusicModelArch::Amt);
@@ -1334,6 +1478,8 @@ void MainComponent::resized() {
     midiInputList.setBounds(midiInputArea.removeFromLeft(getWidth() - 300));
     inputThru.setBounds(midiInputArea.withTrimmedLeft(80));
 
+    additionalMidiList.setBounds(area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8));
+
     auto pedalMidiArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
     pedalMidiList.setBounds(pedalMidiArea);
 
@@ -1357,6 +1503,9 @@ void MainComponent::resized() {
 
     auto pianoReductionBiasArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
     pianoReductionBias.setBounds(pianoReductionBiasArea.withTrimmedLeft(80));
+
+    auto logitTdArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
+    logitTd.setBounds(logitTdArea.withTrimmedLeft(80));
 
     outputList.setBounds(area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8));
 
@@ -1427,12 +1576,29 @@ void MainComponent::updateOutputProcessor() {
     resized();
 };
 
+auto MainComponent::isMidiInputUsedByOtherRole(const juce::String &identifier, int exceptRole) const
+    -> bool {
+    const juce::String *roles[] = {&session.selectedMidiInputIdentifier,
+                                   &session.selectedLaunchpadMidiIdentifier,
+                                   &session.selectedPedalMidiInputIdentifier,
+                                   &session.selectedAdditionalMidiInputIdentifier};
+    for (int role = 0; role < 4; ++role)
+        if (role != exceptRole && *roles[role] == identifier)
+            return true;
+    return false;
+}
+
 void MainComponent::clearPedalMidiInput() {
     const juce::String previous = session.selectedPedalMidiInputIdentifier;
     session.selectedPedalMidiInputIdentifier = {};
-    if (previous.isNotEmpty()
-        && previous != session.selectedMidiInputIdentifier
-        && previous != session.selectedLaunchpadMidiIdentifier)
+    if (previous.isNotEmpty() && ! isMidiInputUsedByOtherRole(previous, 2))
+        deviceManager.removeMidiInputDeviceCallback(previous, &session.midiInputProcess);
+}
+
+void MainComponent::clearAdditionalMidiInput() {
+    const juce::String previous = session.selectedAdditionalMidiInputIdentifier;
+    session.selectedAdditionalMidiInputIdentifier = {};
+    if (previous.isNotEmpty() && ! isMidiInputUsedByOtherRole(previous, 3))
         deviceManager.removeMidiInputDeviceCallback(previous, &session.midiInputProcess);
 }
 
@@ -1449,23 +1615,25 @@ void MainComponent::setMidiInput(int index, int idx) {
         selectedForRole = &session.selectedLaunchpadMidiIdentifier;
     else if (idx == 2)
         selectedForRole = &session.selectedPedalMidiInputIdentifier;
+    else if (idx == 3)
+        selectedForRole = &session.selectedAdditionalMidiInputIdentifier;
     else
         return;
 
     const juce::String previous = *selectedForRole;
+    if (previous == newInput.identifier)
+        return;
 
     if (! deviceManager.isMidiInputDeviceEnabled(newInput.identifier))
         deviceManager.setMidiInputDeviceEnabled(newInput.identifier, true);
 
-    deviceManager.addMidiInputDeviceCallback(newInput.identifier, &session.midiInputProcess);
+    // One callback per device, however many roles use it (two would deliver every message twice).
+    if (! isMidiInputUsedByOtherRole(newInput.identifier, idx))
+        deviceManager.addMidiInputDeviceCallback(newInput.identifier, &session.midiInputProcess);
     *selectedForRole = newInput.identifier;
 
     // Drop the previous device for this role unless another role still needs it.
-    const bool previousStillNeeded =
-        previous == session.selectedMidiInputIdentifier
-        || previous == session.selectedLaunchpadMidiIdentifier
-        || previous == session.selectedPedalMidiInputIdentifier;
-    if (previous.isNotEmpty() && previous != newInput.identifier && ! previousStillNeeded)
+    if (previous.isNotEmpty() && ! isMidiInputUsedByOtherRole(previous, idx))
         deviceManager.removeMidiInputDeviceCallback(previous, &session.midiInputProcess);
 
     if (idx == 1)

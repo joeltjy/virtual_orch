@@ -30,7 +30,12 @@ public:
         threadStop();
     }
 
-    void init(const char *modelPath);
+    /**
+     * Load a full-sequence model. False (no session, reason in lastInitError) for a KV-cache
+     * export, which this reduction cannot run.
+     */
+    auto init(const char *modelPath) -> bool;
+    std::string lastInitError;
 
     [[nodiscard]] auto isModelLoaded() const -> bool override { return session != nullptr; }
 
@@ -184,6 +189,8 @@ private:
     void safeLogits(std::vector<float> &logits, size_t stepIdx);
 
     std::vector<float> runModelAndGetLogits(std::vector<int32_t> &tokens);
+    /** The last runModelAndGetLogits threw (its ORT error is already reported). */
+    bool ortRunFailed = false;
 
     Token generateNewToken(int32_t forceAtTime);
 

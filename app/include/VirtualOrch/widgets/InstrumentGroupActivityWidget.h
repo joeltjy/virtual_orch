@@ -11,6 +11,7 @@ class AppSession;
 /** Three bars: strings / woodwinds / brass share of the playback sounding time, last 5 s. */
 class GroupBarsView : public juce::Component {
 public:
+    float textScale = 1.0f;
     auto setProportions(const std::array<float, 3> &next) -> void;
     auto paint(juce::Graphics &g) -> void override;
 
@@ -24,6 +25,9 @@ public:
     ~InstrumentGroupActivityWidget() override;
 
     auto resized() -> void override;
+
+protected:
+    auto textScaleChanged() -> void override { view.textScale = getTextScale(); view.repaint(); }
 
 private:
     auto timerCallback() -> void override;

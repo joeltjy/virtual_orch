@@ -78,6 +78,7 @@ auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid) -> void {
         restart.lit = true;
     }
     setPause(2, UiConstants::workspaceActiveInstrumentsOtPauseLabel);
+    setPause(3, UiConstants::workspaceActiveInstrumentsInputBlockLabel); // CC107, red while blocked
 
     // Mode row.
     const auto mode = grid.getSelectedMode();
@@ -160,7 +161,7 @@ auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid) -> void {
 
 auto ActiveInstrumentsView::resized() -> void {
     auto bounds = getLocalBounds().toFloat().reduced(4.0f);
-    auto labelStrip = bounds.removeFromLeft(static_cast<float>(kLabelStripWidth));
+    auto labelStrip = bounds.removeFromLeft(static_cast<float>(kLabelStripWidth) * std::min(textScale, 1.6f));
 
     // UI row = pad row + 1 (top CC row is UI row 0).
     const auto cellH = bounds.getHeight() / static_cast<float>(kUiRows);
@@ -189,7 +190,7 @@ auto ActiveInstrumentsView::paintGroupBracket(juce::Graphics &g,
     g.setColour(UiConstants::workspaceWidgetTitleTextColour.withAlpha(0.85f));
     g.strokePath(brace, juce::PathStrokeType(1.5f));
 
-    g.setFont(juce::Font(juce::jlimit(14.0f, 22.0f, labelArea.getWidth() * 0.55f),
+    g.setFont(juce::Font(juce::jlimit(14.0f, 22.0f * textScale, labelArea.getWidth() * 0.55f),
                          juce::Font::bold));
     g.drawFittedText(text, labelArea.toNearestInt(), juce::Justification::centred, 1);
 }
@@ -238,9 +239,11 @@ auto ActiveInstrumentsView::paint(juce::Graphics &g) -> void {
             if (labelled) {
                 g.setColour(cell.lit ? juce::Colours::black.withAlpha(0.85f)
                                      : UiConstants::workspaceWidgetTitleTextColour.withAlpha(0.85f));
+                // Larger text fills more of the cell (drawFittedText still keeps it inside).
+                const float fill = std::min(textScale, 1.7f);
                 const auto fontHeight = juce::jlimit(
-                    14.0f, 30.0f, juce::jmin(cellBounds.getHeight() * 0.42f,
-                                             cellBounds.getWidth() * 0.30f));
+                    14.0f, 30.0f * textScale, juce::jmin(cellBounds.getHeight() * 0.42f * fill,
+                                                         cellBounds.getWidth() * 0.30f * fill));
                 g.setFont(juce::Font(fontHeight, juce::Font::bold));
                 g.drawFittedText(cell.label,
                                  cellBounds.toNearestInt().reduced(2),

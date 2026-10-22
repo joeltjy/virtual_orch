@@ -185,6 +185,71 @@ TEST(ModeCutRewind, droppedControlsAreRemovedEverywhere) {
 
 // ---- TwoInstrumentAnticipated ---------------------------------------------------------------
 
+TEST(ModeCutRewind, anticipatedReductionRegeneratesFromNewInputInJamButNotInAccompaniment) {
+    for (const bool accompaniment: {false, true}) {
+        ModelConfig config;
+        TwoInstrumentAnticipatedReductionTransformer rt{config};
+        rt.initWithBackend(std::make_unique<FakeBackend>(11776, 512), 11776);
+        rt.setKeepQueueOnInput(accompaniment);
+        int32_t now = 1000;
+        rt.nowCsProvider = [&now] { return now; };
+        rt.inputTokenQueue.push(keyToken(900, 64, 80));
+        for (int i = 0; i < 30; ++i) // run well ahead of the clock
+            ASSERT_TRUE(rt.stepOnce());
+        Token drained{};
+        while (rt.outputTokenQueue.pull(drained)) {
+        }
+        const int32_t aheadBefore = rt.streamForTest().clock();
+        ASSERT_GT(aheadBefore, now) << "the model is ahead of the clock";
+
+        rt.inputTokenQueue.push(keyToken(now, 64, 72)); // the user plays now
+        rt.setGenerationPause(true); // look right after the input was taken in
+        rt.stepOnce();
+        rt.setGenerationPause(false);
+
+        bool cleared = false;
+        while (rt.outputTokenQueue.pull(drained))
+            cleared = cleared || (drained.note == static_cast<int32_t>(Vocab::ClearQueue) && drained.time == now);
+        bool generatedAfterNow = false;
+        for (const auto &t: rt.getOutputHistory())
+            generatedAfterNow = generatedAfterNow
+                                || (t.note != static_cast<int32_t>(Vocab::ClearQueue) && t.time >= now);
+        if (accompaniment) {
+            // the pause is on in this step, so nothing is cut either way; show the stream kept going
+            EXPECT_EQ(rt.streamForTest().clock(), aheadBefore) << "Accompaniment keeps its notes";
+            EXPECT_FALSE(cleared);
+        } else {
+            EXPECT_EQ(rt.streamForTest().clock(), aheadBefore)
+                << "under a pause the input does not cut (the pedal already did)";
+        }
+        // Now without the pause: Jam cuts and regenerates from now, Accompaniment does not.
+        rt.inputTokenQueue.push(keyToken(now, 64, 74));
+        while (rt.outputTokenQueue.pull(drained)) {
+        }
+        ASSERT_TRUE(rt.stepOnce());
+        cleared = false;
+        Token firstNote{-1, -1, -1};
+        while (rt.outputTokenQueue.pull(drained)) {
+            if (drained.note == static_cast<int32_t>(Vocab::ClearQueue))
+                cleared = cleared || drained.time == now;
+            else if (firstNote.time < 0)
+                firstNote = drained;
+        }
+        if (accompaniment) {
+            EXPECT_FALSE(cleared);
+            EXPECT_GE(firstNote.time, aheadBefore) << "it continues from where it was";
+        } else {
+            EXPECT_TRUE(cleared) << "playback drops the future from now";
+            EXPECT_GE(firstNote.time, now);
+            EXPECT_LT(firstNote.time, aheadBefore) << "it regenerates from now, not from seconds ahead";
+            for (const auto &t: rt.getOutputHistory())
+                if (t.note != static_cast<int32_t>(Vocab::ClearQueue) && t.time >= now)
+                    EXPECT_LE(t.time, firstNote.time) << "the cut notes are gone from the history";
+        }
+        juce::ignoreUnused(generatedAfterNow);
+    }
+}
+
 TEST(ModeCutRewind, anticipatedReductionRewindsToTheSnapshotBeforeTheCut) {
     ModelConfig config;
     TwoInstrumentAnticipatedReductionTransformer rt{config};

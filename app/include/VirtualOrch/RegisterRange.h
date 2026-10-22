@@ -10,10 +10,10 @@
 /**
  * Register control (Launchpad row 6): limits the pitch of every generated reduction note.
  * AUTO (the default) restricts nothing. Pitches are MIDI numbers with C4 = 60, so
- *   LOW    below C4        21..59   (A0 up to B3)
- *   MEDIUM C3 to C6        48..84
- *   HIGH   above C5        73..108  (C#5 up to C8)
- * The ranges overlap on purpose. Like TemporalDensity, only LaunchpadGrid writes it.
+ *   LOW    A0 to E3   21..52
+ *   MEDIUM G3 to D5   55..74
+ *   HIGH   F5 to C8   77..108
+ * The ranges do not overlap (a minor third between them), so each sounds clearly apart. Like TemporalDensity, only LaunchpadGrid writes it.
  */
 class RegisterRange {
 public:
@@ -32,15 +32,15 @@ public:
     [[nodiscard]] static auto lowPitch(int32_t v) -> int32_t {
         switch (v) {
             case kLow: return kPianoLow;
-            case kMedium: return 48; // C3
-            case kHigh: return 73;   // above C5 (72)
+            case kMedium: return 55; // G3
+            case kHigh: return 77;   // F5
             default: return kPianoLow;
         }
     }
     [[nodiscard]] static auto highPitch(int32_t v) -> int32_t {
         switch (v) {
-            case kLow: return 59;    // below C4 (60)
-            case kMedium: return 84; // C6
+            case kLow: return 52;    // E3
+            case kMedium: return 74; // D5
             case kHigh: return kPianoHigh;
             default: return kPianoHigh;
         }

@@ -1,4 +1,5 @@
 #include <JuceHeader.h>
+#include "VirtualOrch/SessionLog.h"
 #include "VirtualOrch/ui/AppRootComponent.h"
 
 //==============================================================================
@@ -15,6 +16,7 @@ public:
     //==============================================================================
     void initialise(const juce::String &commandLine) override {
         // This method is where you should put your application's initialisation code..
+        SessionLog::start();
 
         mainWindow.reset(new MainWindow(getApplicationName()));
     }
@@ -23,6 +25,7 @@ public:
         // Add your application's shutdown code here..
 
         mainWindow = nullptr; // (deletes our window)
+        SessionLog::stop();
     }
 
     //==============================================================================

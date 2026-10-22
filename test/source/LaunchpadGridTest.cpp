@@ -183,6 +183,12 @@ TEST(LaunchpadGrid, TdLevelPressTurnsAutoOffAndSelectsLevel) {
     restoreAutoTd(grid, 2000);
 }
 
+TEST(LaunchpadGrid, theAppStartsAtTd4) {
+    EXPECT_EQ(TemporalDensity::kDefault, 4);
+    LaunchpadGrid grid;
+    EXPECT_EQ(TemporalDensity::kLevels[static_cast<size_t>(grid.getManualTdLevelIndex())], 4);
+}
+
 TEST(LaunchpadGrid, AutoTdToggleRestoresLastManualLevel) {
     LaunchpadGrid grid;
     std::map<int, uint8_t> leds;
@@ -190,25 +196,25 @@ TEST(LaunchpadGrid, AutoTdToggleRestoresLastManualLevel) {
     restoreAutoTd(grid, 100);
     constexpr int row = LaunchpadGrid::kTdRow;
 
-    // AUTO off with no level chosen yet → lowest level.
+    // AUTO off with no level chosen yet → the default, TD 4.
     grid.handleInput(row, LaunchpadGrid::kSideCol, true, 1000);
-    EXPECT_EQ(TemporalDensity::get(), 1);
-    EXPECT_EQ(ledFor(leds, row, 0), LaunchpadLighting::kTdGradient[0]);
+    EXPECT_EQ(TemporalDensity::get(), TemporalDensity::kDefault);
+    EXPECT_EQ(ledFor(leds, row, 2), LaunchpadLighting::kTdGradient[2]);
 
-    grid.handleInput(row, 2, true, 1000);
-    EXPECT_EQ(TemporalDensity::get(), 4);
+    grid.handleInput(row, 3, true, 1000);
+    EXPECT_EQ(TemporalDensity::get(), 8);
 
     grid.handleInput(row, LaunchpadGrid::kSideCol, true, 2000); // AUTO on
     EXPECT_TRUE(TemporalDensity::isAuto());
-    EXPECT_EQ(ledFor(leds, row, 2), LaunchpadLighting::kOff);
+    EXPECT_EQ(ledFor(leds, row, 3), LaunchpadLighting::kOff);
     EXPECT_EQ(ledFor(leds, row, LaunchpadGrid::kSideCol), LaunchpadLighting::kGreen);
 
     grid.handleInput(row, LaunchpadGrid::kSideCol, true, 2000 + 10); // burst: ignored
     EXPECT_TRUE(TemporalDensity::isAuto());
 
-    grid.handleInput(row, LaunchpadGrid::kSideCol, true, 3000); // AUTO off → back to 4
-    EXPECT_EQ(TemporalDensity::get(), 4);
-    EXPECT_EQ(ledFor(leds, row, 2), LaunchpadLighting::kTdGradient[2]);
+    grid.handleInput(row, LaunchpadGrid::kSideCol, true, 3000); // AUTO off → back to 8
+    EXPECT_EQ(TemporalDensity::get(), 8);
+    EXPECT_EQ(ledFor(leds, row, 3), LaunchpadLighting::kTdGradient[3]);
 
     restoreAutoTd(grid, 4000);
 }

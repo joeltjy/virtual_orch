@@ -239,6 +239,7 @@ struct LaunchpadAction {
         ForceRestart,
         Register,      // value = 1 LOW, 2 MEDIUM, 3 HIGH
         RegisterAuto,  // on = AUTO now on
+        InputBlock,    // on = the user's input no longer reaches the reduction (CC107)
     };
     Kind kind = Kind::Flush;
     int32_t local = 0;
@@ -269,11 +270,13 @@ template <typename NameFn>
         case Kind::ForceRestart:
             return "Force restart";
         case Kind::Register:
-            return a.value == 1   ? juce::String("Register LOW (below C4)")
-                   : a.value == 2 ? juce::String("Register MEDIUM (C3 to C6)")
-                                  : juce::String("Register HIGH (above C5)");
+            return a.value == 1   ? juce::String("Register LOW (A0 to E3)")
+                   : a.value == 2 ? juce::String("Register MEDIUM (G3 to D5)")
+                                  : juce::String("Register HIGH (F5 to C8)");
         case Kind::RegisterAuto:
             return a.on ? "Register AUTO on (no limit)" : "Register AUTO off";
+        case Kind::InputBlock:
+            return a.on ? "Input to the reduction blocked" : "Input to the reduction open";
         case Kind::Pause: {
             const juce::String who = a.value == 1 ? "Reduction" : "Orchestration";
             return who + (a.on ? " paused" : " resumed");

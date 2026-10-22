@@ -1,6 +1,9 @@
 #include "VirtualOrch/reduction/ReductionTransformer.h"
 #include "VirtualOrch/PedalClear.h"
 #include "VirtualOrch/PolyphonyCap.h"
+#include "VirtualOrch/SessionLog.h"
+#include "VirtualOrch/TemporalDensity.h"
+#include "VirtualOrch/reduction/TdOnsetBias.h"
 
 #include "VirtualOrch/NoteWindow.h"
 #include "VirtualOrch/reduction/DenseTypes.h"
@@ -98,6 +101,10 @@ auto ReductionTransformer::finishAheadThrottleIfDue() -> void {
         return;
     if (juce::Time::getMillisecondCounter() < aheadThrottleUntilMs)
         return;
+    // Still too far ahead (the model chose long gaps): keep waiting for the clock instead of
+    // drawing one more note, which would push the lead further each throttle period.
+    if (isGeneratedTooFarAhead(currentTime))
+        return;
     resetAheadThrottle();
 }
 
@@ -193,14 +200,24 @@ auto ReductionTransformer::getOutputHistorySince(int32_t cutoffCs) const -> std:
     return NoteWindow::filteredTokens(outputHistory, cutoffCs);
 }
 
+auto ReductionTransformer::dropOutputHistoryFrom(int32_t cutCs) -> void {
+    const juce::ScopedLock lock(outputHistoryLock);
+    std::erase_if(outputHistory, [cutCs](const Token &token) { return token.time >= cutCs; });
+}
+
+auto ReductionTransformer::hasGeneratedFrom(int32_t fromCs) const -> bool {
+    const juce::ScopedLock lock(outputHistoryLock);
+    return std::any_of(outputHistory.rbegin(), outputHistory.rend(), [fromCs](const Token &t) {
+        return t.time >= fromCs && t.note >= static_cast<int32_t>(Vocab::NoteOffset)
+               && t.note < static_cast<int32_t>(Vocab::Rest);
+    });
+}
+
 auto ReductionTransformer::consumeModeCut() -> std::optional<int32_t> {
     const int32_t cut = modeCutTimeCs.exchange(-1, std::memory_order_acq_rel);
     if (cut < 0)
         return std::nullopt;
-    {
-        const juce::ScopedLock lock(outputHistoryLock);
-        std::erase_if(outputHistory, [cut](const Token &token) { return token.time >= cut; });
-    }
+    dropOutputHistoryFrom(cut);
     pushOutputToken(PedalClear::makeClearToken(cut));
     return cut;
 }
@@ -341,11 +358,29 @@ auto ReductionTransformer::onsetLowerBoundCs() const -> int32_t {
     return PolyphonyCap::earliestOnsetCs(outputHistory, currentTime, cap);
 }
 
+auto ReductionTransformer::generatedNotesAtOnset(int32_t onsetCs) const -> int32_t {
+    const juce::ScopedLock lock(outputHistoryLock);
+    int32_t n = 0;
+    for (auto it = outputHistory.rbegin(); it != outputHistory.rend(); ++it) {
+        if (it->note < static_cast<int32_t>(Vocab::NoteOffset)
+            || it->note >= static_cast<int32_t>(Vocab::Rest))
+            continue;
+        if (it->time == onsetCs)
+            ++n;
+        else if (it->time < onsetCs)
+            break; // generated onsets only move forward
+    }
+    return n;
+}
+
 auto ReductionTransformer::pushOutputToken(const Token &tokenIn) -> void {
     Token token = tokenIn;
     if (token.note >= static_cast<int32_t>(Vocab::NoteOffset)
-        && token.note < static_cast<int32_t>(Vocab::Rest))
+        && token.note < static_cast<int32_t>(Vocab::Rest)) {
         token.noteId = nextNoteId.fetch_add(1, std::memory_order_relaxed);
+        if (token.getRealDuration() > kMaxNoteDurationCs)
+            token.duration = static_cast<int32_t>(Vocab::DurOffset) + kMaxNoteDurationCs;
+    }
     if (voiceSeparation != nullptr) {
         std::vector<Token> historyCopy;
         {
@@ -355,6 +390,15 @@ auto ReductionTransformer::pushOutputToken(const Token &tokenIn) -> void {
         const auto restamps = voiceSeparation->stampVoiceId(token, historyCopy);
         for (const auto &r: restamps)
             forwardRestamp(r.historyIndex, r.newVoiceId);
+    }
+    if (SessionLog::isRunning()) {
+        const int32_t td = TemporalDensity::get();
+        SessionLog::add("RT", getThreadName() + " | " + juce::String(token.toUnderstandableString())
+                                  + " voice " + juce::String(token.voiceId) + " noteId "
+                                  + juce::String(token.noteId) + " | TD "
+                                  + (td == TemporalDensity::kAuto ? juce::String("AUTO") : juce::String(td))
+                                  + " LogitTD " + (TdOnsetBias::enabled() ? "on" : "off") + " s "
+                                  + juce::String(TdOnsetBias::strength(), 1));
     }
     outputTokenQueue.push(token);
     if (orchestrationReductionIncoming != nullptr)

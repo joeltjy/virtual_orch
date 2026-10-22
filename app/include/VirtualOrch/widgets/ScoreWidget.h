@@ -13,30 +13,42 @@ class AppSession;
 
 /**
  * Rolling grand staff (treble + bass) with a nowbar in the middle: noteheads only, no stems or
- * beams. Shows the reduction's generated notes from kWindowCs before the clock to kWindowCs
- * after it (generation runs ahead, so notes past the nowbar are already there). Every note of a
- * chord is drawn; the skyline (highest) note is highlighted, and each chord's name is written
- * above the treble staff. Layout logic lives in ScoreLayout.h.
+ * beams. Shows the MELODY and BASS of the reduction's generated notes (ScoreLayout::
+ * skylineAndBass: onsets within 30 ms snapped, then ~/orchestration's skyline_and_bass) from
+ * kWindowCs before the clock to kWindowCs after it, and each chord's name above the treble staff.
  */
 class ScoreView : public juce::Component {
 public:
-    static constexpr int32_t kWindowCs = 400;
+    static constexpr int32_t kWindowCs = 200; // 2 s each side of the nowbar
 
-    struct DrawChord {
-        ScoreLayout::Chord chord;
-        std::string name; // empty: no name
-        bool flats = false;
+    struct DrawNote {
+        int32_t onsetCs = 0;
+        int pitch = 60;
+        bool flats = false; // spelled with flats (the chord's root is flat)
+        bool bass = false;  // the bass line (else the melody)
+    };
+    struct DrawName {
+        int32_t onsetCs = 0;
+        std::string name;
     };
 
     ScoreView();
 
-    auto setFrame(int32_t nowCs, std::vector<DrawChord> chords) -> void;
+    auto setFrame(int32_t nowCs, std::vector<DrawNote> notes, std::vector<DrawName> names) -> void;
+    /** Larger chord names for an audience (the staff makes room above itself). */
+    auto setTextScale(float scale) -> void { textScale = scale; repaint(); }
     auto paint(juce::Graphics &g) -> void override;
 
 private:
+    /** A sharp centred on the note's line / space, a flat with its bowl on it, left of the head. */
+    auto drawAccidental(juce::Graphics &g, bool sharp, float headLeftX, float cy, float s) -> void;
+
     juce::Font musicFont;
+    juce::Path sharpSign, flatSign; // at height 1
     int32_t nowCs = 0;
-    std::vector<DrawChord> chords;
+    float textScale = 1.0f;
+    std::vector<DrawNote> notes;
+    std::vector<DrawName> names;
 };
 
 class ScoreWidget : public WorkspaceWidget, private juce::Timer {
@@ -45,6 +57,9 @@ public:
     ~ScoreWidget() override;
 
     auto resized() -> void override;
+
+protected:
+    auto textScaleChanged() -> void override { view.setTextScale(getTextScale()); }
 
 private:
     auto timerCallback() -> void override;

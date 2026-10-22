@@ -10,6 +10,8 @@
 #include "VirtualOrch/widgets/InstrumentActiveLightWidget.h"
 #include "VirtualOrch/widgets/InstrumentGroupActivityWidget.h"
 #include "VirtualOrch/widgets/ScoreWidget.h"
+#include "VirtualOrch/widgets/ActiveModelWidget.h"
+#include "VirtualOrch/widgets/OnsetGapsWidget.h"
 #include "VirtualOrch/widgets/TdViewerWidget.h"
 #include "VirtualOrch/widgets/UserSelectionWidget.h"
 #include "VirtualOrch/widgets/ConditioningPianoRollWidget.h"
@@ -215,6 +217,18 @@ auto WorkspaceCanvas::createWidgetForType(const juce::String &type) const
     if (type == UiConstants::workspaceWidgetTypeTdViewer)
         return std::make_unique<TdViewerWidget>();
 
+    if (type == UiConstants::workspaceWidgetTypeActiveModel) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<ActiveModelWidget>(*session);
+    }
+
+    if (type == UiConstants::workspaceWidgetTypeOnsetGaps) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<OnsetGapsWidget>(*session);
+    }
+
     if (type == UiConstants::workspaceWidgetTypeScore) {
         if (session == nullptr)
             return nullptr;
@@ -320,6 +334,7 @@ auto WorkspaceCanvas::addWidget(std::unique_ptr<WorkspaceWidget> widget,
     designBounds.push_back(design);
     widget->setBounds(scaleDesignToCanvas(design));
     bindWidget(*widget);
+    applyTextScale(*widget);
     addAndMakeVisible(widget.get());
     widget->toFront(false);
     widgets.push_back(std::move(widget));
@@ -518,6 +533,19 @@ auto WorkspaceCanvas::addInputViewWidgets() -> void {
 
 auto WorkspaceCanvas::addOrchestrationDebugViewWidgets() -> void {
     views::OrchestrationDebugView::applyTo(*this);
+}
+
+auto WorkspaceCanvas::applyTextScale(WorkspaceWidget &widget) const -> void {
+    // The seating plan keeps its own size: it is a picture, not text.
+    widget.setTextScale(widget.getWidgetType() == UiConstants::workspaceWidgetTypeInstrumentActiveLight ? 1.0f
+                                                                                                        : textScale);
+}
+
+auto WorkspaceCanvas::setTextScale(float scale) -> void {
+    textScale = scale;
+    for (auto &w: widgets)
+        if (w != nullptr)
+            applyTextScale(*w);
 }
 
 auto WorkspaceCanvas::addPerformanceViewWidgets() -> void {

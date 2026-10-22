@@ -61,6 +61,8 @@ struct ModelCheckpoint {
     juce::File onnxFile;
     juce::File jsonFile;
     bool isDense = false;
+    /** JSON "reductionType": the only reduction type that lists it (0 = every dense type). */
+    int reductionType = 0;
 };
 
 /** True when JSON arch is "dense" (missing/other → AMT / MusicTransformer). */
@@ -102,6 +104,7 @@ struct ModelCheckpoint {
                 .onnxFile = onnx,
                 .jsonFile = json,
                 .isDense = checkpointJsonIsDense(parsed),
+                .reductionType = static_cast<int>(parsed.getProperty("reductionType", 0)),
             });
         }
     };
@@ -153,6 +156,7 @@ struct ModelCheckpoint {
                     .onnxFile = onnx,
                     .jsonFile = json,
                     .isDense = checkpointJsonIsDense(parsed),
+                    .reductionType = static_cast<int>(parsed.getProperty("reductionType", 0)),
                 });
             }
         }

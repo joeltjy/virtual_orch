@@ -67,23 +67,33 @@ private:
 
     /**
      * Starts listening to a MIDI input device, enabling it if necessary.
-     * idx: 0 = play keyboard, 1 = Launchpad, 2 = pedal keyboard (CC64 pause).
+     * idx: 0 = play keyboard, 1 = Launchpad, 2 = pedal keyboard (CC64 pause),
+     * 3 = additional piano (played like the play keyboard).
      */
     void setMidiInput(int index, int idx);
 
-    /** Clear Pedal MIDI device; CC64 pause then comes from the MIDI Input keyboard. */
+    /** Clear Pedal MIDI device; CC64 pause then comes from the pianos. */
     void clearPedalMidiInput();
 
+    /** Clear the Additional MIDI piano. */
+    void clearAdditionalMidiInput();
+
+    /** True when a device role other than `exceptRole` (setMidiInput idx) uses `identifier`. */
+    [[nodiscard]] auto isMidiInputUsedByOtherRole(const juce::String &identifier, int exceptRole) const
+        -> bool;
+
     juce::AudioDeviceManager deviceManager;
-    juce::ComboBox presetList, mtcClockList, midiInputList, pedalMidiList, launchpadMidiList,
+    juce::ComboBox presetList, mtcClockList, midiInputList, additionalMidiList, pedalMidiList,
+            launchpadMidiList,
             reductionTypeList, checkpointList, orchestrationModelList, outputList;
     juce::TextButton leftPresetButton{"<"}, rightPresetButton{">"}, savePresetButton{"SAVE"};
     juce::ToggleButton autoConnect, mtcClock, inputThru, proportionBias, pianoReductionBias,
-            vocsepEnsemble;
+            vocsepEnsemble, logitTd;
     juce::Label presetListLabel, configLabel, mtcClockLabel, mtcClockOffsetLabel, controllerLabel,
-            midiInputListLabel, pedalMidiListLabel, launchpadMidiListLabel, reductionTypeListLabel,
+            midiInputListLabel, additionalMidiListLabel, pedalMidiListLabel, launchpadMidiListLabel,
+            reductionTypeListLabel,
             checkpointListLabel, orchestrationModelListLabel, inputThruLabel, proportionBiasLabel, vocsepEnsembleLabel,
-            pianoReductionBiasLabel, outputListLabel, oscIpLabel, oscPortLabel,
+            pianoReductionBiasLabel, logitTdLabel, outputListLabel, oscIpLabel, oscPortLabel,
             bufferOutputOscIpLabel, bufferOutputOscPortLabel, statusOutputOscIpLabel,
             statusOutputOscPortLabel, generationLabel, visualizationBufferSizeLabel;
 

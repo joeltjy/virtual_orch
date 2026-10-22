@@ -1,10 +1,11 @@
 {
   "arch": "dense",
-  "onnx": "t3pp_dense_rope_kv",
+  "onnx": "rope_cache_RT",
   "contextNotes": 40,
   "outputInstruments": [
     1
   ],
   "defaultPreset": {},
-  "notes": "T3'' piano -> reduction (TwoInstrumentAnticipatedReductionTransformer): dense vocab 11776, RoPE KV export (input_ids, past_key, past_value -> logits, present_*). Piano = given events on instrument 0, reduction = generated instrument 1, TD ids 11768..11775 from the Launchpad, StreamingLLM 4 sink + 508, 30 s eviction rebase. The file name is a placeholder: set 'onnx' to the real export once it exists (looked up in Documents/onnx_export_* newest first, then Desktop/onnx_export_*)."
+  "notes": "T3'' piano -> reduction (TwoInstrumentAnticipatedReductionTransformer): dense vocab 11776, RoPE KV export (input_ids, past_key, past_value -> logits, present_*). Piano = given events on instrument 0, reduction = generated instrument 1, TD ids 11768..11775 from the Launchpad, StreamingLLM 4 sink + 508, 30 s eviction rebase. 'onnx' = rope_cache_RT.onnx in Documents/onnx_export_101826: the REAL T3'' v2 (maestro_rope_pianoevents_tdorch64_T3pp_v2, best_eval_loss step 1500; SHA-256 9ac42322..., identical to maestro_rope_pianoevents_tdorch64_T3pp_v2_best_step1500_kv.onnx in that export's sources.json). Looked up in Documents/onnx_export_* newest first, then Desktop/onnx_export_*.",
+  "reductionType": 5
 }

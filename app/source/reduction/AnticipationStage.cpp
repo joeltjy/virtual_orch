@@ -6,9 +6,13 @@
 
 auto AnticipationStage::generate(const Params &params) -> std::optional<AnticipatedStream::Note> {
     lastError.clear();
+    waiting = false;
+    stream.waitToken = waitToken;
     if (cache == nullptr)
         return std::nullopt;
     const int32_t now = params.now;
+
+    applyMirrored(now, params.reorderLate); // hybrid: the other model's notes first
 
     // Earliest onset: never in the past, raised by the polyphony cap; a rest moves it up.
     int32_t floorAbs = std::max(params.lowerAbs, now);
@@ -22,6 +26,35 @@ auto AnticipationStage::generate(const Params &params) -> std::optional<Anticipa
             stream.insertDue(stream.clock(), now);
         }
     }
+    if (params.reorderLate && ! visibleRests)
+        stream.holdLate(); // late given notes wait for the reorder (or a WAIT)
+
+    // W2/W3: a WAIT is waiting for the soloist's next group, or for its 1 s timeout.
+    if (waitDeadlineCs != INT32_MIN) {
+        if (stream.hasGivenGroup()) {
+            stream.insertNextGroupAt(stream.clock(), now);
+            waitDeadlineCs = INT32_MIN;
+            event("resume", stream.clock());
+        } else if (now >= waitDeadlineCs) {
+            timedOutAtItems = stream.itemCount();
+            waitDeadlineCs = INT32_MIN;
+            event("timeout", stream.clock());
+        } else {
+            waiting = true;
+            return std::nullopt;
+        }
+    }
+
+    // Accompaniment: at most once a second, the late notes go in at their onsets, with every
+    // generated note after them kept.
+    if (params.reorderLate && stream.hasLate()
+        && (lastReorderCs == INT32_MIN || now - lastReorderCs >= params.reorderEveryCs)) {
+        const auto count = static_cast<int32_t>(stream.lateCount());
+        if (stream.reorderLate(now, tieFirstGenerated))
+            event("reorder", count);
+        lastReorderCs = now;
+    }
+
     const int32_t clock0 = visibleRests ? stream.clock() : std::max(stream.clock(), now);
     const bool tieFirst = tieFirstGenerated;
     // Given notes the clock has reached go in first. With the T3'' tie order a given note exactly
@@ -33,8 +66,15 @@ auto AnticipationStage::generate(const Params &params) -> std::optional<Anticipa
         cache->reset();
 
     sampler.pitchBias = params.pitchBias && params.biases;
-    sampler.durationBias = params.biases;
-    sampler.onsetGapBias = params.biases;
+    sampler.durationBias = params.durationBias && params.biases;
+    sampler.onsetGapBias = params.onsetGapBias && params.biases;
+    sampler.pitchTau = params.pitchTau;
+    sampler.pitchTauPrime = params.pitchTauPrime;
+    sampler.durationTau = params.durationTau;
+    sampler.durationTauPrime = params.durationTauPrime;
+    sampler.onsetGapTau = params.onsetGapTau;
+    sampler.onsetOptions = params.onsetOptions;
+    sampler.logitTdLevel = tdValue ? tdValue() : TemporalDensity::kAuto;
     AnticipationSampler::Context ctx;
     int32_t onsetModel = 0;
     bool drawn = false;
@@ -48,9 +88,37 @@ auto AnticipationStage::generate(const Params &params) -> std::optional<Anticipa
             return std::nullopt;
         }
         ctx.base = stream.base();
-        ctx.lowerOnsetModel = std::max(floorAbs, stream.clock()) - ctx.base;
+        // W2/W3: the onset may start at the soloist's latest attack (recent, not before the
+        // last generated note, and only when the polyphony cap does not raise the floor).
+        int32_t floorNow = floorAbs;
+        if (waitToken >= 0 && params.lowerAbs <= now) {
+            const int32_t attack = stream.lastGivenGroupOnset();
+            if (attack != INT32_MIN && attack < floorNow && now - attack <= kAttackLookbackCs
+                && attack >= stream.clock())
+                floorNow = attack;
+        }
+        ctx.lowerOnsetModel = std::max(floorNow, stream.clock()) - ctx.base;
         ctx.clockAbs = std::max(now, stream.clock());
+
+        // W2/W3: the threshold rule decides WAIT before any onset is drawn.
+        const bool waitAllowed = waitToken >= 0 && stream.itemCount() != timedOutAtItems;
+        if (waitAllowed && sampler.decideWait(logits, ctx, waitToken, params.waitMinPlay)) {
+            if (stream.hasGivenGroup()) {
+                stream.insertNextGroupAt(stream.clock(), now);
+                event("wait-given", stream.clock());
+                continue; // decide again with the soloist's group in context
+            }
+            waitDeadlineCs = std::max(stream.clock(), now) + kWaitTimeoutCs;
+            waiting = true;
+            event("wait", stream.clock());
+            return std::nullopt;
+        }
+        // W2/W3: a generated note is at most maxAheadCs (3 s) ahead of the clock (never below the
+        // floor). The WAIT decision above still sees the whole onset distribution.
+        if (waitToken >= 0)
+            ctx.upperOnsetModel = std::max(now + maxAheadCs, std::max(floorNow, stream.clock())) - ctx.base;
         onsetModel = sampler.sample(0, logits, ctx, params.temperatures[0]);
+        ctx.upperOnsetModel = INT32_MAX;
         const int32_t onsetAbs = onsetModel + ctx.base;
 
         // Next given note (the AMT melody controls are released by the clock alone) and next rest.
@@ -91,6 +159,8 @@ auto AnticipationStage::generate(const Params &params) -> std::optional<Anticipa
     ctx.lowerOnsetModel = 0;
     ctx.pitchLow = params.pitchLow;
     ctx.pitchHigh = params.pitchHigh;
+    if (ascendingTies && stream.eventEmittedAt(ctx.onsetAbs) && stream.lastEventPitch() >= 0)
+        ctx.pitchFloor = stream.lastEventPitch();
     std::vector<int32_t> partial{onsetModel};
     std::array<int32_t, 4> chosen{onsetModel, 0, 0, 0};
     for (int field = 1; field < 4; ++field) {

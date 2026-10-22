@@ -25,7 +25,7 @@
  *  Grid rows (row 0 = top of the 8x8):
  *    kModeRow (0)        Edit (col 0) / Jam (col 1) / Accompaniment (col 2); the selected
  *                        one is lit
- *    kTdRow (1)          TD levels 1..64 (cols 0..6); side = AUTO_TD toggle (starts on).
+ *    kTdRow (1)          TD levels 1..64 (cols 0..6); side = AUTO_TD toggle (starts off, at TD 4).
  *                        AUTO on: side green, levels unlit. AUTO off: side red, the
  *                        selected level lit. A level press turns AUTO off and selects it.
  *                        Only this class writes TemporalDensity.
@@ -42,9 +42,10 @@
  *  Presses within kBurstMs on the same pad are ignored.
  *  LEDs: instrument pads lit in their family colour when on; unmapped pads stay off.
  *  Top-row CCs use `scene_callback(idx)` with idx = cc - 104 (0..7).
- *  App wiring: 0 (CC104) force restart (stop + start), 1 (CC105) RT pause, 2 (CC106) OT pause; 3..7 unused.
+ *  App wiring: 0 (CC104) force restart (stop + start), 1 (CC105) RT pause, 2 (CC106) OT pause,
+ *  3 (CC107) block the user's input from the reduction (ReductionInputGate); 4..7 unused.
  *  Row 6: register LOW / MEDIUM / HIGH (pads 0-2) and an AUTO side pad (RegisterRange).
- *  Pause buttons light red via setTopLed while paused.
+ *  Pause and input-block buttons light red via setTopLed while on.
  */
 class LaunchpadGrid {
 public:
@@ -88,6 +89,8 @@ public:
     SceneCallback scene_callback;
     /** Mode pad pressed; the app applies the mode and calls setSelectedMode. */
     ModeCallback mode_callback;
+    /** A TD level pad or AUTO_TD was pressed (after TemporalDensity changed); the app cuts the future. */
+    std::function<void()> td_callback;
     LedCallback set_led;
 
     /** (row, col) → local instrument id; leave empty slots unmapped. */
@@ -333,6 +336,8 @@ public:
                 selectTdLevel(*level);
                 emitAction({PerformanceActivity::LaunchpadAction::Kind::TdLevel, 0,
                             TemporalDensity::kLevels[static_cast<size_t>(*level)], false, false});
+                if (td_callback)
+                    td_callback();
             }
             return;
         }
@@ -343,6 +348,8 @@ public:
                 setTdAuto(! TemporalDensity::isAuto());
                 emitAction({PerformanceActivity::LaunchpadAction::Kind::TdAuto, 0, 0,
                             TemporalDensity::isAuto(), false});
+                if (td_callback)
+                    td_callback();
             }
             return;
         }
@@ -524,7 +531,7 @@ private:
     std::array<std::array<bool, kCols>, kRows> gridState{};
     std::atomic<OrchestrationMode> selectedMode{OrchestrationMode::Jam};
 
-    std::atomic<int> manualTdLevelIndex{0};
+    std::atomic<int> manualTdLevelIndex{2}; // TD 4, the default (TemporalDensity::kDefault)
     std::atomic<int> manualRegister{RegisterRange::kMedium};
     std::atomic<int> maxPolyphony{0}; // 0 = no cap
 

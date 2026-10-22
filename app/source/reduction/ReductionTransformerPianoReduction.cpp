@@ -1,4 +1,7 @@
 #include "VirtualOrch/reduction/ReductionTransformerPianoReduction.h"
+#include "VirtualOrch/TemporalDensity.h"
+#include "VirtualOrch/reduction/OnnxModelKind.h"
+#include "VirtualOrch/reduction/TdOnsetBias.h"
 #include "VirtualOrch/InstrumentConstants.h"
 #include "VirtualOrch/NoteWindow.h"
 #include "VirtualOrch/RegisterRange.h"
@@ -19,7 +22,8 @@ ReductionTransformerPianoReduction::ReductionTransformerPianoReduction(ModelConf
     : ReductionTransformer("Reduction Transformer Piano Reduction", modelConfigIn) {
 }
 
-void ReductionTransformerPianoReduction::init(const char *modelPath) {
+auto ReductionTransformerPianoReduction::init(const char *modelPath) -> bool {
+    lastInitError.clear();
     Ort::SessionOptions sessionOptions;
 
 #ifdef __linux__
@@ -36,6 +40,15 @@ void ReductionTransformerPianoReduction::init(const char *modelPath) {
         allocatedInputNames.emplace_back(session->GetInputNameAllocated(i, allocator).get());
     for (size_t i = 0; i < session->GetOutputCount(); ++i)
         allocatedOutputNames.emplace_back(session->GetOutputNameAllocated(i, allocator).get());
+
+    if (OnnxModelKind::isKvExport(allocatedInputNames)) {
+        lastInitError = OnnxModelKind::kKvExportInFullSequenceReduction;
+        session.reset();
+        allocatedInputNames.clear();
+        allocatedOutputNames.clear();
+        return false;
+    }
+    return true;
 }
 
 void ReductionTransformerPianoReduction::threadInit() {
@@ -590,6 +603,7 @@ void ReductionTransformerPianoReduction::safeLogits(std::vector<float> &logits, 
 
 std::vector<float> ReductionTransformerPianoReduction::runModelAndGetLogits(
     std::vector<int32_t> &tokens) {
+    ortRunFailed = false;
     if (session == nullptr || tokens.empty())
         return {};
 
@@ -651,9 +665,10 @@ std::vector<float> ReductionTransformerPianoReduction::runModelAndGetLogits(
         const float *last = data + vocab * (seq - 1);
         return {last, last + vocab};
     } catch (const Ort::Exception &exception) {
+        ortRunFailed = true;
         const auto detail = juce::String(exception.what());
         DBG("ReductionTransformerPianoReduction ORT error: " + detail);
-        reportSamplingError(detail);
+        reportSamplingError("ONNX Runtime error: " + detail);
     }
 
     return {};
@@ -776,7 +791,8 @@ Token ReductionTransformerPianoReduction::generateNewToken(int32_t forceAtTime) 
                 "unexpected logits size " + juce::String(static_cast<int>(scores.size()))
                 + " (historyInts=" + juce::String(static_cast<int>(history.size())) + ")";
             DBG("ReductionTransformerPianoReduction::generateNewToken: " + detail);
-            reportSamplingError(detail);
+            if (! ortRunFailed) // an ORT error was already reported: keep it on screen
+                reportSamplingError(detail);
             return {-1, -1, -1, DenseConfig::DefaultVelocity};
         }
 
@@ -793,6 +809,10 @@ Token ReductionTransformerPianoReduction::generateNewToken(int32_t forceAtTime) 
                              forceAtTime != -1 ? forceAtTime - offset : -1);
                 if (onsetGapBiasOn)
                     DenseOnsetGapBias::applyOnsetLogitsBias(scores, onsetGapWindow, gapTau, offset);
+                TdOnsetBias::apply(scores, TemporalDensity::get(), onsetLowerBoundCs() - offset,
+                                   DenseVocab::TimeOffset, DenseConfig::MaxTime,
+                                   samplingForStep(0).temperature,
+                                   generatedNotesAtOnset(onsetLowerBoundCs()));
             } else if (i == 1) {
                 if (durationBiasOn)
                     DenseDurationBias::applyDurationLogitsBias(scores, durationWindow, durTau,

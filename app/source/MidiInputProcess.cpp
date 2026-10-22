@@ -1,5 +1,6 @@
 #include "VirtualOrch/MidiInputProcess.h"
 #include "VirtualOrch/PerformanceActivity.h"
+#include "VirtualOrch/SessionLog.h"
 
 #include "VirtualOrch/LaunchpadProgrammerMap.h"
 
@@ -131,6 +132,7 @@ MidiInputProcess::MidiInputProcess(Clock &clock,
                                    std::unique_ptr<InputFilter> &inputFilter,
                                    juce::String &selectedMidiInputIdentifier,
                                    juce::String &selectedPedalMidiInputIdentifier,
+                                   juce::String &selectedAdditionalMidiInputIdentifier,
                                    juce::String &selectedLaunchpadMidiIdentifier,
                                    juce::String &selectedMtcClockIdentifier,
                                    bool &mtcClockActive)
@@ -141,6 +143,7 @@ MidiInputProcess::MidiInputProcess(Clock &clock,
       inputFilter(inputFilter),
       selectedMidiInputIdentifier(selectedMidiInputIdentifier),
       selectedPedalMidiInputIdentifier(selectedPedalMidiInputIdentifier),
+      selectedAdditionalMidiInputIdentifier(selectedAdditionalMidiInputIdentifier),
       selectedLaunchpadMidiIdentifier(selectedLaunchpadMidiIdentifier),
       selectedMtcClockIdentifier(selectedMtcClockIdentifier),
       mtcClockActive(mtcClockActive) {
@@ -264,9 +267,10 @@ void MidiInputProcess::timerCallback() {
         });
     }
 
-    for (auto &[pitch, note]: notesOnToSend) {
+    for (auto &[key, note]: notesOnToSend) {
         if (note.flushedTime.has_value())
             continue;
+        const int32_t pitch = pitchOfHeldKey(key);
         const int32_t noteOnset = atTime.value_or(static_cast<int32_t>(note.onset));
         tokensToSend.push_back({
             .time = noteOnset,
@@ -326,6 +330,24 @@ void MidiInputProcess::logIncomingMidiMessage(juce::MidiInput *source, const juc
 
     const juce::String line = juce::String(fromLaunchpad ? "[launchpad] " : "[midi] ") + description;
     juce::Logger::writeToLog(line);
+
+    if (SessionLog::isRunning() && ! SessionLog::isSkippedMidi(message)) {
+        juce::StringArray roles;
+        if (source != nullptr) {
+            const auto id = source->getIdentifier();
+            if (id == selectedMidiInputIdentifier)
+                roles.add("piano");
+            if (selectedAdditionalMidiInputIdentifier.isNotEmpty() && id == selectedAdditionalMidiInputIdentifier)
+                roles.add("piano2");
+            if (selectedPedalMidiInputIdentifier.isNotEmpty() && id == selectedPedalMidiInputIdentifier)
+                roles.add("pedal");
+            if (fromLaunchpad)
+                roles.add("launchpad");
+        }
+        SessionLog::add("MIDI_IN", (source != nullptr ? source->getName() : juce::String("?")) + " ["
+                                       + roles.joinIntoString(",") + "] | "
+                                       + SessionLog::describeMidi(message));
+    }
 }
 
 void MidiInputProcess::handleLaunchpadMessage(juce::MidiInput *source, const juce::MidiMessage &message) {
@@ -381,6 +403,10 @@ void MidiInputProcess::handleSustainPedal(const juce::MidiMessage &message) {
         if (onPedalDown)
             onPedalDown(pedalTime);
         activeReduction().requestPedalClear(pedalTime);
+        // Playback drops every note from the press on, so the model forgets them too (the same
+        // cut as a TD press): after the release it continues from then, not from seconds ahead.
+        activeReduction().requestModeCut(pedalTime);
+        SessionLog::add("CUT", "pedal down: future removed from " + juce::String(pedalTime));
     }
     activeReduction().setGenerationPause(pause);
 }
@@ -399,23 +425,28 @@ void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const 
 
     const bool fromPlayKeyboard =
         source != nullptr && source->getIdentifier() == selectedMidiInputIdentifier;
+    // The second piano (Additional MIDI) is played exactly like the MIDI Input.
+    const bool fromAdditionalKeyboard = source != nullptr && ! fromPlayKeyboard
+                                        && selectedAdditionalMidiInputIdentifier.isNotEmpty()
+                                        && source->getIdentifier()
+                                               == selectedAdditionalMidiInputIdentifier;
+    const bool fromPiano = fromPlayKeyboard || fromAdditionalKeyboard;
 
     // Pedal keyboard: CC64 → generationPause only (no notes / thru / other CCs).
     // If it is the same device as the play keyboard, fall through so notes still play.
     const bool fromPedalKeyboard = source != nullptr
                                    && selectedPedalMidiInputIdentifier.isNotEmpty()
                                    && source->getIdentifier() == selectedPedalMidiInputIdentifier;
-    if (fromPedalKeyboard && ! fromPlayKeyboard) {
+    if (fromPedalKeyboard && ! fromPiano) {
         handleSustainPedal(message);
         return;
     }
 
-    // No pedal keyboard selected (or it is the play keyboard): take CC64 from the play keyboard.
-    if (fromPlayKeyboard
-        && (selectedPedalMidiInputIdentifier.isEmpty() || fromPedalKeyboard))
+    // No pedal keyboard selected (or it is one of the pianos): take CC64 from the pianos.
+    if (fromPiano && (selectedPedalMidiInputIdentifier.isEmpty() || fromPedalKeyboard))
         handleSustainPedal(message);
 
-    if (inputThruEnabled && source->getIdentifier() == selectedMidiInputIdentifier
+    if (inputThruEnabled && fromPiano
         && outputProcessor != nullptr
         && (! allowInputThru || allowInputThru())) {
         outputProcessor->relayMidi(message);
@@ -446,9 +477,10 @@ void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const 
         return;
     }
 
-    // Notes only from the play keyboard (not pedal board / other devices).
-    if (source == nullptr || source->getIdentifier() != selectedMidiInputIdentifier)
+    // Notes only from the pianos (MIDI Input, Additional MIDI): not the pedal board / other devices.
+    if (! fromPiano)
         return;
+    const int piano = fromPlayKeyboard ? 0 : 1;
 
     if (activityLog != nullptr) {
         if (message.isNoteOn())
@@ -460,13 +492,13 @@ void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const 
     if (message.isNoteOn()) {
         DBG("Note On: " + std::to_string(message.getNoteNumber()) + " - Vel: " +
             std::to_string(message.getVelocity()));
-        handleNoteOn(message.getNoteNumber(), message.getVelocity());
+        handleNoteOn(message.getNoteNumber(), message.getVelocity(), piano);
     } else if (message.isNoteOff()) {
-        handleNoteOff(message.getNoteNumber());
+        handleNoteOff(message.getNoteNumber(), piano);
     }
 }
 
-void MidiInputProcess::handleNoteOn(int midiNoteNumber, float velocity) {
+void MidiInputProcess::handleNoteOn(int midiNoteNumber, float velocity, int piano) {
     if (! isMusicThreadRunning()) {
         std::cout << "input token dropped: thread not running (note on)" << std::endl;
         return;
@@ -496,7 +528,7 @@ void MidiInputProcess::handleNoteOn(int midiNoteNumber, float velocity) {
             bassHeld = inputToken.note;
             DBG("Setting bass to " + std::to_string(bassHeld.value()));
         } else {
-            notesOnToSend[midiNoteNumber] = HeldDirectNote{.onset = time,
+            notesOnToSend[heldKeyOf(piano, midiNoteNumber)] = HeldDirectNote{.onset = time,
                                                            .flushedTime = std::nullopt,
                                                            .velocity = inputToken.velocity,
                                                            .keyId = nextKeyId++};
@@ -528,7 +560,7 @@ void MidiInputProcess::handleNoteOn(int midiNoteNumber, float velocity) {
     }
 }
 
-void MidiInputProcess::handleNoteOff(int midiNoteNumber) {
+void MidiInputProcess::handleNoteOff(int midiNoteNumber, int piano) {
     if (! isMusicThreadRunning()) {
         std::cout << "input token dropped: thread not running (note off)" << std::endl;
         return;
@@ -544,7 +576,7 @@ void MidiInputProcess::handleNoteOff(int midiNoteNumber) {
     if (modelConfig.inputMode != InputMode::Direct)
         return;
 
-    const auto it = notesOnToSend.find(midiNoteNumber);
+    const auto it = notesOnToSend.find(heldKeyOf(piano, midiNoteNumber));
     if (it == notesOnToSend.end())
         return;
 

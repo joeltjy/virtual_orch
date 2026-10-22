@@ -188,6 +188,8 @@ TEST(ForceRestart, isAStopFollowedByAStart) {
         pump(50);
     ASSERT_EQ(session.getRestartsCompleted(), 1);
     EXPECT_TRUE(session.isMusicThreadRunning()) << "started again";
+    EXPECT_LT(session.reductionTransformerAnticipated.streamForTest().base(), 200)
+        << "the new stream starts on the restarted clock, not the old time";
     EXPECT_TRUE(session.activeReduction().getOutputHistory().empty())
         << "the stop cleared the history, and the new run has no input";
 

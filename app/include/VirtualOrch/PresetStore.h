@@ -51,6 +51,11 @@ public:
         reductionTypeProvider = std::move(provider);
     }
 
+    /** The "logitAdjustments" object written into saved presets (AppSession::logitAdjustmentsToVar). */
+    auto setLogitAdjustmentsProvider(std::function<juce::var()> provider) -> void {
+        logitAdjustmentsProvider = std::move(provider);
+    }
+
     auto setOnPresetSaved(std::function<void(const juce::String &)> callback) -> void {
         onPresetSaved = std::move(callback);
     }
@@ -65,6 +70,7 @@ private:
     std::function<juce::String()> orchestrationModelNameProvider;
     std::function<juce::String()> orchestrationModeProvider;
     std::function<juce::String()> reductionTypeProvider;
+    std::function<juce::var()> logitAdjustmentsProvider;
     std::function<void(const juce::String &)> onPresetSaved;
 
     [[nodiscard]] auto buildPresetJson(const juce::String &modelName) const -> juce::var;

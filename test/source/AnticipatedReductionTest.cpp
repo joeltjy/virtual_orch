@@ -122,6 +122,8 @@ TEST(AnticipatedReduction, generatesOnlyLegalQ5V8Notes) {
 
 TEST(AnticipatedReduction, controlsEnterOncePastDueAsInstrumentZero) {
     Rig rig;
+    // Accompaniment rules: input never rewinds (in Jam it cuts the future and regenerates).
+    rig.rt.setKeepQueueOnInput(true);
     rig.playNote(990, 64, 50);
     ASSERT_TRUE(rig.rt.stepOnce()); // first note: clock moves to the sampled onset
     const int32_t clock = rig.rt.streamForTest().clock();
@@ -254,6 +256,8 @@ TEST(AnticipatedReduction, streamsLongerThanOneHundredSecondsRebase) {
 
 TEST(AnticipatedReduction, theCacheEvictingAnOldNoteRebasesAndOutputTimesStayAbsoluteAndContinuous) {
     Rig rig;
+    // Accompaniment rules: input never rewinds (in Jam it cuts the future and regenerates).
+    rig.rt.setKeepQueueOnInput(true);
     rig.playNote(1000, 60, 80);
     ASSERT_TRUE(rig.rt.stepOnce()); // starts the stream
     int32_t previousBase = rig.rt.streamForTest().base();

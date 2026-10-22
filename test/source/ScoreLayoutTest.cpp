@@ -60,26 +60,73 @@ TEST(ScoreLayout, nowbarMapping) {
     EXPECT_FLOAT_EQ(xFor(800, 1000, 300.0f, 0.5f), 200.0f);
 }
 
+TEST(ScoreLayout, onsetsWithin30msAreSnappedToTheFirst) {
+    const auto snapped = snapOnsets({{100, 50, 60}, {102, 50, 64}, {105, 50, 67}, // chained, <= 3 cs apart
+                                     {109, 50, 72}});                             // 4 cs after: its own
+    ASSERT_EQ(snapped.size(), 4u);
+    EXPECT_EQ(snapped[0].onsetCs, 100);
+    EXPECT_EQ(snapped[1].onsetCs, 100);
+    EXPECT_EQ(snapped[2].onsetCs, 100);
+    EXPECT_EQ(snapped[2].durationCs, 55) << "keeps its end time";
+    EXPECT_EQ(snapped[3].onsetCs, 109);
+}
+
+TEST(ScoreLayout, skylineIsTheTopLineAfterTheSnap) {
+    // A melody note 2 cs after its chord's bass joins the chord; the top note is the skyline.
+    const auto top = skyline({{100, 100, 48}, {102, 98, 72}, {101, 99, 64}, // chord, top 72
+                              {200, 50, 74},                                 // melody
+                              {200, 200, 50}});                              // a bass below it
+    ASSERT_EQ(top.size(), 2u);
+    EXPECT_EQ(top[0].onsetCs, 100);
+    EXPECT_EQ(top[0].pitch, 72);
+    EXPECT_EQ(top[1].onsetCs, 200);
+    EXPECT_EQ(top[1].pitch, 74);
+}
+
+TEST(ScoreLayout, theBassLineIsKeptApartFromTheMelody) {
+    const auto lines = skylineAndBass({{100, 50, 48}, {101, 50, 64}, {102, 50, 72}, // C E C
+                                       {200, 50, 43}, {200, 50, 74}});             // G D
+    ASSERT_EQ(lines.melody.size(), 2u);
+    ASSERT_EQ(lines.bass.size(), 2u);
+    EXPECT_EQ(lines.melody[0].pitch, 72);
+    EXPECT_EQ(lines.bass[0].pitch, 48);
+    EXPECT_EQ(lines.bass[0].onsetCs, 100) << "snapped";
+    EXPECT_EQ(lines.bass[1].pitch, 43);
+}
+
+TEST(ScoreLayout, aHeldTopNoteIsShownOnce) {
+    // C5 held over a lower note's onset: the skyline keeps it, and it is drawn once.
+    const auto top = skyline({{100, 300, 72}, {200, 50, 60}});
+    ASSERT_EQ(top.size(), 1u);
+    EXPECT_EQ(top[0].pitch, 72);
+}
+
 // Draws a sample frame; with VIRTUAL_ORCH_SCORE_PNG=<path> it is also saved for a visual check.
 TEST(ScoreView, rendersASampleFrame) {
     const juce::ScopedJuceInitialiser_GUI gui;
     ScoreView view;
     view.setBounds(0, 0, 960, 260);
-    std::vector<ScoreView::DrawChord> chords;
-    const auto add = [&](int32_t onset, std::vector<int> pitches, std::string name, bool flats) {
-        ScoreView::DrawChord dc;
-        dc.chord = {onset, std::move(pitches)};
-        dc.name = std::move(name);
-        dc.flats = flats;
-        chords.push_back(dc);
+    std::vector<ScoreLayout::Note> generated;
+    std::vector<ScoreView::DrawName> names;
+    const auto add = [&](int32_t onset, std::vector<int> pitches, std::string name) {
+        for (const int p: pitches)
+            generated.push_back({onset, 30, p}); // short, so no top note is held into the next chord
+        names.push_back({onset, std::move(name)});
     };
-    add(700, {48, 64, 67, 72}, "C", false);
-    add(820, {55, 59, 62, 65, 71}, "G7", false);
-    add(960, {60, 61, 76}, "", false);          // a second (C, C#) and E5
-    add(1000, {46, 62, 65, 70}, "Bb", true);    // at the nowbar
-    add(1150, {51, 63, 67, 70, 74}, "Ebmaj7", true);
-    add(1300, {40, 84, 86}, "", false);         // ledger lines both ways
-    view.setFrame(1000, chords);
+    add(840, {48, 64, 67, 72}, "C");
+    add(900, {55, 59, 62, 65, 71}, "G7");
+    add(960, {60, 61, 73}, "");                 // C#5 on top
+    add(1000, {46, 62, 65, 70}, "Bb");          // at the nowbar
+    add(1080, {51, 63, 67, 70, 75}, "Ebmaj7");  // Eb5 on top, drawn flat
+    add(1160, {40, 84, 86}, "");                // ledger lines above
+    std::vector<ScoreView::DrawNote> notes;
+    const auto lines = skylineAndBass(generated);
+    for (const auto &n: lines.melody)
+        notes.push_back({n.onsetCs, n.pitch, n.onsetCs == 1000 || n.onsetCs == 1080, false});
+    for (const auto &n: lines.bass)
+        notes.push_back({n.onsetCs, n.pitch, n.onsetCs == 1000 || n.onsetCs == 1080, true});
+    EXPECT_EQ(lines.melody.size(), 6u) << "one melody note per chord";
+    view.setFrame(1000, notes, names);
     const auto image = view.createComponentSnapshot(view.getLocalBounds(), false);
     ASSERT_EQ(image.getWidth(), 960);
 

@@ -27,7 +27,7 @@ TEST(AnticipationSampler, masksLeaveOnlyLegalEventIdsForEachField) {
 
         const auto dur = s.masked(1, logits, ctx);
         for (size_t i = 0; i < dur.size(); ++i) {
-            const bool legal = i >= 10010 && i <= 10995 && (i - 10000) % 5 == 0;
+            const bool legal = i >= 10010 && i <= 10500 && (i - 10000) % 5 == 0; // at most 5 s
             EXPECT_EQ(std::isfinite(dur[i]), legal) << i;
         }
 

@@ -30,11 +30,28 @@ struct Dims {
     int sinkRows = 4;
 };
 
-/** keys / values laid out [layer][head][row][dim] (batch 1). */
+/**
+ * KV rows a backend keeps in its own memory (the CUDA OnnxBackend: GPU tensors), so they are not
+ * copied to the host and back on every call. Immutable: slicing makes a new one, so copies of a
+ * State (the scratch cache W = C) can share it.
+ */
+class DeviceKv {
+public:
+    virtual ~DeviceKv() = default;
+    /** Rows [0, head) and [tailFrom, rows) of every (layer, head) block; nullptr on failure. */
+    [[nodiscard]] virtual auto keepRows(int head, int tailFrom) const
+        -> std::shared_ptr<const DeviceKv> = 0;
+};
+
+/**
+ * keys / values laid out [layer][head][row][dim] (batch 1), either in `key` / `value` or, when
+ * `device` is set, in the backend's memory (`key` / `value` are then empty).
+ */
 struct State {
     std::vector<float> key;
     std::vector<float> value;
     int rows = 0;
+    std::shared_ptr<const DeviceKv> device;
 };
 
 /** Keep only the first `keepRows` rows. */
@@ -112,6 +129,8 @@ public:
     auto init(const char *modelPath, std::string &error) -> bool;
 
     [[nodiscard]] auto isLoaded() const -> bool { return session != nullptr; }
+    /** True when the cache stays in GPU memory between calls (CUDA session + libcudart). */
+    [[nodiscard]] auto keepsKvOnDevice() const -> bool { return cuda != nullptr; }
     /** True for the learned-position export (T8): it takes explicit position_ids. */
     [[nodiscard]] auto usesPositionIds() const -> bool { return hasPositionIds; }
     /**
@@ -126,8 +145,17 @@ public:
 
     std::string lastError;
 
+    struct CudaContext;
+
 private:
-    std::unique_ptr<Ort::Session> session;
+    auto runOnHost(const State &past, const std::vector<int64_t> &ids, State &present,
+                   std::vector<float> &lastLogits) -> bool;
+    auto runOnDevice(const State &past, const std::vector<int64_t> &ids, State &present,
+                     std::vector<float> &lastLogits) -> bool;
+
+    // Shared with the device states, which must not outlive the session that allocated them.
+    std::shared_ptr<Ort::Session> session;
+    std::shared_ptr<CudaContext> cuda;
     Ort::MemoryInfo memoryInfo = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault);
     Dims dimsValue;
     size_t vocab = 0;

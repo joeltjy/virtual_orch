@@ -161,6 +161,8 @@ auto PresetStore::buildPresetJson(const juce::String &modelName) const -> juce::
         outputInstruments.append(outputInstrument);
     }
     presetJson.getDynamicObject()->setProperty("outputInstruments", outputInstruments);
+    if (logitAdjustmentsProvider)
+        presetJson.getDynamicObject()->setProperty("logitAdjustments", logitAdjustmentsProvider());
 
     return presetJson;
 }

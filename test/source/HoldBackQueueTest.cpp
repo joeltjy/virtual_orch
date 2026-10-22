@@ -146,4 +146,42 @@ TEST(HoldBackOrchestration, aToggleBeforeTheWindowDecidesTheInstrument) {
         EXPECT_EQ(id, 8) << "orchestrated with the instrument list from after the toggle";
 }
 
-} // namespace virtual_orch_test
+} // namespace virtual_orch_test// Edit: the user's key goes in with the provisional 4 s length; its note-off must give every
+// orchestra note made from it (the OT output history, which the visualizer draws) the real length.
+TEST(EditNoteOff, theOutputHistoryGetsTheKeysRealLength) {
+    Metrics metrics;
+    Clock clock(metrics);
+    OrchestrationTransformer ot;
+    IodPretrained model;
+    const auto dummy = std::string(VIRTUAL_ORCH_TEST_RESOURCES) + "/iod_dummy.onnx";
+    model.init(dummy.c_str());
+    ASSERT_TRUE(model.isModelLoaded());
+    ot.orchestrationModel = &model;
+    ot.clock = &clock;
+    ot.setMode(OrchestrationMode::Edit);
+    ot.replaceInstrumentSets({7, 9, 6}, {}); // user: flute, clarinet, string ensemble
+    clock.startAtTime(0);
+    ot.startThread();
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+
+    const auto now = static_cast<int32_t>(clock.getTime());
+    Token key{now, static_cast<int32_t>(Vocab::DurOffset) + 400, static_cast<int32_t>(Vocab::NoteOffset) + 72, 80};
+    key.keyId = 5;
+    // A short key: its note-off reaches the OT before (or with) the note itself.
+    Token released = key;
+    released.duration = static_cast<int32_t>(Vocab::DurOffset) + 35;
+    ot.updatesIncoming.push({key.withInstrument(InstrumentConstants::kReductionInputLocalInstrumentId),
+                             released.withInstrument(InstrumentConstants::kReductionInputLocalInstrumentId)});
+    ot.midiInputIncoming.push(key.withInstrument(InstrumentConstants::kKeyboardLocalInstrumentId));
+    std::this_thread::sleep_for(std::chrono::milliseconds(400));
+    const auto snap = ot.getDebugSnapshot();
+    ot.signalThreadShouldExit();
+    ot.stopThread(2000);
+    ASSERT_FALSE(snap.outputHistory.empty()) << "the key was orchestrated";
+    for (const auto &n: snap.outputHistory) {
+        EXPECT_EQ(n.token.keyId, 5);
+        EXPECT_EQ(n.token.getRealDuration(), 35) << "instrument " << n.localInstrumentId;
+    }
+}
+
+

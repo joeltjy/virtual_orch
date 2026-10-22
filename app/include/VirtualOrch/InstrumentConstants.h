@@ -63,23 +63,23 @@ inline constexpr std::array<int32_t, 4> kSoloStringLocalIds{{0, 1, 2, 3}};
  * (String Ensemble is resolved via pitch instead — see outputChannelForLocalInstrumentId).
  *
  * MIDI channels 1–16 follow the bus order:
- *   violin, viola, cello + contrabass (shared 3), tremolo, pizz,
+ *   violin, viola, cello, tremolo, pizz,
  *   flute, oboe, clarinet, bassoon, trumpet, horn, trombone, tuba,
- *   timpani, snare, piano.
- * Extra local ids (string ens, guitar, choir) do not take a channel.
+ *   timpani, contrabass, piano.
+ * Extra local ids (string ens, snare, guitar, choir) do not take a channel.
  *
  * Channel 16 is the piano / keyboard monitor bus: MIDI keyboard input-thru
  * (`relayMidi`) is forced here in Jam mode only (never through OT).
  * Orchestrated piano (local 15) also maps here.
  */
 inline constexpr std::array<int32_t, 20> kLocalInstrumentOutputChannels{{
-    1, 2, 3, 3, 4, 5, // 0–5: violin, viola, cello, contrabass (shared 3), tremolo, pizz
+    1, 2, 3, 15, 4, 5, // 0–5: violin, viola, cello, contrabass (15), tremolo, pizz
     kNoOutputChannel, // 6: string ens. → pitch remap
     6, 7, 8, 9, // 7–10: flute, oboe, clarinet, bassoon
     10, 11, 12, 13, // 11–14: trumpet, horn, trombone, tuba
     16, // 15: piano
     14, // 16: timpani
-    15, kNoOutputChannel, // 17–18: snare; guitar dropped
+    kNoOutputChannel, kNoOutputChannel, // 17–18: snare, guitar dropped
     kNoOutputChannel, // 19: choir
 }};
 

@@ -71,21 +71,23 @@ TEST(ScoreLayout, onsetsWithin30msAreSnappedToTheFirst) {
     EXPECT_EQ(snapped[3].onsetCs, 109);
 }
 
-TEST(ScoreLayout, melodyIsEveryNoteUncoveredAboveForMoreThan70Percent) {
+TEST(ScoreLayout, melodyIsEveryNoteThatIsHighestForAtLeast100ms) {
     // A melody note 2 cs after its chord's bass joins the chord (the snap); the top note is melody.
     const auto top = skyline({{100, 100, 48}, {102, 98, 72}, {101, 99, 64}, // chord, top 72
                               {200, 50, 74},                                 // melody
-                              {200, 200, 50}});                              // 74 covers only 25%
+                              {200, 200, 50}});                              // highest from 250 on
     ASSERT_EQ(top.size(), 3u);
     EXPECT_EQ(top[0].pitch, 72);
-    EXPECT_EQ(top[1].pitch, 50) << "nothing above it for 75% of its length";
+    EXPECT_EQ(top[1].pitch, 50) << "highest for 150 cs after 74 ends";
     EXPECT_EQ(top[2].pitch, 74);
-    // 29% covered: melody (71% uncovered); exactly 30%: not (70% is not more than 70%).
-    EXPECT_EQ(skyline({{0, 100, 60}, {71, 29, 72}}).size(), 2u);
-    EXPECT_EQ(skyline({{0, 100, 60}, {70, 30, 72}}).size(), 1u);
-    const auto covered = skyline({{0, 100, 60}, {60, 40, 72}});
-    ASSERT_EQ(covered.size(), 1u);
-    EXPECT_EQ(covered[0].pitch, 72);
+    // highest for 10 cs in one stretch: melody; for 9 cs, or 5 + 5 split by a higher note: not
+    EXPECT_EQ(skyline({{0, 100, 60}, {10, 90, 72}}).size(), 2u);
+    EXPECT_EQ(skyline({{0, 100, 60}, {9, 91, 72}}).size(), 1u);
+    const auto split = skyline({{0, 10, 60}, {5, 1, 72}, {50, 10, 40}});
+    ASSERT_EQ(split.size(), 1u) << "60 is highest for 5 + 4 cs: not melody";
+    EXPECT_EQ(split[0].pitch, 40);
+    // a short note alone is never melody (under 100 ms)
+    EXPECT_TRUE(skyline({{0, 8, 60}}).empty());
 }
 
 TEST(ScoreLayout, theBassIsUncoveredBelowAndNotAlreadyMelody) {

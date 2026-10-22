@@ -23,8 +23,8 @@ inline constexpr int32_t kBoundaryCs = 200;
 inline constexpr int32_t kDenseFirst = 11768;
 inline constexpr int32_t kDenseLevelCount = 8;
 inline constexpr int32_t kDenseLevels[kDenseLevelCount] = {0, 1, 2, 4, 8, 16, 32, 64};
-/** Level written for AUTO until the user has chosen one. */
-inline constexpr int32_t kDenseDefaultLevel = 8;
+/** Level written for AUTO (TD AUTO = TD 4 for the reduction models). */
+inline constexpr int32_t kDenseDefaultLevel = 4;
 
 /** Id of `level` in a block of 8 level ids starting at `first`; clamps to the vocab. -1 if no level. */
 [[nodiscard]] inline auto levelIdFor(int32_t first, int32_t level, int32_t vocabSize) -> int32_t {
@@ -51,23 +51,19 @@ inline constexpr int32_t kAmtFirst = 55285;
     return levelIdFor(kAmtFirst, level, vocabSize);
 }
 
-/**
- * The dense vocab has no "unknown" id, so AUTO repeats the last level the user chose
- * (kDenseDefaultLevel before any choice).
- */
+/** The dense vocab has no "unknown" id, so AUTO is written as kDenseDefaultLevel (TD 4). */
 class LevelTdResolver {
 public:
     explicit LevelTdResolver(int32_t firstId) : first(firstId) {}
 
     [[nodiscard]] auto resolve(int32_t launchpadValue, int32_t vocabSize) -> int32_t {
-        if (launchpadValue != TemporalDensity::kAuto && TemporalDensity::isValid(launchpadValue))
-            lastLevel = launchpadValue;
-        return levelIdFor(first, lastLevel, vocabSize);
+        const bool level = launchpadValue != TemporalDensity::kAuto
+                           && TemporalDensity::isValid(launchpadValue);
+        return levelIdFor(first, level ? launchpadValue : kDenseDefaultLevel, vocabSize);
     }
 
 private:
     int32_t first;
-    int32_t lastLevel = kDenseDefaultLevel;
 };
 
 class DenseTdResolver : public LevelTdResolver {

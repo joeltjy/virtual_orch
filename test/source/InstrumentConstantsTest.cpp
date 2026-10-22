@@ -42,7 +42,7 @@ TEST(InstrumentConstants, MapsTaxonomyLocalIdsToGmPrograms) {
     EXPECT_FALSE(InstrumentConstants::toGmInstrumentId(-1).has_value());
 }
 
-TEST(InstrumentConstants, CelloAndContrabassShareChannelThree) {
+TEST(InstrumentConstants, ContrabassHasChannelFifteen) {
     const auto channel = [](int32_t localId, int32_t pitch) {
         return InstrumentConstants::outputChannelForLocalInstrumentId(localId, pitch);
     };
@@ -50,7 +50,7 @@ TEST(InstrumentConstants, CelloAndContrabassShareChannelThree) {
     EXPECT_EQ(channel(0, 60), 1); // violin
     EXPECT_EQ(channel(1, 60), 2); // viola
     EXPECT_EQ(channel(2, 48), 3); // cello
-    EXPECT_EQ(channel(3, 48), 3); // contrabass shares 3
+    EXPECT_EQ(channel(3, 30), 15); // contrabass, below the cello too
     EXPECT_EQ(channel(4, 60), 4); // tremolo
     EXPECT_EQ(channel(5, 60), 5); // pizzicato
     EXPECT_EQ(channel(7, 72), 6); // flute
@@ -61,7 +61,9 @@ TEST(InstrumentConstants, CelloAndContrabassShareChannelThree) {
     // String Ensemble (local 6) resolves by pitch to a solo string channel.
     EXPECT_EQ(channel(6, 96), 1); // violin range
     EXPECT_EQ(channel(6, 40), 3); // cello range
+    EXPECT_EQ(channel(6, 30), 15); // below the cello: contrabass
 
+    EXPECT_FALSE(channel(17, 60).has_value()); // snare gave its channel to the contrabass
     EXPECT_FALSE(channel(18, 60).has_value()); // guitar takes no channel
     EXPECT_FALSE(channel(19, 60).has_value()); // choir takes no channel
 }

@@ -1,11 +1,13 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <map>
 
 #include <VirtualOrch/LaunchpadGrid.h>
 #include <VirtualOrch/PerformanceActivity.h>
 #include <VirtualOrch/RegisterRange.h>
+#include <VirtualOrch/TemporalDensity.h>
 #include <VirtualOrch/reduction/AnticipationSampler.h>
 #include <VirtualOrch/reduction/DenseTypes.h>
 
@@ -15,6 +17,7 @@ struct Pads {
     LaunchpadGrid grid;
     std::map<int, uint8_t> leds;
     uint32_t now = 1000;
+    int32_t tdBefore = TemporalDensity::get();
     Pads() {
         grid.set_led = [this](int note, uint8_t colour) { leds[note] = colour; };
         grid.setSelectedMode(OrchestrationMode::Jam);
@@ -24,6 +27,20 @@ struct Pads {
         // the register is global: leave it as the default
         if (! RegisterRange::isAuto())
             press(LaunchpadGrid::kRegisterRow, LaunchpadGrid::kSideCol);
+        // so is TD (a register choice may have switched it to AUTO)
+        const auto &levels = TemporalDensity::kLevels;
+        if (const auto it = std::find(levels.begin(), levels.end(), tdBefore); it != levels.end())
+            press(LaunchpadGrid::kTdRow, static_cast<int>(it - levels.begin()));
+        else
+            tdAutoOn();
+    }
+    auto tdAutoOff() -> void {
+        if (TemporalDensity::isAuto())
+            press(LaunchpadGrid::kTdRow, LaunchpadGrid::kSideCol);
+    }
+    auto tdAutoOn() -> void {
+        if (! TemporalDensity::isAuto())
+            press(LaunchpadGrid::kTdRow, LaunchpadGrid::kSideCol);
     }
     auto press(int row, int col) -> void {
         now += 500;
@@ -47,6 +64,17 @@ TEST(RegisterRange, rangesFollowTheSpecWithC4AsMidi60) {
     EXPECT_EQ(RegisterRange::highPitch(RegisterRange::kHigh), 108);
     EXPECT_EQ(RegisterRange::lowPitch(RegisterRange::kAuto), 21);
     EXPECT_EQ(RegisterRange::highPitch(RegisterRange::kAuto), 108);
+}
+
+TEST(RegisterRange, aRegisterPressAsksTheAppToCutTheFuture) {
+    Pads pads;
+    int calls = 0;
+    pads.grid.register_callback = [&] { ++calls; };
+    pads.press(LaunchpadGrid::kRegisterRow, 0); // LOW
+    EXPECT_EQ(calls, 1);
+    pads.press(LaunchpadGrid::kRegisterRow, LaunchpadGrid::kSideCol); // AUTO
+    EXPECT_EQ(calls, 2);
+    pads.grid.register_callback = nullptr; // `calls` goes before `pads`
 }
 
 TEST(RegisterRange, maskNoteBlockLimitsEveryInstrumentBand) {
@@ -113,6 +141,32 @@ TEST(RegisterGrid, worksInEditModeToo) {
     EXPECT_EQ(RegisterRange::get(), RegisterRange::kMedium);
 }
 
+TEST(RegisterGrid, aRegisterSwitchesTdToAuto) {
+    Pads pads;
+    int tdCalls = 0;
+    pads.grid.td_callback = [&] { ++tdCalls; };
+    pads.tdAutoOff();
+    tdCalls = 0;
+    ASSERT_EQ(TemporalDensity::get(), 4);
+
+    pads.press(6, 0); // LOW
+    EXPECT_TRUE(TemporalDensity::isAuto());
+    EXPECT_EQ(tdCalls, 1) << "the app cuts the future for the TD change too";
+    EXPECT_EQ(pads.colourOf(LaunchpadGrid::kTdRow, LaunchpadGrid::kSideCol), LaunchpadLighting::kGreen);
+
+    pads.press(LaunchpadGrid::kTdRow, 4); // a TD level can still be picked
+    EXPECT_EQ(TemporalDensity::get(), 16);
+    pads.press(6, 2); // another register: AUTO again
+    EXPECT_TRUE(TemporalDensity::isAuto());
+
+    pads.press(LaunchpadGrid::kTdRow, 4);
+    pads.press(6, LaunchpadGrid::kSideCol); // register AUTO on: TD is left alone
+    EXPECT_EQ(TemporalDensity::get(), 16);
+    pads.press(6, LaunchpadGrid::kSideCol); // register AUTO off (HIGH): TD AUTO
+    EXPECT_TRUE(TemporalDensity::isAuto());
+    pads.grid.td_callback = nullptr;
+}
+
 TEST(RegisterGrid, thePressesAreLoggedInWords) {
     using K = PerformanceActivity::LaunchpadAction::Kind;
     const auto name = [](int32_t) { return juce::String(); };
@@ -128,6 +182,7 @@ TEST(RegisterGrid, thePressesAreLoggedInWords) {
               "Max polyphony off");
 
     Pads pads;
+    pads.tdAutoOn(); // only the register lines below
     std::vector<juce::String> lines;
     pads.grid.action_callback = [&](const PerformanceActivity::LaunchpadAction &a) {
         lines.push_back(PerformanceActivity::describe(a, name));

@@ -163,6 +163,13 @@ AppSession::AppSession()
         SessionLog::add("CUT", "TD press: notes from " + juce::String(cut) + " (now + 1 s) removed");
         activeReduction().requestModeCut(cut);
     };
+    // A register change works the same way: the next second plays on, the rest is regenerated
+    // in the new register.
+    midiInputProcess.getLaunchpadGrid().register_callback = [this] {
+        const auto cut = static_cast<int32_t>(clock.getTime()) + kTdCutAheadCs;
+        SessionLog::add("CUT", "register change: notes from " + juce::String(cut) + " (now + 1 s) removed");
+        activeReduction().requestModeCut(cut);
+    };
     midiInputProcess.getLaunchpadGrid().mode_callback = [this](OrchestrationMode mode) {
         setOrchestrationMode(mode);
         consoleLog.add(PerformanceActivity::describe(
@@ -210,7 +217,7 @@ AppSession::AppSession()
         int col;
         int32_t localId;
     };
-    static constexpr std::array<PadMapping, 13> kInstrumentPads{{
+    static constexpr std::array<PadMapping, 12> kInstrumentPads{{
         {0, 0, 6},  // string ensemble
         {0, 1, 5},  // pizzicato
         {0, 2, 4},  // tremolo
@@ -222,8 +229,7 @@ AppSession::AppSession()
         {1, 1, 11}, // trumpet
         {1, 2, 13}, // trombone
         {1, 3, 14}, // tuba
-        {1, 4, 16}, // timpani
-        {1, 5, 17}, // snare
+        {1, 4, 16}, // timpani (snare dropped: its channel 15 is the contrabass now)
     }};
 
     // All instrument pads start off (User + Model).

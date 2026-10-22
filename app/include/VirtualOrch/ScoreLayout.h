@@ -17,8 +17,9 @@
  *    space is one step. Treble lines are E4 G4 B4 D5 F5, bass lines G2 B2 D3 F3 A3.
  *  - Spelling: sharps, or flats for a chord whose name's root is flat.
  *  - Melody + bass (what the score shows): onsets within kSnapCs (30 ms) of the previous one
- *    are snapped to the first onset of their cluster; a note with nothing above it for more
- *    than 70% of its length is melody, any other with nothing below it for that long is bass.
+ *    are snapped to the first onset of their cluster; a note that is the highest sounding note
+ *    for at least 100 ms in one stretch is melody, any other with nothing below it for more than
+ *    70% of its length is bass.
  */
 namespace ScoreLayout {
 
@@ -98,11 +99,51 @@ inline constexpr float kLineCoveredMax = 0.30f; // a line note is uncovered for 
     return static_cast<float>(covered) / static_cast<float>(end - start);
 }
 
+/** A melody note is the highest sounding note for at least this long in one stretch (100 ms). */
+inline constexpr int32_t kMelodyMinTopCs = 10;
+
 /**
- * Melody and bass of `notes`, after snapOnsets: the melody is every note with nothing above it
- * for more than 70% of its length; the bass is every other note with nothing below it for more
- * than 70% of its length. A note keeps its own onset and length. Several melody (or bass) notes
- * may overlap; the two lines never share a note.
+ * Longest stretch (cs) during which notes[idx] is the highest sounding note (a note of the same
+ * pitch sounding with it does not take that away).
+ */
+[[nodiscard]] inline auto longestTopStretch(const std::vector<Note> &notes, size_t idx) -> int32_t {
+    const auto &n = notes[idx];
+    const int32_t start = n.onsetCs;
+    const int32_t end = n.onsetCs + n.durationCs;
+    // the times inside the note where the set of sounding notes changes
+    std::vector<int32_t> cuts{start, end};
+    for (const auto &o: notes) {
+        const int32_t a = o.onsetCs;
+        const int32_t b = o.onsetCs + o.durationCs;
+        if (a > start && a < end)
+            cuts.push_back(a);
+        if (b > start && b < end)
+            cuts.push_back(b);
+    }
+    std::ranges::sort(cuts);
+    cuts.erase(std::unique(cuts.begin(), cuts.end()), cuts.end());
+    int32_t best = 0;
+    int32_t run = 0;
+    for (size_t k = 0; k + 1 < cuts.size(); ++k) {
+        const int32_t a = cuts[k];
+        const int32_t b = cuts[k + 1];
+        bool top = true;
+        for (const auto &o: notes)
+            if (o.pitch > n.pitch && o.onsetCs < b && o.onsetCs + o.durationCs > a) {
+                top = false;
+                break;
+            }
+        run = top ? run + (b - a) : 0;
+        best = std::max(best, run);
+    }
+    return best;
+}
+
+/**
+ * Melody and bass of `notes`, after snapOnsets: the melody (the skyline) is every note that is
+ * the highest sounding note for at least 100 ms in one stretch; the bass is every other note with
+ * nothing below it for more than 70% of its length. A note keeps its own onset and length. The
+ * two lines never share a note.
  */
 [[nodiscard]] inline auto skylineAndBass(std::vector<Note> notes, int32_t snapCs = kSnapCs) -> Lines {
     notes = snapOnsets(std::move(notes), snapCs);
@@ -117,7 +158,7 @@ inline constexpr float kLineCoveredMax = 0.30f; // a line note is uncovered for 
     for (size_t i = 0; i < notes.size(); ++i) {
         if (notes[i].durationCs <= 0)
             continue;
-        if (coveredFraction(notes, i, true) < kLineCoveredMax)
+        if (longestTopStretch(notes, i) >= kMelodyMinTopCs)
             lines.melody.push_back(notes[i]);
         else if (coveredFraction(notes, i, false) < kLineCoveredMax)
             lines.bass.push_back(notes[i]);

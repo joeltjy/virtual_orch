@@ -38,13 +38,13 @@ TEST(TdTokens, denseIdsFollowTheVocabWithAndWithoutLevel64) {
     EXPECT_EQ(TdTokens::denseIdForLevel(3, 11776), -1);
 }
 
-TEST(TdTokens, denseAutoRepeatsTheLastChosenLevel) {
+TEST(TdTokens, denseAutoIsTd4) {
     TdTokens::DenseTdResolver resolver;
     EXPECT_EQ(resolver.resolve(TemporalDensity::kAuto, 11776),
-              TdTokens::denseIdForLevel(8, 11776))
-        << "default before any choice";
+              TdTokens::denseIdForLevel(4, 11776));
     EXPECT_EQ(resolver.resolve(16, 11776), TdTokens::denseIdForLevel(16, 11776));
-    EXPECT_EQ(resolver.resolve(TemporalDensity::kAuto, 11776), TdTokens::denseIdForLevel(16, 11776));
+    EXPECT_EQ(resolver.resolve(TemporalDensity::kAuto, 11776), TdTokens::denseIdForLevel(4, 11776))
+        << "AUTO does not repeat the last level";
     EXPECT_EQ(resolver.resolve(64, 11775), TdTokens::denseIdForLevel(32, 11775));
 }
 
@@ -54,9 +54,9 @@ TEST(TdTokens, amtNativeIdsFollowTheSameLevels) {
     EXPECT_EQ(TdTokens::amtIdForLevel(64, 55293), 55292);
     EXPECT_EQ(TdTokens::amtIdForLevel(3, 55293), -1);
     TdTokens::AmtTdResolver resolver;
-    EXPECT_EQ(resolver.resolve(TemporalDensity::kAuto, 55293), 55289) << "default level 8";
+    EXPECT_EQ(resolver.resolve(TemporalDensity::kAuto, 55293), 55288) << "AUTO = level 4";
     EXPECT_EQ(resolver.resolve(32, 55293), 55291);
-    EXPECT_EQ(resolver.resolve(TemporalDensity::kAuto, 55293), 55291) << "AUTO repeats the last level";
+    EXPECT_EQ(resolver.resolve(TemporalDensity::kAuto, 55293), 55288);
 }
 
 TEST(TdTokens, iodIdsAndUnknown) {

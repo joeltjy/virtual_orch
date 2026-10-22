@@ -33,7 +33,8 @@
  *                        every input instrument that is on is switched on in the model
  *                        set (added, not replaced), then all input pads switch off.
  *    kModelRowFirst (4)  model instruments, 2 rows (same layout as User)
- *    kRegisterRow (6)    register LOW / MEDIUM / HIGH (cols 0..2) + AUTO side pad
+ *    kRegisterRow (6)    register LOW / MEDIUM / HIGH (cols 0..2) + AUTO side pad; a register
+ *                        other than AUTO switches TD to AUTO (TD 4 for the model)
  *    kAccompRow (7)      max polyphony 1..4 (cols 0..3); works and is lit in Jam and
  *                        Accompaniment; pressing the selected pad again clears the cap.
  *                        Entering Accompaniment with no cap starts at 1; kept across modes.
@@ -91,6 +92,8 @@ public:
     ModeCallback mode_callback;
     /** A TD level pad or AUTO_TD was pressed (after TemporalDensity changed); the app cuts the future. */
     std::function<void()> td_callback;
+    /** A register pad or AUTO was pressed (after RegisterRange changed); the app cuts the future. */
+    std::function<void()> register_callback;
     LedCallback set_led;
 
     /** (row, col) → local instrument id; leave empty slots unmapped. */
@@ -359,6 +362,9 @@ public:
             if (acceptPress(lastMs, now)) {
                 selectRegister(*reg);
                 emitAction({PerformanceActivity::LaunchpadAction::Kind::Register, 0, *reg, false, false});
+                if (register_callback)
+                    register_callback();
+                tdAutoForRegister();
             }
             return;
         }
@@ -369,6 +375,9 @@ public:
                 setRegisterAuto(! RegisterRange::isAuto());
                 emitAction({PerformanceActivity::LaunchpadAction::Kind::RegisterAuto, 0, 0,
                             RegisterRange::isAuto(), false});
+                if (register_callback)
+                    register_callback();
+                tdAutoForRegister();
             }
             return;
         }
@@ -477,6 +486,16 @@ private:
     auto setRegisterAuto(bool on) -> void {
         RegisterRange::set(on ? RegisterRange::kAuto : getManualRegister());
         refreshRegisterLeds();
+    }
+
+    /** A register other than AUTO switches TD to AUTO (a TD level can still be picked after). */
+    auto tdAutoForRegister() -> void {
+        if (RegisterRange::isAuto() || TemporalDensity::isAuto())
+            return;
+        setTdAuto(true);
+        emitAction({PerformanceActivity::LaunchpadAction::Kind::TdAuto, 0, 0, true, false});
+        if (td_callback)
+            td_callback();
     }
 
     auto refreshRegisterLeds() -> void {

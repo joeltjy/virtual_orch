@@ -4,6 +4,7 @@
 
 #include <array>
 #include <atomic>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
@@ -222,6 +223,14 @@ private:
 
     std::vector<Token> midiInputHistory;
     std::vector<Token> inputVocsepHistory; // the user notes vocsep has seen (Edit)
+    /**
+     * Real lengths of released keys (keyId, duration token), newest last. A short key's note-off
+     * can arrive before the notes orchestrated from it exist; they take the length when pushed.
+     */
+    std::vector<std::pair<int32_t, int32_t>> releasedKeyLengths;
+    static constexpr size_t kReleasedKeysKept = 256;
+    auto rememberReleasedKey(const TokenUpdate &update) -> void;
+    [[nodiscard]] auto releasedLengthOf(int32_t keyId) const -> std::optional<int32_t>;
     int32_t nextInputNoteId = kInputNoteIdBase;
     std::vector<Token> conditioningHistory;
     std::vector<Token> reductionHistory;

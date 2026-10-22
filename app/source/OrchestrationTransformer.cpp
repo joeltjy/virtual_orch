@@ -84,6 +84,8 @@ auto OrchestrationTransformer::stampInputVoices(std::vector<Token> &midiBatch) -
             continue;
         if (token.noteId < 0)
             token.noteId = nextInputNoteId++;
+        if (const auto length = releasedLengthOf(token.keyId))
+            token.duration = *length;
         const auto restamps = inputVoiceSeparation->stampVoiceId(token, inputVocsepHistory);
         for (const auto &r: restamps) {
             if (r.historyIndex >= inputVocsepHistory.size())
@@ -103,9 +105,28 @@ auto OrchestrationTransformer::stampInputVoices(std::vector<Token> &midiBatch) -
                                  inputVocsepHistory.end() - static_cast<std::ptrdiff_t>(kKeep));
 }
 
+auto OrchestrationTransformer::rememberReleasedKey(const TokenUpdate &update) -> void {
+    if (update.oldNote.keyId < 0)
+        return;
+    std::erase_if(releasedKeyLengths, [&](const auto &e) { return e.first == update.oldNote.keyId; });
+    releasedKeyLengths.emplace_back(update.oldNote.keyId, update.newNote.duration);
+    if (releasedKeyLengths.size() > kReleasedKeysKept)
+        releasedKeyLengths.erase(releasedKeyLengths.begin());
+}
+
+auto OrchestrationTransformer::releasedLengthOf(int32_t keyId) const -> std::optional<int32_t> {
+    if (keyId < 0)
+        return std::nullopt;
+    for (auto it = releasedKeyLengths.rbegin(); it != releasedKeyLengths.rend(); ++it)
+        if (it->first == keyId)
+            return it->second;
+    return std::nullopt;
+}
+
 auto OrchestrationTransformer::applyTokenUpdates() -> void {
     TokenUpdate update{};
     while (updatesIncoming.pull(update)) {
+        rememberReleasedKey(update); // for notes made from this key later (see pushOutputNote)
         // The stamped user notes keep their real lengths for vocsep (matched by keyId).
         for (auto &t: inputVocsepHistory)
             if (tokenMatchesUpdateSource(t, update.oldNote))
@@ -416,7 +437,11 @@ auto OrchestrationTransformer::packSortAndPushOutput(const std::vector<Orchestra
         pushOutputNote(note);
 }
 
-auto OrchestrationTransformer::pushOutputNote(const OrchestrationNote &note) -> void {
+auto OrchestrationTransformer::pushOutputNote(const OrchestrationNote &noteIn) -> void {
+    OrchestrationNote note = noteIn;
+    // The key was already released: the note takes its real length, not the provisional one.
+    if (const auto length = releasedLengthOf(note.token.keyId))
+        note.token.duration = *length;
     currentOTTime = note.token.time;
     SessionLog::add("OT", juce::String(note.token.toUnderstandableString()) + " instr "
                               + juce::String(note.localInstrumentId) + " vel "
@@ -440,6 +465,7 @@ void OrchestrationTransformer::threadRun() {
     heldCountValue.store(0);
     midiInputHistory.clear();
     inputVocsepHistory.clear();
+    releasedKeyLengths.clear();
     nextInputNoteId = kInputNoteIdBase;
     if (inputVoiceSeparation != nullptr)
         inputVoiceSeparation->reset();

@@ -39,6 +39,38 @@ TEST(ChordNaming, slashBassesAreSpelledFromTheRoot) {
     EXPECT_EQ(nameFor({58, 60, 64, 67}), "C/Bb") << "the seventh is a B, flattened";
 }
 
+TEST(ChordNaming, minorRootsFollowTheMinorKeys) {
+    EXPECT_EQ(nameFor({61, 64, 68}), "C#m") << "not Dbm";
+    EXPECT_EQ(nameFor({68, 71, 75}), "G#m") << "not Abm";
+    EXPECT_EQ(nameFor({63, 66, 70}), "Ebm");
+    EXPECT_EQ(nameFor({58, 61, 65}), "Bbm");
+    EXPECT_EQ(nameFor({61, 65, 68}), "Db") << "major stays flat";
+    EXPECT_EQ(nameFor({68, 72, 75}), "Ab");
+    EXPECT_FALSE(ChordNaming::rootIsFlat("C#m"));
+}
+
+TEST(ChordNaming, theScoreDropsExtensions) {
+    using ChordNaming::basicChord;
+    EXPECT_EQ(basicChord("Cmaj7"), "C");
+    EXPECT_EQ(basicChord("G7"), "G");
+    EXPECT_EQ(basicChord("Cadd9"), "C");
+    EXPECT_EQ(basicChord("Dm7"), "Dm");
+    EXPECT_EQ(basicChord("C#m9"), "C#m");
+    EXPECT_EQ(basicChord("Bm7b5"), "Bdim");
+    EXPECT_EQ(basicChord("Adim7"), "Adim");
+    EXPECT_EQ(basicChord("Ebmaj7/G"), "Eb");
+    EXPECT_EQ(basicChord("G7sus4"), "Gsus4");
+    EXPECT_EQ(basicChord("Csus2"), "Csus2");
+    EXPECT_EQ(basicChord("C5"), "C5");
+    EXPECT_EQ(basicChord("Caug"), "Caug");
+}
+
+TEST(ChordNaming, theScoreShowsTheChordWithoutItsBass) {
+    EXPECT_EQ(ChordNaming::withoutBass("C/E"), "C");
+    EXPECT_EQ(ChordNaming::withoutBass("Am/C"), "Am");
+    EXPECT_EQ(ChordNaming::withoutBass("G7"), "G7");
+}
+
 TEST(ChordNaming, doublingsDoNotMatterAndEveryTwoNotesHaveAName) {
     EXPECT_EQ(nameFor({48, 60, 64, 67, 72}), "C");
     EXPECT_EQ(nameFor({60, 72, 84}), "C") << "octaves: the note name";

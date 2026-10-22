@@ -194,7 +194,7 @@ auto ScoreWidget::timerCallback() -> void {
     for (auto &c: ScoreLayout::groupChords(ScoreLayout::snapOnsets(generated))) {
         const auto &name = nameFor(c.pitches);
         flatsAt[c.onsetCs] = ChordNaming::rootIsFlat(name);
-        names.push_back({c.onsetCs, name});
+        names.push_back({c.onsetCs, ChordNaming::basicChord(name)}); // root + quality only
     }
     std::vector<ScoreView::DrawNote> notes;
     const auto lines = ScoreLayout::skylineAndBass(std::move(generated));

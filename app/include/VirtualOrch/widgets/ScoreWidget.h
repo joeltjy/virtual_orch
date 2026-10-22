@@ -14,7 +14,8 @@ class AppSession;
 /**
  * Rolling grand staff (treble + bass) with a nowbar in the middle: noteheads only, no stems or
  * beams. Shows the MELODY and BASS of the reduction's generated notes (ScoreLayout::
- * skylineAndBass: onsets within 30 ms snapped, then ~/orchestration's skyline_and_bass) from
+ * skylineAndBass: onsets within 30 ms snapped, then the notes uncovered above / below for
+ * more than 70% of their length) from
  * kWindowCs before the clock to kWindowCs after it, and each chord's name above the treble staff.
  */
 class ScoreView : public juce::Component {

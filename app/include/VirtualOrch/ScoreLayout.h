@@ -5,7 +5,6 @@
 #include <string>
 #include <vector>
 
-#include "VirtualOrch/reduction/MelodyBassSkyline.h"
 
 /**
  * Layout logic of the ScoreWidget (no drawing): a rolling grand staff of the reduction's
@@ -18,9 +17,8 @@
  *    space is one step. Treble lines are E4 G4 B4 D5 F5, bass lines G2 B2 D3 F3 A3.
  *  - Spelling: sharps, or flats for a chord whose name's root is flat.
  *  - Melody + bass (what the score shows): onsets within kSnapCs (30 ms) of the previous one
- *    are snapped to the first onset of their cluster, then MelodyBass::skylineAndBass (the port
- *    of ~/orchestration melody_bass.py, skyline_and_bass) keeps the top and bottom lines; a note
- *    that continues after a cut is shown once, at its first slice.
+ *    are snapped to the first onset of their cluster; a note with nothing above it for more
+ *    than 70% of its length is melody, any other with nothing below it for that long is bass.
  */
 namespace ScoreLayout {
 
@@ -69,40 +67,62 @@ struct Lines {
     std::vector<Note> bass;
 };
 
+/** Share of a note's own time [onset, end) during which some other note sounds above (below) it. */
+inline constexpr float kLineCoveredMax = 0.30f; // a line note is uncovered for more than 70%
+
+[[nodiscard]] inline auto coveredFraction(const std::vector<Note> &notes, size_t idx, bool above) -> float {
+    const auto &n = notes[idx];
+    const int32_t start = n.onsetCs;
+    const int32_t end = n.onsetCs + n.durationCs;
+    if (end <= start)
+        return 1.0f;
+    std::vector<std::pair<int32_t, int32_t>> spans; // the parts of [start, end) another note covers
+    for (size_t k = 0; k < notes.size(); ++k) {
+        const auto &o = notes[k];
+        if (k == idx || (above ? o.pitch <= n.pitch : o.pitch >= n.pitch))
+            continue;
+        const int32_t a = std::max(start, o.onsetCs);
+        const int32_t b = std::min(end, o.onsetCs + o.durationCs);
+        if (a < b)
+            spans.emplace_back(a, b);
+    }
+    std::ranges::sort(spans);
+    int32_t covered = 0;
+    int32_t reach = start;
+    for (const auto &[a, b]: spans) {
+        if (b <= reach)
+            continue;
+        covered += b - std::max(a, reach);
+        reach = b;
+    }
+    return static_cast<float>(covered) / static_cast<float>(end - start);
+}
+
 /**
- * Melody and bass of `notes` (after snapOnsets): ~/orchestration's skyline_and_bass, one entry
- * per note at its onset, with its length in that line (a later cut shortens it). The two lines
- * never share a note.
+ * Melody and bass of `notes`, after snapOnsets: the melody is every note with nothing above it
+ * for more than 70% of its length; the bass is every other note with nothing below it for more
+ * than 70% of its length. A note keeps its own onset and length. Several melody (or bass) notes
+ * may overlap; the two lines never share a note.
  */
 [[nodiscard]] inline auto skylineAndBass(std::vector<Note> notes, int32_t snapCs = kSnapCs) -> Lines {
     notes = snapOnsets(std::move(notes), snapCs);
     std::ranges::stable_sort(notes, [](const Note &a, const Note &b) {
-        if (a.onsetCs != b.onsetCs)
-            return a.onsetCs < b.onsetCs;
-        if (a.pitch != b.pitch)
-            return a.pitch < b.pitch;
-        return a.durationCs < b.durationCs;
+        return a.onsetCs != b.onsetCs ? a.onsetCs < b.onsetCs : a.pitch < b.pitch;
     });
-    std::vector<MelodyBass::Note> input;
-    for (size_t i = 0; i < notes.size(); ++i)
-        if (notes[i].durationCs > 0)
-            input.push_back({static_cast<int>(i), notes[i].onsetCs, notes[i].onsetCs + notes[i].durationCs,
-                             notes[i].pitch, 64});
-    const auto merged = [](const std::vector<MelodyBass::Segment> &segments) {
-        std::vector<Note> out;
-        int lastSource = -1;
-        for (const auto &seg: segments) {
-            if (seg.sourceIndex == lastSource && ! out.empty()) {
-                out.back().durationCs = seg.end - out.back().onsetCs; // a continuation: same note
-                continue;
-            }
-            out.push_back({seg.start, seg.end - seg.start, seg.pitch});
-            lastSource = seg.sourceIndex;
-        }
-        return out;
-    };
-    const auto result = MelodyBass::skylineAndBass(input);
-    return {merged(result.melody), merged(result.bass)};
+    // the same pitch at the same onset twice is one note
+    notes.erase(std::unique(notes.begin(), notes.end(),
+                            [](const Note &a, const Note &b) { return a.onsetCs == b.onsetCs && a.pitch == b.pitch; }),
+                notes.end());
+    Lines lines;
+    for (size_t i = 0; i < notes.size(); ++i) {
+        if (notes[i].durationCs <= 0)
+            continue;
+        if (coveredFraction(notes, i, true) < kLineCoveredMax)
+            lines.melody.push_back(notes[i]);
+        else if (coveredFraction(notes, i, false) < kLineCoveredMax)
+            lines.bass.push_back(notes[i]);
+    }
+    return lines;
 }
 
 /** The skyline (top line) only. */

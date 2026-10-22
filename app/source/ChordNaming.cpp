@@ -30,6 +30,19 @@ auto respellAt(std::string &name, size_t pos) -> void {
         }
 }
 
+/**
+ * The chord's root: major-type chords read flat (Db, Eb, Ab, Bb), but minor-type ones follow
+ * the minor keys: C#m and G#m stay sharp, while D#m / A#m become Ebm / Bbm.
+ */
+auto respellRoot(std::string &name) -> void {
+    const size_t rootLength = name.size() >= 2 && (name[1] == '#' || name[1] == 'b') ? 2 : 1;
+    const std::string quality = name.substr(rootLength);
+    const bool minor = (quality.rfind("m", 0) == 0 && quality.rfind("maj", 0) != 0) || quality.rfind("dim", 0) == 0;
+    if (minor && (name.rfind("C#", 0) == 0 || name.rfind("G#", 0) == 0))
+        return;
+    respellAt(name, 0);
+}
+
 constexpr std::array<int, 7> kLetterPc{0, 2, 4, 5, 7, 9, 11}; // C D E F G A B
 constexpr const char *kLetters = "CDEFGAB";
 
@@ -170,10 +183,39 @@ auto nameFor(std::vector<int> midiPitches) -> std::string {
     std::string name = inferName(pcs);
     if (name.empty())
         return {};
-    respellAt(name, 0);
+    respellRoot(name);
     if (const auto slash = name.find('/'); slash != std::string::npos)
         spellBassAt(name, slash + 1);
     return name;
+}
+
+auto basicChord(const std::string &name) -> std::string {
+    std::string chord = withoutBass(name);
+    if (chord.empty())
+        return chord;
+    const size_t rootLength = chord.size() >= 2 && (chord[1] == '#' || chord[1] == 'b') ? 2 : 1;
+    const std::string root = chord.substr(0, rootLength);
+    const std::string q = chord.substr(rootLength);
+    const auto has = [&](const char *s) { return q.find(s) != std::string::npos; };
+    const auto starts = [&](const char *s) { return q.rfind(s, 0) == 0; };
+    if (starts("dim") || has("b5") || has("ø"))
+        return root + "dim"; // dim, dim7, m7b5
+    if (starts("aug") || starts("+") || has("#5"))
+        return root + "aug";
+    if (starts("m") && ! starts("maj"))
+        return root + "m"; // m, m7, m9, madd9, mmaj7 ...
+    if (has("sus2"))
+        return root + "sus2";
+    if (has("sus"))
+        return root + "sus4";
+    if (q == "5")
+        return root + "5";
+    return root; // major: maj7, 7, 9, 6, add9 ... all drop to the triad
+}
+
+auto withoutBass(const std::string &name) -> std::string {
+    const auto slash = name.find('/');
+    return slash == std::string::npos ? name : name.substr(0, slash);
 }
 
 auto rootIsFlat(const std::string &name) -> bool {

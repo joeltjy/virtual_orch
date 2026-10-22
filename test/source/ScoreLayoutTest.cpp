@@ -71,16 +71,34 @@ TEST(ScoreLayout, onsetsWithin30msAreSnappedToTheFirst) {
     EXPECT_EQ(snapped[3].onsetCs, 109);
 }
 
-TEST(ScoreLayout, skylineIsTheTopLineAfterTheSnap) {
-    // A melody note 2 cs after its chord's bass joins the chord; the top note is the skyline.
+TEST(ScoreLayout, melodyIsEveryNoteUncoveredAboveForMoreThan70Percent) {
+    // A melody note 2 cs after its chord's bass joins the chord (the snap); the top note is melody.
     const auto top = skyline({{100, 100, 48}, {102, 98, 72}, {101, 99, 64}, // chord, top 72
                               {200, 50, 74},                                 // melody
-                              {200, 200, 50}});                              // a bass below it
-    ASSERT_EQ(top.size(), 2u);
-    EXPECT_EQ(top[0].onsetCs, 100);
+                              {200, 200, 50}});                              // 74 covers only 25%
+    ASSERT_EQ(top.size(), 3u);
     EXPECT_EQ(top[0].pitch, 72);
-    EXPECT_EQ(top[1].onsetCs, 200);
-    EXPECT_EQ(top[1].pitch, 74);
+    EXPECT_EQ(top[1].pitch, 50) << "nothing above it for 75% of its length";
+    EXPECT_EQ(top[2].pitch, 74);
+    // 29% covered: melody (71% uncovered); exactly 30%: not (70% is not more than 70%).
+    EXPECT_EQ(skyline({{0, 100, 60}, {71, 29, 72}}).size(), 2u);
+    EXPECT_EQ(skyline({{0, 100, 60}, {70, 30, 72}}).size(), 1u);
+    const auto covered = skyline({{0, 100, 60}, {60, 40, 72}});
+    ASSERT_EQ(covered.size(), 1u);
+    EXPECT_EQ(covered[0].pitch, 72);
+}
+
+TEST(ScoreLayout, theBassIsUncoveredBelowAndNotAlreadyMelody) {
+    // An inner voice covered above and below is in neither line.
+    const auto lines = skylineAndBass({{0, 100, 48}, {0, 100, 60}, {0, 100, 72}});
+    ASSERT_EQ(lines.melody.size(), 1u);
+    ASSERT_EQ(lines.bass.size(), 1u);
+    EXPECT_EQ(lines.melody[0].pitch, 72);
+    EXPECT_EQ(lines.bass[0].pitch, 48);
+    // A lone note is melody only.
+    const auto lone = skylineAndBass({{0, 100, 60}});
+    EXPECT_EQ(lone.melody.size(), 1u);
+    EXPECT_TRUE(lone.bass.empty());
 }
 
 TEST(ScoreLayout, theBassLineIsKeptApartFromTheMelody) {

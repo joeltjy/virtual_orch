@@ -122,6 +122,15 @@ AppSession::AppSession()
             SessionLog::add("LAUNCHPAD", text);
             consoleLog.add(text);
         };
+    keyboardLaunchpad.isEnabled = [this] { return keyboardLaunchpadEnabled.load(); };
+    keyboardLaunchpad.onPress = [this](const KeyboardLaunchpad::Target &target, const juce::String &label) {
+        // Logged like a raw Launchpad press (MIDI_IN), so a session log shows which key was used.
+        SessionLog::add("KEYBOARD_LAUNCHPAD",
+                        "key " + label + " | "
+                            + (target.isScene() ? "top " + juce::String(target.scene)
+                                                : "pad " + juce::String(target.row) + " " + juce::String(target.col)));
+        KeyboardLaunchpad::press(midiInputProcess.getLaunchpadGrid(), target);
+    };
     midiInputProcess.onPedalDown = [this](int32_t pedalTimeCs) {
         outputPlayback.pedalClearRequests.push(pedalTimeCs);
     };
@@ -287,6 +296,7 @@ AppSession::AppSession()
 }
 
 AppSession::~AppSession() {
+    scriptedInput.stop();
     if (SessionLog::clock() == &clock)
         SessionLog::setClock(nullptr);
     alive->store(false);

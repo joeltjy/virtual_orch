@@ -23,6 +23,14 @@ public:
 
     [[nodiscard]] static auto shortNameForLocal(int32_t localId) -> juce::String;
 
+    /** Draw each button's computer-keyboard key (Keyboard as Launchpad) in its corner. */
+    auto setShowKeys(bool show) -> void {
+        if (show != showKeys) {
+            showKeys = show;
+            repaint();
+        }
+    }
+
     /** Larger labels for an audience (the cells stay the same; text fills more of them). */
     auto setTextScale(float scale) -> void { textScale = scale; resized(); repaint(); }
 
@@ -31,12 +39,15 @@ private:
     static constexpr int kUiCols = 9;
     static constexpr int kLabelStripWidth = 64;
     float textScale = 1.0f;
+    bool showKeys = false;
 
     struct CellState {
         juce::String label;
         /** Palette colour the button shows when lit. */
         uint8_t onPalette = 0;
         bool lit = false;
+        /** Computer-keyboard key for this button (KeyboardLaunchpad), or empty. */
+        juce::String key;
     };
 
     [[nodiscard]] static auto colourForPalette(uint8_t palette) -> juce::Colour;

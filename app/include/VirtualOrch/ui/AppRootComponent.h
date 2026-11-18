@@ -13,7 +13,9 @@ class AppRootComponent : public juce::Component {
 public:
     AppRootComponent();
 
-    ~AppRootComponent() override = default;
+    ~AppRootComponent() override;
+
+    auto parentHierarchyChanged() -> void override;
 
     auto paint(juce::Graphics &g) -> void override;
 
@@ -26,6 +28,8 @@ private:
     juce::TabbedComponent tabs{juce::TabbedButtonBar::TabsAtTop};
     std::unique_ptr<MainComponent> settingsPage;
     std::unique_ptr<WorkspacePage> workspacePage;
+    /** The window the keyboard-Launchpad listener is also attached to. */
+    juce::Component::SafePointer<juce::Component> listenedWindow;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AppRootComponent)
 };

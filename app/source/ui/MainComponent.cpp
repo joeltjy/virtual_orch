@@ -1,5 +1,7 @@
 #include "VirtualOrch/ui/MainComponent.h"
 
+#include "VirtualOrch/ScriptedInputPlayer.h"
+
 #include <iostream>
 
 #include "VirtualOrch/MidiOutputProcessor.h"
@@ -283,16 +285,32 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     midiInputList.setTextWhenNoChoicesAvailable("No MIDI Inputs Enabled");
 
     midiInputList.addItemList(midiInputNames, 1);
+    // Last entry: the scripted input (a MIDI file played as if it were this keyboard).
+    midiInputList.addItem(ScriptedInputPlayer::kScriptedInputName, midiInputNames.size() + 1);
     midiInputList.onChange = [this] {
-        if (midiInputList.getSelectedItemIndex() < 0)
+        const int index = midiInputList.getSelectedItemIndex();
+        if (index < 0)
             return;
-        setMidiInput(midiInputList.getSelectedItemIndex(), 0);
-        DBG("Saving input: " + midiInputs[midiInputList.getSelectedItemIndex()].identifier);
-        session.presetStore.settings.getOrCreateChildWithName("input", nullptr).setProperty(
-            "identifier", midiInputs[midiInputList.getSelectedItemIndex()].identifier, nullptr);
+        auto inputSettings = session.presetStore.settings.getOrCreateChildWithName("input", nullptr);
+        if (index == midiInputs.size()) {
+            selectScriptedInput();
+            inputSettings.setProperty("identifier", ScriptedInputPlayer::kScriptedInputIdentifier, nullptr);
+        } else {
+            if (session.isScriptedInputSelected()) {
+                session.scriptedInput.stop();
+                session.selectedMidiInputIdentifier = {};
+            }
+            setMidiInput(index, 0);
+            DBG("Saving input: " + midiInputs[index].identifier);
+            inputSettings.setProperty("identifier", midiInputs[index].identifier, nullptr);
+        }
+        refreshScriptedInputControls();
+        resized();
     };
     juce::String savedInput = session.presetStore.settings.getOrCreateChildWithName("input", nullptr).getProperty("identifier", "");
-    if (savedInput.isNotEmpty()) {
+    if (savedInput == ScriptedInputPlayer::kScriptedInputIdentifier) {
+        midiInputList.setSelectedItemIndex(midiInputs.size(), juce::sendNotificationSync);
+    } else if (savedInput.isNotEmpty()) {
         DBG("Saved Input: " + savedInput);
         // Find the index of the saved input
         int index = -1;
@@ -314,6 +332,8 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
         DBG("No saved input, setting to first input.");
         midiInputList.setSelectedItemIndex(0);
     }
+
+    setUpScriptedInputControls();
 
     /* ADDITIONAL MIDI LIST (a second piano, played like the MIDI Input) */
 
@@ -439,6 +459,25 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
         DBG("No saved launchpad input, setting to first input.");
         launchpadMidiList.setSelectedItemIndex(0);
     }
+
+    /* KEYBOARD AS LAUNCHPAD */
+    addAndMakeVisible(keyboardLaunchpadToggle);
+    keyboardLaunchpadToggle.setButtonText(
+        "Keyboard as Launchpad (keys are shown on the Active Instruments widget)");
+    {
+        auto kbSettings = session.presetStore.settings.getOrCreateChildWithName("keyboardLaunchpad", nullptr);
+        const bool on = static_cast<bool>(kbSettings.getProperty("enabled", false));
+        keyboardLaunchpadToggle.setToggleState(on, juce::dontSendNotification);
+        session.keyboardLaunchpadEnabled.store(on);
+    }
+    keyboardLaunchpadToggle.onClick = [this] {
+        const bool on = keyboardLaunchpadToggle.getToggleState();
+        session.keyboardLaunchpadEnabled.store(on);
+        session.presetStore.settings.getOrCreateChildWithName("keyboardLaunchpad", nullptr)
+            .setProperty("enabled", on, nullptr);
+        if (on)
+            getTopLevelComponent()->grabKeyboardFocus(); // so keys arrive without clicking first
+    };
 
     /* REDUCTION TYPE + CHECKPOINT */
 
@@ -943,11 +982,14 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
             updateModel(true);
     }
 
-    setSize(700, 912);
+    setSize(700, 980); // +66: scripted-input row, Keyboard as Launchpad row
 
 }
 
 MainComponent::~MainComponent() {
+    scriptStatusTimer.stopTimer();
+    session.scriptedInput.onFinished = nullptr;
+    session.scriptedInput.stop();
     session.presetStore.saveSettings();
     deviceManager.removeMidiInputDeviceCallback(
         juce::MidiInput::getAvailableDevices()[midiInputList.getSelectedItemIndex()].identifier, &session.midiInputProcess);
@@ -1416,10 +1458,153 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
 
 void MainComponent::start() {
     session.startGeneration();
+    if (session.isScriptedInputSelected() && session.scriptedInput.startOnGeneration.load()
+        && session.scriptedInput.isLoaded())
+        session.scriptedInput.play();
 }
 
 void MainComponent::stop() {
+    if (session.isScriptedInputSelected() && session.scriptedInput.startOnGeneration.load())
+        session.scriptedInput.stop();
     session.stopGeneration();
+}
+
+void MainComponent::selectScriptedInput() {
+    const juce::String previous = session.selectedMidiInputIdentifier;
+    if (previous == ScriptedInputPlayer::kScriptedInputIdentifier)
+        return;
+    session.selectedMidiInputIdentifier = ScriptedInputPlayer::kScriptedInputIdentifier;
+    if (previous.isNotEmpty() && ! isMidiInputUsedByOtherRole(previous, 0))
+        deviceManager.removeMidiInputDeviceCallback(previous, &session.midiInputProcess);
+}
+
+void MainComponent::setUpScriptedInputControls() {
+    auto settings = session.presetStore.settings.getOrCreateChildWithName("scriptedInput", nullptr);
+    auto &player = session.scriptedInput;
+    player.loop.store(static_cast<bool>(settings.getProperty("loop", false)));
+    player.startOnGeneration.store(static_cast<bool>(settings.getProperty("startOnGeneration", true)));
+
+    for (auto *c: std::initializer_list<juce::Component *>{&scriptLoadButton, &scriptFileLabel, &scriptTrackList,
+                                                           &scriptPlayButton, &scriptLoop, &scriptAutoStart,
+                                                           &scriptStatusLabel})
+        addChildComponent(c);
+    scriptFileLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    scriptStatusLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    scriptStatusLabel.setJustificationType(juce::Justification::centredRight);
+    scriptLoop.setButtonText("Loop");
+    scriptAutoStart.setButtonText("Play on Start");
+    scriptAutoStart.setTooltip("Start the file from the top on Start Generation and stop it on Stop");
+    scriptLoop.setToggleState(player.loop.load(), juce::dontSendNotification);
+    scriptAutoStart.setToggleState(player.startOnGeneration.load(), juce::dontSendNotification);
+    scriptLoop.onClick = [this] {
+        session.scriptedInput.loop.store(scriptLoop.getToggleState());
+        session.presetStore.settings.getOrCreateChildWithName("scriptedInput", nullptr)
+            .setProperty("loop", scriptLoop.getToggleState(), nullptr);
+    };
+    scriptAutoStart.onClick = [this] {
+        session.scriptedInput.startOnGeneration.store(scriptAutoStart.getToggleState());
+        session.presetStore.settings.getOrCreateChildWithName("scriptedInput", nullptr)
+            .setProperty("startOnGeneration", scriptAutoStart.getToggleState(), nullptr);
+    };
+    scriptLoadButton.onClick = [this] {
+        scriptChooser = std::make_unique<juce::FileChooser>(
+            "Choose a MIDI file to play as the piano input",
+            session.scriptedInput.getFile().existsAsFile() ? session.scriptedInput.getFile()
+                                                            : juce::File::getSpecialLocation(juce::File::userHomeDirectory),
+            "*.mid;*.midi");
+        scriptChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                   [this](const juce::FileChooser &chooser) {
+                                       const auto file = chooser.getResult();
+                                       if (file.existsAsFile())
+                                           loadScriptedFile(file, -1);
+                                   });
+    };
+    scriptTrackList.onChange = [this] {
+        const int id = scriptTrackList.getSelectedId();
+        if (id <= 0)
+            return;
+        const int track = id == 1 ? -1 : id - 2;
+        if (track != session.scriptedInput.getTrack()) {
+            session.scriptedInput.setTrack(track);
+            session.presetStore.settings.getOrCreateChildWithName("scriptedInput", nullptr)
+                .setProperty("track", track, nullptr);
+        }
+        refreshScriptedInputControls();
+    };
+    scriptPlayButton.onClick = [this] {
+        if (session.scriptedInput.isPlaying())
+            session.scriptedInput.stop();
+        else
+            session.scriptedInput.play();
+        refreshScriptedInputControls();
+    };
+    session.scriptedInput.onFinished = [this] { refreshScriptedInputControls(); };
+
+    const juce::File saved(settings.getProperty("file", "").toString());
+    if (saved.existsAsFile())
+        loadScriptedFile(saved, static_cast<int>(settings.getProperty("track", -1)));
+
+    scriptStatusTimer.fn = [this] {
+        if (session.isScriptedInputSelected())
+            refreshScriptedInputStatus();
+    };
+    scriptStatusTimer.startTimerHz(10);
+    refreshScriptedInputControls();
+}
+
+void MainComponent::loadScriptedFile(const juce::File &file, int track) {
+    const auto error = session.scriptedInput.load(file);
+    if (error.isNotEmpty()) {
+        juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Scripted input", error);
+        refreshScriptedInputControls();
+        return;
+    }
+    if (track >= 0)
+        session.scriptedInput.setTrack(track);
+    auto settings = session.presetStore.settings.getOrCreateChildWithName("scriptedInput", nullptr);
+    settings.setProperty("file", file.getFullPathName(), nullptr);
+    settings.setProperty("track", session.scriptedInput.getTrack(), nullptr);
+    scriptTrackList.clear(juce::dontSendNotification);
+    scriptTrackList.addItem("All tracks", 1);
+    for (const auto &t: session.scriptedInput.getTracks())
+        scriptTrackList.addItem("Track " + juce::String(t.index) + (t.name.isNotEmpty() ? ": " + t.name : juce::String())
+                                    + " (" + juce::String(t.noteCount) + " notes)",
+                                t.index + 2);
+    scriptTrackList.setSelectedId(session.scriptedInput.getTrack() < 0 ? 1 : session.scriptedInput.getTrack() + 2,
+                                  juce::dontSendNotification);
+    refreshScriptedInputControls();
+}
+
+void MainComponent::refreshScriptedInputControls() {
+    const bool selected = session.isScriptedInputSelected();
+    for (auto *c: std::initializer_list<juce::Component *>{&scriptLoadButton, &scriptFileLabel, &scriptTrackList,
+                                                           &scriptPlayButton, &scriptLoop, &scriptAutoStart,
+                                                           &scriptStatusLabel})
+        c->setVisible(selected);
+    const bool loaded = session.scriptedInput.isLoaded();
+    scriptLoadButton.setButtonText(loaded ? "Change MIDI file..." : "Load MIDI file...");
+    scriptFileLabel.setText(loaded ? session.scriptedInput.getFile().getFileName() : "(no file)",
+                            juce::dontSendNotification);
+    scriptTrackList.setEnabled(loaded);
+    scriptPlayButton.setEnabled(loaded);
+    scriptPlayButton.setButtonText(session.scriptedInput.isPlaying() ? "Stop file" : "Play file");
+    refreshScriptedInputStatus();
+}
+
+void MainComponent::refreshScriptedInputStatus() {
+    auto &player = session.scriptedInput;
+    const auto fmt = [](double s) {
+        const int total = static_cast<int>(s);
+        return juce::String(total / 60) + ":" + juce::String(total % 60).paddedLeft('0', 2);
+    };
+    const bool playing = player.isPlaying();
+    scriptStatusLabel.setText(player.isLoaded() ? (playing ? fmt(player.getPositionSeconds()) : juce::String("0:00")) + " / "
+                                                      + fmt(player.getLengthSeconds())
+                                                : juce::String(),
+                              juce::dontSendNotification);
+    const auto text = playing ? "Stop file" : "Play file";
+    if (scriptPlayButton.getButtonText() != text)
+        scriptPlayButton.setButtonText(text);
 }
 
 void MainComponent::markPresetAsEdited() {
@@ -1478,6 +1663,17 @@ void MainComponent::resized() {
     midiInputList.setBounds(midiInputArea.removeFromLeft(getWidth() - 300));
     inputThru.setBounds(midiInputArea.withTrimmedLeft(80));
 
+    if (session.isScriptedInputSelected()) {
+        auto scriptArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
+        scriptLoadButton.setBounds(scriptArea.removeFromLeft(150).withTrimmedRight(8));
+        scriptPlayButton.setBounds(scriptArea.removeFromRight(90));
+        scriptStatusLabel.setBounds(scriptArea.removeFromRight(90));
+        scriptAutoStart.setBounds(scriptArea.removeFromRight(110));
+        scriptLoop.setBounds(scriptArea.removeFromRight(64));
+        scriptTrackList.setBounds(scriptArea.removeFromRight(juce::jmin(260, scriptArea.getWidth() / 2)).withTrimmedRight(8));
+        scriptFileLabel.setBounds(scriptArea);
+    }
+
     additionalMidiList.setBounds(area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8));
 
     auto pedalMidiArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
@@ -1485,6 +1681,8 @@ void MainComponent::resized() {
 
     auto launchpadMidiArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
     launchpadMidiList.setBounds(launchpadMidiArea);
+
+    keyboardLaunchpadToggle.setBounds(area.removeFromTop(30).removeFromRight(getWidth() - 150).reduced(8, 2));
 
     auto reductionTypeArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
     reductionTypeList.setBounds(reductionTypeArea);

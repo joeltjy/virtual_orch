@@ -144,6 +144,26 @@ private:
 
     void updateMtcClock();
 
+    /* Scripted input (MIDI file as the play keyboard) and keyboard-as-Launchpad controls. */
+    void selectScriptedInput();
+    void setUpScriptedInputControls();
+    void loadScriptedFile(const juce::File &file, int track);
+    void refreshScriptedInputControls();
+    void refreshScriptedInputStatus();
+
+    juce::TextButton scriptLoadButton{"Load MIDI file..."}, scriptPlayButton{"Play file"};
+    juce::Label scriptFileLabel, scriptStatusLabel;
+    juce::ComboBox scriptTrackList;
+    juce::ToggleButton scriptLoop, scriptAutoStart, keyboardLaunchpadToggle;
+    std::unique_ptr<juce::FileChooser> scriptChooser;
+    struct LambdaTimer : juce::Timer {
+        std::function<void()> fn;
+        void timerCallback() override {
+            if (fn)
+                fn();
+        }
+    } scriptStatusTimer;
+
     bool keyPressed(const KeyPress &key) override;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)

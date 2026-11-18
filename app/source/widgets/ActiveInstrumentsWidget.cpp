@@ -26,5 +26,6 @@ auto ActiveInstrumentsWidget::timerCallback() -> void {
 }
 
 auto ActiveInstrumentsWidget::refreshFromSession() -> void {
+    grid.setShowKeys(session.keyboardLaunchpadEnabled.load());
     grid.setFromLaunchpad(session.midiInputProcess.getLaunchpadGrid());
 }

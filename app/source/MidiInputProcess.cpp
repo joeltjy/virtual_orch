@@ -287,10 +287,11 @@ void MidiInputProcess::timerCallback() {
     stopTimer();
 }
 
-void MidiInputProcess::logIncomingMidiMessage(juce::MidiInput *source, const juce::MidiMessage &message) {
-    const bool fromLaunchpad = source != nullptr
+void MidiInputProcess::logIncomingMidiMessage(const juce::String &sourceId, const juce::String &sourceName,
+                                              const juce::MidiMessage &message) {
+    const bool fromLaunchpad = sourceId.isNotEmpty()
                                && selectedLaunchpadMidiIdentifier.isNotEmpty()
-                               && source->getIdentifier() == selectedLaunchpadMidiIdentifier;
+                               && sourceId == selectedLaunchpadMidiIdentifier;
     const auto description = [&]() -> juce::String {
         if (message.isNoteOn(true)) {
             const auto vel = message.getVelocity();
@@ -333,8 +334,8 @@ void MidiInputProcess::logIncomingMidiMessage(juce::MidiInput *source, const juc
 
     if (SessionLog::isRunning() && ! SessionLog::isSkippedMidi(message)) {
         juce::StringArray roles;
-        if (source != nullptr) {
-            const auto id = source->getIdentifier();
+        if (sourceId.isNotEmpty()) {
+            const auto &id = sourceId;
             if (id == selectedMidiInputIdentifier)
                 roles.add("piano");
             if (selectedAdditionalMidiInputIdentifier.isNotEmpty() && id == selectedAdditionalMidiInputIdentifier)
@@ -344,14 +345,13 @@ void MidiInputProcess::logIncomingMidiMessage(juce::MidiInput *source, const juc
             if (fromLaunchpad)
                 roles.add("launchpad");
         }
-        SessionLog::add("MIDI_IN", (source != nullptr ? source->getName() : juce::String("?")) + " ["
+        SessionLog::add("MIDI_IN", (sourceName.isNotEmpty() ? sourceName : juce::String("?")) + " ["
                                        + roles.joinIntoString(",") + "] | "
                                        + SessionLog::describeMidi(message));
     }
 }
 
-void MidiInputProcess::handleLaunchpadMessage(juce::MidiInput *source, const juce::MidiMessage &message) {
-    juce::ignoreUnused(source);
+void MidiInputProcess::handleLaunchpadMessage(const juce::MidiMessage &message) {
 
     // Handle on the MIDI callback thread (no callAsync).
     if (message.isNoteOn(true) || message.isNoteOff()) {
@@ -412,31 +412,36 @@ void MidiInputProcess::handleSustainPedal(const juce::MidiMessage &message) {
 }
 
 void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const juce::MidiMessage &message) {
-    const bool fromLaunchpad = source != nullptr
-                               && selectedLaunchpadMidiIdentifier.isNotEmpty()
-                               && source->getIdentifier() == selectedLaunchpadMidiIdentifier;
+    if (source == nullptr)
+        return;
+    handleMidiFrom(source->getIdentifier(), source->getName(), message);
+}
 
-    logIncomingMidiMessage(source, message);
+void MidiInputProcess::handleMidiFrom(const juce::String &sourceId, const juce::String &sourceName,
+                                      const juce::MidiMessage &message) {
+    const bool fromLaunchpad = sourceId.isNotEmpty()
+                               && selectedLaunchpadMidiIdentifier.isNotEmpty()
+                               && sourceId == selectedLaunchpadMidiIdentifier;
+
+    logIncomingMidiMessage(sourceId, sourceName, message);
 
     if (fromLaunchpad) {
-        handleLaunchpadMessage(source, message);
+        handleLaunchpadMessage(message);
         return;
     }
 
-    const bool fromPlayKeyboard =
-        source != nullptr && source->getIdentifier() == selectedMidiInputIdentifier;
+    const bool fromPlayKeyboard = sourceId.isNotEmpty() && sourceId == selectedMidiInputIdentifier;
     // The second piano (Additional MIDI) is played exactly like the MIDI Input.
-    const bool fromAdditionalKeyboard = source != nullptr && ! fromPlayKeyboard
+    const bool fromAdditionalKeyboard = sourceId.isNotEmpty() && ! fromPlayKeyboard
                                         && selectedAdditionalMidiInputIdentifier.isNotEmpty()
-                                        && source->getIdentifier()
-                                               == selectedAdditionalMidiInputIdentifier;
+                                        && sourceId == selectedAdditionalMidiInputIdentifier;
     const bool fromPiano = fromPlayKeyboard || fromAdditionalKeyboard;
 
     // Pedal keyboard: CC64 → generationPause only (no notes / thru / other CCs).
     // If it is the same device as the play keyboard, fall through so notes still play.
-    const bool fromPedalKeyboard = source != nullptr
+    const bool fromPedalKeyboard = sourceId.isNotEmpty()
                                    && selectedPedalMidiInputIdentifier.isNotEmpty()
-                                   && source->getIdentifier() == selectedPedalMidiInputIdentifier;
+                                   && sourceId == selectedPedalMidiInputIdentifier;
     if (fromPedalKeyboard && ! fromPiano) {
         handleSustainPedal(message);
         return;
@@ -452,7 +457,7 @@ void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const 
         outputProcessor->relayMidi(message);
     }
 
-    if (mtcClockActive && source->getIdentifier() == selectedMtcClockIdentifier && message.isQuarterFrame()) {
+    if (mtcClockActive && sourceId == selectedMtcClockIdentifier && message.isQuarterFrame()) {
         const int value = message.getQuarterFrameValue();
         switch (message.getQuarterFrameSequenceNumber()) {
             case 0: frames = (frames & 0xf0) | value;

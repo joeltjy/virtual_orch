@@ -45,6 +45,15 @@ public:
 
     void handleIncomingMidiMessage(juce::MidiInput *source, const juce::MidiMessage &message) override;
 
+    /**
+     * Handle a message from the input whose identifier is `sourceId` (roles are matched by
+     * identifier, as for hardware). handleIncomingMidiMessage calls this for devices; the
+     * scripted input (ScriptedInputPlayer, identifier kScriptedInputIdentifier) calls it
+     * directly, so a MIDI file selected as "MIDI Input" plays exactly like a keyboard.
+     */
+    void handleMidiFrom(const juce::String &sourceId, const juce::String &sourceName,
+                        const juce::MidiMessage &message);
+
     void timerCallback() override;
 
     /** Clear pending tokens / bass hold when generation starts. */
@@ -92,9 +101,10 @@ public:
 private:
     void sendTokensToMusicTransformer(std::optional<int32_t> atTime);
 
-    void logIncomingMidiMessage(juce::MidiInput *source, const juce::MidiMessage &message);
+    void logIncomingMidiMessage(const juce::String &sourceId, const juce::String &sourceName,
+                                const juce::MidiMessage &message);
 
-    void handleLaunchpadMessage(juce::MidiInput *source, const juce::MidiMessage &message);
+    void handleLaunchpadMessage(const juce::MidiMessage &message);
 
     /** CC64 → generationPause (down pauses, up resumes); ignores everything else. */
     void handleSustainPedal(const juce::MidiMessage &message);

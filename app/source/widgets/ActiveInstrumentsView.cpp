@@ -3,6 +3,7 @@
 #include "VirtualOrch/GeneralMidiInstruments.h"
 #include "VirtualOrch/InstrumentConstants.h"
 #include "VirtualOrch/InstrumentUiColours.h"
+#include "VirtualOrch/KeyboardLaunchpad.h"
 #include "VirtualOrch/LaunchpadLighting.h"
 #include "VirtualOrch/ui/UiConstants.h"
 
@@ -144,6 +145,17 @@ auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid) -> void {
         cell.lit = polyActive && polyphony == grid.getMaxPolyphony();
     }
 
+    // Computer-keyboard keys (UI row = pad row + 1, UI col 8 = side; UI row 0 = top buttons).
+    for (int uiRow = 0; uiRow < kUiRows; ++uiRow)
+        for (int uiCol = 0; uiCol < kUiCols; ++uiCol) {
+            KeyboardLaunchpad::Target target;
+            if (uiRow == 0)
+                target = {-1, -1, uiCol};
+            else
+                target = {uiRow - 1, uiCol == LaunchpadGrid::kCols ? LaunchpadGrid::kSideCol : uiCol, -1};
+            cells[static_cast<size_t>(uiRow)][static_cast<size_t>(uiCol)].key = KeyboardLaunchpad::labelForTarget(target);
+        }
+
     // Instrument pads (input + model rows).
     for (int padRow = 0; padRow < LaunchpadGrid::kRows; ++padRow) {
         for (int padCol = 0; padCol < LaunchpadGrid::kCols; ++padCol) {
@@ -250,6 +262,19 @@ auto ActiveInstrumentsView::paint(juce::Graphics &g) -> void {
                                  juce::Justification::centred,
                                  2,
                                  0.6f);
+            }
+
+            if (showKeys && cell.key.isNotEmpty()) {
+                // Key badge in the top-left corner, readable on lit and unlit buttons.
+                const float badgeH = juce::jlimit(11.0f, 20.0f, cellBounds.getHeight() * 0.32f);
+                g.setFont(juce::Font(badgeH * 0.82f, juce::Font::bold));
+                const float badgeW = g.getCurrentFont().getStringWidthFloat(cell.key) + badgeH * 0.5f;
+                const auto badge = juce::Rectangle<float>(cellBounds.getX() + 2.0f, cellBounds.getY() + 2.0f,
+                                                          badgeW, badgeH);
+                g.setColour(juce::Colours::black.withAlpha(0.72f));
+                g.fillRoundedRectangle(badge, 3.0f);
+                g.setColour(juce::Colour(0xff4fc3f7));
+                g.drawText(cell.key, badge, juce::Justification::centred, false);
             }
         }
     }

@@ -8,6 +8,7 @@
 
 #include "VirtualOrch/Clock.h"
 #include "VirtualOrch/InputFilter.h"
+#include "VirtualOrch/KeyboardLaunchpad.h"
 #include "VirtualOrch/MidiInputProcess.h"
 #include "VirtualOrch/ModelSamplingAlert.h"
 #include "VirtualOrch/MusicTransformer.h"
@@ -17,6 +18,7 @@
 #include "VirtualOrch/OutputProcessor.h"
 #include "VirtualOrch/PerformanceActivity.h"
 #include "VirtualOrch/PresetStore.h"
+#include "VirtualOrch/ScriptedInputPlayer.h"
 #include "VirtualOrch/reduction/ReductionTransformer.h"
 #include "VirtualOrch/reduction/ReductionTransformerPianoReduction.h"
 #include "VirtualOrch/reduction/ReductionTransformerV1.h"
@@ -85,6 +87,22 @@ public:
 
     OutputPlayback outputPlayback;
     MidiInputProcess midiInputProcess;
+
+    /**
+     * Scripted input: a MIDI file played as the play keyboard (Settings: MIDI Input =
+     * "Scripted input (MIDI file)"). Declared after midiInputProcess, which it feeds.
+     */
+    ScriptedInputPlayer scriptedInput{
+        [this](const juce::String &id, const juce::String &name, const juce::MidiMessage &message) {
+            midiInputProcess.handleMidiFrom(id, name, message);
+        }};
+    [[nodiscard]] auto isScriptedInputSelected() const -> bool {
+        return selectedMidiInputIdentifier == ScriptedInputPlayer::kScriptedInputIdentifier;
+    }
+
+    /** Computer keyboard as Launchpad (Settings: "Keyboard as Launchpad"); see KeyboardLaunchpad.h. */
+    std::atomic<bool> keyboardLaunchpadEnabled{false};
+    KeyboardLaunchpad::Listener keyboardLaunchpad;
 
     [[nodiscard]] auto activeReduction() -> ReductionTransformer &;
 

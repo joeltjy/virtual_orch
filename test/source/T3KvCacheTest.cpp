@@ -11,7 +11,7 @@
 
 /**
  * Checks the app's KV cache (StreamingKv::CommittedScratchCache over OnnxBackend) against a full
- * no-cache recompute on the real T3'' (rope_cache_RT.onnx). Skipped when the model is not here.
+ * no-cache recompute on the real T3'' (continuation_model.onnx). Skipped when the model is not here.
  * Prints the numbers (max |logit diff|, argmax agreement, speed) so they can be read in the log.
  */
 namespace virtual_orch_test {
@@ -19,11 +19,9 @@ namespace virtual_orch_test {
 namespace {
 
 auto t3Onnx() -> juce::File {
-    std::vector<juce::File> dirs{documentsModelsDir(), onnxExportDir(), onnxExportFallbackDir()};
-    for (const auto &d: onnxExportDirs())
-        dirs.push_back(d);
+    const std::vector<juce::File> dirs{modelsDir()};
     for (const auto &d: dirs)
-        if (const auto f = d.getChildFile("rope_cache_RT.onnx"); f.existsAsFile())
+        if (const auto f = d.getChildFile("continuation_model.onnx"); f.existsAsFile())
             return f;
     return {};
 }
@@ -92,7 +90,7 @@ struct T3KvCache : ::testing::Test {
     void SetUp() override {
         const auto onnx = t3Onnx();
         if (! onnx.existsAsFile())
-            GTEST_SKIP() << "rope_cache_RT.onnx is not on this machine";
+            GTEST_SKIP() << "continuation_model.onnx is not on this machine";
         std::string error;
         ASSERT_TRUE(backend.init(onnx.getFullPathName().toRawUTF8(), error)) << error;
     }

@@ -30,9 +30,7 @@ TEST(EditVocsep, withoutAModelUserNotesKeepNoVoice) {
 TEST(EditVocsep, userNotesGetVoicesFromTheirOwnVocsep) {
     // The test binary has no app dir: look for vocsep.onnx where the app's models live.
     juce::File onnx;
-    std::vector<juce::File> dirs{documentsModelsDir(), onnxExportDir(), onnxExportFallbackDir()};
-    for (const auto &d: onnxExportDirs())
-        dirs.push_back(d);
+    const std::vector<juce::File> dirs{modelsDir()};
     for (const auto &d: dirs)
         if (const auto f = d.getChildFile("vocsep.onnx"); onnx == juce::File() && f.existsAsFile())
             onnx = f;

@@ -23,7 +23,7 @@ auto createOrchestrationModel(const std::string &name) -> std::unique_ptr<Orches
         if (name == "InstrumentCombinations") {
             auto model = std::make_unique<InstrumentCombinations>();
             const auto onnx =
-                documentsModelsDir().getChildFile("ice20_causal_lora_s2_checkpoint-27000.onnx");
+                modelsDir().getChildFile("ice20_causal_lora_s2_checkpoint-27000.onnx");
             const auto path = onnx.getFullPathName();
             if (! onnx.existsAsFile()) {
                 DBG("InstrumentCombinations model missing at " + path);
@@ -34,9 +34,7 @@ auto createOrchestrationModel(const std::string &name) -> std::unique_ptr<Orches
         }
         if (name == "IodPretrained") {
             auto model = std::make_unique<IodPretrained>();
-            auto onnx = onnxExportDir().getChildFile("instrument_octave_predictions.onnx");
-            if (! onnx.existsAsFile())
-                onnx = onnxExportFallbackDir().getChildFile("instrument_octave_predictions.onnx");
+            const auto onnx = modelsDir().getChildFile("instrument_octave_predictions.onnx");
             const auto path = onnx.getFullPathName();
             if (! onnx.existsAsFile()) {
                 DBG("IodPretrained model missing at " + path);
@@ -52,18 +50,15 @@ auto createOrchestrationModel(const std::string &name) -> std::unique_ptr<Orches
         if (name == "IodPretrainedTD") {
             auto model = std::make_unique<IodPretrainedTD>();
             const std::string file = "td_grpo_unk_T14_dummy_from_td_explicit_given_ckpt18000.onnx";
-            std::vector<juce::File> candidates;
-            for (const auto &dir: onnxExportDirs())
-                candidates.push_back(dir.getChildFile(file));
-            for (const auto &onnx: candidates) {
-                if (! onnx.existsAsFile())
-                    continue;
-                model->init(onnx.getFullPathName().toRawUTF8());
-                if (model->isModelLoaded())
-                    return model;
-                DBG("IodPretrainedTD init failed for " + onnx.getFullPathName());
+            const auto onnx = modelsDir().getChildFile(file);
+            if (! onnx.existsAsFile()) {
+                DBG("IodPretrainedTD model missing at " + onnx.getFullPathName());
+                return nullptr;
             }
-            DBG("IodPretrainedTD model not found");
+            model->init(onnx.getFullPathName().toRawUTF8());
+            if (model->isModelLoaded())
+                return model;
+            DBG("IodPretrainedTD init failed for " + onnx.getFullPathName());
             return nullptr;
         }
     } catch (const Ort::Exception &exception) {

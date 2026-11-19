@@ -5,7 +5,7 @@
     1
   ],
   "defaultPreset": {},
-  "onnx": "rope_cache_RT_v3",
+  "onnx": "simultaneous_model_v2",
   "reductionType": 7,
-  "notes": "W3 = T3pp_jfix_wait_cd_nomaestro90 (rope_cache_RT_v3.onnx; W2's recipe without the MAESTRO pool; sha256 45797962...). Same sampling as W2 (rope_cache_RT_sampling.txt)."
+  "notes": "W3 = T3pp_jfix_wait_cd_nomaestro90 (simultaneous_model_v2.onnx; W2's recipe without the MAESTRO pool; sha256 45797962...). Same sampling as W2 (simultaneous_model_sampling.txt)."
 }

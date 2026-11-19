@@ -1335,13 +1335,8 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
                 if (melodyStem.endsWithIgnoreCase(".onnx"))
                     melodyStem = melodyStem.dropLastCharacters(5);
                 juce::File melodyFile;
-                for (const auto &dir: onnxExportDirs()) {
-                    const auto candidate = dir.getChildFile(melodyStem + ".onnx");
-                    if (melodyStem.isNotEmpty() && candidate.existsAsFile()) {
-                        melodyFile = candidate;
-                        break;
-                    }
-                }
+                if (melodyStem.isNotEmpty())
+                    melodyFile = modelsDir().getChildFile(melodyStem + ".onnx");
                 if (! melodyFile.existsAsFile()
                     || ! session.reductionTransformerMelodyFirst.init(
                         modelPathStr.toRawUTF8(), melodyFile.getFullPathName().toRawUTF8())) {
@@ -1349,7 +1344,7 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
                         juce::AlertWindow::WarningIcon, "Error",
                         "Failed to load '" + modelName + "': it needs the T7'' KV export (AMT vocab "
                         "55293) and the T8'' KV export ('" + melodyStem + "', dense vocab 11776) in an "
-                        "onnx_export_* folder.");
+                        "virtual_orch_models folder.");
                     checkpointList.setSelectedId(0, juce::dontSendNotification);
                     return;
                 }
@@ -1370,13 +1365,8 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
                 if (silentStem.endsWithIgnoreCase(".onnx"))
                     silentStem = silentStem.dropLastCharacters(5);
                 juce::File silentFile;
-                for (const auto &dir: onnxExportDirs()) {
-                    const auto candidate = dir.getChildFile(silentStem + ".onnx");
-                    if (silentStem.isNotEmpty() && candidate.existsAsFile()) {
-                        silentFile = candidate;
-                        break;
-                    }
-                }
+                if (silentStem.isNotEmpty())
+                    silentFile = modelsDir().getChildFile(silentStem + ".onnx");
                 if (! silentFile.existsAsFile()
                     || ! session.reductionTransformerHybrid.initHybrid(
                         silentFile.getFullPathName().toRawUTF8(), modelPathStr.toRawUTF8())) {
@@ -1385,7 +1375,7 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
                         "Failed to load '" + modelName + "' for HybridTransformer: "
                             + (silentFile.existsAsFile()
                                    ? juce::String(session.reductionTransformerHybrid.lastInitError)
-                                   : "the v1 model '" + silentStem + ".onnx' is not in an onnx_export_* folder."));
+                                   : "the v1 model '" + silentStem + ".onnx' is not in Documents/virtual_orch_models."));
                     checkpointList.setSelectedId(0, juce::dontSendNotification);
                     return;
                 }

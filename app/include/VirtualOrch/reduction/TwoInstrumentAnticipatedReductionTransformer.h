@@ -42,12 +42,12 @@
  *   - Every logit adjustment of the older models can be switched on (pitch / duration / onset-gap
  *     biases with their tau, the short-gap penalty, LogitTD); all start OFF.
  *
- * Variant::Wait = W2/W3 (rope_cache_RT_v2 / v3, vocab 11777, WAIT = 11776): WAIT before every
+ * Variant::Wait = W2/W3 (simultaneous_model_v1 / v2, vocab 11777, WAIT = 11776): WAIT before every
  * piano onset group, given notes merged within 5 cs, ascending pitch at a shared onset, the WAIT
  * threshold rule (P(play) >= 0.30 plays) and the live 1 s wait; onset temperature 1.0, the other
- * fields 0.5 (rope_cache_RT_sampling.txt).
+ * fields 0.5 (simultaneous_model_sampling.txt).
  *
- * Variant::Hybrid = HybridTransformer: two models with one shared context, v1 (rope_cache_RT, the
+ * Variant::Hybrid = HybridTransformer: two models with one shared context, v1 (continuation_model, the
  * T3'' rules, `silentStage`) and W2/W3 (the WAIT rules, `stage`). Which one draws (updateHybrid):
  *   - a pedal release (or RT un-pause) switches to v1 at once;
  *   - pedal up and the user playing for kHybridPlayToWaitMs: switch to W2/W3 ("playing" = a key

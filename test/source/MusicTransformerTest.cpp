@@ -1,13 +1,12 @@
 #include <gtest/gtest.h>
 #include <VirtualOrch/MusicTransformer.h>
+#include <VirtualOrch/ProjectPaths.h>
 #include <chrono>
 #include <thread>
 
 ModelConfig modelConfig;
 
-std::string modelPath = juce::File::getSpecialLocation(juce::File::SpecialLocationType::userDocumentsDirectory)
-        .getChildFile("virtual-orch")
-        .getChildFile("Models").getChildFile("bassAndChords.onnx").getFullPathName().toStdString();
+std::string modelPath = modelsDir().getChildFile("bassAndChords.onnx").getFullPathName().toStdString();
 const ModelType modelType = ModelType::Small;
 std::vector<int32_t> instruments{33};
 

@@ -17,16 +17,14 @@ namespace {
 
 /**
  * The T3'' ONNX the app would load: app/t3_anticipated_reduction.json's "onnx" stem, looked up in
- * the app's model folders (onnx_export_* newest first). The test binary is built without
+ * the app's model folder (Documents/virtual_orch_models). The test binary is built without
  * VIRTUAL_ORCH_APP_DIR, so the JSON is read from the repo next to this file.
  */
 auto findT3Onnx(juce::String &stem) -> juce::File {
     const auto json = juce::File(__FILE__).getParentDirectory().getParentDirectory()
                           .getParentDirectory().getChildFile("app/t3_anticipated_reduction.json");
     stem = juce::JSON::parse(json.loadFileAsString()).getProperty("onnx", {}).toString();
-    std::vector<juce::File> dirs{documentsModelsDir(), onnxExportDir(), onnxExportFallbackDir()};
-    for (const auto &d: onnxExportDirs())
-        dirs.push_back(d);
+    const std::vector<juce::File> dirs{modelsDir()};
     for (const auto &d: dirs)
         if (const auto f = d.getChildFile(stem + ".onnx"); f.existsAsFile())
             return f;
@@ -35,12 +33,12 @@ auto findT3Onnx(juce::String &stem) -> juce::File {
 
 } // namespace
 
-TEST(T3ModelFile, configPointsAtRopeCacheRtAndItLoads) {
+TEST(T3ModelFile, configPointsAtContinuationModelAndItLoads) {
     juce::String stem;
     const auto onnx = findT3Onnx(stem);
-    EXPECT_EQ(stem, juce::String("rope_cache_RT"));
+    EXPECT_EQ(stem, juce::String("continuation_model"));
     if (! onnx.existsAsFile())
-        GTEST_SKIP() << "rope_cache_RT.onnx is not in Documents/ or Desktop/onnx_export_* here";
+        GTEST_SKIP() << "continuation_model.onnx is not in Documents/virtual_orch_models here";
 
     StreamingKv::OnnxBackend backend;
     std::string error;
@@ -67,11 +65,10 @@ TEST(OnnxModelKind, kvExportsAreTheOnesWithPastInputs) {
 }
 
 TEST(T3ModelFile, wrongPairingsAreRefusedWithAReason) {
-    const auto docs = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    const auto kv = docs.getChildFile("onnx_export_101826/rope_cache_RT.onnx");
-    const auto full = docs.getChildFile("onnx_export_092126/amt_causal_2instrument.onnx");
+    const auto kv = modelsDir().getChildFile("continuation_model.onnx");
+    const auto full = modelsDir().getChildFile("amt_causal_2instrument.onnx");
     if (! kv.existsAsFile() || ! full.existsAsFile())
-        GTEST_SKIP() << "needs rope_cache_RT.onnx and amt_causal_2instrument.onnx";
+        GTEST_SKIP() << "needs continuation_model.onnx and amt_causal_2instrument.onnx";
     ModelConfig config;
 
     ReductionTransformerPianoReduction piano(config);
@@ -87,12 +84,11 @@ TEST(T3ModelFile, wrongPairingsAreRefusedWithAReason) {
 }
 
 TEST(WaitModelFiles, w2AndW3LoadOnlyAsWaitModelsAndTheHybridPairLoads) {
-    const auto docs = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-    const auto v1 = docs.getChildFile("onnx_export_101826/rope_cache_RT.onnx");
-    const auto w2 = docs.getChildFile("onnx_export_102126/rope_cache_RT_v2.onnx");
-    const auto w3 = docs.getChildFile("onnx_export_102126/rope_cache_RT_v3.onnx");
+    const auto v1 = modelsDir().getChildFile("continuation_model.onnx");
+    const auto w2 = modelsDir().getChildFile("simultaneous_model_v1.onnx");
+    const auto w3 = modelsDir().getChildFile("simultaneous_model_v2.onnx");
     if (! v1.existsAsFile() || ! w2.existsAsFile() || ! w3.existsAsFile())
-        GTEST_SKIP() << "needs rope_cache_RT{,_v2,_v3}.onnx";
+        GTEST_SKIP() << "needs continuation_model.onnx + simultaneous_model_v1/v2.onnx";
     using Variant = TwoInstrumentAnticipatedReductionTransformer::Variant;
     ModelConfig config;
 

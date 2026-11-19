@@ -3,5 +3,5 @@
   "contextNotes": 40,
   "outputInstruments": [0, 1, 2, 3, 4],
   "defaultPreset": {},
-  "notes": "Causal MAESTRO v8 finetune (amt_causal.onnx from Documents/onnx_export_092126). Prefer for Reduction V2 / version0.1."
+  "notes": "Causal MAESTRO v8 finetune (amt_causal.onnx from Documents/virtual_orch_models). Prefer for Reduction V2 / version0.1."
 }

@@ -95,7 +95,7 @@ AppSession::AppSession()
         }
     } else {
         std::cerr << "[vocsep] checkpoint not found (need app/vocsep_reduction_best.json + "
-                     "Documents/onnx_export_*/vocsep.onnx)"
+                     "Documents/virtual_orch_models/vocsep.onnx)"
                   << std::endl;
     }
 

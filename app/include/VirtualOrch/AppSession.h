@@ -68,7 +68,7 @@ public:
     ReductionTransformerV2 reductionTransformerV2;
     ReductionTransformerPianoReduction reductionTransformerPianoReduction;
     TwoInstrumentAnticipatedReductionTransformer reductionTransformerAnticipated;
-    /** W2/W3: rope_cache_RT_v2 / v3 with the WAIT sampling rules. */
+    /** W2/W3: simultaneous_model_v1 / v2 with the WAIT sampling rules. */
     TwoInstrumentAnticipatedReductionTransformer reductionTransformerWait;
     /** HybridTransformer: v1 while the piano is silent, W2/W3 while it plays. */
     TwoInstrumentAnticipatedReductionTransformer reductionTransformerHybrid;

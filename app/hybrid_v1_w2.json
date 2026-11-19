@@ -5,8 +5,8 @@
     1
   ],
   "defaultPreset": {},
-  "onnx": "rope_cache_RT_v2",
-  "silentOnnx": "rope_cache_RT",
+  "onnx": "simultaneous_model_v1",
+  "silentOnnx": "continuation_model",
   "reductionType": 8,
-  "notes": "HybridTransformer pair v1 + W2: while the piano has been silent for >= 1 s, v1 (rope_cache_RT.onnx, T3'' rules) draws the next note; otherwise W2 (rope_cache_RT_v2.onnx, WAIT rules). Both models share one context."
+  "notes": "HybridTransformer pair v1 + W2: while the piano has been silent for >= 1 s, v1 (continuation_model.onnx, T3'' rules) draws the next note; otherwise W2 (simultaneous_model_v1.onnx, WAIT rules). Both models share one context."
 }

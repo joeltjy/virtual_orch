@@ -36,7 +36,7 @@ TwoInstrumentAnticipatedReductionTransformer::TwoInstrumentAnticipatedReductionT
     stage.tdValue = [this] { return tdValueProvider(); };
     silentStage.tdValue = [this] { return tdValueProvider(); };
     if (variant == Variant::Wait || variant == Variant::Hybrid) {
-        // rope_cache_RT_sampling.txt: WAIT, 5 cs merge, piano first + ascending ties, onset T 1.0.
+        // simultaneous_model_sampling.txt: WAIT, 5 cs merge, piano first + ascending ties, onset T 1.0.
         stage.waitToken = kWaitToken;
         stage.stream.waitToken = kWaitToken;
         stage.stream.mergeGivenCs = 5;

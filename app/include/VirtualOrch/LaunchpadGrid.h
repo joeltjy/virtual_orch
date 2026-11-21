@@ -177,7 +177,46 @@ public:
      * (Step-in), only the model's in Jam / Accompaniment.
      */
     [[nodiscard]] auto isSidePressable(InstrumentUpdateTarget side) const -> bool {
-        return getSelectedMode() == OrchestrationMode::Edit || side == controlledTarget();
+        return layout1.load(std::memory_order_relaxed) || getSelectedMode() == OrchestrationMode::Edit
+               || side == controlledTarget();
+    }
+
+    /**
+     * Log replay of sessions recorded with layout 1 (kLayoutVersion): presses are read as layout-1
+     * pads (layout1Pad) and behave as they did then: both sides respond in every mode, and FLUSH
+     * works in every mode and switches your pads off afterwards. Never set in the live app.
+     */
+    std::atomic<bool> layout1{false};
+
+    /**
+     * The layout-2 pad with the meaning a layout-1 pad had, or nullopt for a pad that did nothing
+     * then. Layout 1: row 2 = your StrEns Pizz Tremolo - Flute Oboe Clarinet Bassoon, row 3 = your
+     * Horn Trumpet Trombone Tuba Timpani, rows 4-5 = the same for the model, row 7 cols 0-3 = max
+     * polyphony 1-4; modes, TD, register and the side buttons of rows 1, 2 and 6 are unchanged.
+     */
+    [[nodiscard]] static auto layout1Pad(int rowIdx, int colIdx) -> std::optional<std::pair<int, int>> {
+        if (colIdx == kSideCol)
+            return rowIdx == kTdRow || rowIdx == kFlushRow || rowIdx == kRegisterRow
+                       ? std::optional<std::pair<int, int>>(std::pair{rowIdx, colIdx})
+                       : std::nullopt;
+        if (rowIdx >= 2 && rowIdx <= 5) {
+            const int sideCol = rowIdx >= 4 ? kModelColFirst : kUserColFirst;
+            const bool firstRow = rowIdx == 2 || rowIdx == 4;
+            if (firstRow && colIdx >= 0 && colIdx <= 2)
+                return std::pair{kInstrumentRowFirst, sideCol + colIdx};          // strings
+            if (firstRow && colIdx >= 4 && colIdx <= 7)
+                return std::pair{kInstrumentRowFirst + 1, sideCol + colIdx - 4};  // woodwinds
+            if (! firstRow && colIdx >= 0 && colIdx <= 3)
+                return std::pair{kInstrumentRowFirst + 2, sideCol + colIdx};      // brass
+            if (! firstRow && colIdx == 4)
+                return std::pair{kInstrumentRowFirst + 3, sideCol};               // timpani
+            return std::nullopt;
+        }
+        if (rowIdx == 7)
+            return colIdx >= 0 && colIdx < kPolyphonyPadCount
+                       ? std::optional<std::pair<int, int>>(std::pair{kAccompRow, kPolyphonyColFirst + colIdx})
+                       : std::nullopt;
+        return std::pair{rowIdx, colIdx}; // modes, TD, register
     }
 
     /** LED colour of an instrument pad (also used by the on-screen view). */
@@ -428,6 +467,14 @@ public:
                          {"source", OpLog::padKey != nullptr ? "keyboard" : "launchpad"},
                          {"key", OpLog::padKey != nullptr ? OpLog::Value(std::string(OpLog::padKey)) : OpLog::Value()}});
         }
+        if (layout1.load(std::memory_order_relaxed)) {
+            // PAD_PRESS above keeps the layout-1 pad as pressed; act on its layout-2 equivalent
+            const auto pad = layout1Pad(rowIdx, colIdx);
+            if (! pad.has_value())
+                return;
+            rowIdx = pad->first;
+            colIdx = pad->second;
+        }
 
         if (const auto mode = modeForPad(rowIdx, colIdx)) {
             auto &lastMs = gridLastAcceptMs[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
@@ -505,7 +552,8 @@ public:
 
         if (colIdx == kSideCol && rowIdx == kFlushRow) {
             auto &lastMs = sideLastAcceptMs[static_cast<size_t>(rowIdx)];
-            if (acceptPress(lastMs, now) && getSelectedMode() == OrchestrationMode::Edit) {
+            if (acceptPress(lastMs, now)
+                && (getSelectedMode() == OrchestrationMode::Edit || layout1.load(std::memory_order_relaxed))) {
                 flushInputToModel();
                 emitAction({PerformanceActivity::LaunchpadAction::Kind::Flush, 0, 0, false, false});
             }
@@ -615,14 +663,19 @@ private:
                     fn(row, col, *padInstruments[static_cast<size_t>(row)][static_cast<size_t>(col)]);
     }
 
-    /** Your instruments that are on are added to the model's; yours stay on. */
+    /** Your instruments that are on are added to the model's; yours stay on (layout 1: off). */
     auto flushInputToModel() -> void {
-        forEachSidePad(InstrumentUpdateTarget::User, [this](int row, int col, int32_t localId) {
+        std::vector<std::pair<int, int>> flushed;
+        forEachSidePad(InstrumentUpdateTarget::User, [this, &flushed](int row, int col, int32_t localId) {
             if (getEffectiveState(row, col) == 0)
                 return;
             if (const auto modelPad = findPadForInstrument(InstrumentUpdateTarget::Model, localId))
                 setPadOn(modelPad->first, modelPad->second, true);
+            flushed.emplace_back(row, col);
         });
+        if (layout1.load(std::memory_order_relaxed))
+            for (const auto &[row, col]: flushed)
+                setPadOn(row, col, false);
     }
 
     /** Every model instrument switches off. */

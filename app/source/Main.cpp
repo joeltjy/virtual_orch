@@ -1,6 +1,7 @@
 #include <JuceHeader.h>
 #include "VirtualOrch/SessionLog.h"
 #include "VirtualOrch/OpLog.h"
+#include "VirtualOrch/LaunchpadGrid.h"
 #include "VirtualOrch/ui/AppRootComponent.h"
 
 //==============================================================================
@@ -18,6 +19,9 @@ public:
     void initialise(const juce::String &commandLine) override {
         // This method is where you should put your application's initialisation code..
         SessionLog::start();
+        // Which Launchpad layout this session uses: LogReplay replays logs without this line
+        // (recorded before Nov 2026) with the layout-1 grid and pedal.
+        SessionLog::add("SESSION", "launchpad layout " + juce::String(LaunchpadGrid::kLayoutVersion));
         // Operation log (format: orchestration/performance_streams/oplogs/README.md).
         OpLog::start(juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
                          .getChildFile("virtual-orch").getChildFile("Logs").getChildFile("oplogs")

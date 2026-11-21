@@ -423,7 +423,7 @@ void MidiInputProcess::handleSustainPedal(const juce::MidiMessage &message) {
     // device, nothing is paused until the first CC64, so the orchestra plays without a pedal;
     // selecting a pedal device starts paused (pedalDeviceSelected).
     const int value = message.getControllerValue();
-    const bool pause = value < 64;
+    const bool pause = layout1PedalPolarity.load(std::memory_order_relaxed) ? value >= 64 : value < 64;
     const bool wasSilenced = pedalSilenced.exchange(pause);
     const bool stopped = pause && ! wasSilenced;
     if (OpLog::on()) {
@@ -432,7 +432,7 @@ void MidiInputProcess::handleSustainPedal(const juce::MidiMessage &message) {
         const bool changed = pause != wasSilenced;
         OpLog::emit(OpLog::Src::Midi, "PEDAL",
                     {{"cc", 64}, {"value", value},
-                     {"state", changed ? OpLog::Value(std::string(pause ? "up" : "down")) : OpLog::Value()},
+                     {"state", changed ? OpLog::Value(std::string(value >= 64 ? "down" : "up")) : OpLog::Value()},
                      {"effect", changed ? OpLog::Value(std::string(pause ? "stop" : "play")) : OpLog::Value()},
                      {"app_pedal", true}});
     }

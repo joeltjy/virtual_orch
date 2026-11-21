@@ -870,7 +870,7 @@ auto AppSession::logSessionStart(const juce::String &origin) -> void {
                  {"settings", presetStore.settings.toXmlString(juce::XmlElement::TextFormat().singleLine())},
                  {"rt", activeReduction().getThreadName()}, {"models", models.raw()},
                  {"checkpoint_every_ms", OpLog::kCheckpointEveryMs},
-                 {"launchpad_layout", LaunchpadGrid::kLayoutVersion}});
+                 {"launchpad_layout", midiInputProcess.getLaunchpadGrid().layout1.load() ? 1 : LaunchpadGrid::kLayoutVersion}});
 }
 
 auto AppSession::logRunStart() -> void {

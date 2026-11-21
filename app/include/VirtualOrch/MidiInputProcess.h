@@ -81,6 +81,12 @@ public:
     /** The pedal device was cleared (the pianos' CC64 is used again): the orchestra sounds. */
     void pedalDeviceCleared();
 
+    /**
+     * Log replay of layout-1 sessions (before Nov 2026): the app's pedal had the old polarity,
+     * pedal DOWN stopped the orchestra and pedal up let it play. Never set in the live app.
+     */
+    std::atomic<bool> layout1PedalPolarity{false};
+
     /** Record whether the pedal is silencing the orchestra (pedal up), at wall-clock `nowMs`. */
     auto notePedalState(bool silenced, int64_t nowMs) -> void {
         if (silenced) {

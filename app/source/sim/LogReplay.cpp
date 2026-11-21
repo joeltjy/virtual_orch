@@ -320,6 +320,30 @@ auto compareTag(const std::vector<const Line *> &recorded, const std::vector<con
     return r;
 }
 
+/**
+ * The Launchpad layout a session log was recorded with: its "SESSION | launchpad layout N" line,
+ * or 1 for logs without one (recorded before the two-sided layout, Nov 2026).
+ */
+auto launchpadLayoutOf(const std::vector<Line> &log) -> int {
+    for (const auto &l: log)
+        if (l.tag == "SESSION" && l.text.startsWith("launchpad layout "))
+            return l.text.fromFirstOccurrenceOf("launchpad layout ", false, false).getIntValue();
+    return 1;
+}
+
+/** A replayed line in the words a layout-1 session logged it with (Edit, the old flush and pedal). */
+auto withLayout1Text(Line l) -> Line {
+    if (l.tag == "MODE" && l.text.trim() == "Step-in")
+        l.text = "Edit";
+    else if (l.tag == "LAUNCHPAD" && l.text == "Mode: Step-in")
+        l.text = "Mode: Edit";
+    else if (l.tag == "LAUNCHPAD" && l.text == "Flush: your instruments added to the model")
+        l.text = "Flush: input instruments moved to the model";
+    else if (l.tag == "CUT" && l.text.startsWith("pedal up: future removed from"))
+        l.text = "pedal down" + l.text.fromFirstOccurrenceOf("pedal up", false, false);
+    return l;
+}
+
 /** Tags whose recorded and replayed lines are compared. */
 const juce::StringArray kComparedTags{"MIDI_OUT", "RT_IN", "RT", "OT", "CUT", "DROP", "HYBRID",
                                       "WAIT", "MODE", "LAUNCHPAD", "MIDI_IN"};
@@ -387,6 +411,11 @@ auto replay(const std::vector<Line> &log, const Options &options) -> Report {
 
     auto session = std::make_unique<AppSession>();
     AppSession &s = *session;
+    // Sessions recorded before the two-sided layout: read their Launchpad presses and pedal as
+    // the layout-1 grid and pedal polarity did (NEW_LAUNCHPAD_LAYOUT.txt, part D).
+    const bool layout1 = options.layout1.value_or(launchpadLayoutOf(log) < 2);
+    s.midiInputProcess.getLaunchpadGrid().layout1 = layout1;
+    s.midiInputProcess.layout1PedalPolarity = layout1;
     if (! options.preset.isVoid())
         s.presetStore.applyPreset(options.preset);
     s.setMusicModelArch(MusicModelArch::DenseHybrid);
@@ -997,7 +1026,7 @@ auto replay(const std::vector<Line> &log, const Options &options) -> Report {
                         case Kind::Stop: stopRun(); break;
                         case Kind::Mode: {
                             const auto m = e.line->text.trim();
-                            s.setOrchestrationMode(m == "Edit" ? OrchestrationMode::Edit
+                            s.setOrchestrationMode(m == "Edit" || m == "Step-in" ? OrchestrationMode::Edit
                                                    : m == "Accompaniment" ? OrchestrationMode::Accompaniment
                                                                           : OrchestrationMode::Jam);
                             break;
@@ -1121,7 +1150,12 @@ auto replay(const std::vector<Line> &log, const Options &options) -> Report {
     for (const auto &l: log)
         if (kComparedTags.contains(l.tag) && (options.untilMs < 0.0 || l.ms <= options.untilMs) && l.ms >= firstMs)
             rec[l.tag].push_back(&l);
+    // A layout-1 session was logged with the texts of its time: compare the replay's in those words.
+    std::vector<Line> replayedAsRecorded;
+    replayedAsRecorded.reserve(report.replayed.size());
     for (const auto &l: report.replayed)
+        replayedAsRecorded.push_back(layout1 ? withLayout1Text(l) : l);
+    for (const auto &l: replayedAsRecorded)
         if (kComparedTags.contains(l.tag))
             rep[l.tag].push_back(&l);
     // RT lines are compared without their voice id: voices come from the vocsep model, which may not

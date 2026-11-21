@@ -67,6 +67,14 @@ struct Options {
     juce::File oplog;
     /** Shown in the oplog's SESSION_START (`source`): the session log it was replayed from. */
     juce::String sourceName;
+    /**
+     * Replay with the layout-1 Launchpad grid and pedal polarity (sessions recorded before the
+     * two-sided layout, Nov 2026): presses are translated to the layout-2 pad with the same
+     * meaning, both sides respond in every mode, FLUSH works in every mode and switches your pads
+     * off, pedal down stops the orchestra, and the replay's MODE / LAUNCHPAD / CUT lines are
+     * compared in the old words. Unset: decided by the log's "launchpad layout" line (none = 1).
+     */
+    std::optional<bool> layout1;
 };
 
 struct TagResult {

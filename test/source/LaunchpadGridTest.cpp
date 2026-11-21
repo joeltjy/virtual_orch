@@ -8,6 +8,7 @@
 #include <VirtualOrch/TemporalDensity.h>
 
 #include <map>
+#include <optional>
 #include <set>
 #include <vector>
 
@@ -557,6 +558,49 @@ TEST(TemporalDensity, StartsAutoAndKnowsValidLevels) {
     EXPECT_FALSE(TemporalDensity::isValid(3));
     EXPECT_TRUE(TemporalDensity::isValid(64));
     EXPECT_FALSE(TemporalDensity::isValid(128));
+}
+
+
+TEST(LaunchpadGrid, Layout1PadsMapToTheirLayout2Meaning) {
+    using P = std::optional<std::pair<int, int>>;
+    // old input rows 2-3 -> your side, old model rows 4-5 -> the model's side, by family
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(2, 1), P({kStrings, user(1)}));  // your Pizz
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(2, 6), P({kWinds, user(2)}));    // your Clarinet
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(3, 3), P({kBrass, user(3)}));    // your Tuba
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(3, 4), P({kPerc, user(0)}));     // your Timpani
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(4, 0), P({kStrings, model(0)})); // model Str Ens
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(5, 4), P({kPerc, model(0)}));    // model Timpani
+    // old row 7 polyphony -> row 6 cols 4-7; old empty pads do nothing
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(7, 2), P({LaunchpadGrid::kAccompRow, LaunchpadGrid::kPolyphonyColFirst + 2}));
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(7, 5), std::nullopt);
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(2, 3), std::nullopt);
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(3, LaunchpadGrid::kSideCol), std::nullopt); // RESET did not exist
+    // modes, TD, register and their side buttons are unchanged
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(0, 0), P({0, 0}));
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(1, 6), P({1, 6}));
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(6, LaunchpadGrid::kSideCol), P({6, LaunchpadGrid::kSideCol}));
+}
+
+TEST(LaunchpadGrid, Layout1ReplayActsLikeTheOldGrid) {
+    LaunchpadGrid grid;
+    CircularFifo<InstrumentUpdate> updates;
+    grid.instrumentUpdates = &updates;
+    mapAppInstruments(grid);
+    grid.layout1 = true;
+    grid.setSelectedMode(OrchestrationMode::Jam);
+
+    grid.handleInput(2, 0, true, 1000); // old "input: Str Ens" works in Jam too
+    EXPECT_TRUE(grid.getGridState(kStrings, user(0)));
+    grid.handleInput(4, 5, true, 1000); // old "model: Oboe"
+    EXPECT_TRUE(grid.getGridState(kWinds, model(1)));
+
+    // the old FLUSH worked in Jam and switched your pads off
+    grid.handleInput(LaunchpadGrid::kFlushRow, LaunchpadGrid::kSideCol, true, 2000);
+    EXPECT_TRUE(grid.getGridState(kStrings, model(0)));
+    EXPECT_FALSE(grid.getGridState(kStrings, user(0)));
+
+    grid.handleInput(7, 5, true, 3000); // an empty old pad is not a preset now
+    EXPECT_EQ(grid.getActivePreset(), -1);
 }
 
 } // namespace virtual_orch_test

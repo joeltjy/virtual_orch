@@ -505,6 +505,29 @@ auto IodPretrained::getOutput(const std::vector<Token> &incomingTokens,
             }
         }
 
+        if (OpLog::on()) {
+            // OT_INPUT (docs/OPLOGS.txt): the encoder input this window's draws start from. The
+            // combos decoded within the window are teacher-forced into combo_in as they are drawn
+            // (each OT_DRAW's combo), so every draw's input follows from this record.
+            OpLog::Strings ids;
+            OpLog::Ints inputIds, combos;
+            int32_t baseOnset = window.onsetCs[0]; // input_ids' onsets count from the earliest note
+            for (int32_t i = 1; i < window.nNotes; ++i)
+                baseOnset = std::min(baseOnset, window.onsetCs[static_cast<size_t>(i)]);
+            for (int32_t i = 0; i < window.nNotes; ++i) {
+                const size_t listIdx = windowBase + start + static_cast<size_t>(i);
+                const auto &t = inputNotes[std::min(listIdx, inputNotes.size() - 1)].token;
+                ids.push_back(t.keyId >= 0 ? OpLog::id('k', t.keyId) : OpLog::id('r', t.noteId));
+                for (int32_t k = 0; k < noteTokensPerNote; ++k)
+                    inputIds.push_back(static_cast<int32_t>(window.inputIds[static_cast<size_t>(i * noteTokensPerNote + k)]));
+                for (int32_t k = 0; k < comboLen; ++k)
+                    combos.push_back(static_cast<int32_t>(window.comboIn[static_cast<size_t>(i)][static_cast<size_t>(k)]));
+            }
+            OpLog::emit(OpLog::Src::Ot, "OT_INPUT",
+                        {{"notes", std::move(ids)}, {"base_onset", baseOnset}, {"input_ids", std::move(inputIds)},
+                         {"combo_in", std::move(combos)}, {"tokens_per_note", noteTokensPerNote}, {"combo_len", comboLen}});
+        }
+
         {
             const ScopedMs sampleMs(getOutputTimings != nullptr ? &getOutputTimings->sample
                                                                 : nullptr);

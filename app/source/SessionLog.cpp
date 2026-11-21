@@ -67,17 +67,10 @@ auto SessionLog::writerMutex() -> std::mutex & {
     return m;
 }
 
-auto SessionLog::start() -> void {
+auto SessionLog::start(const juce::File &file) -> void {
     const std::lock_guard<std::mutex> lock(writerMutex());
     if (writer() != nullptr)
         return;
-    const auto stamp = juce::Time::getCurrentTime().formatted("%Y-%m-%d_%H-%M-%S");
-    const auto file = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
-                          .getChildFile("virtual-orch")
-                          .getChildFile("Logs")
-                          .getChildFile("sessions")
-                          .getChildFile("session_" + stamp + ".log")
-                          .getNonexistentSibling();
     writer() = std::make_unique<Writer>(file);
     writer()->startThread();
     // Not add(): it takes writerMutex, which this function already holds.

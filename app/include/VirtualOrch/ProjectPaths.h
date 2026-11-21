@@ -18,6 +18,17 @@
         .getChildFile("virtual_orch_models");
 }
 
+/**
+ * Where each app launch writes its logs: Documents/virtual-orch/Logs, one pair per launch with
+ * the same stamp, session_<stamp>.log (text) and oplog_<stamp>.jsonl.gz (operation log). Logs
+ * written before Nov 2026 are in its sessions/ and oplogs/ subfolders.
+ */
+[[nodiscard]] inline auto logsDir() -> juce::File {
+    return juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+        .getChildFile("virtual-orch")
+        .getChildFile("Logs");
+}
+
 /** Checked-in .json configs (and presets) under the app/ folder (VIRTUAL_ORCH_APP_DIR). */
 [[nodiscard]] inline auto projectModelsDir() -> juce::File {
 #if defined(VIRTUAL_ORCH_APP_DIR)

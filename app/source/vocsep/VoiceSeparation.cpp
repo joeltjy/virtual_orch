@@ -1,5 +1,6 @@
 #include "VirtualOrch/vocsep/VoiceSeparation.h"
 
+#include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/OrtEnv.h"
 #include "VirtualOrch/vocsep/VocsepGraph.h"
 
@@ -60,6 +61,38 @@ auto logVoiceAssignment(const Token &token,
                         float parentScore,
                         const Vocsep::GraphTensors *graph,
                         const std::vector<float> *edgeScores) -> void {
+    if (OpLog::on()) {
+        // VOCSEP (docs/OPLOGS.txt): the window the model saw, its candidate parents, the result.
+        const auto noteIdOf = [](const Token &t) {
+            return t.keyId >= 0 ? OpLog::id('k', t.keyId) : OpLog::id('r', t.noteId);
+        };
+        std::string notes = "[";
+        for (size_t i = 0; i < window.size(); ++i) {
+            const auto &t = window[i];
+            notes += (i ? "," : "") + std::string("[") + std::to_string(t.time) + "," + std::to_string(t.getRealDuration())
+                     + "," + std::to_string(t.getPitch()) + "," + std::to_string(t.voiceId) + "," + OpLog::quote(noteIdOf(t))
+                     + "]";
+        }
+        notes += "]";
+        std::string pots = "[";
+        const int newestIdx = static_cast<int>(window.size()) - 1;
+        if (graph != nullptr && edgeScores != nullptr) {
+            bool first = true;
+            for (int64_t e = 0; e < graph->targetEdgeCount; ++e) {
+                if (static_cast<int>(graph->targetEdgeIndex[static_cast<size_t>(graph->targetEdgeCount + e)]) != newestIdx)
+                    continue;
+                const auto from = graph->targetEdgeIndex[static_cast<size_t>(e)];
+                const float sc = e < static_cast<int64_t>(edgeScores->size()) ? (*edgeScores)[static_cast<size_t>(e)] : 0.0f;
+                pots += (first ? "" : ",") + std::string("[") + std::to_string(from) + "," + OpLog::valueJson(static_cast<double>(sc)) + "]";
+                first = false;
+            }
+        }
+        pots += "]";
+        OpLog::emit(OpLog::Src::Rt, "VOCSEP",
+                    {{"for", noteIdOf(token)}, {"voice", token.voiceId}, {"reason", reason},
+                     {"parent", parentIdx}, {"parent_score", std::isfinite(parentScore) ? OpLog::Value(static_cast<double>(parentScore)) : OpLog::Value()},
+                     {"window", OpLog::Raw{notes}}, {"candidates", OpLog::Raw{pots}}});
+    }
     juce::String line;
     line << juce::Time::getCurrentTime().toString(true, true, true, true)
          << " | " << reason

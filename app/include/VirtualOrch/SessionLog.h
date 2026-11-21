@@ -23,7 +23,8 @@ class Clock;
  */
 class SessionLog {
 public:
-    static auto start() -> void;
+    /** Start writing to `file` (Main: logsDir() / session_<stamp>.log, ProjectPaths.h). */
+    static auto start(const juce::File &file) -> void;
     /** Flush what is left and close the file. */
     static auto stop() -> void;
     [[nodiscard]] static auto isRunning() -> bool;

@@ -16,8 +16,12 @@ called "Edit".
 
 Each app launch writes two logs, both opened at start-up and closed at quit:
 
-  Documents/virtual-orch/Logs/oplogs/oplog_<YYYY-MM-DD_HH-MM-SS>.jsonl.gz   (this format)
-  Documents/virtual-orch/Logs/sessions/session_<YYYY-MM-DD_HH-MM-SS>.log    (older text log)
+  Documents/virtual-orch/Logs/oplog_<YYYY-MM-DD_HH-MM-SS>.jsonl.gz   (this format)
+  Documents/virtual-orch/Logs/session_<YYYY-MM-DD_HH-MM-SS>.log      (older text log)
+
+Both files of one launch share the stamp (a second launch in the same second adds "_2").
+Logs written before Nov 2026 are in the subfolders Logs/oplogs/ and Logs/sessions/, with
+their own stamps.
 
 The session log is short human-readable text (one tagged line per event: MIDI_IN, RT, OT,
 MIDI_OUT, CUT, WAIT, HYBRID, LAUNCHPAD, MODE, CLOCK, ...). LogReplay and tools/oplog_replay
@@ -201,6 +205,26 @@ Output and control:
   OT_DROP         ids, reason (removed by a clear, or "paused, past")
   OT_CLEAR        from (a Clear Queue passed through to playback)
 
+4.4b Voice separation  (src "rt")
+
+  VOCSEP          for (the note's id), voice (the voice id it got), reason ("inherit" |
+                  "inherit_win_score" | "inherit_lose_score" | "new_no_parent" |
+                  "new_singleton" | "new_no_pots" | "new_empty_graph" | "new_onnx_error"),
+                  parent (index into window of the chosen parent, -1 = none), parent_score,
+                  window (the notes the model saw, oldest first, the new note last:
+                  [[onset, dur, pitch, voice, id], ...], voices after this assignment),
+                  candidates ([[window index, edge score], ...] of the edges into the new note).
+                  Written for the RT's notes, and for the user's notes the OT stamps in Step-in.
+
+4.4c Orchestration model input  (src "ot")
+
+  OT_INPUT        notes (the ids of the encoder window's notes, oldest first), base_onset
+                  (the onset input_ids count from), input_ids (tokens_per_note = 3 per note:
+                  onset - base_onset, duration token, pitch token), combo_in (combo_len per
+                  note: the already decoded combos teacher-forced in, 0 = none yet). One per
+                  encoder window; the draws that follow (OT_DRAW) are made in window order,
+                  each draw's combo then joining combo_in, so every draw's input follows.
+
 4.5 Queues  (any src)
 
   Q_PUSH          queue, item
@@ -305,9 +329,6 @@ LaunchpadGrid::layout1Pad (app/include/VirtualOrch/LaunchpadGrid.h).
 6. NOT LOGGED
 -------------
 
-  - Voice separation (vocsep): neither its inputs nor its voice assignments. Only the
-    resulting voice ids appear in RT_NOTE / OT_NOTE.
-  - The OT model's input tokens. OT_DRAW has its choices, not its context.
   - Draws and context of the Dense RT models.
   - Distributions beyond the top 10, and a top 10 for WAIT decisions (only P(wait)).
   - The random seed (live samplers seed from std::random_device).

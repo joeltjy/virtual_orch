@@ -2,6 +2,7 @@
 
 #include <set>
 
+#include <VirtualOrch/OpLog.h>
 #include <VirtualOrch/OrchestrationTransformer.h>
 #include <VirtualOrch/ProjectPaths.h>
 #include <VirtualOrch/vocsep/VoiceSeparation.h>
@@ -59,6 +60,34 @@ TEST(EditVocsep, userNotesGetVoicesFromTheirOwnVocsep) {
     for (const auto &t: history)
         voices.insert(t.voiceId);
     EXPECT_GE(voices.size(), 2u) << "the two lines are told apart";
+}
+
+
+TEST(EditVocsep, eachAssignmentIsInTheOperationLog) {
+    const auto onnx = modelsDir().getChildFile("vocsep.onnx");
+    if (! onnx.existsAsFile())
+        GTEST_SKIP() << "vocsep.onnx not found";
+    VoiceSeparation separation;
+    separation.init(onnx.getFullPathName().toRawUTF8());
+    ASSERT_TRUE(separation.isLoaded());
+    OrchestrationTransformer ot;
+    ot.inputVoiceSeparation = &separation;
+    std::vector<std::string> lines;
+    OpLog::setCapture([&](const std::string &line) { lines.push_back(line); });
+    int32_t key = 0;
+    for (int i = 0; i < 4; ++i) {
+        std::vector<Token> batch{keyboardNote(100 + i * 40, 72 + i, 35, ++key)};
+        ot.stampInputVoices(batch);
+    }
+    OpLog::setCapture(nullptr);
+    int vocsep = 0;
+    for (const auto &l: lines)
+        if (l.find("\"op\":\"VOCSEP\"") != std::string::npos) {
+            ++vocsep;
+            EXPECT_NE(l.find("\"window\":[["), std::string::npos) << l;
+            EXPECT_NE(l.find("\"for\":\"k"), std::string::npos) << l;
+        }
+    EXPECT_EQ(vocsep, 4) << "one VOCSEP record per note";
 }
 
 } // namespace virtual_orch_test

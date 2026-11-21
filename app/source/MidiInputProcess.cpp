@@ -426,11 +426,16 @@ void MidiInputProcess::handleSustainPedal(const juce::MidiMessage &message) {
     const bool pause = value < 64;
     const bool wasSilenced = pedalSilenced.exchange(pause);
     const bool stopped = pause && ! wasSilenced;
-    if (OpLog::on())
+    if (OpLog::on()) {
+        // state is the raw pedal position; effect is what it did, since "down" stopped the
+        // orchestra in layout-1 sessions and plays it now (both only when it changes).
+        const bool changed = pause != wasSilenced;
         OpLog::emit(OpLog::Src::Midi, "PEDAL",
                     {{"cc", 64}, {"value", value},
-                     {"state", pause != wasSilenced ? OpLog::Value(std::string(pause ? "up" : "down")) : OpLog::Value()},
+                     {"state", changed ? OpLog::Value(std::string(pause ? "up" : "down")) : OpLog::Value()},
+                     {"effect", changed ? OpLog::Value(std::string(pause ? "stop" : "play")) : OpLog::Value()},
                      {"app_pedal", true}});
+    }
     notePedalState(pause, AppTime::nowMs());
     juce::Logger::writeToLog(
         "[pedal] CC64 value=" + juce::String(value)
@@ -459,14 +464,18 @@ void MidiInputProcess::handleSustainPedal(const juce::MidiMessage &message) {
 void MidiInputProcess::pedalDeviceSelected() {
     pedalSilenced = true;
     notePedalState(true, AppTime::nowMs());
-    activeReduction().setGenerationPause(true);
+    if (OpLog::on())
+        OpLog::emit(OpLog::Src::Midi, "PEDAL_DEVICE", {{"selected", true}, {"effect", "stop"}});
+    activeReduction().setGenerationPause(true, "pedal device selected");
     SessionLog::add("PEDAL", "pedal device selected: orchestra silent until pedal down");
 }
 
 void MidiInputProcess::pedalDeviceCleared() {
     pedalSilenced = false;
     notePedalState(false, AppTime::nowMs());
-    activeReduction().setGenerationPause(false);
+    if (OpLog::on())
+        OpLog::emit(OpLog::Src::Midi, "PEDAL_DEVICE", {{"selected", false}, {"effect", "play"}});
+    activeReduction().setGenerationPause(false, "pedal device cleared");
     SessionLog::add("PEDAL", "pedal device cleared: orchestra sounds");
 }
 

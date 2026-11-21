@@ -58,6 +58,13 @@
  */
 class LaunchpadGrid {
 public:
+    /**
+     * Which pad layout this is, written to the operation log (SESSION_START launchpad_layout) so
+     * PAD_PRESS row / col can be read without knowing the date. 1 = the layout before Nov 2026
+     * (input / model instrument rows); 2 = two-sided (your instruments cols 0-3, the model's 4-7,
+     * presets on row 7). See NEW_LAUNCHPAD_LAYOUT.txt.
+     */
+    static constexpr int kLayoutVersion = 2;
     static constexpr int kRows = 8;
     static constexpr int kCols = 8;
     /** Right-hand side column (MIDI notes 19,29,...,89). */

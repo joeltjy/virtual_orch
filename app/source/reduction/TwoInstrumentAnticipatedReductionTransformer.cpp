@@ -744,7 +744,7 @@ auto TwoInstrumentAnticipatedReductionTransformer::logCheckpoint(int32_t now) ->
     OpLog::Obj state;
     state.add("td", static_cast<int64_t>(TemporalDensity::get())).add("register", static_cast<int64_t>(RegisterRange::get()))
         .add("polyphony", static_cast<int64_t>(getMaxPolyphony())).add("paused", generationPause.get())
-        .add("throttled", overflowPause.get()).add("edit", isEditMode()).add("accompaniment", keepsQueueOnInput())
+        .add("throttled", overflowPause.get()).add("step_in", isEditMode()).add("accompaniment", keepsQueueOnInput())
         .add("hybrid_model", std::string(variant == Variant::Hybrid ? (hybridV1.load() ? "v1" : "W") : ""));
     OpLog::emit(OpLog::Src::State, "CHECKPOINT",
                 {{"part", "rt"}, {"rt", models.raw()}, {"state", state.raw()}});

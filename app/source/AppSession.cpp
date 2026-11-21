@@ -196,7 +196,9 @@ AppSession::AppSession()
         SessionLog::add("CUT", juce::String("preset ")
                                    + MoodPresets::all()[static_cast<size_t>(presetIndex)].name
                                    + ": notes from " + juce::String(cut) + " (now + 1 s) removed");
-        activeReduction().requestModeCut(cut);
+        activeReduction().requestModeCut(cut, std::string("preset ")
+                                                  + MoodPresets::all()[static_cast<size_t>(presetIndex)].name + " "
+                                                  + OpLog::id('p', OpLog::currentPad) + ": next 1 s kept");
     };
     midiInputProcess.getLaunchpadGrid().mode_callback = [this](OrchestrationMode mode) {
         setOrchestrationMode(mode);
@@ -764,7 +766,7 @@ auto AppSession::setOrchestrationMode(OrchestrationMode mode) -> void {
     const auto previous = orchestrationTransformer.getMode();
     if (OpLog::on()) {
         const auto name = [](OrchestrationMode m) {
-            return m == OrchestrationMode::Edit ? "Edit" : m == OrchestrationMode::Jam ? "Jam" : "Accompaniment";
+            return m == OrchestrationMode::Edit ? "Step-in" : m == OrchestrationMode::Jam ? "Jam" : "Accompaniment";
         };
         OpLog::emit(OpLog::Src::Ui, "MODE", {{"from", name(previous)}, {"to", name(mode)},
                                              {"by", OpLog::currentPad >= 0 ? OpLog::id('p', OpLog::currentPad) : std::string("ui")}});
@@ -867,7 +869,8 @@ auto AppSession::logSessionStart(const juce::String &origin) -> void {
                 {{"origin", origin}, {"app", ProjectInfo::versionString},
                  {"settings", presetStore.settings.toXmlString(juce::XmlElement::TextFormat().singleLine())},
                  {"rt", activeReduction().getThreadName()}, {"models", models.raw()},
-                 {"checkpoint_every_ms", OpLog::kCheckpointEveryMs}});
+                 {"checkpoint_every_ms", OpLog::kCheckpointEveryMs},
+                 {"launchpad_layout", LaunchpadGrid::kLayoutVersion}});
 }
 
 auto AppSession::logRunStart() -> void {

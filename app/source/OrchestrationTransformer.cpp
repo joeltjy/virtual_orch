@@ -43,7 +43,8 @@ auto otIds(const std::vector<Token> &tokens) -> OpLog::Strings {
     return ids;
 }
 auto modeName(OrchestrationMode m) -> const char * {
-    return m == OrchestrationMode::Edit ? "Edit" : m == OrchestrationMode::Jam ? "Jam" : "Accompaniment";
+    // "Step-in" is the user-facing name of OrchestrationMode::Edit (docs/OPLOGS.txt).
+    return m == OrchestrationMode::Edit ? "Step-in" : m == OrchestrationMode::Jam ? "Jam" : "Accompaniment";
 }
 } // namespace
 

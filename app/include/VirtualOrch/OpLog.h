@@ -97,6 +97,9 @@ auto setCapture(std::function<void(const std::string &line)> capture) -> void;
 }
 [[nodiscard]] inline auto runId(int64_t n) -> std::string { return "run" + std::to_string(n); }
 
+/** Records kept since start() / setCapture() (SESSION_END `ops` counts them). */
+[[nodiscard]] auto recordCount() -> int64_t;
+
 /** Next press / output / run number (process-wide counters). */
 [[nodiscard]] auto nextPadId() -> int64_t;
 [[nodiscard]] auto nextOutputId() -> int64_t;

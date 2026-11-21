@@ -5,6 +5,7 @@
 
 #include <functional>
 #include <optional>
+#include <utility>
 
 #include <algorithm>
 #include <array>
@@ -117,6 +118,18 @@ public:
     /** The model's P(WAIT) at the last decideWait that computed it (a replay may override lastWaitProbability). */
     float modelWaitProbability = 0.0f;
 
+    /**
+     * Dynamic LogitTD: the mean sensitivity (TdOnsetBias::sensitivity) of the onset draws since the
+     * last call, and how many there were; resets. Read by the reduction thread's TdController.
+     */
+    [[nodiscard]] auto takeSensitivity() -> std::pair<std::optional<double>, int> {
+        const int draws = sensitivityDraws;
+        const std::optional<double> mean = draws > 0 ? std::optional<double>(sensitivitySum / draws) : std::nullopt;
+        sensitivitySum = 0.0;
+        sensitivityDraws = 0;
+        return {mean, draws};
+    }
+
     /** Operation log: the fields drawn since clearDraw() (RT_DRAW). Only filled while OpLog::on(). */
     std::vector<OpLogDraw::Draw> lastDraw;
     auto clearDraw() -> void { lastDraw.clear(); }
@@ -185,6 +198,8 @@ public:
         // illegal id): fall back to the model's own logits.
         if (! hasFinite(scores))
             scores = masked(field, logits, ctx);
+        if (field == 0 && onsetOptions.gamma.has_value() && logitTdLevel != TemporalDensity::kAuto)
+            recordSensitivity(scores, ctx, temperature);
         const int32_t token = forced ? *forced : sampleTopP(scores, topP, temperature);
         if (logging) {
             static constexpr const char *kNames[] = {"onset", "dur", "pitch", "vel"};
@@ -243,6 +258,22 @@ public:
     }
 
 private:
+    double sensitivitySum = 0.0;
+    int sensitivityDraws = 0;
+
+    /** One onset draw's sensitivity, gaps measured from this sampler's last generated onset. */
+    auto recordSensitivity(const std::vector<float> &scores, const Context &ctx, float temperature) -> void {
+        int32_t lastOnset = INT32_MIN;
+        for (size_t i = 0; i + 4 <= generated.size(); i += 4)
+            lastOnset = std::max(lastOnset, generated[i]);
+        const int32_t lowerAbs = ctx.lowerOnsetModel + ctx.base;
+        const int32_t offset = lastOnset == INT32_MIN ? 0 : std::max(0, lowerAbs - lastOnset);
+        if (const auto s = TdOnsetBias::sensitivity(scores, ctx.lowerOnsetModel, offset, logitTdLevel, temperature)) {
+            sensitivitySum += *s;
+            ++sensitivityDraws;
+        }
+    }
+
     /** Notes this sampler generated with absolute onset exactly onsetAbs. */
     [[nodiscard]] auto chordNotesAt(int32_t onsetAbs) const -> int32_t {
         int32_t n = 0;

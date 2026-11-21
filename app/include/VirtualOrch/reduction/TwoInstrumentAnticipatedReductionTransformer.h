@@ -20,6 +20,7 @@
 #include "VirtualOrch/reduction/DenseTypes.h"
 #include "VirtualOrch/reduction/ReductionTransformer.h"
 #include "VirtualOrch/reduction/StreamingKvCache.h"
+#include "VirtualOrch/reduction/TdController.h"
 
 /**
  * Piano -> piano reduction with the T3'' model (maestro replay, dense vocab 11776, RoPE with a
@@ -114,6 +115,16 @@ public:
     [[nodiscard]] auto hybridReason() const -> HybridReason { return hybridReasonValue.load(); }
     /** Hybrid: ms the user has been playing (-1 = not playing), for the widget. */
     [[nodiscard]] auto hybridPlayingForMs() const -> int64_t { return hybridPlayingFor.load(); }
+    /** Dynamic LogitTD (TdController), per model: what the TD widget shows. */
+    struct TdControlView {
+        std::string model; // "W", "T3" or "v1"
+        TdController::State state;
+    };
+    /** The controllers' last states (any thread). */
+    [[nodiscard]] auto getTdControlStates() const -> std::vector<TdControlView> {
+        const std::lock_guard<std::mutex> lock(tdViewMutex);
+        return tdViews;
+    }
     /** Hybrid, v1 side: its own logit adjustments, all ON by default. */
     std::atomic<bool> hybridV1PitchBias{true};
     std::atomic<bool> hybridV1DurationBias{true};
@@ -265,6 +276,16 @@ private:
     auto setHybridModel(bool v1, HybridReason why, int32_t nowCs) -> void;
     /** Drop every generated note from nowCs on (playback, history, both contexts). */
     auto cutGeneratedFrom(int32_t nowCs, const std::string &reason = {}) -> void;
+
+    // ---- dynamic LogitTD: one gamma per model, updated every TdController::kTickMs
+    TdController tdControlMain, tdControlV1;
+    double lastTdTickMs = -1.0;
+    mutable std::mutex tdViewMutex;
+    std::vector<TdControlView> tdViews;
+    /** Tick the controllers when one is due: measure, update, publish, log TD_CTRL. */
+    auto tickTdControl(int32_t now) -> void;
+    /** The gamma a model draws with now (empty at TD AUTO). */
+    [[nodiscard]] auto tdGamma(bool silentModel) const -> std::optional<float>;
 
     // ---- operation log (OpLog): the context as a diff after every pass that changed it
     struct ContextLog {

@@ -171,10 +171,21 @@ Output and control:
   RT_CUT          from, reason, removed (ids). Reasons include "TD press pNN: next 1 s kept",
                   "register change pNN: next 1 s kept", "preset <name> pNN: next 1 s kept",
                   "pedal up" (layout 1: "pedal down"), "left Accompaniment", input cuts
+                  ("... (Step-in: next 2 s kept)" in Step-in)
   RT_PAUSE        paused, reason (e.g. "pedal", "pedal device selected", "pedal device
                   cleared", Launchpad pause)
   RT_THROTTLE     state ("start" | "end"), for_ms, ahead_of (on start). The RT is too far
                   ahead of the clock and waits.
+  TD_CTRL         dynamic LogitTD, every 250 ms per model while TD is not AUTO: model ("W" |
+                  "T3" | "v1"), td (target level), measured (the orchestra's density: distinct
+                  onsets in the 3 s ending at its newest note, in onsets per 2 s), error
+                  (log2(td / measured), clamped to +-2), gamma (the strength the model draws
+                  with: onset logits get gamma x -(1/4) ln(1 + (c k / 200)^4)), k (the step
+                  size of this update, 0 while frozen), s_hat (smoothed sensitivity, TD steps
+                  per unit of gamma), m (the overshoot multiplier), frozen, why ("TD AUTO" |
+                  "clock stopped" | "waiting" | "not drawing" | "dead zone" | "at limit").
+                  Files from before the controller have none: LogitTD then had a fixed
+                  strength.
 
 4.4 Orchestration model, OT  (src "ot")
 

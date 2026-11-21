@@ -54,6 +54,14 @@
 struct TdOnsetOptions {
     bool shortGapPenalty = true;
     std::optional<bool> logitTd;
+    /**
+     * Dynamic LogitTD (TdController): the strength of the forward taper, used as the exponent
+     * directly (shift = gamma * kernel(k, c), no log2(k)/6 factor), for every TD level but AUTO
+     * (level 1 included). Negative gamma favours longer gaps. When set it overrides `logitTd` for
+     * the forward taper; the chord shift h(k, n) keeps the fixed strength and still follows
+     * `logitTd`, so gamma never changes P(c = 0) (nor W2/W3's WAIT decision).
+     */
+    std::optional<float> gamma;
 };
 
 class TdOnsetBias {
@@ -82,6 +90,56 @@ public:
         const float x = static_cast<float>(gapCs) * k / kWindowCs; // c / g_k
         const float x2 = x * x;
         return -(exponent / 4.0f) * std::log1p(x2 * x2);
+    }
+
+    /** u(k, c) = -(1/4) ln(1 + (c / g_k)^4): the taper per unit of strength; 0 for AUTO, k < 1, c <= 0. */
+    [[nodiscard]] static auto kernel(int32_t tdLevel, int32_t gapCs) -> float {
+        if (tdLevel < 1 || gapCs <= 0)
+            return 0.0f;
+        const float x = static_cast<float>(gapCs) * static_cast<float>(tdLevel) / kWindowCs;
+        const float x2 = x * x;
+        return -0.25f * std::log1p(x2 * x2);
+    }
+
+    /**
+     * Sensitivity of the density to gamma at one onset draw, in TD steps (octaves) per unit of
+     * gamma: S = d log2(density) / d gamma = -Cov(gap, u) / (T * E[gap] * ln 2), over the forward
+     * onsets (c > 0) of the distribution softmax(scores / T) (scores: the onset logits as sampled,
+     * masks and biases applied). gap = c + gapOffsetCs is the real time since the previous onset
+     * (gapOffsetCs: from that onset to the earliest legal one). Empty if nothing can be drawn
+     * forward.
+     */
+    [[nodiscard]] static auto sensitivity(const std::vector<float> &scores, int32_t lowerModel, int32_t gapOffsetCs,
+                                          int32_t tdLevel, float temperature) -> std::optional<double> {
+        const double temp = std::max(1e-4, static_cast<double>(temperature));
+        const int32_t first = std::max(lowerModel + 1, 0);
+        const auto n = static_cast<int32_t>(scores.size());
+        float peak = -std::numeric_limits<float>::infinity();
+        for (int32_t t = first; t < n; ++t)
+            peak = std::max(peak, scores[static_cast<size_t>(t)]);
+        if (! std::isfinite(peak))
+            return std::nullopt;
+        double z = 0.0, eg = 0.0, eu = 0.0, egu = 0.0;
+        for (int32_t t = first; t < n; ++t) {
+            const float l = scores[static_cast<size_t>(t)];
+            if (! std::isfinite(l))
+                continue;
+            const double p = std::exp((static_cast<double>(l) - peak) / temp);
+            const double gap = static_cast<double>(t - lowerModel + std::max(gapOffsetCs, 0));
+            const double u = kernel(tdLevel, t - lowerModel);
+            z += p;
+            eg += p * gap;
+            eu += p * u;
+            egu += p * gap * u;
+        }
+        if (z <= 0.0)
+            return std::nullopt;
+        eg /= z;
+        eu /= z;
+        egu /= z;
+        if (eg <= 0.0)
+            return std::nullopt;
+        return -(egu - eg * eu) / (temp * eg * std::log(2.0));
     }
 
     /** p(c): the short-gap penalty, 0 for c <= 0. */
@@ -151,8 +209,9 @@ public:
 
         Snapshot snap;
         snap.tdLevel = tdLevel;
-        snap.shifted = options.logitTd.value_or(enabled()) && tdLevel != TemporalDensity::kAuto
-                       && tdLevel > 1;
+        snap.shifted = tdLevel != TemporalDensity::kAuto
+                       && (options.gamma.has_value() ? tdLevel >= 1
+                                                     : options.logitTd.value_or(enabled()) && tdLevel > 1);
         snap.chordNotes = chordNotes;
         snap.beforeTail = distribution(logits, from, end, timeOffset, fromModelTime, temp, snap.before);
         if (snap.shifted) {
@@ -176,7 +235,8 @@ public:
             for (int32_t t = firstForward; t < end; ++t) {
                 float &logit = logits[timeOffset + static_cast<size_t>(t)];
                 if (std::isfinite(logit))
-                    logit += shift(tdLevel, t - fromModelTime);
+                    logit += options.gamma.has_value() ? *options.gamma * kernel(tdLevel, t - fromModelTime)
+                                                       : shift(tdLevel, t - fromModelTime);
             }
             const float lseAfter = forwardLse();
             if (std::isfinite(lseBefore) && std::isfinite(lseAfter)) {
@@ -187,7 +247,10 @@ public:
                         logit += restore;
                 }
             }
-            if (fromModelTime >= from && fromModelTime < end) {
+            // The chord shift keeps the fixed strength, and only where this model's own LogitTD
+            // switch is on: gamma alone leaves P(c = 0), and so W2/W3's WAIT decision, as it was.
+            if (fromModelTime >= from && fromModelTime < end
+                && (! options.gamma.has_value() || options.logitTd.value_or(enabled()))) {
                 float &chord = logits[timeOffset + static_cast<size_t>(fromModelTime)];
                 if (std::isfinite(chord))
                     chord += chordShift(tdLevel, chordNotes);

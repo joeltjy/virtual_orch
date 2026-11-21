@@ -1,4 +1,6 @@
 #include "VirtualOrch/reduction/TwoInstrumentAnticipatedReductionTransformer.h"
+
+#include <set>
 #include "VirtualOrch/AppTime.h"
 
 #include "VirtualOrch/NoteWindow.h"
@@ -407,6 +409,7 @@ auto TwoInstrumentAnticipatedReductionTransformer::generateOne(int32_t now) -> s
     params.onsetGapTau = getOnsetGapTauBase();
     params.onsetOptions.shortGapPenalty = isShortGapPenaltyEnabled();
     params.onsetOptions.logitTd = isLogitTdEnabled();
+    params.onsetOptions.gamma = tdGamma(false);
     // Accompaniment: late input reordered in at most once a second; Edit: at once (the notes
     // generated in the 2 s its input keeps stay, with the input among them in onset order).
     params.reorderLate = keepsQueueOnInput() || isEditMode();
@@ -430,6 +433,7 @@ auto TwoInstrumentAnticipatedReductionTransformer::generateOne(int32_t now) -> s
         t3.onsetGapBias = hybridV1OnsetGapBias.load();
         t3.onsetOptions.shortGapPenalty = hybridV1ShortGapPenalty.load();
         t3.onsetOptions.logitTd = hybridV1LogitTd.load();
+        t3.onsetOptions.gamma = tdGamma(true);
         t3.reorderLate = params.reorderLate;
         t3.reorderEveryCs = params.reorderEveryCs;
         t3.biases = params.biases; // the global switch and the silence gate
@@ -519,6 +523,60 @@ void TwoInstrumentAnticipatedReductionTransformer::threadRun() {
     }
 }
 
+auto TwoInstrumentAnticipatedReductionTransformer::tdGamma(bool silentModel) const -> std::optional<float> {
+    const int32_t td = tdValueProvider ? tdValueProvider() : TemporalDensity::kAuto;
+    if (td == TemporalDensity::kAuto)
+        return std::nullopt;
+    return static_cast<float>((silentModel ? tdControlV1 : tdControlMain).current().gamma);
+}
+
+auto TwoInstrumentAnticipatedReductionTransformer::tickTdControl(int32_t now) -> void {
+    const double nowMs = AppTime::hiResMs();
+    if (lastTdTickMs >= 0.0 && nowMs - lastTdTickMs < TdController::kTickMs)
+        return;
+    lastTdTickMs = nowMs;
+    juce::ignoreUnused(now);
+
+    // The orchestra's density: distinct onsets of the generated notes in the 3 s ending at the
+    // newest one (the generation frontier, so what was just drawn counts at once).
+    std::optional<double> measured;
+    {
+        const auto history = getOutputHistorySince(INT32_MIN);
+        int32_t frontier = INT32_MIN;
+        for (const auto &t: history)
+            if (t.note >= static_cast<int32_t>(Vocab::NoteOffset) && t.note < static_cast<int32_t>(Vocab::Rest))
+                frontier = std::max(frontier, t.time);
+        if (frontier != INT32_MIN) {
+            std::set<int32_t> onsets;
+            for (const auto &t: history)
+                if (t.note >= static_cast<int32_t>(Vocab::NoteOffset) && t.note < static_cast<int32_t>(Vocab::Rest)
+                    && t.time > frontier - TdController::kWindowCs && t.time <= frontier)
+                    onsets.insert(t.time);
+            measured = TdController::measure(static_cast<int>(onsets.size()));
+        }
+    }
+    const int32_t td = tdValueProvider ? tdValueProvider() : TemporalDensity::kAuto;
+    const bool clockRunning = clock == nullptr || clock->isRunning();
+    std::vector<TdControlView> views;
+    const auto tickOne = [&](TdController &controller, AnticipationStage &st, const char *model, bool waiting) {
+        const auto [sensitivity, draws] = st.sampler.takeSensitivity();
+        juce::ignoreUnused(draws);
+        const auto &state = controller.tick({td, measured, sensitivity, clockRunning, waiting});
+        views.push_back({model, state});
+        if (OpLog::on() && td != TemporalDensity::kAuto)
+            OpLog::emit(OpLog::Src::Rt, "TD_CTRL",
+                        {{"model", model}, {"td", td}, {"measured", state.measured}, {"error", state.error},
+                         {"gamma", state.gamma}, {"k", state.k}, {"s_hat", state.sensitivity}, {"m", state.m},
+                         {"frozen", state.frozen},
+                         {"why", state.why.empty() ? OpLog::Value() : OpLog::Value(state.why)}});
+    };
+    tickOne(tdControlMain, stage, variant == Variant::T3 ? "T3" : "W", stage.lastWaited());
+    if (variant == Variant::Hybrid)
+        tickOne(tdControlV1, silentStage, "v1", false);
+    const std::lock_guard<std::mutex> lock(tdViewMutex);
+    tdViews = std::move(views);
+}
+
 auto TwoInstrumentAnticipatedReductionTransformer::liveStep() -> LiveStep {
     finishAheadThrottleIfDue();
 
@@ -547,6 +605,7 @@ auto TwoInstrumentAnticipatedReductionTransformer::liveStep() -> LiveStep {
     if (inputApplied && ! keepsQueueOnInput() && ! generationPause.get())
         cutFutureOnInput(now);
     updateHybrid(now);
+    tickTdControl(now);
 
     if (isGenerationStopped()) {
         maybeEmitGenerationPauseSoftStopClear();

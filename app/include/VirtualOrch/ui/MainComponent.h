@@ -83,6 +83,16 @@ private:
         -> bool;
 
     juce::AudioDeviceManager deviceManager;
+
+    /**
+     * Device-list change (message thread): reopen every input the app uses that came back after
+     * dropping off USB (MidiReconnect), and log drops and returns to the session log.
+     */
+    void handleMidiDeviceListChange();
+    /** Input identifiers present at the last device-list check. */
+    juce::StringArray presentMidiInputIds;
+    /** Declared after deviceManager so it is destroyed (and stops calling back) first. */
+    juce::MidiDeviceListConnection midiDeviceListConnection;
     juce::ComboBox presetList, mtcClockList, midiInputList, additionalMidiList, pedalMidiList,
             launchpadMidiList,
             reductionTypeList, checkpointList, orchestrationModelList, outputList;

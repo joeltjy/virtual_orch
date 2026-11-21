@@ -1,6 +1,9 @@
 #include "VirtualOrch/Clock.h"
 
 #include "VirtualOrch/AppTime.h"
+#include "VirtualOrch/SessionLog.h"
+
+#include <iostream>
 
 Clock::Clock(Metrics &metrics) : metrics(metrics) {
     const uint32_t clockTime = AppTime::hiResMs();
@@ -61,7 +64,17 @@ auto Clock::setMtcTime(uint32_t newTime) -> void {
 void Clock::hiResTimerCallback() {
     const uint32_t clockTime = AppTime::hiResMs() * 0.1;
     if (lastClockTimeOfMtcMessage.get() <= (clockTime - 10)) {
+        const bool wasRunning = isOn.get();
         stop();
+        if (wasRunning) {
+            // Without this the transport just freezes with no hint why (e.g. MTC Clock ticked
+            // but no DAW sending MTC on the selected port).
+            const auto text = "MTC watchdog: no MTC quarter frame for 100 ms, clock stopped at "
+                              + juce::String(getTime())
+                              + " cs. Start MTC from the DAW, or untick MTC Clock to run freely.";
+            SessionLog::add("CLOCK", text);
+            std::cerr << "[clock] " << text << std::endl;
+        }
     }
     stopTimer();
 }

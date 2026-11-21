@@ -5,6 +5,8 @@
 #include <iostream>
 
 #include "VirtualOrch/MidiOutputProcessor.h"
+#include "VirtualOrch/MidiReconnect.h"
+#include "VirtualOrch/SessionLog.h"
 #include "VirtualOrch/reduction/TdOnsetBias.h"
 #include "VirtualOrch/OSCOutputProcessor.h"
 #include "VirtualOrch/OSCController.h"
@@ -65,6 +67,9 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
 
     midiInputs = juce::MidiInput::getAvailableDevices();
     hardwareMidiOutputs = juce::MidiOutput::getAvailableDevices();
+
+    presentMidiInputIds = MidiReconnect::identifiers(midiInputs);
+    midiDeviceListConnection = juce::MidiDeviceListConnection::make([this] { handleMidiDeviceListChange(); });
 
     // FOR DEBUG ONLY
     virtualMidiInput = juce::MidiInput::createNewDevice("virtual-orch Virtual MIDI Input", &session.midiInputProcess);
@@ -1788,6 +1793,42 @@ void MainComponent::clearAdditionalMidiInput() {
     session.selectedAdditionalMidiInputIdentifier = {};
     if (previous.isNotEmpty() && ! isMidiInputUsedByOtherRole(previous, 3))
         deviceManager.removeMidiInputDeviceCallback(previous, &session.midiInputProcess);
+}
+
+void MainComponent::handleMidiDeviceListChange() {
+    const auto devices = juce::MidiInput::getAvailableDevices();
+    const auto now = MidiReconnect::identifiers(devices);
+
+    juce::StringArray inUse{session.selectedMidiInputIdentifier, session.selectedLaunchpadMidiIdentifier,
+                            session.selectedPedalMidiInputIdentifier,
+                            session.selectedAdditionalMidiInputIdentifier};
+    if (session.mtcClockActive)
+        inUse.add(session.selectedMtcClockIdentifier);
+
+    for (const auto &id: MidiReconnect::disappeared(presentMidiInputIds, now, inUse)) {
+        const auto text = "input " + id + " disconnected; it is reopened when it comes back";
+        SessionLog::add("MIDI_DEVICE", text);
+        std::cerr << "[midi] " << text << std::endl;
+    }
+
+    for (const auto &id: MidiReconnect::reappeared(presentMidiInputIds, now, inUse)) {
+        // The MidiInput opened before the drop is dead: close it and open the device again. The
+        // callbacks are registered per identifier in deviceManager, so they stay attached.
+        deviceManager.setMidiInputDeviceEnabled(id, false);
+        deviceManager.setMidiInputDeviceEnabled(id, true);
+        const bool reopened = deviceManager.isMidiInputDeviceEnabled(id);
+
+        if (id == session.selectedLaunchpadMidiIdentifier)
+            for (const auto &device: devices)
+                if (device.identifier == id)
+                    session.midiInputProcess.setLaunchpadMidiOutputForInputDevice(device);
+
+        const auto text = "input " + id + (reopened ? " reconnected: reopened" : " reconnected but failed to reopen");
+        SessionLog::add("MIDI_DEVICE", text);
+        std::cerr << "[midi] " << text << std::endl;
+    }
+
+    presentMidiInputIds = now;
 }
 
 void MainComponent::setMidiInput(int index, int idx) {

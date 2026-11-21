@@ -3,6 +3,8 @@
 #include <JuceHeader.h>
 
 #include <atomic>
+#include <mutex>
+#include <string>
 #include <optional>
 #include <functional>
 #include <memory>
@@ -107,7 +109,7 @@ public:
     /** Every generated note is played at most this long (5 s), whatever the model drew. */
     static constexpr int32_t kMaxNoteDurationCs = 500;
 
-    auto setGenerationPause(bool paused) -> void;
+    auto setGenerationPause(bool paused, const char *reason = "") -> void;
 
     /**
      * Sustain-pedal press at clock time `pedalTimeCs` (MIDI thread). The reduction thread turns
@@ -179,7 +181,11 @@ public:
      * drops its generated notes from that time on and sends the cut marker downstream
      * (a PedalClear ClearQueue token, which ends OutputPlayback's drop window).
      */
-    auto requestModeCut(int32_t timeCs) -> void {
+    auto requestModeCut(int32_t timeCs, std::string reason = {}) -> void {
+        {
+            const std::lock_guard<std::mutex> lock(modeCutReasonMutex);
+            modeCutReason = std::move(reason);
+        }
         modeCutTimeCs.store(timeCs, std::memory_order_release);
     }
 
@@ -233,7 +239,10 @@ public:
     auto forgetClock() -> void { lastNowCs = INT32_MIN; }
 
     /** Remove the output-history tokens with onset >= cutCs (they were cut from playback). */
-    auto dropOutputHistoryFrom(int32_t cutCs) -> void;
+    /** Drop the generated notes from cutCs on; the operation log gets RT_CUT with `reason`. */
+    auto dropOutputHistoryFrom(int32_t cutCs, const std::string &reason = {}) -> void;
+    /** Operation log: which model drew note `noteId` ("" = this transformer has one model). */
+    [[nodiscard]] virtual auto modelOfNote(int32_t /*noteId*/) -> std::string { return {}; }
     /** True when a generated note (not a marker) in the output history has onset >= fromCs. */
     [[nodiscard]] auto hasGeneratedFrom(int32_t fromCs) const -> bool;
 
@@ -387,6 +396,15 @@ protected:
     std::vector<HeldKey> heldKeys; // reduction thread only
     /** Pending mode cut (cs), -1 when none; consumed by consumeModeCut. */
     std::atomic<int32_t> modeCutTimeCs{-1};
+    std::mutex modeCutReasonMutex;
+    std::string modeCutReason;
+
+protected:
+    /** Why the last mode cut was requested (operation log). */
+    [[nodiscard]] auto lastModeCutReason() -> std::string {
+        const std::lock_guard<std::mutex> lock(modeCutReasonMutex);
+        return modeCutReason;
+    }
 
     uint32_t aheadThrottleUntilMs = 0;
     std::atomic<float> lastThreadLoopMs{0.0f};

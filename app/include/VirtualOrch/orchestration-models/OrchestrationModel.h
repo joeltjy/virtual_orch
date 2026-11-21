@@ -17,6 +17,8 @@ struct OrchestrationNote {
     Token token;
     int32_t velocity = 0;
     int32_t localInstrumentId = 0;
+    int32_t sourceNoteId = -1; // the reduction note (r) it orchestrates; user notes carry token.keyId
+    int64_t outputId = -1;     // operation log `o` id, assigned when the note leaves the OT
 };
 
 /**

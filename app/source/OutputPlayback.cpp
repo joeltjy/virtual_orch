@@ -1,5 +1,6 @@
 #include "VirtualOrch/OutputPlayback.h"
 #include "VirtualOrch/AppTime.h"
+#include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/PerformanceActivity.h"
 
 #include "VirtualOrch/InstrumentConstants.h"
@@ -55,6 +56,11 @@ auto orchestrationNoteEndLess(const OrchestrationNote &a, const OrchestrationNot
     };
 }
 
+/** Operation log id of a scheduled note: its OT output (o) or, when monitoring the RT, the RT note (r). */
+auto playId(const OrchestrationNote &note) -> std::string {
+    return note.outputId >= 0 ? OpLog::id('o', note.outputId) : OpLog::id('r', note.token.noteId);
+}
+
 auto applyClearQueue(std::multiset<OrchestrationNote, decltype(&orchestrationNoteOnsetLess)> &nextTokens,
                      int32_t clearTime) -> void {
     for (auto it = nextTokens.begin(); it != nextTokens.end();) {
@@ -89,6 +95,15 @@ void OutputPlayback::handleNoteForOutput(const OrchestrationNote &note, TokenNot
 
     const int32_t instrument = note.localInstrumentId;
     const int32_t pitch = note.token.getPitch();
+    if (OpLog::on()) {
+        const auto channel = outputProcessor->channelForInstrument(instrument, pitch);
+        OpLog::emit(OpLog::Src::Play, "MIDI_OUT",
+                    {{"kind", tokenEventType == TokenNoteOn ? "on" : "off"}, {"o", playId(note)},
+                     {"instrument", instrument},
+                     {"channel", channel.has_value() ? OpLog::Value(static_cast<int64_t>(*channel)) : OpLog::Value()},
+                     {"pitch", pitch},
+                     {"vel", tokenEventType == TokenNoteOn ? OpLog::Value(static_cast<int64_t>(note.velocity > 0 ? note.velocity : 100)) : OpLog::Value()}});
+    }
     switch (tokenEventType) {
         case TokenNoteOn: {
             const float midiVelocity =
@@ -198,6 +213,30 @@ auto OutputPlayback::stepOnce() -> void {
     auto &lastSource = state->lastSource;
     auto &pedalDrop = state->pedalDrop;
 
+    const bool logging = OpLog::on();
+    // Operation log: notes dropped from the schedule by `op` (compares the schedule before / after).
+    auto scheduled = [&]() {
+        std::vector<std::string> ids;
+        if (logging)
+            for (const auto &n: nextTokens)
+                ids.push_back(playId(n));
+        return ids;
+    };
+    auto logDrops = [&](const std::vector<std::string> &before, const std::string &reason) {
+        if (! logging || before.empty())
+            return;
+        std::multiset<std::string> after;
+        for (const auto &n: nextTokens)
+            after.insert(playId(n));
+        for (const auto &id: before) {
+            const auto it = after.find(id);
+            if (it != after.end())
+                after.erase(it);
+            else
+                OpLog::emit(OpLog::Src::Play, "PLAY_DROP", {{"o", id}, {"reason", reason}});
+        }
+    };
+
     auto flushModelSchedule = [&]() {
         for (const auto &playing: currentlyPlaying)
             handleNoteForOutput(playing, TokenNoteType::TokenNoteOff);
@@ -210,6 +249,8 @@ auto OutputPlayback::stepOnce() -> void {
         if (outputProcessor != nullptr)
             outputProcessor->ensureInstrument(note.localInstrumentId);
         nextTokens.insert(note);
+        if (logging)
+            OpLog::emit(OpLog::Src::Play, "PLAY_SCHEDULE", {{"o", playId(note)}, {"onset", note.token.time}});
     };
 
     // Keyboard notes are matched by keyId and keep their onset (chord snapping) and their
@@ -230,6 +271,8 @@ auto OutputPlayback::stepOnce() -> void {
             }
             ++matched;
             const OrchestrationNote revised = revise(*it, durationUpdate);
+            if (logging)
+                OpLog::emit(OpLog::Src::Play, "PLAY_LENGTH", {{"o", playId(revised)}, {"dur", revised.token.getRealDuration()}});
             it = nextTokens.erase(it);
             nextTokens.insert(revised);
         }
@@ -241,6 +284,8 @@ auto OutputPlayback::stepOnce() -> void {
             }
             ++matched;
             const OrchestrationNote revised = revise(*it, durationUpdate);
+            if (logging)
+                OpLog::emit(OpLog::Src::Play, "PLAY_LENGTH", {{"o", playId(revised)}, {"dur", revised.token.getRealDuration()}, {"sounding", true}});
             it = currentlyPlaying.erase(it);
 
             if (revised.token.time + revised.token.getRealDuration() <= playbackTime)
@@ -269,11 +314,13 @@ auto OutputPlayback::stepOnce() -> void {
         // pedal time + 0.3 s, then keep dropping late arrivals until the upstream clear.
         int32_t pedalTime = 0;
         while (pedalClearRequests.pull(pedalTime)) {
+            const auto before = scheduled();
             PedalClear::apply(nextTokens, currentlyPlaying, pedalTime, time,
                               [&](const OrchestrationNote &note) {
                                   handleNoteForOutput(note, TokenNoteType::TokenNoteOff);
                               });
             pendingDurationUpdates.clear();
+            logDrops(before, "pedal c" + std::to_string(pedalTime));
             pedalDrop.start(pedalTime, time);
             clearedQueueThisRun = true;
             DBG("Pedal clear at time " + juce::String(pedalTime));
@@ -283,7 +330,9 @@ auto OutputPlayback::stepOnce() -> void {
         // sounding play to their end (their note-off updates still apply).
         int32_t cutTime = 0;
         while (modeCutRequests.pull(cutTime)) {
+            const auto before = scheduled();
             nextTokens.clear();
+            logDrops(before, "mode cut c" + std::to_string(cutTime));
             pedalDrop.start(cutTime, time);
             clearedQueueThisRun = true;
             DBG("Mode cut at time " + juce::String(cutTime));
@@ -292,7 +341,9 @@ auto OutputPlayback::stepOnce() -> void {
 
     const auto source = playbackSource.load(std::memory_order_relaxed);
     if (source != lastSource) {
+        const auto before = scheduled();
         flushModelSchedule();
+        logDrops(before, "playback source changed");
         lastSource = source;
         // While Out: OT is selected, RT FIFO tokens are drained and discarded. Seed from
         // outputHistory so Out: RT is not silent until the ahead-throttle window ends.
@@ -310,6 +361,10 @@ auto OutputPlayback::stepOnce() -> void {
     // Always drain OT output (schedule only when Orchestration is selected).
     OrchestrationNote note{};
     while (orchestrationTransformer.outputTokenQueue.pull(note)) {
+        if (logging)
+            OpLog::emit(OpLog::Src::Play, "Q_POP",
+                        {{"queue", "ot→play"},
+                         {"item", isClearQueueToken(note.token) ? "CLEAR c" + std::to_string(note.token.time) : playId(note)}});
         if (source != PlaybackSource::Orchestration)
             continue;
         if (isRestToken(note.token))
@@ -317,13 +372,18 @@ auto OutputPlayback::stepOnce() -> void {
         if (isClearQueueToken(note.token)) {
             clearedQueueThisRun = true;
             DBG("Clearing queue at time " + juce::String(note.token.time));
+            const auto before = scheduled();
             applyClearQueue(nextTokens, note.token.time);
+            logDrops(before, "Clear Queue c" + std::to_string(note.token.time));
             if (PedalClear::isPedalClear(note.token))
                 pedalDrop.finish();
             continue;
         }
-        if (pedalDrop.drops(note.token.time, time))
+        if (pedalDrop.drops(note.token.time, time)) {
+            if (logging)
+                OpLog::emit(OpLog::Src::Play, "PLAY_DROP", {{"o", playId(note)}, {"reason", "pedal (late arrival)"}});
             continue;
+        }
         scheduleNote(note);
     }
 
@@ -331,6 +391,10 @@ auto OutputPlayback::stepOnce() -> void {
     if (reductionOutputQueue != nullptr) {
         Token rtToken{};
         while (reductionOutputQueue->pull(rtToken)) {
+            if (logging)
+                OpLog::emit(OpLog::Src::Play, "Q_POP",
+                            {{"queue", "rt→play"},
+                             {"item", isClearQueueToken(rtToken) ? "CLEAR c" + std::to_string(rtToken.time) : OpLog::id('r', rtToken.noteId)}});
             if (source != PlaybackSource::Reduction)
                 continue;
             if (isRestToken(rtToken))
@@ -338,7 +402,9 @@ auto OutputPlayback::stepOnce() -> void {
             if (isClearQueueToken(rtToken)) {
                 clearedQueueThisRun = true;
                 DBG("Clearing RT monitor queue at time " + juce::String(rtToken.time));
+                const auto before = scheduled();
                 applyClearQueue(nextTokens, rtToken.time);
+                logDrops(before, "Clear Queue c" + std::to_string(rtToken.time));
                 if (PedalClear::isPedalClear(rtToken))
                     pedalDrop.finish();
                 continue;
@@ -406,6 +472,23 @@ auto OutputPlayback::stepOnce() -> void {
             it = currentlyPlaying.erase(it);
         } else {
             break;
+        }
+    }
+
+    if (logging) {
+        const double t = AppTime::hiResMs();
+        if (OpLog::checkpointDue(OpLog::Src::Play, t)) {
+            OpLog::markCheckpoint(OpLog::Src::Play, t);
+            OpLog::Strings waiting, sounding;
+            for (const auto &n: nextTokens)
+                waiting.push_back(playId(n));
+            for (const auto &n: currentlyPlaying)
+                sounding.push_back(playId(n));
+            OpLog::Obj play;
+            play.add("scheduled", std::move(waiting)).add("playing", std::move(sounding))
+                .add("source", std::string(source == PlaybackSource::Orchestration ? "orchestration" : "reduction"))
+                .add("pedal_drop_active", pedalDrop.active);
+            OpLog::emit(OpLog::Src::State, "CHECKPOINT", {{"part", "play"}, {"play", play.raw()}});
         }
     }
 }

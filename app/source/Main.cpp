@@ -1,5 +1,6 @@
 #include <JuceHeader.h>
 #include "VirtualOrch/SessionLog.h"
+#include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/ui/AppRootComponent.h"
 
 //==============================================================================
@@ -17,6 +18,12 @@ public:
     void initialise(const juce::String &commandLine) override {
         // This method is where you should put your application's initialisation code..
         SessionLog::start();
+        // Operation log (format: orchestration/performance_streams/oplogs/README.md).
+        OpLog::start(juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+                         .getChildFile("virtual-orch").getChildFile("Logs").getChildFile("oplogs")
+                         .getChildFile("oplog_" + juce::Time::getCurrentTime().formatted("%Y-%m-%d_%H-%M-%S")
+                                       + ".jsonl.gz")
+                         .getNonexistentSibling());
 
         mainWindow.reset(new MainWindow(getApplicationName()));
     }
@@ -25,6 +32,7 @@ public:
         // Add your application's shutdown code here..
 
         mainWindow = nullptr; // (deletes our window)
+        OpLog::stop();
         SessionLog::stop();
     }
 

@@ -7,6 +7,9 @@
 #include "VirtualOrch/RegisterRange.h"
 #include "VirtualOrch/TemporalDensity.h"
 #include "VirtualOrch/SessionLog.h"
+#include "VirtualOrch/OpLog.h"
+#include "VirtualOrch/InstrumentConstants.h"
+#include "VirtualOrch/orchestration-models/IodPretrained.h"
 #include "VirtualOrch/orchestration-models/OrchestrationModel.h"
 #include "VirtualOrch/reduction/StreamingKvCache.h"
 
@@ -188,12 +191,19 @@ public:
     int callsWithoutMatch = 0;
     /** Called with the recorded time of every logged note handed out. */
     std::function<void(double)> onMatched;
+    /** The real model, run with its choices forced to the logged ones (oplog draws); may be null. */
+    IodPretrained *real = nullptr;
 
-    [[nodiscard]] auto getName() const -> std::string override { return "LogReplay"; }
+    [[nodiscard]] auto getName() const -> std::string override { return real != nullptr ? real->getName() : "LogReplay"; }
+    auto resetState() -> void override {
+        OrchestrationModel::resetState();
+        if (real != nullptr)
+            real->resetState();
+    }
     [[nodiscard]] auto tokenHistory() const -> const std::vector<OrchestrationNote> & override { return history; }
-    auto getOutput(const std::vector<Token> &incoming, const std::vector<int32_t> &,
-                   const ConditioningSignal &, OrchestrationBalanceTracker *,
-                   const OrchestrationBalanceTracker::BiasView *) -> std::vector<OrchestrationNote> override {
+    auto getOutput(const std::vector<Token> &incoming, const std::vector<int32_t> &instruments,
+                   const ConditioningSignal &signal, OrchestrationBalanceTracker *balance,
+                   const OrchestrationBalanceTracker::BiasView *bias) -> std::vector<OrchestrationNote> override {
         std::multiset<int32_t> onsets;
         std::multimap<int32_t, Token> byOnset;
         for (const auto &t: incoming)
@@ -226,6 +236,7 @@ public:
                     onMatched(l.ms);
                 OrchestrationNote n = l.note;
                 n.token.keyId = src.keyId;
+                n.sourceNoteId = src.noteId;
                 out.push_back(n);
             }
             return any;
@@ -235,6 +246,33 @@ public:
                 take(src, false);
         if (out.empty())
             ++callsWithoutMatch;
+        if (real != nullptr) {
+            // The model sees the same inputs; for each input note it is forced to the instruments and
+            // octaves the recorded run played for it (as (GM program, octave) pairs).
+            real->forcedCombo = [&out](const Token &in) -> std::optional<std::array<int32_t, IodPretrainedTypes::comboLen>> {
+                std::vector<int32_t> pairs;
+                for (const auto &n: out) {
+                    const bool same = in.keyId >= 0 ? n.token.keyId == in.keyId
+                                                    : (n.sourceNoteId == in.noteId && n.token.time == in.time);
+                    if (! same)
+                        continue;
+                    int32_t gm = -1;
+                    for (const auto &[local, program]: InstrumentConstants::kInstrumentMappings)
+                        if (local == n.localInstrumentId)
+                            gm = program;
+                    const int32_t delta = static_cast<int32_t>(std::lround((n.token.getPitch() - in.getPitch()) / 12.0));
+                    if (gm >= 0)
+                        pairs.push_back(IodPretrainedTypes::packProgramDelta(gm, delta));
+                }
+                return IodPretrainedTypes::comboFromPairs(pairs);
+            };
+            real->currentStream = currentStream;
+            real->instrumentLogitSink = instrumentLogitSink;
+            real->octaveDeltaSink = octaveDeltaSink;
+            real->getOutputTimings = getOutputTimings;
+            (void) real->getOutput(incoming, instruments, signal, balance, bias);
+            real->forcedCombo = nullptr;
+        }
         return out;
     }
 
@@ -353,7 +391,57 @@ auto replay(const std::vector<Line> &log, const Options &options) -> Report {
         s.presetStore.applyPreset(options.preset);
     s.setMusicModelArch(MusicModelArch::DenseHybrid);
     auto &rt = s.reductionTransformerHybrid;
-    rt.initHybridWithBackends(std::make_unique<ZeroBackend>(11776), 11776, std::make_unique<ZeroBackend>(11777), 11777);
+    const bool realModels = options.rtSilentModel != juce::File() && options.rtWaitModel != juce::File();
+    if (realModels) {
+        if (! rt.initHybrid(options.rtSilentModel.getFullPathName().toRawUTF8(),
+                            options.rtWaitModel.getFullPathName().toRawUTF8())) {
+            report.problems.push_back("could not load the RT models: " + juce::String(rt.lastInitError));
+            return report;
+        }
+    } else {
+        rt.initHybridWithBackends(std::make_unique<ZeroBackend>(11776), 11776, std::make_unique<ZeroBackend>(11777), 11777);
+    }
+    std::unique_ptr<IodPretrained> realOt;
+    if (options.otModel != juce::File()) {
+        realOt = std::make_unique<IodPretrained>();
+        realOt->init(options.otModel.getFullPathName().toRawUTF8());
+        if (! realOt->isModelLoaded()) {
+            report.problems.push_back("could not load the OT model " + options.otModel.getFullPathName());
+            return report;
+        }
+        if (s.orchestrationModel != nullptr)
+            realOt->setVocsepEnsembleEnabled(s.orchestrationModel->getVocsepEnsembleEnabled() && options.voiceSeparation);
+    }
+
+    // ---- the operation log (written in order, on simulated time)
+    std::unique_ptr<juce::OutputStream> oplogOut;
+    struct StopOplog {
+        std::unique_ptr<juce::OutputStream> &out;
+        ~StopOplog() {
+            if (out == nullptr)
+                return;
+            OpLog::emit(OpLog::Src::Ui, "SESSION_END", {});
+            OpLog::setCapture(nullptr);
+            OpLog::setTime(nullptr);
+            out.reset();
+        }
+    } stopOplog{oplogOut};
+    if (options.oplog != juce::File()) {
+        options.oplog.getParentDirectory().createDirectory();
+        auto fos = std::make_unique<juce::FileOutputStream>(options.oplog);
+        if (! fos->openedOk()) {
+            report.problems.push_back("cannot write " + options.oplog.getFullPathName());
+            return report;
+        }
+        fos->setPosition(0);
+        fos->truncate();
+        oplogOut = std::make_unique<juce::GZIPCompressorOutputStream>(fos.release(), 6, true, juce::GZIPCompressorOutputStream::windowBitsGZIP);
+        OpLog::setTime([&simMs] { return simMs; });
+        OpLog::setCapture([&oplogOut](const std::string &line) {
+            oplogOut->write(line.data(), line.size());
+            oplogOut->writeByte('\n');
+        });
+    }
     if (options.preset.isObject() && options.preset.hasProperty("logitAdjustments"))
         s.applyLogitAdjustments(options.preset["logitAdjustments"]);
     // The hybrid's two model names as the recorded run logged them ("<name> from <clock> (why)").
@@ -433,6 +521,15 @@ auto replay(const std::vector<Line> &log, const Options &options) -> Report {
     }
     s.orchestrationTransformer.orchestrationModel = replayModel.get();
     replayModel->getOutputTimings = &s.orchestrationTransformer.getOutputAccum;
+    replayModel->real = realOt.get();
+    if (OpLog::on()) {
+        s.logSessionStart("replay");
+        OpLog::emit(OpLog::Src::Ui, "REPLAY",
+                    {{"source", options.sourceName},
+                     {"rt_v1", options.rtSilentModel.getFileName()}, {"rt_wait", options.rtWaitModel.getFileName()},
+                     {"ot", options.otModel.getFileName()}, {"real_models", realModels},
+                     {"note", "every model choice is the one the live run made (forced); p / p_model / top are the models' probabilities for it"}});
+    }
 
     // How the recorded threads spent their time. A draw starts at the first pass that wants one
     // (the live thread started computing then) and its output is delivered at the recorded time
@@ -533,6 +630,8 @@ auto replay(const std::vector<Line> &log, const Options &options) -> Report {
     grid.scene_callback = [&, appScene](int idx) {
         if (idx == 0) {
             SessionLog::add("LAUNCHPAD", "Force restart");
+            if (OpLog::on())
+                OpLog::emit(OpLog::Src::Ui, "PAD_ACTION", {{"p", OpLog::id('p', OpLog::currentPad)}, {"action", "Force restart"}});
             return;
         }
         if (appScene)
@@ -1051,6 +1150,7 @@ auto replay(const std::vector<Line> &log, const Options &options) -> Report {
         report.tags["RT voice"] = compareTag(rec["RT"], rep["RT"], options.matchToleranceMs, 0);
 
     s.orchestrationTransformer.orchestrationModel = s.orchestrationModel.get();
+    replayModel->real = nullptr;
     return report;
 }
 

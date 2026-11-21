@@ -123,3 +123,34 @@ RT lines are compared without their voice id (see below).
   now runs when a note is delivered, the same moment as before in the app), `OrchestrationTransformer::holdOutput`
   / `deliverOutputNote`, `ReductionTransformer::steppedBySimulator`, `SessionLog::setCapture`,
   `AppSession::startGenerationForReplay` / `stopGenerationForReplay`.
+
+## Operation logs (oplogs) and the real models
+
+The app now also writes an **operation log** of every performance
+(`Documents/virtual-orch/Logs/oplogs/oplog_<start>.jsonl.gz`, `OpLog.h`): inputs, Launchpad presses,
+every change to the RT's context, every queue hand-off, cut and drop with its reason, every MIDI
+message out, and each model draw with the chosen token's probability and the model's ten most likely
+alternatives (`OpLogDraw.h`); every 5 s each of the RT, OT and playback writes a checkpoint of its
+state. The format is documented in `orchestration/performance_streams/oplogs/README.md`. When no
+file is open, every hook returns at once.
+
+`LogReplay` can run with the real models (`Options::rtSilentModel`, `rtWaitModel`, `otModel`): every
+choice is still forced to the logged one, and the models supply the probabilities, so a recording
+made before oplogs existed gets one (`Options::oplog`). `tools/oplog_replay` does that for a list of
+session logs (resumable; writes `oplog_<stamp>.jsonl.gz`, the match summary `.replay.txt`, and the
+replay's own session-log lines `.replay_session.log.gz` for checking):
+
+```bash
+oplog_replay --models ~/Documents/virtual_orch_models --out oplogs session_*.log
+oplog_replay --zero --out oplogs session_*.log   # no models: zero logits, quick check
+```
+
+Checks (21 Nov 2026): with the oplog on, every replay table above is unchanged; the oplog alone
+rebuilds the session log's RT notes and clears, OT notes, MIDI in / clears, modes and Launchpad
+actions exactly (`orchestration/tools/performance_streams/oplog_check.py`, the four Oct 22
+sessions); with the real models 14:51 is still exact on every tag, no forced choice has
+probability 0, and 98–100% of the logged choices are in the model's top 10.
+
+Fixed on the way: on Linux the first ONNX session of a process fell back to the CPU (the ORT
+environment has to exist before the CUDA provider is appended: `StreamingKvCache.cpp`,
+`IodPretrained.cpp`); `[kv]` lines on stderr now say which device each RT model runs on.

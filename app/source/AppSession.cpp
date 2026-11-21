@@ -1,4 +1,5 @@
 #include "VirtualOrch/AppSession.h"
+#include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/AppTime.h"
 #include "VirtualOrch/widgets/ActiveInstrumentsView.h"
 
@@ -115,6 +116,7 @@ AppSession::AppSession()
     reductionTransformerMelodyFirst.pianoSilentForMs = pianoSilent;
     midiInputProcess.activityLog = &activityLog;
     SessionLog::setClock(&clock);
+    OpLog::setClock([this] { return clock.isRunning() ? static_cast<int32_t>(clock.getTime()) : -1; });
     midiInputProcess.getLaunchpadGrid().action_callback =
         [this](const PerformanceActivity::LaunchpadAction &action) {
             const auto text = PerformanceActivity::describe(action, [](int32_t local) {
@@ -122,6 +124,8 @@ AppSession::AppSession()
             });
             SessionLog::add("LAUNCHPAD", text);
             consoleLog.add(text);
+            if (OpLog::on())
+                OpLog::emit(OpLog::Src::Ui, "PAD_ACTION", {{"p", OpLog::id('p', OpLog::currentPad)}, {"action", text}});
         };
     keyboardLaunchpad.isEnabled = [this] { return keyboardLaunchpadEnabled.load(); };
     keyboardLaunchpad.onPress = [this](const KeyboardLaunchpad::Target &target, const juce::String &label) {
@@ -130,7 +134,10 @@ AppSession::AppSession()
                         "key " + label + " | "
                             + (target.isScene() ? "top " + juce::String(target.scene)
                                                 : "pad " + juce::String(target.row) + " " + juce::String(target.col)));
+        const auto key = label.toStdString();
+        OpLog::padKey = key.c_str();
         KeyboardLaunchpad::press(midiInputProcess.getLaunchpadGrid(), target);
+        OpLog::padKey = nullptr;
     };
     midiInputProcess.onPedalDown = [this](int32_t pedalTimeCs) {
         outputPlayback.pedalClearRequests.push(pedalTimeCs);
@@ -171,14 +178,14 @@ AppSession::AppSession()
     midiInputProcess.getLaunchpadGrid().td_callback = [this] {
         const auto cut = static_cast<int32_t>(clock.getTime()) + kTdCutAheadCs;
         SessionLog::add("CUT", "TD press: notes from " + juce::String(cut) + " (now + 1 s) removed");
-        activeReduction().requestModeCut(cut);
+        activeReduction().requestModeCut(cut, "TD press " + OpLog::id('p', OpLog::currentPad) + ": next 1 s kept");
     };
     // A register change works the same way: the next second plays on, the rest is regenerated
     // in the new register.
     midiInputProcess.getLaunchpadGrid().register_callback = [this] {
         const auto cut = static_cast<int32_t>(clock.getTime()) + kTdCutAheadCs;
         SessionLog::add("CUT", "register change: notes from " + juce::String(cut) + " (now + 1 s) removed");
-        activeReduction().requestModeCut(cut);
+        activeReduction().requestModeCut(cut, "register change " + OpLog::id('p', OpLog::currentPad) + ": next 1 s kept");
     };
     midiInputProcess.getLaunchpadGrid().mode_callback = [this](OrchestrationMode mode) {
         setOrchestrationMode(mode);
@@ -197,6 +204,8 @@ AppSession::AppSession()
                 PerformanceActivity::describe(action, [](int32_t) { return juce::String(); });
             SessionLog::add("LAUNCHPAD", text);
             consoleLog.add(text);
+            if (OpLog::on())
+                OpLog::emit(OpLog::Src::Ui, "PAD_ACTION", {{"p", OpLog::id('p', OpLog::currentPad)}, {"action", text}});
         };
         const auto logPause = [&](int32_t which, bool paused) {
             logAction({PerformanceActivity::LaunchpadAction::Kind::Pause, 0, which, paused, false});
@@ -212,7 +221,7 @@ AppSession::AppSession()
                        ReductionInputGate::isBlocked(), false});
         } else if (idx == 1) {
             auto &reduction = activeReduction();
-            reduction.setGenerationPause(! reduction.generationPause.get());
+            reduction.setGenerationPause(! reduction.generationPause.get(), "RT pause button");
             logPause(1, reduction.generationPause.get());
         } else if (idx == 2) {
             orchestrationTransformer.paused.set(! orchestrationTransformer.paused.get());
@@ -298,8 +307,10 @@ AppSession::AppSession()
 
 AppSession::~AppSession() {
     scriptedInput.stop();
-    if (SessionLog::clock() == &clock)
+    if (SessionLog::clock() == &clock) {
         SessionLog::setClock(nullptr);
+        OpLog::setClock(nullptr);
+    }
     alive->store(false);
     testOrchestrationTransformerThread.stop();
     // Ensure any detached stop join finished before members are destroyed.
@@ -315,8 +326,11 @@ AppSession::~AppSession() {
     reductionTransformerMelodyFirst.stopThread(threadStopTimeoutMs);
     orchestrationTransformer.stopThread(threadStopTimeoutMs);
     outputPlayback.stopThread(threadStopTimeoutMs);
-    if (outputProcessor != nullptr)
+    if (outputProcessor != nullptr) {
         outputProcessor->clear();
+        if (OpLog::on())
+            OpLog::emit(OpLog::Src::Play, "MIDI_OUT", {{"kind", "clear"}});
+    }
 }
 
 auto AppSession::activeReduction() -> ReductionTransformer & {
@@ -539,6 +553,7 @@ auto AppSession::startGeneration() -> void {
     } else {
         clock.setMtcTime(0);
     }
+    logRunStart();
     startThreadOrReport(activeReduction(), modelSamplingAlert);
     startThreadOrReport(orchestrationTransformer, modelSamplingAlert);
     startThreadOrReport(outputPlayback, modelSamplingAlert);
@@ -556,10 +571,12 @@ auto AppSession::startGenerationForReplay(uint32_t clockCs) -> void {
     if (inputFilter != nullptr)
         inputFilter->reset();
     clock.startAtTime(clockCs);
+    logRunStart();
 }
 
 auto AppSession::stopGenerationForReplay() -> void {
     // stopGeneration without the worker threads.
+    logRunStop();
     for (ReductionTransformer *reduction:
          {static_cast<ReductionTransformer *>(&musicTransformer),
           static_cast<ReductionTransformer *>(&reductionTransformerV1),
@@ -583,11 +600,15 @@ auto AppSession::stopGenerationForReplay() -> void {
           static_cast<ReductionTransformer *>(&reductionTransformerHybrid),
           static_cast<ReductionTransformer *>(&reductionTransformerMelodyFirst)})
         reduction->clearOutputHistory();
-    if (outputProcessor != nullptr)
+    if (outputProcessor != nullptr) {
         outputProcessor->clear();
+        if (OpLog::on())
+            OpLog::emit(OpLog::Src::Play, "MIDI_OUT", {{"kind", "clear"}});
+    }
 }
 
 auto AppSession::stopGeneration() -> void {
+    logRunStop();
     testOrchestrationTransformerThread.stop();
     musicTransformer.signalThreadShouldExit();
     reductionTransformerV1.signalThreadShouldExit();
@@ -620,8 +641,11 @@ auto AppSession::stopGeneration() -> void {
     reductionTransformerWait.clearOutputHistory();
     reductionTransformerHybrid.clearOutputHistory();
     reductionTransformerMelodyFirst.clearOutputHistory();
-    if (outputProcessor != nullptr)
+    if (outputProcessor != nullptr) {
         outputProcessor->clear();
+        if (OpLog::on())
+            OpLog::emit(OpLog::Src::Play, "MIDI_OUT", {{"kind", "clear"}});
+    }
 
     if (stopJoinInFlight.exchange(true, std::memory_order_acq_rel))
         return;
@@ -727,6 +751,13 @@ auto AppSession::applyLogitAdjustments(const juce::var &a) -> void {
 
 auto AppSession::setOrchestrationMode(OrchestrationMode mode) -> void {
     const auto previous = orchestrationTransformer.getMode();
+    if (OpLog::on()) {
+        const auto name = [](OrchestrationMode m) {
+            return m == OrchestrationMode::Edit ? "Edit" : m == OrchestrationMode::Jam ? "Jam" : "Accompaniment";
+        };
+        OpLog::emit(OpLog::Src::Ui, "MODE", {{"from", name(previous)}, {"to", name(mode)},
+                                             {"by", OpLog::currentPad >= 0 ? OpLog::id('p', OpLog::currentPad) : std::string("ui")}});
+    }
     SessionLog::add("MODE", juce::String(mode == OrchestrationMode::Edit  ? "Edit"
                                          : mode == OrchestrationMode::Jam ? "Jam"
                                                                           : "Accompaniment"));
@@ -756,7 +787,7 @@ auto AppSession::setOrchestrationMode(OrchestrationMode mode) -> void {
         const auto now = static_cast<int32_t>(clock.getTime());
         SessionLog::add("CUT", "left Accompaniment: future removed from " + juce::String(now));
         outputPlayback.modeCutRequests.push(now);
-        activeReduction().requestModeCut(now);
+        activeReduction().requestModeCut(now, "left Accompaniment");
     }
 }
 
@@ -810,4 +841,38 @@ auto AppSession::syncPauseTopLeds() -> void {
                                                             : LaunchpadLighting::kOff);
     grid.setTopLed(3, ReductionInputGate::isBlocked() ? LaunchpadLighting::kRed
                                                       : LaunchpadLighting::kOff);
+}
+
+
+// ---- operation log
+
+auto AppSession::logSessionStart(const juce::String &origin) -> void {
+    if (! OpLog::on())
+        return;
+    OpLog::Obj models;
+    if (auto *m = orchestrationModel.get())
+        models.add("ot", m->getName());
+    OpLog::emit(OpLog::Src::Ui, "SESSION_START",
+                {{"origin", origin}, {"app", ProjectInfo::versionString},
+                 {"settings", presetStore.settings.toXmlString(juce::XmlElement::TextFormat().singleLine())},
+                 {"rt", activeReduction().getThreadName()}, {"models", models.raw()},
+                 {"checkpoint_every_ms", OpLog::kCheckpointEveryMs}});
+}
+
+auto AppSession::logRunStart() -> void {
+    if (! OpLog::on())
+        return;
+    currentRun = OpLog::nextRunId();
+    OpLog::requestCheckpoints();
+    OpLog::emit(OpLog::Src::Ui, "RUN_START",
+                {{"run", OpLog::runId(currentRun)}, {"rt", activeReduction().getThreadName()},
+                 {"settings", presetStore.settings.toXmlString(juce::XmlElement::TextFormat().singleLine())}});
+}
+
+auto AppSession::logRunStop() -> void {
+    if (! OpLog::on() || currentRun < 0)
+        return;
+    OpLog::emit(OpLog::Src::Ui, "RUN_STOP",
+                {{"run", OpLog::runId(currentRun)}, {"reason", restartInFlight.load() ? "restart" : "stop"}});
+    currentRun = -1;
 }

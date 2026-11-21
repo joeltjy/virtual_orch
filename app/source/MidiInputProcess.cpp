@@ -1,4 +1,5 @@
 #include "VirtualOrch/MidiInputProcess.h"
+#include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/AppTime.h"
 #include "VirtualOrch/PerformanceActivity.h"
 #include "VirtualOrch/SessionLog.h"
@@ -268,11 +269,19 @@ void MidiInputProcess::timerCallback() {
         });
     }
 
+    std::string flushed = "[";
     for (auto &[key, note]: notesOnToSend) {
         if (note.flushedTime.has_value())
             continue;
         const int32_t pitch = pitchOfHeldKey(key);
         const int32_t noteOnset = atTime.value_or(static_cast<int32_t>(note.onset));
+        if (OpLog::on()) {
+            OpLog::Obj o;
+            o.add("k", OpLog::id('k', note.keyId)).add("pitch", static_cast<int64_t>(pitch))
+                .add("onset", static_cast<int64_t>(noteOnset)).add("dur", static_cast<int64_t>(modelConfig.inputDuration))
+                .add("held", true);
+            flushed += (flushed.size() > 1 ? "," : "") + o.str();
+        }
         tokensToSend.push_back({
             .time = noteOnset,
             .duration = defaultDur,
@@ -284,6 +293,10 @@ void MidiInputProcess::timerCallback() {
         note.flushedTime = noteOnset;
     }
 
+    if (OpLog::on())
+        OpLog::emit(OpLog::Src::Input, "INPUT_FLUSH",
+                    {{"keys", OpLog::Raw{flushed + "]"}}, {"window_cs", static_cast<int64_t>(modelConfig.directInputWindowLength)},
+                     {"start_on_input", atTime.has_value() ? OpLog::Value(static_cast<int64_t>(*atTime)) : OpLog::Value()}});
     sendTokensToMusicTransformer(std::nullopt);
     stopTimer();
 }
@@ -332,6 +345,29 @@ void MidiInputProcess::logIncomingMidiMessage(const juce::String &sourceId, cons
 
     const juce::String line = juce::String(fromLaunchpad ? "[launchpad] " : "[midi] ") + description;
     juce::Logger::writeToLog(line);
+
+    if (OpLog::on() && ! message.isQuarterFrame() && ! message.isMidiClock() && ! message.isActiveSense()) {
+        OpLog::Strings roles;
+        if (sourceId.isNotEmpty()) {
+            if (sourceId == selectedMidiInputIdentifier)
+                roles.emplace_back("piano");
+            if (selectedAdditionalMidiInputIdentifier.isNotEmpty() && sourceId == selectedAdditionalMidiInputIdentifier)
+                roles.emplace_back("piano2");
+            if (selectedPedalMidiInputIdentifier.isNotEmpty() && sourceId == selectedPedalMidiInputIdentifier)
+                roles.emplace_back("pedal");
+            if (fromLaunchpad)
+                roles.emplace_back("launchpad");
+        }
+        std::string bytes;
+        const auto *raw = message.getRawData();
+        for (int i = 0; i < std::min(message.getRawDataSize(), 16); ++i) {
+            char b[4];
+            std::snprintf(b, sizeof(b), "%s%02X", i ? " " : "", raw[i]);
+            bytes += b;
+        }
+        OpLog::emit(OpLog::Src::Midi, "MIDI_IN", {{"device", sourceName}, {"roles", std::move(roles)},
+                                                  {"bytes", bytes}, {"desc", description}});
+    }
 
     if (SessionLog::isRunning() && ! SessionLog::isSkippedMidi(message)) {
         juce::StringArray roles;
@@ -386,6 +422,11 @@ void MidiInputProcess::handleSustainPedal(const juce::MidiMessage &message) {
     const int value = message.getControllerValue();
     const bool pause = value >= 64;
     const bool pressed = pause && ! pedalDown;
+    if (OpLog::on())
+        OpLog::emit(OpLog::Src::Midi, "PEDAL",
+                    {{"cc", 64}, {"value", value},
+                     {"state", pause != pedalDown ? OpLog::Value(std::string(pause ? "down" : "up")) : OpLog::Value()},
+                     {"app_pedal", true}});
     pedalDown = pause;
     notePedalState(pause, AppTime::nowMs());
     juce::Logger::writeToLog(
@@ -406,10 +447,10 @@ void MidiInputProcess::handleSustainPedal(const juce::MidiMessage &message) {
         activeReduction().requestPedalClear(pedalTime);
         // Playback drops every note from the press on, so the model forgets them too (the same
         // cut as a TD press): after the release it continues from then, not from seconds ahead.
-        activeReduction().requestModeCut(pedalTime);
+        activeReduction().requestModeCut(pedalTime, "pedal down");
         SessionLog::add("CUT", "pedal down: future removed from " + juce::String(pedalTime));
     }
-    activeReduction().setGenerationPause(pause);
+    activeReduction().setGenerationPause(pause, "pedal");
 }
 
 void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const juce::MidiMessage &message) {
@@ -456,6 +497,13 @@ void MidiInputProcess::handleMidiFrom(const juce::String &sourceId, const juce::
         && outputProcessor != nullptr
         && (! allowInputThru || allowInputThru())) {
         outputProcessor->relayMidi(message);
+        if (OpLog::on() && (message.isNoteOnOrOff() || message.isController()))
+            OpLog::emit(OpLog::Src::Play, "MIDI_OUT",
+                        {{"kind", "thru"}, {"pitch", message.isNoteOnOrOff() ? OpLog::Value(static_cast<int64_t>(message.getNoteNumber())) : OpLog::Value()},
+                         {"vel", message.isNoteOn() ? OpLog::Value(static_cast<int64_t>(message.getVelocity())) : OpLog::Value()},
+                         {"cc", message.isController() ? OpLog::Value(static_cast<int64_t>(message.getControllerNumber())) : OpLog::Value()},
+                         {"value", message.isController() ? OpLog::Value(static_cast<int64_t>(message.getControllerValue())) : OpLog::Value()},
+                         {"on", message.isNoteOn()}});
     }
 
     if (mtcClockActive && sourceId == selectedMtcClockIdentifier && message.isQuarterFrame()) {
@@ -534,10 +582,14 @@ void MidiInputProcess::handleNoteOn(int midiNoteNumber, float velocity, int pian
             bassHeld = inputToken.note;
             DBG("Setting bass to " + std::to_string(bassHeld.value()));
         } else {
+            const int32_t keyId = nextKeyId++;
             notesOnToSend[heldKeyOf(piano, midiNoteNumber)] = HeldDirectNote{.onset = time,
                                                            .flushedTime = std::nullopt,
                                                            .velocity = inputToken.velocity,
-                                                           .keyId = nextKeyId++};
+                                                           .keyId = keyId};
+            if (OpLog::on())
+                OpLog::emit(OpLog::Src::Midi, "KEY_DOWN", {{"k", OpLog::id('k', keyId)}, {"pitch", midiNoteNumber},
+                                                           {"vel", inputToken.velocity}, {"piano", piano}});
         }
         lastTokenAddedTime = time;
         if (!isTimerRunning()) {
@@ -585,6 +637,9 @@ void MidiInputProcess::handleNoteOff(int midiNoteNumber, int piano) {
     const auto it = notesOnToSend.find(heldKeyOf(piano, midiNoteNumber));
     if (it == notesOnToSend.end())
         return;
+    if (OpLog::on())
+        OpLog::emit(OpLog::Src::Midi, "KEY_UP", {{"k", OpLog::id('k', it->second.keyId)}, {"pitch", midiNoteNumber},
+                                               {"held_cs", static_cast<int64_t>(time) - static_cast<int64_t>(it->second.onset)}});
 
     if (modelConfig.directInputSendNoteOffs && inputFilter != nullptr) {
         const auto onset = it->second.onset;
@@ -594,6 +649,11 @@ void MidiInputProcess::handleNoteOff(int midiNoteNumber, int piano) {
         const int32_t defaultDur = static_cast<int32_t>(Vocab::DurOffset + modelConfig.inputDuration);
         const int32_t correctDur = static_cast<int32_t>(Vocab::DurOffset + heldDur);
 
+        if (OpLog::on())
+            OpLog::emit(OpLog::Src::Input, "INPUT_RELEASE",
+                        {{"k", OpLog::id('k', it->second.keyId)},
+                         {"onset", static_cast<int64_t>(it->second.flushedTime.value_or(static_cast<int32_t>(onset)))},
+                         {"dur", heldDur}, {"flushed", it->second.flushedTime.has_value()}});
         if (it->second.flushedTime.has_value()) {
             const int32_t stamp = *it->second.flushedTime;
             const int32_t vel = it->second.velocity;

@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "VirtualOrch/AppTime.h"
+#include "VirtualOrch/OpLog.h"
 
 #include <algorithm>
 #include <array>
@@ -326,6 +327,17 @@ public:
             return;
 
         const uint32_t now = nowMs.value_or(AppTime::counterMs());
+        struct PadScope {
+            int64_t previous = OpLog::currentPad;
+            ~PadScope() { OpLog::currentPad = previous; }
+        } padScope;
+        if (OpLog::on()) {
+            OpLog::currentPad = OpLog::nextPadId();
+            OpLog::emit(OpLog::Src::Midi, "PAD_PRESS",
+                        {{"p", OpLog::id('p', OpLog::currentPad)}, {"row", rowIdx}, {"col", colIdx},
+                         {"source", OpLog::padKey != nullptr ? "keyboard" : "launchpad"},
+                         {"key", OpLog::padKey != nullptr ? OpLog::Value(std::string(OpLog::padKey)) : OpLog::Value()}});
+        }
 
         if (const auto mode = modeForPad(rowIdx, colIdx)) {
             auto &lastMs = gridLastAcceptMs[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
@@ -428,6 +440,17 @@ public:
     auto handleSceneInput(int idx) -> void {
         if (idx < 0 || idx >= kTopCcCount)
             return;
+        struct PadScope {
+            int64_t previous = OpLog::currentPad;
+            ~PadScope() { OpLog::currentPad = previous; }
+        } padScope;
+        if (OpLog::on()) {
+            OpLog::currentPad = OpLog::nextPadId();
+            OpLog::emit(OpLog::Src::Midi, "PAD_PRESS",
+                        {{"p", OpLog::id('p', OpLog::currentPad)}, {"top", idx},
+                         {"source", OpLog::padKey != nullptr ? "keyboard" : "launchpad"},
+                         {"key", OpLog::padKey != nullptr ? OpLog::Value(std::string(OpLog::padKey)) : OpLog::Value()}});
+        }
 
         if (scene_callback)
             scene_callback(idx);

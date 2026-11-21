@@ -3,6 +3,7 @@
 #include "VirtualOrch/ui/UiConstants.h"
 
 AppRootComponent::AppRootComponent() {
+    session.logSessionStart("live");
     settingsPage = std::make_unique<MainComponent>(session);
     workspacePage = std::make_unique<WorkspacePage>(session);
 

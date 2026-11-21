@@ -55,6 +55,18 @@ struct Options {
     bool voiceSeparation = false;
     /** How many differences to keep per tag for the report. */
     int keepDifferences = 12;
+
+    /**
+     * Real models (step 2 / oplog fill-in). When set, the RT runs these ONNX files (v1 = piano
+     * silent, W2/W3 = piano playing) instead of the zero-logit backend, and the OT runs the real
+     * IodPretrained model; every choice is still forced to the logged one, so the replay reproduces
+     * the session while the models supply their probabilities (the operation log's draws).
+     */
+    juce::File rtSilentModel, rtWaitModel, otModel;
+    /** Write the replay's operation log (.jsonl.gz, format: performance_streams/oplogs/README.md). */
+    juce::File oplog;
+    /** Shown in the oplog's SESSION_START (`source`): the session log it was replayed from. */
+    juce::String sourceName;
 };
 
 struct TagResult {

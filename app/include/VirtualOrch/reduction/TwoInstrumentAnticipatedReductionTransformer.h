@@ -4,6 +4,9 @@
 
 #include <atomic>
 #include <functional>
+#include <map>
+#include <mutex>
+#include <string>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -213,6 +216,9 @@ public:
     }
 
     auto setWaitMaxAheadForTest(int32_t cs) -> void { stage.maxAheadCs = cs; }
+
+    /** Operation log: "W" or "v1" for a note this transformer drew. */
+    [[nodiscard]] auto modelOfNote(int32_t noteId) -> std::string override;
     [[nodiscard]] auto streamForTest() const -> const AnticipatedStream & { return stage.stream; }
     [[nodiscard]] auto silentStreamForTest() const -> const AnticipatedStream & { return silentStage.stream; }
     [[nodiscard]] auto cacheForTest() const -> const StreamingKv::CommittedScratchCache * {
@@ -258,7 +264,21 @@ private:
     auto updateHybrid(int32_t nowCs) -> void;
     auto setHybridModel(bool v1, HybridReason why, int32_t nowCs) -> void;
     /** Drop every generated note from nowCs on (playback, history, both contexts). */
-    auto cutGeneratedFrom(int32_t nowCs) -> void;
+    auto cutGeneratedFrom(int32_t nowCs, const std::string &reason = {}) -> void;
+
+    // ---- operation log (OpLog): the context as a diff after every pass that changed it
+    struct ContextLog {
+        std::vector<AnticipatedStream::ItemView> prev;
+        int32_t base = INT32_MIN;
+    };
+    ContextLog contextLogMain, contextLogV1;
+    std::string removalReason;        // why the next removals from the context happen
+    std::vector<int32_t> drainedKeys; // keys taken in by the last drain
+    std::map<int32_t, std::string> noteModels;
+    std::mutex noteModelsMutex;
+    auto logContext(const AnticipationStage &st, ContextLog &log, const char *model) -> void;
+    auto logContexts() -> void;
+    auto logCheckpoint(int32_t now) -> void;
     /**
      * No generated note sounds at nowCs, and the next one starts >= 2 s later; with none queued,
      * the last one ended (or W2/W3 took over) >= 2 s ago.

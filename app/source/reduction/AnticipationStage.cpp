@@ -8,6 +8,7 @@ auto AnticipationStage::generate(const Params &params) -> std::optional<Anticipa
     lastError.clear();
     waiting = false;
     held = false;
+    sampler.clearDraw();
     stream.waitToken = waitToken;
     if (cache == nullptr)
         return std::nullopt;

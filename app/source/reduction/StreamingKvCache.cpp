@@ -1,3 +1,4 @@
+#include <cstdio>
 #include "VirtualOrch/reduction/StreamingKvCache.h"
 
 #include "VirtualOrch/OrtEnv.h"
@@ -260,13 +261,17 @@ auto OnnxBackend::init(const char *modelPath, std::string &error) -> bool {
         session = std::make_shared<Ort::Session>(sharedOrtEnv(), modelPath, opts);
     };
 #ifdef __linux__
+    // The ORT environment (its default logger) must exist before the CUDA provider is appended,
+    // or the first session of the process fails over to the CPU.
+    (void) sharedOrtEnv();
     try {
         Ort::SessionOptions cudaOptions;
         OrtCUDAProviderOptions cudaProvider{};
         cudaOptions.AppendExecutionProvider_CUDA(cudaProvider);
         tryCreate(cudaOptions);
         onCuda = true;
-    } catch (const Ort::Exception &) {
+    } catch (const Ort::Exception &ex) {
+        std::fprintf(stderr, "[kv] CUDA unavailable for %s: %s (using the CPU)\n", modelPath, ex.what());
         session.reset();
     }
 #endif
@@ -319,11 +324,16 @@ auto OnnxBackend::init(const char *modelPath, std::string &error) -> bool {
         if (const auto memcpy2D = findMemcpy2D(); memcpy2D != nullptr) {
             try {
                 cuda = std::make_shared<CudaContext>(session, memcpy2D, dimsValue);
-            } catch (const Ort::Exception &) {
+            } catch (const Ort::Exception &ex) {
+                std::fprintf(stderr, "[kv] device KV unavailable for %s: %s (host KV path)\n", modelPath, ex.what());
                 cuda.reset(); // host KV path on the CUDA session
             }
+        } else {
+            std::fprintf(stderr, "[kv] cudaMemcpy2D not found for %s (host KV path)\n", modelPath);
         }
     }
+    std::fprintf(stderr, "[kv] %s: %s, %s KV\n", modelPath, onCuda ? "CUDA" : "CPU",
+                 cuda != nullptr ? "device" : "host");
     return true;
 }
 

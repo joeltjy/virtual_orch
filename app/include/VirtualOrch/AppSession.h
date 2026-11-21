@@ -206,5 +206,14 @@ private:
     /** Cleared when the session is destroyed, so a pending restart never touches freed state. */
     std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>>(true);
     std::atomic<bool> restartInFlight{false};
+    int64_t currentRun = -1; // operation log run number, -1 = not running
+    auto logRunStart() -> void;
+    auto logRunStop() -> void;
+
+public:
+    /** Operation log: SESSION_START with the settings and models (origin "live" or "replay"). */
+    auto logSessionStart(const juce::String &origin) -> void;
+
+private:
     std::atomic<int> restartsCompleted{0};
 };

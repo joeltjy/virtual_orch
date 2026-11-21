@@ -1,4 +1,5 @@
 #include "VirtualOrch/OrchestrationTransformer.h"
+#include "VirtualOrch/AppTime.h"
 #include "VirtualOrch/PedalClear.h"
 #include "VirtualOrch/SessionLog.h"
 
@@ -339,7 +340,7 @@ auto OrchestrationTransformer::getEditOrchestrationOutput(
         return {};
 
     const bool applyBias = proportionBiasEnabled.get();
-    const auto nowMs = juce::Time::getMillisecondCounter();
+    const auto nowMs = AppTime::counterMs();
 
     std::vector<OrchestrationNote> userNotes;
     if (! userInstruments.empty()) {
@@ -393,7 +394,7 @@ auto OrchestrationTransformer::getJamOrchestrationOutput(
         return {};
 
     const bool applyBias = proportionBiasEnabled.get();
-    const auto nowMs = juce::Time::getMillisecondCounter();
+    const auto nowMs = AppTime::counterMs();
     std::set<int32_t> userSnap;
     std::set<int32_t> modelSnap;
     {
@@ -438,6 +439,12 @@ auto OrchestrationTransformer::packSortAndPushOutput(const std::vector<Orchestra
 }
 
 auto OrchestrationTransformer::pushOutputNote(const OrchestrationNote &noteIn) -> void {
+    if (holdOutput && holdOutput(noteIn))
+        return; // the replay delivers it later (deliverOutputNote)
+    deliverOutputNote(noteIn);
+}
+
+auto OrchestrationTransformer::deliverOutputNote(const OrchestrationNote &noteIn) -> void {
     OrchestrationNote note = noteIn;
     // The key was already released: the note takes its real length, not the provisional one.
     if (const auto length = releasedLengthOf(note.token.keyId))
@@ -461,6 +468,12 @@ auto OrchestrationTransformer::clearOutputNotes() -> void {
 }
 
 void OrchestrationTransformer::threadRun() {
+    beginSteps();
+    while (! threadShouldExit())
+        stepOnce();
+}
+
+auto OrchestrationTransformer::beginSteps() -> void {
     holdBack.clear();
     heldCountValue.store(0);
     midiInputHistory.clear();
@@ -502,155 +515,155 @@ void OrchestrationTransformer::threadRun() {
         orchestrationModel->resetState();
         orchestrationModel->getOutputTimings = &getOutputAccum;
     }
+}
 
-    while (! threadShouldExit()) {
-        const double loopStartMs = juce::Time::getMillisecondCounterHiRes();
-        OrchLoopStepMs step{};
-        getOutputAccum = {};
+auto OrchestrationTransformer::stepOnce() -> void {
+    const double loopStartMs = juce::Time::getMillisecondCounterHiRes();
+    OrchLoopStepMs step{};
+    getOutputAccum = {};
 
-        applyInstrumentUpdates();
+    applyInstrumentUpdates();
 
-        std::vector<Token> midiUpdate;
-        std::vector<Token> conditioningUpdate;
-        std::vector<Token> reductionUpdate;
-        {
-            const ScopedMs drainMs(&step.drain);
-            midiUpdate = drainIncoming(midiInputIncoming);
-            conditioningUpdate = drainIncoming(conditioningIncoming);
-            reductionUpdate = drainIncoming(reductionIncoming);
-        }
-        applyVoiceRestamps(reductionUpdate);
-        // Reduction notes wait here (un-orchestrated) until their onset is within the hold-back
-        // window; clears erase what they cover, in arrival order. Only the released notes reach
-        // the model, with the instrument list that is current now.
-        std::vector<Token> reductionForModel;
-        {
-            holdBack.accept(reductionUpdate);
-            const int32_t nowCs = clock != nullptr ? static_cast<int32_t>(clock->getTime()) : -1;
-            if (paused.get()) {
-                // Paused: nothing is released, and notes that are already past are dropped.
-                if (nowCs >= 0)
-                    holdBack.dropPast(nowCs);
-                else
-                    holdBack.clear();
-            } else {
-                reductionForModel = holdBack.release(nowCs, holdBackWindowCs.load());
-            }
-            heldCountValue.store(holdBack.size());
-        }
-        step.midiIn = static_cast<int>(midiUpdate.size());
-        step.reductionIn = static_cast<int>(reductionUpdate.size());
-
-        {
-            const ScopedMs snapMs(&step.snap);
-            OrchestrationDebugSnapshot snapshot;
-            snapshot.midiHistory = midiInputHistory;
-            snapshot.midiPending = midiUpdate;
-            snapshot.conditioningHistory = conditioningHistory;
-            snapshot.conditioningPending = conditioningUpdate;
-            snapshot.reductionHistory = reductionHistory;
-            snapshot.reductionPending = reductionUpdate;
-            snapshot.outputHistory = outputHistory;
-            {
-                const juce::ScopedLock lock(instrumentsLock);
-                snapshot.userInstruments = userInstruments;
-                snapshot.modelInstruments = modelInstruments;
-            }
-            publishDebugSnapshot(std::move(snapshot));
-        }
-
-        std::vector<Token> clearFromMidi;
-        std::vector<Token> clearFromReduction;
-        OrchestrationTransformer::ConditioningSignal signal{};
-        {
-            const ScopedMs histMs(&step.hist);
-            clearFromMidi = extractClearQueueTokens(midiUpdate);
-            clearFromReduction = extractClearQueueTokens(reductionUpdate);
-            signal = getConditioningSignal(midiUpdate, conditioningUpdate);
-            appendToHistory(midiInputHistory, midiUpdate);
-            appendToHistory(conditioningHistory, conditioningUpdate);
-            appendToHistory(reductionHistory, reductionUpdate);
-        }
-
-        std::vector<OrchestrationNote> toOutput;
-        if (! paused.get()) {
-            const auto [userInstrumentList, modelInstrumentList] = copyInstrumentLists();
-
-            const auto mode = getMode();
-            if (mode == OrchestrationMode::Edit) {
-                const ScopedMs modelMs(&step.model);
-                stampInputVoices(midiUpdate); // the user's notes through vocsep too
-                auto [userNotes, modelNotes] = getEditOrchestrationOutput(
-                    midiUpdate, reductionForModel, userInstrumentList, modelInstrumentList, signal);
-                toOutput.reserve(userNotes.size() + modelNotes.size() + clearFromMidi.size()
-                                 + clearFromReduction.size());
-                toOutput.insert(toOutput.end(), userNotes.begin(), userNotes.end());
-                toOutput.insert(toOutput.end(), modelNotes.begin(), modelNotes.end());
-            } else if (isJamLike(mode)) {
-                const ScopedMs modelMs(&step.model);
-                // Jam: the reduction plays the model instruments only (the user instruments are
-                // for the user's own notes, in Edit). Accompaniment keeps both.
-                std::set<int32_t> instrumentUnion(modelInstrumentList.begin(), modelInstrumentList.end());
-                if (mode != OrchestrationMode::Jam)
-                    instrumentUnion.insert(userInstrumentList.begin(), userInstrumentList.end());
-                const std::vector<int32_t> orchestrationInstruments(instrumentUnion.begin(),
-                                                                    instrumentUnion.end());
-                toOutput = getJamOrchestrationOutput(reductionForModel, orchestrationInstruments,
-                                                     signal);
-                toOutput.reserve(toOutput.size() + clearFromMidi.size() + clearFromReduction.size());
-            } else {
-                juce::Logger::writeToLog("Invalid orchestration mode");
-                step.total = static_cast<float>(
-                    juce::Time::getMillisecondCounterHiRes() - loopStartMs);
-                lastThreadLoopMs.store(step.total, std::memory_order_relaxed);
-                continue;
-            }
-        } else {
-            toOutput.reserve(clearFromMidi.size() + clearFromReduction.size());
-        }
-
-        step.prep = getOutputAccum.prep;
-        step.onnx = getOutputAccum.onnx;
-        step.logits = getOutputAccum.logits;
-        step.mask = getOutputAccum.mask;
-        step.sample = getOutputAccum.sample;
-        step.decode = getOutputAccum.decode;
-        step.getOutputCalls = getOutputAccum.getOutputCalls;
-        step.contextTokens = getOutputAccum.contextTokens;
-
-        {
-            const ScopedMs packMs(&step.pack);
-            // Bypass orch model: ClearQueue must reach OutputPlayback as-is.
-            for (const auto &token: clearFromMidi)
-                toOutput.push_back(OrchestrationNote{
-                    .token = token,
-                    .velocity = 0,
-                    .localInstrumentId = InstrumentConstants::kReductionPlaybackLocalId});
-            for (const auto &token: clearFromReduction)
-                toOutput.push_back(OrchestrationNote{
-                    .token = token,
-                    .velocity = 0,
-                    .localInstrumentId = InstrumentConstants::kReductionPlaybackLocalId});
-
-            packSortAndPushOutput(toOutput);
-        }
-
-        // After notes are queued so OutputPlayback cannot drain a duration update
-        // before the matching note exists (same-loop note-on + note-off race).
-        {
-            const ScopedMs updMs(&step.upd);
-            applyTokenUpdates();
-        }
-
-        step.total =
-            static_cast<float>(juce::Time::getMillisecondCounterHiRes() - loopStartMs);
-        lastThreadLoopMs.store(step.total, std::memory_order_relaxed);
-
-        const bool busy = step.midiIn > 0 || step.reductionIn > 0 || step.getOutputCalls > 0
-                          || ! conditioningUpdate.empty();
-        if (busy)
-            publishBusyOrchProfile(step);
+    std::vector<Token> midiUpdate;
+    std::vector<Token> conditioningUpdate;
+    std::vector<Token> reductionUpdate;
+    {
+        const ScopedMs drainMs(&step.drain);
+        midiUpdate = drainIncoming(midiInputIncoming);
+        conditioningUpdate = drainIncoming(conditioningIncoming);
+        reductionUpdate = drainIncoming(reductionIncoming);
     }
+    applyVoiceRestamps(reductionUpdate);
+    // Reduction notes wait here (un-orchestrated) until their onset is within the hold-back
+    // window; clears erase what they cover, in arrival order. Only the released notes reach
+    // the model, with the instrument list that is current now.
+    std::vector<Token> reductionForModel;
+    {
+        holdBack.accept(reductionUpdate);
+        const int32_t nowCs = clock != nullptr ? static_cast<int32_t>(clock->getTime()) : -1;
+        if (paused.get()) {
+            // Paused: nothing is released, and notes that are already past are dropped.
+            if (nowCs >= 0)
+                holdBack.dropPast(nowCs);
+            else
+                holdBack.clear();
+        } else {
+            reductionForModel = holdBack.release(nowCs, holdBackWindowCs.load());
+        }
+        heldCountValue.store(holdBack.size());
+    }
+    step.midiIn = static_cast<int>(midiUpdate.size());
+    step.reductionIn = static_cast<int>(reductionUpdate.size());
+
+    {
+        const ScopedMs snapMs(&step.snap);
+        OrchestrationDebugSnapshot snapshot;
+        snapshot.midiHistory = midiInputHistory;
+        snapshot.midiPending = midiUpdate;
+        snapshot.conditioningHistory = conditioningHistory;
+        snapshot.conditioningPending = conditioningUpdate;
+        snapshot.reductionHistory = reductionHistory;
+        snapshot.reductionPending = reductionUpdate;
+        snapshot.outputHistory = outputHistory;
+        {
+            const juce::ScopedLock lock(instrumentsLock);
+            snapshot.userInstruments = userInstruments;
+            snapshot.modelInstruments = modelInstruments;
+        }
+        publishDebugSnapshot(std::move(snapshot));
+    }
+
+    std::vector<Token> clearFromMidi;
+    std::vector<Token> clearFromReduction;
+    OrchestrationTransformer::ConditioningSignal signal{};
+    {
+        const ScopedMs histMs(&step.hist);
+        clearFromMidi = extractClearQueueTokens(midiUpdate);
+        clearFromReduction = extractClearQueueTokens(reductionUpdate);
+        signal = getConditioningSignal(midiUpdate, conditioningUpdate);
+        appendToHistory(midiInputHistory, midiUpdate);
+        appendToHistory(conditioningHistory, conditioningUpdate);
+        appendToHistory(reductionHistory, reductionUpdate);
+    }
+
+    std::vector<OrchestrationNote> toOutput;
+    if (! paused.get()) {
+        const auto [userInstrumentList, modelInstrumentList] = copyInstrumentLists();
+
+        const auto mode = getMode();
+        if (mode == OrchestrationMode::Edit) {
+            const ScopedMs modelMs(&step.model);
+            stampInputVoices(midiUpdate); // the user's notes through vocsep too
+            auto [userNotes, modelNotes] = getEditOrchestrationOutput(
+                midiUpdate, reductionForModel, userInstrumentList, modelInstrumentList, signal);
+            toOutput.reserve(userNotes.size() + modelNotes.size() + clearFromMidi.size()
+                             + clearFromReduction.size());
+            toOutput.insert(toOutput.end(), userNotes.begin(), userNotes.end());
+            toOutput.insert(toOutput.end(), modelNotes.begin(), modelNotes.end());
+        } else if (isJamLike(mode)) {
+            const ScopedMs modelMs(&step.model);
+            // Jam: the reduction plays the model instruments only (the user instruments are
+            // for the user's own notes, in Edit). Accompaniment keeps both.
+            std::set<int32_t> instrumentUnion(modelInstrumentList.begin(), modelInstrumentList.end());
+            if (mode != OrchestrationMode::Jam)
+                instrumentUnion.insert(userInstrumentList.begin(), userInstrumentList.end());
+            const std::vector<int32_t> orchestrationInstruments(instrumentUnion.begin(),
+                                                                instrumentUnion.end());
+            toOutput = getJamOrchestrationOutput(reductionForModel, orchestrationInstruments,
+                                                 signal);
+            toOutput.reserve(toOutput.size() + clearFromMidi.size() + clearFromReduction.size());
+        } else {
+            juce::Logger::writeToLog("Invalid orchestration mode");
+            step.total = static_cast<float>(
+                juce::Time::getMillisecondCounterHiRes() - loopStartMs);
+            lastThreadLoopMs.store(step.total, std::memory_order_relaxed);
+            return;
+        }
+    } else {
+        toOutput.reserve(clearFromMidi.size() + clearFromReduction.size());
+    }
+
+    step.prep = getOutputAccum.prep;
+    step.onnx = getOutputAccum.onnx;
+    step.logits = getOutputAccum.logits;
+    step.mask = getOutputAccum.mask;
+    step.sample = getOutputAccum.sample;
+    step.decode = getOutputAccum.decode;
+    step.getOutputCalls = getOutputAccum.getOutputCalls;
+    step.contextTokens = getOutputAccum.contextTokens;
+
+    {
+        const ScopedMs packMs(&step.pack);
+        // Bypass orch model: ClearQueue must reach OutputPlayback as-is.
+        for (const auto &token: clearFromMidi)
+            toOutput.push_back(OrchestrationNote{
+                .token = token,
+                .velocity = 0,
+                .localInstrumentId = InstrumentConstants::kReductionPlaybackLocalId});
+        for (const auto &token: clearFromReduction)
+            toOutput.push_back(OrchestrationNote{
+                .token = token,
+                .velocity = 0,
+                .localInstrumentId = InstrumentConstants::kReductionPlaybackLocalId});
+
+        packSortAndPushOutput(toOutput);
+    }
+
+    // After notes are queued so OutputPlayback cannot drain a duration update
+    // before the matching note exists (same-loop note-on + note-off race).
+    {
+        const ScopedMs updMs(&step.upd);
+        applyTokenUpdates();
+    }
+
+    step.total =
+        static_cast<float>(juce::Time::getMillisecondCounterHiRes() - loopStartMs);
+    lastThreadLoopMs.store(step.total, std::memory_order_relaxed);
+
+    const bool busy = step.midiIn > 0 || step.reductionIn > 0 || step.getOutputCalls > 0
+                      || ! conditioningUpdate.empty();
+    if (busy)
+        publishBusyOrchProfile(step);
 }
 
 void OrchestrationTransformer::threadStop() {

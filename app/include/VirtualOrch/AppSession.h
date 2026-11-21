@@ -149,6 +149,12 @@ public:
 
     auto stopGeneration() -> void;
 
+    /** Start / Stop without the worker threads: the offline simulator (LogReplay) steps them. */
+
+    auto startGenerationForReplay(uint32_t clockCs) -> void;
+
+    auto stopGenerationForReplay() -> void;
+
     /** Set the OT Edit/Jam mode and light the matching Launchpad mode pad. */
     auto setOrchestrationMode(OrchestrationMode mode) -> void;
 

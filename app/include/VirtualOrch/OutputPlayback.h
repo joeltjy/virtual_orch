@@ -52,7 +52,16 @@ public:
                    int32_t &visualizationBufferSize,
                    std::atomic<PlaybackSource> &playbackSourceIn);
 
+    ~OutputPlayback() override;
+
     void run() override;
+
+    /**
+     * One pass of the playback loop at the current clock time (the thread calls it in a loop).
+     * The offline simulator calls beginSteps() once, then stepOnce() itself, with no thread.
+     */
+    auto beginSteps() -> void;
+    auto stepOnce() -> void;
 
     /** Bound by the generation-status ProgressBar. */
     double progress = 0.0;
@@ -116,6 +125,9 @@ private:
     std::unique_ptr<OSCBufferOutputProcessor> &bufferOutputProcessor;
     int32_t &visualizationBufferSize;
     std::atomic<PlaybackSource> &playbackSource;
+
+    struct StepState;
+    std::unique_ptr<StepState> state;
 
     mutable juce::CriticalSection noteOnHistoryLock;
     std::vector<PlaybackNoteOnRecord> noteOnHistory;

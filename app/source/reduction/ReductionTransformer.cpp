@@ -1,4 +1,5 @@
 #include "VirtualOrch/reduction/ReductionTransformer.h"
+#include "VirtualOrch/AppTime.h"
 #include "VirtualOrch/PedalClear.h"
 #include "VirtualOrch/PolyphonyCap.h"
 #include "VirtualOrch/SessionLog.h"
@@ -87,7 +88,7 @@ auto ReductionTransformer::startAheadThrottle() -> void {
     if (sleepMs == 0)
         return;
     overflowPause.set(true);
-    aheadThrottleUntilMs = juce::Time::getMillisecondCounter() + sleepMs;
+    aheadThrottleUntilMs = AppTime::counterMs() + sleepMs;
     const int32_t clockCs =
         clock != nullptr ? static_cast<int32_t>(clock->getTime()) : -1;
     juce::Logger::writeToLog(
@@ -99,7 +100,7 @@ auto ReductionTransformer::startAheadThrottle() -> void {
 auto ReductionTransformer::finishAheadThrottleIfDue() -> void {
     if (aheadThrottleUntilMs == 0)
         return;
-    if (juce::Time::getMillisecondCounter() < aheadThrottleUntilMs)
+    if (AppTime::counterMs() < aheadThrottleUntilMs)
         return;
     // Still too far ahead (the model chose long gaps): keep waiting for the clock instead of
     // drawing one more note, which would push the lead further each throttle period.
@@ -374,6 +375,13 @@ auto ReductionTransformer::generatedNotesAtOnset(int32_t onsetCs) const -> int32
 }
 
 auto ReductionTransformer::pushOutputToken(const Token &tokenIn) -> void {
+    lastOutputHeld = holdOutput && holdOutput(tokenIn);
+    if (lastOutputHeld)
+        return; // the replay delivers it later (deliverOutputToken, then afterOutputDelivered)
+    deliverOutputToken(tokenIn);
+}
+
+auto ReductionTransformer::deliverOutputToken(const Token &tokenIn) -> void {
     Token token = tokenIn;
     if (token.note >= static_cast<int32_t>(Vocab::NoteOffset)
         && token.note < static_cast<int32_t>(Vocab::Rest)) {

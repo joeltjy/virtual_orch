@@ -1,4 +1,5 @@
 #include "VirtualOrch/OutputPlayback.h"
+#include "VirtualOrch/AppTime.h"
 #include "VirtualOrch/PerformanceActivity.h"
 
 #include "VirtualOrch/InstrumentConstants.h"
@@ -118,7 +119,7 @@ auto OutputPlayback::recordNoteOn(const OrchestrationNote &note, int32_t channel
     record.channel = channel;
     record.keyId = note.token.keyId;
     if (activityLog != nullptr)
-        activityLog->noteOn(juce::Time::currentTimeMillis(), record.localInstrumentId,
+        activityLog->noteOn(AppTime::nowMs(), record.localInstrumentId,
                             record.pitch, static_cast<int64_t>(record.durationCs) * 10);
     const juce::ScopedLock lock(noteOnHistoryLock);
     noteOnHistory.push_back(record);
@@ -162,20 +163,40 @@ auto OutputPlayback::clearNoteOnHistory() -> void {
     noteOnHistory.clear();
 }
 
-void OutputPlayback::run() {
-    clearNoteOnHistory();
-
-    std::multiset<OrchestrationNote, decltype(&orchestrationNoteOnsetLess)> nextTokens(
-        orchestrationNoteOnsetLess);
-
-    std::multiset<OrchestrationNote, decltype(&orchestrationNoteEndLess)> currentlyPlaying(
-        orchestrationNoteEndLess);
-
+/** Loop state of the playback thread (one per run, or per simulator session). */
+struct OutputPlayback::StepState {
+    std::multiset<OrchestrationNote, decltype(&orchestrationNoteOnsetLess)> nextTokens{orchestrationNoteOnsetLess};
+    std::multiset<OrchestrationNote, decltype(&orchestrationNoteEndLess)> currentlyPlaying{orchestrationNoteEndLess};
     // Unmatched duration updates retry until the note appears or its default end has passed.
     std::vector<TokenUpdate> pendingDurationUpdates;
     int32_t playbackTime = 0;
-    auto lastSource = playbackSource.load(std::memory_order_relaxed);
+    PlaybackSource lastSource = PlaybackSource::Orchestration;
     PedalClear::DropWindow pedalDrop;
+};
+
+OutputPlayback::~OutputPlayback() = default;
+
+void OutputPlayback::run() {
+    beginSteps();
+    while (! threadShouldExit())
+        stepOnce();
+}
+
+auto OutputPlayback::beginSteps() -> void {
+    clearNoteOnHistory();
+    state = std::make_unique<StepState>();
+    state->lastSource = playbackSource.load(std::memory_order_relaxed);
+}
+
+auto OutputPlayback::stepOnce() -> void {
+    if (state == nullptr)
+        beginSteps();
+    auto &nextTokens = state->nextTokens;
+    auto &currentlyPlaying = state->currentlyPlaying;
+    auto &pendingDurationUpdates = state->pendingDurationUpdates;
+    auto &playbackTime = state->playbackTime;
+    auto &lastSource = state->lastSource;
+    auto &pedalDrop = state->pedalDrop;
 
     auto flushModelSchedule = [&]() {
         for (const auto &playing: currentlyPlaying)
@@ -230,162 +251,161 @@ void OutputPlayback::run() {
         return matched;
     };
 
-    while (! threadShouldExit()) {
-        bool clearedQueueThisRun = false;
-        playbackTime = clock.getTime();
-        const auto time = playbackTime;
-        const bool reductionPaused = isReductionPaused && isReductionPaused();
-        if (orchestrationTransformer.paused.get() || reductionPaused) {
-            progress = 0.0;
-        } else {
-            progress = (static_cast<double>(orchestrationTransformer.getCurrentOTTime())
-                        - static_cast<double>(time))
-                       / 1000.0;
+
+    bool clearedQueueThisRun = false;
+    playbackTime = clock.getTime();
+    const auto time = playbackTime;
+    const bool reductionPaused = isReductionPaused && isReductionPaused();
+    if (orchestrationTransformer.paused.get() || reductionPaused) {
+        progress = 0.0;
+    } else {
+        progress = (static_cast<double>(orchestrationTransformer.getCurrentOTTime())
+                    - static_cast<double>(time))
+                   / 1000.0;
+    }
+
+    {
+        // Sustain pedal: drop every note that has not sounded, end sounding notes by
+        // pedal time + 0.3 s, then keep dropping late arrivals until the upstream clear.
+        int32_t pedalTime = 0;
+        while (pedalClearRequests.pull(pedalTime)) {
+            PedalClear::apply(nextTokens, currentlyPlaying, pedalTime, time,
+                              [&](const OrchestrationNote &note) {
+                                  handleNoteForOutput(note, TokenNoteType::TokenNoteOff);
+                              });
+            pendingDurationUpdates.clear();
+            pedalDrop.start(pedalTime, time);
+            clearedQueueThisRun = true;
+            DBG("Pedal clear at time " + juce::String(pedalTime));
         }
 
-        {
-            // Sustain pedal: drop every note that has not sounded, end sounding notes by
-            // pedal time + 0.3 s, then keep dropping late arrivals until the upstream clear.
-            int32_t pedalTime = 0;
-            while (pedalClearRequests.pull(pedalTime)) {
-                PedalClear::apply(nextTokens, currentlyPlaying, pedalTime, time,
-                                  [&](const OrchestrationNote &note) {
-                                      handleNoteForOutput(note, TokenNoteType::TokenNoteOff);
-                                  });
-                pendingDurationUpdates.clear();
-                pedalDrop.start(pedalTime, time);
-                clearedQueueThisRun = true;
-                DBG("Pedal clear at time " + juce::String(pedalTime));
-            }
+        // Leaving Accompaniment: drop every note that has not started; notes already
+        // sounding play to their end (their note-off updates still apply).
+        int32_t cutTime = 0;
+        while (modeCutRequests.pull(cutTime)) {
+            nextTokens.clear();
+            pedalDrop.start(cutTime, time);
+            clearedQueueThisRun = true;
+            DBG("Mode cut at time " + juce::String(cutTime));
+        }
+    }
 
-            // Leaving Accompaniment: drop every note that has not started; notes already
-            // sounding play to their end (their note-off updates still apply).
-            int32_t cutTime = 0;
-            while (modeCutRequests.pull(cutTime)) {
-                nextTokens.clear();
-                pedalDrop.start(cutTime, time);
-                clearedQueueThisRun = true;
-                DBG("Mode cut at time " + juce::String(cutTime));
+    const auto source = playbackSource.load(std::memory_order_relaxed);
+    if (source != lastSource) {
+        flushModelSchedule();
+        lastSource = source;
+        // While Out: OT is selected, RT FIFO tokens are drained and discarded. Seed from
+        // outputHistory so Out: RT is not silent until the ahead-throttle window ends.
+        if (source == PlaybackSource::Reduction && getReductionOutputHistory) {
+            for (const auto &histToken: getReductionOutputHistory()) {
+                if (! isSoundingNoteToken(histToken))
+                    continue;
+                if (histToken.time + histToken.getRealDuration() <= time)
+                    continue;
+                scheduleNote(reductionMonitorNote(histToken));
             }
         }
+    }
 
-        const auto source = playbackSource.load(std::memory_order_relaxed);
-        if (source != lastSource) {
-            flushModelSchedule();
-            lastSource = source;
-            // While Out: OT is selected, RT FIFO tokens are drained and discarded. Seed from
-            // outputHistory so Out: RT is not silent until the ahead-throttle window ends.
-            if (source == PlaybackSource::Reduction && getReductionOutputHistory) {
-                for (const auto &histToken: getReductionOutputHistory()) {
-                    if (! isSoundingNoteToken(histToken))
-                        continue;
-                    if (histToken.time + histToken.getRealDuration() <= time)
-                        continue;
-                    scheduleNote(reductionMonitorNote(histToken));
-                }
-            }
+    // Always drain OT output (schedule only when Orchestration is selected).
+    OrchestrationNote note{};
+    while (orchestrationTransformer.outputTokenQueue.pull(note)) {
+        if (source != PlaybackSource::Orchestration)
+            continue;
+        if (isRestToken(note.token))
+            continue;
+        if (isClearQueueToken(note.token)) {
+            clearedQueueThisRun = true;
+            DBG("Clearing queue at time " + juce::String(note.token.time));
+            applyClearQueue(nextTokens, note.token.time);
+            if (PedalClear::isPedalClear(note.token))
+                pedalDrop.finish();
+            continue;
         }
+        if (pedalDrop.drops(note.token.time, time))
+            continue;
+        scheduleNote(note);
+    }
 
-        // Always drain OT output (schedule only when Orchestration is selected).
-        OrchestrationNote note{};
-        while (orchestrationTransformer.outputTokenQueue.pull(note)) {
-            if (source != PlaybackSource::Orchestration)
+    // Always drain RT outputTokenQueue (not OT reductionIncoming).
+    if (reductionOutputQueue != nullptr) {
+        Token rtToken{};
+        while (reductionOutputQueue->pull(rtToken)) {
+            if (source != PlaybackSource::Reduction)
                 continue;
-            if (isRestToken(note.token))
+            if (isRestToken(rtToken))
                 continue;
-            if (isClearQueueToken(note.token)) {
+            if (isClearQueueToken(rtToken)) {
                 clearedQueueThisRun = true;
-                DBG("Clearing queue at time " + juce::String(note.token.time));
-                applyClearQueue(nextTokens, note.token.time);
-                if (PedalClear::isPedalClear(note.token))
+                DBG("Clearing RT monitor queue at time " + juce::String(rtToken.time));
+                applyClearQueue(nextTokens, rtToken.time);
+                if (PedalClear::isPedalClear(rtToken))
                     pedalDrop.finish();
                 continue;
             }
-            if (pedalDrop.drops(note.token.time, time))
+            if (! isSoundingNoteToken(rtToken))
                 continue;
-            scheduleNote(note);
+            if (pedalDrop.drops(rtToken.time, time))
+                continue;
+
+            scheduleNote(reductionMonitorNote(rtToken));
         }
+    }
 
-        // Always drain RT outputTokenQueue (not OT reductionIncoming).
-        if (reductionOutputQueue != nullptr) {
-            Token rtToken{};
-            while (reductionOutputQueue->pull(rtToken)) {
-                if (source != PlaybackSource::Reduction)
-                    continue;
-                if (isRestToken(rtToken))
-                    continue;
-                if (isClearQueueToken(rtToken)) {
-                    clearedQueueThisRun = true;
-                    DBG("Clearing RT monitor queue at time " + juce::String(rtToken.time));
-                    applyClearQueue(nextTokens, rtToken.time);
-                    if (PedalClear::isPedalClear(rtToken))
-                        pedalDrop.finish();
-                    continue;
-                }
-                if (! isSoundingNoteToken(rtToken))
-                    continue;
-                if (pedalDrop.drops(rtToken.time, time))
-                    continue;
+    TokenUpdate durationUpdate{};
+    while (orchestrationTransformer.outputDurationUpdates.pull(durationUpdate)) {
+        if (source == PlaybackSource::Orchestration)
+            pendingDurationUpdates.push_back(durationUpdate);
+    }
 
-                scheduleNote(reductionMonitorNote(rtToken));
+    if (source == PlaybackSource::Orchestration) {
+        for (auto it = pendingDurationUpdates.begin(); it != pendingDurationUpdates.end();) {
+            const int matched = applyOneDurationUpdate(*it);
+
+            const auto defaultEnd = it->oldNote.time + it->oldNote.getRealDuration();
+            if (matched > 0) {
+                updateNoteOnHistoryDuration(it->oldNote, it->newNote);
+                it = pendingDurationUpdates.erase(it);
+            } else if (time > defaultEnd) {
+                it = pendingDurationUpdates.erase(it);
+            } else {
+                ++it;
             }
         }
+    }
 
-        TokenUpdate durationUpdate{};
-        while (orchestrationTransformer.outputDurationUpdates.pull(durationUpdate)) {
-            if (source == PlaybackSource::Orchestration)
-                pendingDurationUpdates.push_back(durationUpdate);
+    for (auto it = nextTokens.begin(); it != nextTokens.end();) {
+        if (it->token.time <= time) {
+            handleNoteForOutput(*it, TokenNoteType::TokenNoteOn);
+            currentlyPlaying.insert(*it);
+            it = nextTokens.erase(it);
+        } else {
+            break;
         }
+    }
 
-        if (source == PlaybackSource::Orchestration) {
-            for (auto it = pendingDurationUpdates.begin(); it != pendingDurationUpdates.end();) {
-                const int matched = applyOneDurationUpdate(*it);
-
-                const auto defaultEnd = it->oldNote.time + it->oldNote.getRealDuration();
-                if (matched > 0) {
-                    updateNoteOnHistoryDuration(it->oldNote, it->newNote);
-                    it = pendingDurationUpdates.erase(it);
-                } else if (time > defaultEnd) {
-                    it = pendingDurationUpdates.erase(it);
-                } else {
-                    ++it;
-                }
-            }
+    if (bufferOutputProcessor != nullptr) {
+        bufferOutputProcessor->setTime(time);
+        if (clearedQueueThisRun) {
+            Token clearQueue{static_cast<int32_t>(time), Vocab::DurOffset, Vocab::ClearQueue};
+            bufferOutputProcessor->addToBuffer(clearQueue);
         }
-
-        for (auto it = nextTokens.begin(); it != nextTokens.end();) {
-            if (it->token.time <= time) {
-                handleNoteForOutput(*it, TokenNoteType::TokenNoteOn);
-                currentlyPlaying.insert(*it);
-                it = nextTokens.erase(it);
+        for (auto it = nextTokens.begin(); it != nextTokens.end(); ++it) {
+            if (it->token.time <= time + visualizationBufferSize) {
+                bufferOutputProcessor->addToBuffer(it->token);
             } else {
                 break;
             }
         }
+        bufferOutputProcessor->sendBuffer(time);
+    }
 
-        if (bufferOutputProcessor != nullptr) {
-            bufferOutputProcessor->setTime(time);
-            if (clearedQueueThisRun) {
-                Token clearQueue{static_cast<int32_t>(time), Vocab::DurOffset, Vocab::ClearQueue};
-                bufferOutputProcessor->addToBuffer(clearQueue);
-            }
-            for (auto it = nextTokens.begin(); it != nextTokens.end(); ++it) {
-                if (it->token.time <= time + visualizationBufferSize) {
-                    bufferOutputProcessor->addToBuffer(it->token);
-                } else {
-                    break;
-                }
-            }
-            bufferOutputProcessor->sendBuffer(time);
-        }
-
-        for (auto it = currentlyPlaying.begin(); it != currentlyPlaying.end();) {
-            if ((it->token.time + it->token.getRealDuration()) <= time) {
-                handleNoteForOutput(*it, TokenNoteType::TokenNoteOff);
-                it = currentlyPlaying.erase(it);
-            } else {
-                break;
-            }
+    for (auto it = currentlyPlaying.begin(); it != currentlyPlaying.end();) {
+        if ((it->token.time + it->token.getRealDuration()) <= time) {
+            handleNoteForOutput(*it, TokenNoteType::TokenNoteOff);
+            it = currentlyPlaying.erase(it);
+        } else {
+            break;
         }
     }
 }

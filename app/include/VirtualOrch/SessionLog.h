@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -34,6 +35,13 @@ public:
 
     static auto add(const char *kind, const juce::String &text) -> void;
 
+    /**
+     * Also hand every line to `capture` (kind, text), with or without a log file; isRunning()
+     * is true while one is set. The offline simulator records its lines this way. nullptr stops.
+     */
+    using Capture = std::function<void(const char *kind, const juce::String &text)>;
+    static auto setCapture(Capture capture) -> void;
+
     /** "90 3C 64 (Note on C3 Velocity 100 Channel 1)"-style text of a MIDI message. */
     [[nodiscard]] static auto describeMidi(const juce::MidiMessage &message) -> juce::String;
 
@@ -46,4 +54,9 @@ private:
     static auto writerMutex() -> std::mutex &;
     static inline std::atomic<bool> running{false};
     static inline std::atomic<const Clock *> clockPtr{nullptr};
+    static inline std::atomic<bool> capturing{false};
+    static auto captureFn() -> Capture & {
+        static Capture fn;
+        return fn;
+    }
 };

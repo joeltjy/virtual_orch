@@ -48,6 +48,29 @@ enum class MusicModelArch : uint8_t {
  */
 class ReductionTransformer : public juce::Thread {
 public:
+    /**
+     * Set while the offline simulator steps this transformer itself (no thread runs then).
+     * Code that asks "is generation running?" uses isRunningOrSimulated().
+     */
+    std::atomic<bool> steppedBySimulator{false};
+    /**
+     * Replay: when set and it returns true for an output token, the token is not sent now; the
+     * replay sends it later with deliverOutputToken (the time the recorded model took to draw it).
+     */
+    std::function<bool(const Token &)> holdOutput;
+    /** Send an output token now: note id, voice, the RT log line, the queues and the history. */
+    auto deliverOutputToken(const Token &token) -> void;
+    /** What a generated note's delivery starts: the ahead throttle when it is too far ahead. */
+    auto afterOutputDelivered(const Token &token) -> void {
+        if (isGeneratedTooFarAhead(token.time))
+            startAheadThrottle();
+    }
+    /** The last pushOutputToken was held by holdOutput. */
+    bool lastOutputHeld = false;
+    [[nodiscard]] auto isRunningOrSimulated() const -> bool {
+        return isThreadRunning() || steppedBySimulator.load();
+    }
+
     ReductionTransformer(const juce::String &threadName, ModelConfig &modelConfigIn);
 
     ~ReductionTransformer() override = default;

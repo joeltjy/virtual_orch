@@ -1,4 +1,5 @@
 #include "VirtualOrch/AppSession.h"
+#include "VirtualOrch/AppTime.h"
 #include "VirtualOrch/widgets/ActiveInstrumentsView.h"
 
 #include "VirtualOrch/orchestration-models/IodPretrained.h"
@@ -102,7 +103,7 @@ AppSession::AppSession()
     bindActiveMusicBackend();
     outputPlayback.activityLog = &activityLog;
     const auto pianoSilent = [this] {
-        return activityLog.pianoSilentForMs(juce::Time::currentTimeMillis());
+        return activityLog.pianoSilentForMs(AppTime::nowMs());
     };
     musicTransformer.pianoSilentForMs = pianoSilent;
     reductionTransformerV1.pianoSilentForMs = pianoSilent;
@@ -433,7 +434,7 @@ auto AppSession::isMusicModelLoaded() const -> bool {
 }
 
 auto AppSession::isMusicThreadRunning() const -> bool {
-    return activeReduction().isThreadRunning();
+    return activeReduction().isRunningOrSimulated();
 }
 
 auto AppSession::getMusicDirectInputBlock() -> juce::Atomic<bool> & {
@@ -543,6 +544,47 @@ auto AppSession::startGeneration() -> void {
     startThreadOrReport(outputPlayback, modelSamplingAlert);
     if (orchestrationModel != nullptr && orchestrationModel->getName() == "TestModel")
         testOrchestrationTransformerThread.start(clock, orchestrationTransformer);
+}
+
+auto AppSession::startGenerationForReplay(uint32_t clockCs) -> void {
+    // startGeneration without the worker threads (the offline simulator steps them itself).
+    if (modelConfig.inputMode == InputMode::Direct && modelConfig.directInputStartOnInput)
+        getMusicDirectInputBlock() = true;
+    else
+        getMusicDirectInputBlock() = false;
+    midiInputProcess.resetForStart();
+    if (inputFilter != nullptr)
+        inputFilter->reset();
+    clock.startAtTime(clockCs);
+}
+
+auto AppSession::stopGenerationForReplay() -> void {
+    // stopGeneration without the worker threads.
+    for (ReductionTransformer *reduction:
+         {static_cast<ReductionTransformer *>(&musicTransformer),
+          static_cast<ReductionTransformer *>(&reductionTransformerV1),
+          static_cast<ReductionTransformer *>(&reductionTransformerV2),
+          static_cast<ReductionTransformer *>(&reductionTransformerPianoReduction),
+          static_cast<ReductionTransformer *>(&reductionTransformerAnticipated),
+          static_cast<ReductionTransformer *>(&reductionTransformerWait),
+          static_cast<ReductionTransformer *>(&reductionTransformerHybrid),
+          static_cast<ReductionTransformer *>(&reductionTransformerMelodyFirst)})
+        reduction->resetAheadThrottle();
+    clock.stop();
+    outputPlayback.resetProgress();
+    outputPlayback.clearNoteOnHistory();
+    for (ReductionTransformer *reduction:
+         {static_cast<ReductionTransformer *>(&musicTransformer),
+          static_cast<ReductionTransformer *>(&reductionTransformerV1),
+          static_cast<ReductionTransformer *>(&reductionTransformerV2),
+          static_cast<ReductionTransformer *>(&reductionTransformerPianoReduction),
+          static_cast<ReductionTransformer *>(&reductionTransformerAnticipated),
+          static_cast<ReductionTransformer *>(&reductionTransformerWait),
+          static_cast<ReductionTransformer *>(&reductionTransformerHybrid),
+          static_cast<ReductionTransformer *>(&reductionTransformerMelodyFirst)})
+        reduction->clearOutputHistory();
+    if (outputProcessor != nullptr)
+        outputProcessor->clear();
 }
 
 auto AppSession::stopGeneration() -> void {

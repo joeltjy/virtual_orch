@@ -1,4 +1,5 @@
 #include "VirtualOrch/reduction/TwoInstrumentAnticipatedReductionTransformer.h"
+#include "VirtualOrch/AppTime.h"
 
 #include "VirtualOrch/NoteWindow.h"
 #include "VirtualOrch/RegisterRange.h"
@@ -186,7 +187,7 @@ auto TwoInstrumentAnticipatedReductionTransformer::setHybridModel(bool v1, Hybri
 auto TwoInstrumentAnticipatedReductionTransformer::updateHybrid(int32_t nowCs) -> void {
     if (variant != Variant::Hybrid)
         return;
-    const int64_t wallMs = wallMsProvider ? wallMsProvider() : juce::Time::currentTimeMillis();
+    const int64_t wallMs = wallMsProvider ? wallMsProvider() : AppTime::nowMs();
     const int64_t silentFor = pianoSilentForMs ? pianoSilentForMs() : INT64_MAX;
     const bool playing = silentFor <= kHybridStopMs;
     if (! playing)
@@ -421,8 +422,9 @@ auto TwoInstrumentAnticipatedReductionTransformer::generateOne(int32_t now) -> s
                    static_cast<int32_t>(DenseVocab::NoteOffset) + note->pitch, note->velocity};
     pushOutputToken(outbound);
 
-    if (isGeneratedTooFarAhead(note->onsetCs))
-        startAheadThrottle();
+    // The ahead check belongs to the moment the note goes out (a replay may deliver it later).
+    if (! lastOutputHeld)
+        afterOutputDelivered(outbound);
     return outbound;
 }
 
@@ -445,9 +447,47 @@ auto TwoInstrumentAnticipatedReductionTransformer::stepOnce() -> bool {
 void TwoInstrumentAnticipatedReductionTransformer::threadRun() {
     if (! isModelLoaded())
         return;
+    beginLive();
+
+    while (! threadShouldExit()) {
+        const double loopStartMs = juce::Time::getMillisecondCounterHiRes();
+        const auto result = liveStep();
+        if (result == LiveStep::Idle || result == LiveStep::NothingGenerated)
+            wait(5);
+        recordThreadLoopMs(loopStartMs);
+    }
+}
+
+auto TwoInstrumentAnticipatedReductionTransformer::liveStep() -> LiveStep {
+    finishAheadThrottleIfDue();
+
+    // Leaving Accompaniment: drop the generated notes from the cut on.
+    if (const auto cut = consumeModeCut())
+        rewindGeneratedFrom(*cut);
+
+    const int32_t now = nowCs();
+    if (clockJumpedBack(now))
+        restartOnClockJumpBack(now);
+    const bool inputApplied = drainInput(now);
+    // Jam: react to the input now (also ends an ahead throttle). Not under the pedal: its
+    // press already cut the future, and the model must stay paused.
+    if (inputApplied && ! keepsQueueOnInput() && ! generationPause.get())
+        cutFutureOnInput(now);
+    updateHybrid(now);
+
+    if (isGenerationStopped()) {
+        maybeEmitGenerationPauseSoftStopClear();
+        return inputApplied ? LiveStep::StoppedWithInput : LiveStep::Idle;
+    }
+
+    wasGenerationPaused = false;
+    return generateOne(now).has_value() ? LiveStep::Generated : LiveStep::NothingGenerated;
+}
+
+auto TwoInstrumentAnticipatedReductionTransformer::beginLive() -> void {
+    // What threadRun does before its loop.
     if (voiceSeparation != nullptr)
         voiceSeparation->reset();
-
     inputData.clear();
     clearInputTokenQueue();
     clearInputConditioningQueue();
@@ -457,40 +497,6 @@ void TwoInstrumentAnticipatedReductionTransformer::threadRun() {
     forgetClock();
     resetStream(nowCs());
     notifyInputDataChanged();
-
     resetAheadThrottle();
     resetLoopTiming();
-
-    while (! threadShouldExit()) {
-        const double loopStartMs = juce::Time::getMillisecondCounterHiRes();
-        finishAheadThrottleIfDue();
-
-        // Leaving Accompaniment: drop the generated notes from the cut on.
-        if (const auto cut = consumeModeCut())
-            rewindGeneratedFrom(*cut);
-
-        const int32_t now = nowCs();
-        if (clockJumpedBack(now))
-            restartOnClockJumpBack(now);
-        const bool inputApplied = drainInput(now);
-        // Jam: react to the input now (also ends an ahead throttle). Not under the pedal: its
-        // press already cut the future, and the model must stay paused.
-        if (inputApplied && ! keepsQueueOnInput() && ! generationPause.get())
-            cutFutureOnInput(now);
-        updateHybrid(now);
-
-        if (isGenerationStopped()) {
-            maybeEmitGenerationPauseSoftStopClear();
-            if (! inputApplied) {
-                wait(5);
-            }
-            recordThreadLoopMs(loopStartMs);
-            continue;
-        }
-
-        wasGenerationPaused = false;
-        if (! generateOne(now).has_value())
-            wait(5);
-        recordThreadLoopMs(loopStartMs);
-    }
 }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include <JuceHeader.h>
 
 #include <algorithm>
@@ -87,6 +89,34 @@ struct LogitSpan {
 };
 
 /**
+ * The random generator every model sampler draws from (sampleTopP).
+ * Default: one generator per thread, seeded from std::random_device (live use).
+ * SamplingRng::seed(n): one shared generator seeded with n, so a run that samples on a single
+ * thread (the offline simulator) gives the same notes every time.
+ */
+namespace SamplingRng {
+inline auto seededFlag() -> std::atomic<bool> & {
+    static std::atomic<bool> seeded{false};
+    return seeded;
+}
+inline auto shared() -> std::mt19937 & {
+    static std::mt19937 gen{42};
+    return gen;
+}
+inline auto seed(uint32_t value) -> void {
+    shared().seed(value);
+    seededFlag().store(true);
+}
+inline auto unseed() -> void { seededFlag().store(false); }
+inline auto generator() -> std::mt19937 & {
+    if (seededFlag().load())
+        return shared();
+    thread_local std::mt19937 gen{std::random_device{}()};
+    return gen;
+}
+} // namespace SamplingRng
+
+/**
  * Nucleus then temperature (amt_causal / offline generate_sample order):
  * 1. Softmax at T=1 over finite logits → build nucleus (smallest prefix of
  *    descending mass with cumulative prob >= p; if p >= 1 keep all).
@@ -97,7 +127,7 @@ struct LogitSpan {
  */
 template<typename T>
 static int32_t sampleTopP(T &scores, const float p, const float temperature) {
-    thread_local std::mt19937 gen{std::random_device{}()};
+    std::mt19937 &gen = SamplingRng::generator();
 
     std::vector<int32_t> finite;
     finite.reserve(256);

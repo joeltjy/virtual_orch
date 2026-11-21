@@ -185,6 +185,33 @@ public:
     /** One loop iteration without waiting: drain input, then generate one note if allowed. */
     auto stepOnce() -> bool;
 
+    /** What one pass of the live loop did (the thread waits 5 ms after Idle / NothingGenerated). */
+    enum class LiveStep { Idle, StoppedWithInput, NothingGenerated, Generated };
+    /**
+     * Exactly one pass of the thread's loop (threadRun calls it): throttle release, mode cut,
+     * clock jump, input drain + Jam cut, hybrid rules, then one note unless stopped. The offline
+     * simulator calls beginLive() once and then liveStep() itself, with no thread.
+     */
+    auto liveStep() -> LiveStep;
+    /** What threadRun does before its loop (clear queues and history, reset the stream). */
+    auto beginLive() -> void;
+
+    /** Replay (LogReplay): the samplers that draw notes (W2/W3 or T3'' first, then v1 for Hybrid). */
+    auto samplersForReplay() -> std::vector<AnticipationSampler *> {
+        std::vector<AnticipationSampler *> out{&stage.sampler};
+        if (variant == Variant::Hybrid)
+            out.push_back(&silentStage.sampler);
+        return out;
+    }
+    /** The last pass stopped before drawing because a replay sampler held the draw. */
+    [[nodiscard]] auto drawWasHeld() const -> bool {
+        return stage.lastHeld() || (variant == Variant::Hybrid && silentStage.lastHeld());
+    }
+    /** The drawing model is waiting for the soloist (a W2/W3 WAIT, not timed out yet). */
+    [[nodiscard]] auto isWaitingForSoloist() const -> bool {
+        return (useSilentStage() ? silentStage : stage).lastWaited();
+    }
+
     auto setWaitMaxAheadForTest(int32_t cs) -> void { stage.maxAheadCs = cs; }
     [[nodiscard]] auto streamForTest() const -> const AnticipatedStream & { return stage.stream; }
     [[nodiscard]] auto silentStreamForTest() const -> const AnticipatedStream & { return silentStage.stream; }

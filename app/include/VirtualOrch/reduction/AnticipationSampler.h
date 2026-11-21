@@ -1,5 +1,8 @@
 #pragma once
 
+#include <functional>
+#include <optional>
+
 #include <algorithm>
 #include <array>
 #include <climits>
@@ -75,6 +78,9 @@ public:
      */
     [[nodiscard]] auto decideWait(const std::vector<float> &logits, const Context &ctx, int32_t waitId,
                                   float minPlayProbability) -> bool {
+        if (forcedWait)
+            if (const auto forced = forcedWait(ctx))
+                return *forced;
         if (waitId < 0 || static_cast<size_t>(waitId) >= logits.size())
             return false;
         std::vector<float> raw = logits;
@@ -132,9 +138,22 @@ public:
                             generated.end() - static_cast<std::ptrdiff_t>(kKeep));
     }
 
+    /**
+     * Replay (LogReplay): when set and it returns a value, that token is used for the field
+     * instead of drawing one (onset ids are model-relative: absolute - ctx.base).
+     */
+    std::function<std::optional<int32_t>(int field, const Context &ctx)> forcedSample;
+    /** Replay: when set and true at the start of a draw, the stage returns without drawing. */
+    std::function<bool()> drawHeld;
+    /** Replay: when set and it returns a value, that decides WAIT instead of the threshold rule. */
+    std::function<std::optional<bool>(const Context &ctx)> forcedWait;
+
     /** Sample one field (0 onset, 1 duration, 2 note, 3 velocity) from the model's logits. */
     [[nodiscard]] auto sample(int field, const std::vector<float> &logits, const Context &ctx,
                               float temperature, float topP = kTopP) -> int32_t {
+        if (forcedSample)
+            if (const auto forced = forcedSample(field, ctx))
+                return *forced;
         std::vector<float> raw = logits;
         applyBiases(field, raw, ctx);
         if (field == 0)

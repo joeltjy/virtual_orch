@@ -84,6 +84,8 @@ public:
 
     /** The last generate() returned nothing because the model is waiting for the soloist. */
     [[nodiscard]] auto lastWaited() const -> bool { return waiting; }
+    /** The last generate() stopped before drawing because sampler.drawHeld said so (replay). */
+    [[nodiscard]] auto lastHeld() const -> bool { return held; }
     /** WAIT events for the log: "wait", "resume", "timeout", "reorder"; value = clock / count. */
     std::function<void(const char *, int32_t)> onWaitEvent;
 
@@ -188,6 +190,7 @@ private:
 
     std::vector<AnticipatedStream::Note> mirrored;
     bool waiting = false;
+    bool held = false;
     int32_t waitDeadlineCs = INT32_MIN;
     size_t timedOutAtItems = SIZE_MAX; // WAIT masked while nothing new has been written
     int32_t lastReorderCs = INT32_MIN;

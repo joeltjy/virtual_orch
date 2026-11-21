@@ -1,7 +1,9 @@
 #include "VirtualOrch/Clock.h"
 
+#include "VirtualOrch/AppTime.h"
+
 Clock::Clock(Metrics &metrics) : metrics(metrics) {
-    const uint32_t clockTime = juce::Time::getMillisecondCounterHiRes();
+    const uint32_t clockTime = AppTime::hiResMs();
     offset.set(clockTime);
 }
 
@@ -31,12 +33,12 @@ auto Clock::stop() -> void {
 }
 
 auto Clock::setTime(const uint32_t newTime) -> void {
-    const uint32_t clockTime = juce::Time::getMillisecondCounterHiRes() * 0.1;
+    const uint32_t clockTime = AppTime::hiResMs() * 0.1;
     offset.set(clockTime - newTime);
 }
 
 auto Clock::setMtcTime(uint32_t newTime) -> void {
-    const uint32_t clockTime = juce::Time::getMillisecondCounterHiRes() * 0.1;
+    const uint32_t clockTime = AppTime::hiResMs() * 0.1;
 
     /* P Loop to adjust the offset */
     int32_t updatedOffset = offset.get() * (1 - P_GAIN) + P_GAIN * (clockTime - newTime);
@@ -57,7 +59,7 @@ auto Clock::setMtcTime(uint32_t newTime) -> void {
 }
 
 void Clock::hiResTimerCallback() {
-    const uint32_t clockTime = juce::Time::getMillisecondCounterHiRes() * 0.1;
+    const uint32_t clockTime = AppTime::hiResMs() * 0.1;
     if (lastClockTimeOfMtcMessage.get() <= (clockTime - 10)) {
         stop();
     }
@@ -69,7 +71,7 @@ auto Clock::getTime() const -> uint32_t {
     if (!isOn.get()) {
         return savedLastTime.get();
     }
-    const uint32_t clockTime = juce::Time::getMillisecondCounterHiRes() * 0.1;
+    const uint32_t clockTime = AppTime::hiResMs() * 0.1;
     return clockTime - offset.get() + mtcOffset.get();
 }
 

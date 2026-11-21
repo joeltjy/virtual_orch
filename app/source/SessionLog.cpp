@@ -95,7 +95,7 @@ auto SessionLog::stop() -> void {
 }
 
 auto SessionLog::isRunning() -> bool {
-    return running.load();
+    return running.load() || capturing.load(std::memory_order_relaxed);
 }
 
 auto SessionLog::currentFile() -> juce::File {
@@ -111,7 +111,18 @@ auto SessionLog::clock() -> const Clock * {
     return clockPtr.load();
 }
 
+auto SessionLog::setCapture(Capture capture) -> void {
+    const std::lock_guard<std::mutex> lock(writerMutex());
+    captureFn() = std::move(capture);
+    capturing.store(captureFn() != nullptr);
+}
+
 auto SessionLog::add(const char *kind, const juce::String &text) -> void {
+    if (capturing.load(std::memory_order_relaxed)) {
+        const std::lock_guard<std::mutex> lock(writerMutex());
+        if (captureFn())
+            captureFn()(kind, text);
+    }
     if (! running.load(std::memory_order_relaxed))
         return;
     const std::lock_guard<std::mutex> lock(writerMutex());

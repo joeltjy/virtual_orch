@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include "VirtualOrch/AppTime.h"
 
 #include <algorithm>
 #include <array>
@@ -324,7 +325,7 @@ public:
         if (! pressed)
             return;
 
-        const uint32_t now = nowMs.value_or(juce::Time::getMillisecondCounter());
+        const uint32_t now = nowMs.value_or(AppTime::counterMs());
 
         if (const auto mode = modeForPad(rowIdx, colIdx)) {
             auto &lastMs = gridLastAcceptMs[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];

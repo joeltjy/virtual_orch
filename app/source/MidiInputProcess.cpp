@@ -1,4 +1,5 @@
 #include "VirtualOrch/MidiInputProcess.h"
+#include "VirtualOrch/AppTime.h"
 #include "VirtualOrch/PerformanceActivity.h"
 #include "VirtualOrch/SessionLog.h"
 
@@ -159,7 +160,7 @@ MidiInputProcess::MidiInputProcess(Clock &clock,
 }
 
 auto MidiInputProcess::isMusicThreadRunning() const -> bool {
-    return activeReduction().isThreadRunning();
+    return activeReduction().isRunningOrSimulated();
 }
 
 auto MidiInputProcess::musicDirectInputBlock() -> juce::Atomic<bool> & {
@@ -386,7 +387,7 @@ void MidiInputProcess::handleSustainPedal(const juce::MidiMessage &message) {
     const bool pause = value >= 64;
     const bool pressed = pause && ! pedalDown;
     pedalDown = pause;
-    notePedalState(pause, juce::Time::currentTimeMillis());
+    notePedalState(pause, AppTime::nowMs());
     juce::Logger::writeToLog(
         "[pedal] CC64 value=" + juce::String(value)
         + (pause ? " down→pause" : " up→resume")
@@ -489,9 +490,9 @@ void MidiInputProcess::handleMidiFrom(const juce::String &sourceId, const juce::
 
     if (activityLog != nullptr) {
         if (message.isNoteOn())
-            activityLog->keyboardNoteOn(juce::Time::currentTimeMillis(), message.getNoteNumber());
+            activityLog->keyboardNoteOn(AppTime::nowMs(), message.getNoteNumber());
         else if (message.isNoteOff())
-            activityLog->keyboardNoteOff(juce::Time::currentTimeMillis(), message.getNoteNumber());
+            activityLog->keyboardNoteOff(AppTime::nowMs(), message.getNoteNumber());
     }
 
     if (message.isNoteOn()) {

@@ -449,7 +449,7 @@ auto replay(const std::vector<Line> &log, const Options &options) -> Report {
         ~StopOplog() {
             if (out == nullptr)
                 return;
-            OpLog::emit(OpLog::Src::Ui, "SESSION_END", {});
+            OpLog::emit(OpLog::Src::Ui, "SESSION_END", {{"ops", OpLog::recordCount() + 1}}); // + this record
             OpLog::setCapture(nullptr);
             OpLog::setTime(nullptr);
             out.reset();

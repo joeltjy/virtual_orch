@@ -304,7 +304,7 @@ auto TwoInstrumentAnticipatedReductionTransformer::cutFutureOnInput(int32_t now)
     for (const auto k: drainedKeys)
         reason += " " + OpLog::id('k', k);
     if (isEditMode())
-        reason += " (Edit: next 2 s kept)";
+        reason += " (Step-in: next 2 s kept)";
     removalReason = reason;
     dropOutputHistoryFrom(cut, reason);
     pushOutputToken(Token{cut, static_cast<int32_t>(DenseVocab::DurOffset),

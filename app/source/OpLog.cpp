@@ -46,6 +46,7 @@ struct State {
     std::atomic<bool> fileOpen{false};
     std::atomic<bool> capturing{false};
     std::atomic<int64_t> seq{0};
+    std::atomic<int64_t> records{0}; // records emitted (seq is assigned later, by the writer)
     juce::File file;
     std::unique_ptr<juce::OutputStream> out;
     double startMs = 0.0;
@@ -210,6 +211,7 @@ auto emit(Src src, const char *op, std::vector<Field> fields) -> void {
     r.op = op;
     r.fields = std::move(fields);
     const std::lock_guard<std::mutex> lock(s.mutex);
+    s.records.fetch_add(1, std::memory_order_relaxed);
     if (s.capture) {
         // capture: format now, in call order (the replay is single-threaded)
         s.capture(format(r, s.seq.fetch_add(1)));
@@ -234,6 +236,7 @@ auto start(const juce::File &file) -> void {
         s.out = std::make_unique<juce::GZIPCompressorOutputStream>(fos.release(), 6, true, juce::GZIPCompressorOutputStream::windowBitsGZIP);
         s.startMs = juce::Time::getMillisecondCounterHiRes();
         s.seq = 0;
+        s.records = 0;
         s.buffer.clear();
     }
     resetCounters();
@@ -247,7 +250,7 @@ auto stop() -> void {
     auto &s = state();
     if (! s.fileOpen.load())
         return;
-    emit(Src::Ui, "SESSION_END", {{"ops", s.seq.load()}});
+    emit(Src::Ui, "SESSION_END", {{"ops", recordCount() + 1}}); // + this record
     if (writer() != nullptr) {
         writer()->signalThreadShouldExit();
         writer()->notify();
@@ -280,8 +283,10 @@ auto setCapture(std::function<void(const std::string &line)> capture) -> void {
         const std::lock_guard<std::mutex> lock(s.mutex);
         s.capture = std::move(capture);
         s.capturing = s.capture != nullptr;
-        if (s.capturing)
+        if (s.capturing) {
             s.seq = 0;
+            s.records = 0;
+        }
     }
     if (s.capturing) {
         resetCounters();
@@ -289,6 +294,7 @@ auto setCapture(std::function<void(const std::string &line)> capture) -> void {
     }
 }
 
+auto recordCount() -> int64_t { return state().records.load(std::memory_order_relaxed); }
 auto nextPadId() -> int64_t { return state().pads.fetch_add(1); }
 auto nextOutputId() -> int64_t { return state().outputs.fetch_add(1); }
 auto nextRunId() -> int64_t { return state().runs.fetch_add(1); }

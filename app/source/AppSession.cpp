@@ -766,6 +766,7 @@ auto AppSession::setOrchestrationMode(OrchestrationMode mode) -> void {
     const auto previous = orchestrationTransformer.getMode();
     if (OpLog::on()) {
         const auto name = [](OrchestrationMode m) {
+            // "Step-in" is the user-facing name of OrchestrationMode::Edit (docs/OPLOGS.txt).
             return m == OrchestrationMode::Edit ? "Step-in" : m == OrchestrationMode::Jam ? "Jam" : "Accompaniment";
         };
         OpLog::emit(OpLog::Src::Ui, "MODE", {{"from", name(previous)}, {"to", name(mode)},

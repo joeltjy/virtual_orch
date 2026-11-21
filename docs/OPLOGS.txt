@@ -1,10 +1,14 @@
 VIRTUAL ORCH OPERATION LOGS (OPLOGS)
 ====================================
 
-What virtual_orch records about a performance, as of commit 56a4aaa on offline-sim
-("Operation logs"). Written so that another machine or person can read the files without
-the source. Code: app/include/VirtualOrch/OpLog.h, OpLogDraw.h, app/source/OpLog.cpp, and
-the OpLog::emit calls in the pipeline.
+What virtual_orch records about a performance, as of offline-sim after the merge of the
+two-sided Launchpad layout (launchpad-two-sided, Nov 2026). Written so that another machine
+or person can read the files without the source. Code: app/include/VirtualOrch/OpLog.h,
+OpLogDraw.h, app/source/OpLog.cpp, and the OpLog::emit calls in the pipeline.
+
+Files written before that merge differ in three ways, described where they apply: they use
+Launchpad layout 1 (section 5), the pedal had the opposite effect (PEDAL), and Step-in was
+called "Edit".
 
 
 1. FILES
@@ -19,7 +23,9 @@ The session log is short human-readable text (one tagged line per event: MIDI_IN
 MIDI_OUT, CUT, WAIT, HYBRID, LAUNCHPAD, MODE, CLOCK, ...). LogReplay and tools/oplog_replay
 read it to re-run a performance. The oplog is the detailed machine-readable record
 described below. The oplog alone rebuilds the session log's notes, clears, MIDI in, modes
-and Launchpad actions.
+and Launchpad actions. Session logs from layout 2 on start with "SESSION | launchpad layout
+2". A session log without that line was recorded with layout 1, and LogReplay replays it with
+the layout-1 grid and pedal.
 
 The oplog is gzip-compressed JSON Lines: one JSON object per line, in the order the writer
 thread received them. Threads append records to a buffer under a short lock, and a writer
@@ -77,13 +83,23 @@ file at RUN_START / RUN_STOP to get each Start -> Stop as its own session.
 
   SESSION_START   origin, app (version), settings (the full settings XML on one line),
                   rt (name of the active reduction model), models ({"ot": name}),
-                  checkpoint_every_ms (5000)
+                  checkpoint_every_ms (5000), launchpad_layout (2, or 1 in a replay of a
+                  layout-1 session; missing in files from before the field = layout 1)
   RUN_START       run, rt, settings (XML)            -- Start pressed
   RUN_STOP        run, reason ("stop" | "restart")   -- Stop, or a force restart
   SESSION_END     ops (number of records written)    -- app quit
   MODE            from, to ("Step-in" | "Jam" | "Accompaniment"), by (a press id "p..." or
                   "ui"). Files written before the Step-in rename say "Edit" for Step-in.
-  PAD_ACTION      p, action (text: what the press did, e.g. "Force restart", TD change, pause)
+  PAD_ACTION      p, action (text: what the press did). Texts:
+                    "Input: <instrument> on|off"  /  "Model: <instrument> on|off"
+                    "Flush: your instruments added to the model"
+                        (layout 1: "Flush: input instruments moved to the model")
+                    "Reset: model instruments cleared"
+                    "Preset <name> (model)" / "Preset <name> (yours)"
+                    "Temporal density set to <N>", "Temporal density AUTO on|off"
+                    "Mode: Step-in|Jam|Accompaniment" (layout 1: "Mode: Edit")
+                    "Max polyphony <N>" / "Max polyphony off"
+                    register changes, pauses, input block, "Force restart"
   REPLAY          (replay files only) source, rt_v1, rt_wait, ot (model files), real_models,
                   note
 
@@ -93,9 +109,20 @@ file at RUN_START / RUN_STOP to get each Start -> Stop as its own session.
                   desc
   KEY_DOWN        k, pitch, vel, piano (which keyboard)
   KEY_UP          k, pitch, held_cs
-  PEDAL           cc (64), value, state ("down" | "up", only when it changes), app_pedal
-  PAD_PRESS       p, then row + col (grid pad) or top (top-row button), source
-                  ("launchpad" | "keyboard"), key (the computer key, when source is keyboard)
+  PEDAL           cc (64), value, state ("down" | "up": the raw pedal position, value >= 64 =
+                  down), effect ("play" | "stop": what it did to the orchestra), app_pedal.
+                  state and effect only when they change. Layout 2: pedal DOWN plays the
+                  orchestra and pedal UP stops it (pause, playback cleared, future cut).
+                  Layout 1 had the opposite: down stopped, up played. Files from before the
+                  effect field have only state, and were all layout 1.
+  PEDAL_DEVICE    selected (true | false), effect ("stop" | "play"). Selecting a pedal device
+                  (also when the saved one is restored at start-up) starts the orchestra
+                  stopped until the pedal goes down. Clearing it lets it play.
+  PAD_PRESS       p, then row + col (grid pad, col 9 = the round side button at the right of
+                  the row) or top (top-row button 0-7), source ("launchpad" | "keyboard"), key
+                  (the computer key, when source is keyboard). row / col are in the layout
+                  given by SESSION_START launchpad_layout (section 5). A keyboard press logs
+                  the pad it resolved to.
   INPUT_FLUSH     keys (the keys sent to the models together in one input window),
                   window_cs, start_on_input (clock value, when the press started generation)
   INPUT_RELEASE   k, onset, dur (final length), flushed (whether it had already been sent
@@ -141,8 +168,11 @@ Output and control:
   RT_DRAIN        keys, releases (what the RT took from its input queues in one pass)
   RT_SWITCH       to ("v1" | "W"), reason ("start" | "pedal released" | "playing 1 s" |
                   "silent 0.5 s" | "2 s of predicted silence")
-  RT_CUT          from, reason (e.g. TD press, register change, input), removed (ids)
-  RT_PAUSE        paused, reason
+  RT_CUT          from, reason, removed (ids). Reasons include "TD press pNN: next 1 s kept",
+                  "register change pNN: next 1 s kept", "preset <name> pNN: next 1 s kept",
+                  "pedal up" (layout 1: "pedal down"), "left Accompaniment", input cuts
+  RT_PAUSE        paused, reason (e.g. "pedal", "pedal device selected", "pedal device
+                  cleared", Launchpad pause)
   RT_THROTTLE     state ("start" | "end"), for_ms, ahead_of (on start). The RT is too far
                   ahead of the clock and waits.
 
@@ -213,8 +243,56 @@ apply the records between it and T.
            relative to the field, groups = mask - 1, a family = its bit mask)
 
 
-5. NOT LOGGED (as of 56a4aaa)
------------------------------
+5. LAUNCHPAD LAYOUTS
+--------------------
+
+PAD_PRESS row / col: rows from the top of the 8x8 grid (0-7), columns from the left (0-7),
+col 9 = the round side button at the right end of the row. The top row of round buttons
+(PAD_PRESS "top") is the same in both layouts: 0 force restart, 1 RT pause, 2 OT pause,
+3 block input (the reduction does not hear the user).
+
+Layout 2 (launchpad_layout 2, Nov 2026 on). Cols 0-3 = YOUR instruments, cols 4-7 = the
+MODEL's, the same instrument in the same place on both sides.
+
+          col 0      1         2        3        | 4        5        6        7       | side
+  row 0   Step-in    Jam       Accomp   -        | -        -        -        -       |
+  row 1   TD 1       TD 2      TD 4     TD 8     | TD 16    TD 32    TD 64    -       | TD AUTO
+  row 2   StrEns     Pizz      Tremolo  -        | StrEns   Pizz     Tremolo  -       | FLUSH
+  row 3   Flute      Oboe      Clarinet Bassoon  | Flute    Oboe     Clarinet Bassoon | RESET
+  row 4   Horn       Trumpet   Trombone Tuba     | Horn     Trumpet  Trombone Tuba    |
+  row 5   Timpani    -         -        -        | Timpani  -        -        -       |
+  row 6   Reg LOW    Reg MED   Reg HIGH -        | Poly 1   Poly 2   Poly 3   Poly 4  | Reg AUTO
+  row 7   Solemn     Mysterious Tender  Playful  | Passionate Heroic Stormy   Grand   |
+
+  - Step-in: your side is controlled, and both sides respond to presses. Jam / Accompaniment:
+    the model's side is controlled, and presses on your side are ignored.
+  - FLUSH (Step-in only): your instruments that are on are added to the model's; yours stay
+    on. RESET (Step-in only): every model instrument switches off.
+  - Row 7 mood presets: the controlled side's instruments become the preset's, then the
+    register and TD are set, and the future from now + 1 s is cut.
+
+Layout 1 (launchpad_layout 1 or missing; every session before Nov 2026):
+
+          col 0      1         2        3        4        5        6        7       | side
+  row 0   Edit       Jam       Accomp   -        -        -        -        -       |
+  row 1   TD 1       TD 2      TD 4     TD 8     TD 16    TD 32    TD 64    -       | TD AUTO
+  row 2   in:StrEns  in:Pizz   in:Trem  -        in:Fl    in:Ob    in:Cl    in:Bsn  | FLUSH
+  row 3   in:Horn    in:Tpt    in:Tbn   in:Tuba  in:Timp  -        -        -       |
+  row 4   mdl:StrEns mdl:Pizz  mdl:Trem -        mdl:Fl   mdl:Ob   mdl:Cl   mdl:Bsn |
+  row 5   mdl:Horn   mdl:Tpt   mdl:Tbn  mdl:Tuba mdl:Timp -        -        -       |
+  row 6   Reg LOW    Reg MED   Reg HIGH -        -        -        -        -       | Reg AUTO
+  row 7   Poly 1     Poly 2    Poly 3   Poly 4   -        -        -        -       |
+
+  - "in" = your (input) instruments, "mdl" = the model's. Both worked in every mode.
+  - FLUSH worked in every mode: your instruments were added to the model's, and yours
+    switched off. There was no RESET and there were no presets.
+
+The code that maps a layout-1 pad to the layout-2 pad with the same meaning is
+LaunchpadGrid::layout1Pad (app/include/VirtualOrch/LaunchpadGrid.h).
+
+
+6. NOT LOGGED
+-------------
 
   - Voice separation (vocsep): neither its inputs nor its voice assignments. Only the
     resulting voice ids appear in RT_NOTE / OT_NOTE.

@@ -71,27 +71,46 @@ TEST(ScoreLayout, onsetsWithin30msAreSnappedToTheFirst) {
     EXPECT_EQ(snapped[3].onsetCs, 109);
 }
 
-TEST(ScoreLayout, melodyIsEveryNoteThatIsHighestForAtLeast100ms) {
-    // A melody note 2 cs after its chord's bass joins the chord (the snap); the top note is melody.
-    const auto top = skyline({{100, 100, 48}, {102, 98, 72}, {101, 99, 64}, // chord, top 72
-                              {200, 50, 74},                                 // melody
-                              {200, 200, 50}});                              // highest from 250 on
-    ASSERT_EQ(top.size(), 3u);
-    EXPECT_EQ(top[0].pitch, 72);
-    EXPECT_EQ(top[1].pitch, 50) << "highest for 150 cs after 74 ends";
-    EXPECT_EQ(top[2].pitch, 74);
-    // highest for 10 cs in one stretch: melody; for 9 cs, or 5 + 5 split by a higher note: not
-    EXPECT_EQ(skyline({{0, 100, 60}, {10, 90, 72}}).size(), 2u);
-    EXPECT_EQ(skyline({{0, 100, 60}, {9, 91, 72}}).size(), 1u);
-    const auto split = skyline({{0, 10, 60}, {5, 1, 72}, {50, 10, 40}});
-    ASSERT_EQ(split.size(), 1u) << "60 is highest for 5 + 4 cs: not melody";
-    EXPECT_EQ(split[0].pitch, 40);
-    // a short note alone is never melody (under 100 ms)
-    EXPECT_TRUE(skyline({{0, 8, 60}}).empty());
+TEST(ScoreLayout, notesSoundTogetherOnlyIfTheyOverlapEnough) {
+    // overlap >= min(150 ms, half the shorter note)
+    EXPECT_FALSE(soundTogether({0, 50, 60}, {40, 50, 62})) << "legato: 10 cs of 50 cs notes";
+    EXPECT_FALSE(soundTogether({0, 60, 60}, {50, 60, 62})) << "100 ms hand-over";
+    EXPECT_TRUE(soundTogether({0, 60, 60}, {30, 60, 62})) << "half of the shorter note";
+    EXPECT_FALSE(soundTogether({0, 8, 60}, {5, 8, 62})) << "fast run: 30 ms of 80 ms";
+    EXPECT_TRUE(soundTogether({0, 8, 60}, {4, 8, 62})) << "40 ms of 80 ms";
+    EXPECT_FALSE(soundTogether({0, 200, 60}, {186, 200, 62})) << "under 150 ms of long notes";
+    EXPECT_TRUE(soundTogether({0, 200, 60}, {185, 200, 62})) << "150 ms";
+    EXPECT_TRUE(soundTogether({0, 300, 48}, {100, 6, 72})) << "a short note over a pedal";
+    EXPECT_TRUE(soundTogether({0, 10, 60}, {0, 50, 64})) << "starting together";
+    EXPECT_FALSE(soundTogether({0, 10, 60}, {10, 10, 64})) << "touching";
 }
 
-TEST(ScoreLayout, theBassIsUncoveredBelowAndNotAlreadyMelody) {
-    // An inner voice covered above and below is in neither line.
+TEST(ScoreLayout, melodyIsTheTopOfEachOnsetGroupWithNoMinimumLength) {
+    // A note 2 cs after its chord's bass joins the chord (the snap); its top note is melody.
+    const auto top = skyline({{100, 100, 48}, {102, 98, 72}, {101, 99, 64}, // chord, top 72
+                              {200, 50, 74},                                 // melody
+                              {205, 5, 76}});                                // 50 ms, still melody
+    ASSERT_EQ(top.size(), 3u);
+    EXPECT_EQ(top[0].pitch, 72);
+    EXPECT_EQ(top[1].pitch, 74);
+    EXPECT_EQ(top[2].pitch, 76) << "above the held 74: the top at its onset";
+    // short notes of a fast run are all melody
+    EXPECT_EQ(skyline({{0, 8, 60}, {8, 8, 62}, {16, 8, 64}}).size(), 3u);
+    // a legato line: overlaps under 150 ms do not hide the next note
+    EXPECT_EQ(skyline({{0, 60, 64}, {50, 60, 62}, {100, 60, 60}}).size(), 3u);
+}
+
+TEST(ScoreLayout, aNoteUnderAHeldHigherNoteIsNotMelody) {
+    // C5 held over a lower note's onset: the melody keeps it, drawn once; the lower note is bass.
+    const auto lines = skylineAndBass({{100, 300, 72}, {200, 50, 60}});
+    ASSERT_EQ(lines.melody.size(), 1u);
+    EXPECT_EQ(lines.melody[0].pitch, 72);
+    ASSERT_EQ(lines.bass.size(), 1u);
+    EXPECT_EQ(lines.bass[0].pitch, 60);
+}
+
+TEST(ScoreLayout, theBassIsTheBottomOfEachGroupUnlessAHeldNoteIsBelow) {
+    // An inner voice is in neither line.
     const auto lines = skylineAndBass({{0, 100, 48}, {0, 100, 60}, {0, 100, 72}});
     ASSERT_EQ(lines.melody.size(), 1u);
     ASSERT_EQ(lines.bass.size(), 1u);
@@ -101,6 +120,11 @@ TEST(ScoreLayout, theBassIsUncoveredBelowAndNotAlreadyMelody) {
     const auto lone = skylineAndBass({{0, 100, 60}});
     EXPECT_EQ(lone.melody.size(), 1u);
     EXPECT_TRUE(lone.bass.empty());
+    // A held bass under new upper notes: the upper group has no bass of its own.
+    const auto pedal = skylineAndBass({{0, 400, 36}, {0, 400, 60}, {100, 50, 64}, {100, 50, 67}});
+    ASSERT_EQ(pedal.bass.size(), 1u);
+    EXPECT_EQ(pedal.bass[0].pitch, 36);
+    ASSERT_EQ(pedal.melody.size(), 2u);
 }
 
 TEST(ScoreLayout, theBassLineIsKeptApartFromTheMelody) {
@@ -112,13 +136,6 @@ TEST(ScoreLayout, theBassLineIsKeptApartFromTheMelody) {
     EXPECT_EQ(lines.bass[0].pitch, 48);
     EXPECT_EQ(lines.bass[0].onsetCs, 100) << "snapped";
     EXPECT_EQ(lines.bass[1].pitch, 43);
-}
-
-TEST(ScoreLayout, aHeldTopNoteIsShownOnce) {
-    // C5 held over a lower note's onset: the skyline keeps it, and it is drawn once.
-    const auto top = skyline({{100, 300, 72}, {200, 50, 60}});
-    ASSERT_EQ(top.size(), 1u);
-    EXPECT_EQ(top[0].pitch, 72);
 }
 
 // Draws a sample frame; with VIRTUAL_ORCH_SCORE_PNG=<path> it is also saved for a visual check.
@@ -141,12 +158,18 @@ TEST(ScoreView, rendersASampleFrame) {
     add(1160, {40, 84, 86}, "");                // ledger lines above
     std::vector<ScoreView::DrawNote> notes;
     const auto lines = skylineAndBass(generated);
-    for (const auto &n: lines.melody)
-        notes.push_back({n.onsetCs, n.pitch, n.onsetCs == 1000 || n.onsetCs == 1080, false});
-    for (const auto &n: lines.bass)
-        notes.push_back({n.onsetCs, n.pitch, n.onsetCs == 1000 || n.onsetCs == 1080, true});
+    const auto addLine = [&](const std::vector<ScoreLayout::Note> &line, bool bass) {
+        for (const auto &n: line) {
+            const auto sp = spell(n.pitch, n.onsetCs == 1000 || n.onsetCs == 1080);
+            notes.push_back({n.onsetCs, n.pitch, sp.step, sp.accidental, bass});
+        }
+    };
+    addLine(lines.melody, false);
+    addLine(lines.bass, true);
+    notes.push_back({1120, 67, 38, 2, false}); // G4 spelled F double sharp: on the F4 space
     EXPECT_EQ(lines.melody.size(), 6u) << "one melody note per chord";
-    view.setFrame(1000, notes, names);
+    view.setShowKeySignature(true);
+    view.setFrame(1000, notes, names, {"Bb major", "G minor", false, -2});
     const auto image = view.createComponentSnapshot(view.getLocalBounds(), false);
     ASSERT_EQ(image.getWidth(), 960);
 

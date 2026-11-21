@@ -19,12 +19,17 @@
  *   8                    TD AUTO                       (row 1, side)
  *   9 0 -                register LOW / MEDIUM / HIGH (row 6, cols 0-2)
  *   =                    register AUTO                 (row 6, side)
- *   Q W E   T Y U I      model: Str Ens Pizz Tremolo  Flute Oboe Clarinet Bassoon (row 4)
- *   A S D F G            model: Horn Trumpet Trombone Tuba Timpani               (row 5)
- *   Shift + Q…I, A…G     the same instruments in the input (User) rows 2 / 3
- *   Return               flush input instruments to the model (row 2, side)
- *   Z X C                mode Edit / Jam / Accompaniment (row 0, cols 0-2)
- *   V B N M              max polyphony 1-4             (row 7, cols 0-3)
+ *   Q W E                Str Ens Pizz Tremolo          (row 2)
+ *   A S D F              Flute Oboe Clarinet Bassoon   (row 3)
+ *   Z X C V              Horn Trumpet Trombone Tuba    (row 4)
+ *   T                    Timpani                       (row 5)
+ *                        Instrument keys press the side the pads control: yours (cols 0-3)
+ *                        in Edit, the model's (cols 4-7) in Jam / Accompaniment.
+ *   Return               flush your instruments to the model (row 2, side; Edit only)
+ *   Backspace            reset the model's instruments (row 3, side; Edit only)
+ *   Y U I                mode Step-in (Edit) / Jam / Accompaniment (row 0, cols 0-2)
+ *   N M , .              max polyphony 1-4             (row 6, cols 4-7)
+ *   F5 … F12             mood presets 1-8              (row 7, cols 0-7)
  *   F1 F2 F3 F4          top buttons: force restart, RT pause, OT pause, block input
  */
 namespace KeyboardLaunchpad {
@@ -38,9 +43,8 @@ struct Target {
 };
 
 struct Binding {
-    int key;        // juce key code: an upper-case letter / digit / '-' / '=' or a juce::KeyPress code
-    bool shift;     // Shift must be held (only for the input-instrument rows)
-    Target target;
+    int key;        // juce key code: an upper-case letter / digit / '-' / '=' / ',' / '.' or a juce::KeyPress code
+    Target target;  // instrument keys name your side (cols 0-3); see resolve()
 };
 
 namespace detail {
@@ -56,34 +60,35 @@ inline auto bindings() -> const std::vector<Binding> & {
         std::vector<Binding> b;
         const char td[] = {'1', '2', '3', '4', '5', '6', '7'};
         for (int i = 0; i < 7; ++i)
-            b.push_back({td[i], false, pad(LaunchpadGrid::kTdRow, i)});
-        b.push_back({'8', false, pad(LaunchpadGrid::kTdRow, kSide)});
-        b.push_back({'9', false, pad(LaunchpadGrid::kRegisterRow, 0)});
-        b.push_back({'0', false, pad(LaunchpadGrid::kRegisterRow, 1)});
-        b.push_back({'-', false, pad(LaunchpadGrid::kRegisterRow, 2)});
-        b.push_back({'=', false, pad(LaunchpadGrid::kRegisterRow, kSide)});
-        // Instrument rows: first row of a set on Q W E _ T Y U I, second on A S D F G.
-        const char firstRow[] = {'Q', 'W', 'E', 0, 'T', 'Y', 'U', 'I'};
-        const char secondRow[] = {'A', 'S', 'D', 'F', 'G'};
-        for (const bool shift: {false, true}) {
-            const int base = shift ? LaunchpadGrid::kUserRowFirst : LaunchpadGrid::kModelRowFirst;
-            for (int col = 0; col < 8; ++col)
-                if (firstRow[col] != 0)
-                    b.push_back({firstRow[col], shift, pad(base, col)});
-            for (int col = 0; col < 5; ++col)
-                b.push_back({secondRow[col], shift, pad(base + 1, col)});
-        }
-        b.push_back({juce::KeyPress::returnKey, false, pad(LaunchpadGrid::kFlushRow, kSide)});
-        const char modes[] = {'Z', 'X', 'C'};
+            b.push_back({td[i], pad(LaunchpadGrid::kTdRow, i)});
+        b.push_back({'8', pad(LaunchpadGrid::kTdRow, kSide)});
+        b.push_back({'9', pad(LaunchpadGrid::kRegisterRow, 0)});
+        b.push_back({'0', pad(LaunchpadGrid::kRegisterRow, 1)});
+        b.push_back({'-', pad(LaunchpadGrid::kRegisterRow, 2)});
+        b.push_back({'=', pad(LaunchpadGrid::kRegisterRow, kSide)});
+        // Instrument rows (your side; resolve() moves them to the model's side in Jam).
+        const char *const familyKeys[LaunchpadGrid::kInstrumentRowCount] = {"QWE", "ASDF", "ZXCV", "T"};
+        for (int row = 0; row < LaunchpadGrid::kInstrumentRowCount; ++row)
+            for (int col = 0; familyKeys[row][col] != 0; ++col)
+                b.push_back({familyKeys[row][col], pad(LaunchpadGrid::kInstrumentRowFirst + row,
+                                                       LaunchpadGrid::kUserColFirst + col)});
+        b.push_back({juce::KeyPress::returnKey, pad(LaunchpadGrid::kFlushRow, kSide)});
+        b.push_back({juce::KeyPress::backspaceKey, pad(LaunchpadGrid::kResetRow, kSide)});
+        const char modes[] = {'Y', 'U', 'I'};
         for (int i = 0; i < 3; ++i)
-            b.push_back({modes[i], false, pad(LaunchpadGrid::kModeRow, i)});
-        const char poly[] = {'V', 'B', 'N', 'M'};
+            b.push_back({modes[i], pad(LaunchpadGrid::kModeRow, i)});
+        const char poly[] = {'N', 'M', ',', '.'};
         for (int i = 0; i < 4; ++i)
-            b.push_back({poly[i], false, pad(LaunchpadGrid::kAccompRow, i)});
+            b.push_back({poly[i], pad(LaunchpadGrid::kAccompRow, LaunchpadGrid::kPolyphonyColFirst + i)});
+        const int presetKeys[] = {juce::KeyPress::F5Key,  juce::KeyPress::F6Key,  juce::KeyPress::F7Key,
+                                  juce::KeyPress::F8Key,  juce::KeyPress::F9Key,  juce::KeyPress::F10Key,
+                                  juce::KeyPress::F11Key, juce::KeyPress::F12Key};
+        for (int i = 0; i < LaunchpadGrid::kPresetCount; ++i)
+            b.push_back({presetKeys[i], pad(LaunchpadGrid::kPresetRow, i)});
         const int fkeys[] = {juce::KeyPress::F1Key, juce::KeyPress::F2Key, juce::KeyPress::F3Key,
                              juce::KeyPress::F4Key};
         for (int i = 0; i < 4; ++i)
-            b.push_back({fkeys[i], false, scene(i)});
+            b.push_back({fkeys[i], scene(i)});
         return b;
     }();
     return all;
@@ -96,45 +101,61 @@ inline auto bindings() -> const std::vector<Binding> & {
     return keyCode;
 }
 
-/**
- * The target for a key, or nullopt. `shift` only selects the input rows for letters: digits,
- * '-', '=', Return and F-keys ignore it (Shift+1 is still TD 1).
- */
-[[nodiscard]] inline auto targetFor(int keyCode, bool shift) -> std::optional<Target> {
+/** The target for a key (Shift makes no difference), or nullopt. */
+[[nodiscard]] inline auto targetFor(int keyCode) -> std::optional<Target> {
     const int key = normaliseKey(keyCode);
-    const bool letter = key >= 'A' && key <= 'Z';
     for (const auto &b: bindings())
-        if (b.key == key && (! letter || b.shift == shift))
+        if (b.key == key)
             return b.target;
     return std::nullopt;
 }
 
-/** Human label for a key ("Q", "⇧Q", "Return", "F1"). */
+/** Human label for a key ("Q", "Ret", "Bksp", "F1"). */
 [[nodiscard]] inline auto keyLabel(const Binding &b) -> juce::String {
-    juce::String k;
     if (b.key == juce::KeyPress::returnKey)
-        k = "Ret";
-    else if (b.key >= juce::KeyPress::F1Key && b.key <= juce::KeyPress::F4Key)
-        k = "F" + juce::String(b.key - juce::KeyPress::F1Key + 1);
-    else
-        k = juce::String::charToString(static_cast<juce::juce_wchar>(b.key));
-    return (b.shift ? juce::String(juce::CharPointer_UTF8("\xe2\x87\xa7")) : juce::String()) + k;
+        return "Ret";
+    if (b.key == juce::KeyPress::backspaceKey)
+        return "Bksp";
+    const int fkeys[] = {juce::KeyPress::F1Key,  juce::KeyPress::F2Key,  juce::KeyPress::F3Key,
+                         juce::KeyPress::F4Key,  juce::KeyPress::F5Key,  juce::KeyPress::F6Key,
+                         juce::KeyPress::F7Key,  juce::KeyPress::F8Key,  juce::KeyPress::F9Key,
+                         juce::KeyPress::F10Key, juce::KeyPress::F11Key, juce::KeyPress::F12Key};
+    for (int i = 0; i < 12; ++i)
+        if (b.key == fkeys[i])
+            return "F" + juce::String(i + 1);
+    return juce::String::charToString(static_cast<juce::juce_wchar>(b.key));
 }
 
-/** The key label for a grid button (row, col incl. side) or top button, or empty. */
+/**
+ * The key label for a grid button (row, col incl. side) or top button, or empty. A model-side
+ * instrument pad shows the key of the matching pad on your side (the same key presses it in Jam).
+ */
 [[nodiscard]] inline auto labelForTarget(const Target &t) -> juce::String {
+    Target lookup = t;
+    if (! t.isScene() && LaunchpadGrid::targetForPad(t.row, t.col) == InstrumentUpdateTarget::Model)
+        lookup.col = t.col - LaunchpadGrid::kModelColFirst;
     for (const auto &b: bindings())
-        if (b.target == t)
+        if (b.target == lookup)
             return keyLabel(b);
     return {};
 }
 
+/** The button a key presses now: instrument keys go to the side the pads control. */
+[[nodiscard]] inline auto resolve(const LaunchpadGrid &grid, const Target &t) -> Target {
+    if (t.isScene() || LaunchpadGrid::targetForPad(t.row, t.col) != InstrumentUpdateTarget::User
+        || grid.controlledTarget() != InstrumentUpdateTarget::Model)
+        return t;
+    return {t.row, t.col + LaunchpadGrid::kModelColFirst, -1};
+}
+
 /** Send a press to the grid, as the Launchpad would (press only; the grid ignores releases). */
 inline auto press(LaunchpadGrid &grid, const Target &t) -> void {
-    if (t.isScene())
+    if (t.isScene()) {
         grid.handleSceneInput(t.scene);
-    else
-        grid.handleInput(t.row, t.col, true);
+        return;
+    }
+    const auto target = resolve(grid, t);
+    grid.handleInput(target.row, target.col, true);
 }
 
 /**
@@ -154,14 +175,14 @@ public:
         if (mods.isCommandDown() || mods.isCtrlDown() || mods.isAltDown())
             return false;
         const int code = normaliseKey(key.getKeyCode());
-        const auto target = targetFor(code, mods.isShiftDown());
+        const auto target = targetFor(code);
         if (! target.has_value())
             return false;
         if (held.count(code) != 0)
             return true; // auto-repeat of a key that is still down
         held.insert(code);
         if (onPress)
-            onPress(*target, keyLabel({code, mods.isShiftDown() && code >= 'A' && code <= 'Z', *target}));
+            onPress(*target, keyLabel({code, *target}));
         return true;
     }
 

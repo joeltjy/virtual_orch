@@ -1,0 +1,228 @@
+NEW LAUNCHPAD LAYOUT
+====================
+
+Written 21 Nov 2026 from the uncommitted work in ~/virtual_orch (branch main, files dated
+19-20 Nov). Nothing here is committed or pushed yet. That work builds (build/ test binary of
+20 Nov 13:15, newer than every changed file) and its tests pass: 73 of the 74
+Launchpad / Accompaniment / PerformanceActivity / SeatingPlan / Pedal tests, the 74th
+(SeatingPlanFreeze.writesSnapshotsWhenAskedTo) is skipped by design.
+
+Part 1 describes the new layout and what else changed with it. Part 2 lists what still has to
+be done, mainly to bring it together with the offline-sim branch (operation logs + log replay).
+
+
+PART 1: THE NEW LAYOUT
+----------------------
+
+Rows are counted from the top (0) of the 8x8 grid, columns from the left (0). "side" = the
+round button at the right end of a row (column 9 in the code). The top row of round buttons
+(CC 104-111) is unchanged.
+
+Old layout (main @ 9563268, what every recorded session used):
+
+          col 0      1        2        3       4       5       6       7      | side
+  top     Force rst  RT pause OT pause Block-in  -       -       -       -
+  row 0   Edit       Jam      Accomp   -       -       -       -       -      |
+  row 1   TD 1       TD 2     TD 4     TD 8    TD 16   TD 32   TD 64   -      | TD AUTO
+  row 2   in:StrEns  in:Pizz  in:Trem  -       in:Fl   in:Ob   in:Cl   in:Bsn | FLUSH
+  row 3   in:Horn    in:Tpt   in:Tbn   in:Tuba in:Timp -       -       -      |
+  row 4   mdl:StrEns mdl:Pizz mdl:Trem -       mdl:Fl  mdl:Ob  mdl:Cl  mdl:Bsn|
+  row 5   mdl:Horn   mdl:Tpt  mdl:Tbn  mdl:Tuba mdl:Timp -     -       -      |
+  row 6   Reg LOW    Reg MED  Reg HIGH -       -       -       -       -      | Reg AUTO
+  row 7   Poly 1     Poly 2   Poly 3   Poly 4  -       -       -       -      |
+
+New layout:
+
+          col 0      1        2        3      || 4       5        6        7      | side
+  top     Force rst  RT pause OT pause Block-in  (unchanged)
+  row 0   Step-in    Jam      Accomp   -      || -       -        -        -      |
+  row 1   TD 1       TD 2     TD 4     TD 8   || TD 16   TD 32    TD 64    -      | TD AUTO
+          ---------- YOUR instruments --------||---------- MODEL's instruments ---
+  row 2   StrEns     Pizz     Tremolo  -      || StrEns  Pizz     Tremolo  -      | FLUSH (Step-in only)
+  row 3   Flute      Oboe     Clarinet Bassoon|| Flute   Oboe     Clarinet Bassoon| RESET (Step-in only)
+  row 4   Horn       Trumpet  Trombone Tuba   || Horn    Trumpet  Trombone Tuba   |
+  row 5   Timpani    -        -        -      || Timpani -        -        -      |
+  row 6   Reg LOW    Reg MED  Reg HIGH -      || Poly 1  Poly 2   Poly 3   Poly 4 | Reg AUTO
+  row 7   Solemn  Mysterious Tender  Playful  || Passionate Heroic Stormy   Grand  |   (mood presets)
+
+Summary of the move:
+- Instruments: one row per family (strings, woodwinds, brass, percussion) instead of two
+  rows for "input" and two rows for "model". Your side is columns 0-3, the model's is 4-7,
+  with the same instrument in the same place on both sides (LaunchpadGrid::targetForPad,
+  AppSession kInstrumentPads: rowOffset from kInstrumentRowFirst, col within the side).
+- Max polyphony moved from row 7 cols 0-3 to row 6 cols 4-7 (kAccompRow == kRegisterRow,
+  kPolyphonyColFirst = 4). Same behaviour: works and lit in Jam and Accompaniment, pressing
+  the selected pad again clears the cap, entering Accompaniment with no cap starts at 1.
+- Row 7 is new: eight mood presets.
+- Row 3's side button is new: RESET.
+- "Edit" is now called "Step-in" everywhere the user sees it (UI buttons, the MODE session-log
+  line, PerformanceActivity "Mode: Step-in"). The code still says OrchestrationMode::Edit.
+
+Which side the pads control (new):
+- Step-in (Edit): your side is controlled; both sides respond to presses.
+- Jam / Accompaniment: the model's side is controlled; presses on your side are ignored.
+  (Old: input and model rows both worked in every mode.)
+- Lighting (LaunchpadLighting.h): the controlled side is lit in family colours; the other side
+  shows yours in grey (kGrey = 1) and the model's dimmed (dimmed(colour, kOtherSideDimLevel = 2),
+  "tune on the hardware"). The on-screen grid (ActiveInstrumentsView) uses the same colours,
+  draws a divider between the sides and a white frame around the controlled side, and its
+  bracket label says "You" or "Model".
+
+Flush and Reset (side buttons of rows 2 and 3):
+- FLUSH (row 2): only in Step-in, and only lit there. Your instruments that are on are ADDED to
+  the model's; yours stay on. (Old: worked in every mode, and your pads switched off after the
+  flush.) Action text "Flush: your instruments added to the model".
+- RESET (row 3, red): only in Step-in. Every model instrument switches off.
+  Action text "Reset: model instruments cleared".
+
+Mood presets (row 7; MoodPresets.h, a new file; edit its table to change them):
+
+  pad  name        colour  instruments                                   TD    register
+  0    Solemn      blue    StrEns Bassoon Horn Trombone Tuba             2     LOW
+  1    Mysterious  purple  Tremolo Clarinet Bassoon                      2     LOW
+  2    Tender      sky     StrEns Clarinet Horn                          4     AUTO
+  3    Playful     lime    Pizz Flute Oboe Bassoon                       16    HIGH
+  4    Passionate  pink    StrEns Oboe Clarinet Horn Trombone            16    AUTO
+  5    Heroic      orange  StrEns Trumpet Horn Trombone Timpani          16    MEDIUM
+  6    Stormy      red     Tremolo Trumpet Trombone Tuba Timpani         32    LOW
+  7    Grand       white   all twelve                                    64    AUTO
+
+- A press makes the CONTROLLED side's instruments exactly the preset's, then sets the
+  register, then TD (TD last, so the register's "switch TD to AUTO" does not undo it).
+- The app then cuts the future once from now + 1 s, as for a TD press (AppSession
+  preset_callback, CUT line "preset <name>: notes from ... removed").
+- Lights: the active preset full colour; dimmer once anything it sets was changed by hand
+  (markPresetModified: TD, TD AUTO, register, register AUTO, a pad on the controlled side);
+  the others dimmest. A mode change clears the active preset. Pressing it again re-applies it.
+- Action text "Preset <name> (model)" / "(yours)".
+
+Computer keyboard as Launchpad (KeyboardLaunchpad.h), new bindings:
+
+  1-7 TD, 8 TD AUTO, 9 0 - register LOW/MED/HIGH, = register AUTO   (unchanged)
+  Q W E         strings    StrEns Pizz Tremolo
+  A S D F       woodwinds  Flute Oboe Clarinet Bassoon
+  Z X C V       brass      Horn Trumpet Trombone Tuba
+  T             timpani
+                (instrument keys press the controlled side: yours in Step-in, the model's
+                in Jam / Accompaniment, via KeyboardLaunchpad::resolve; Shift no longer used)
+  Return        FLUSH            Backspace   RESET
+  Y U I         mode Step-in / Jam / Accompaniment       (was Z X C)
+  N M , .       max polyphony 1-4                         (was V B N M)
+  F5 ... F12    mood presets 1-8 (new)
+  F1 F2 F3 F4   force restart, RT pause, OT pause, block input   (unchanged)
+
+The pedal (changed in the same work, not part of the grid but it goes with it):
+- The app's pedal is now inverted. Pedal DOWN = the orchestra plays; pedal UP = it stops
+  (generation paused, playback cleared, future cut from that moment). Old: pedal down paused
+  and cut, pedal up resumed.
+- Selecting a pedal device starts silenced (MidiInputProcess::pedalDeviceSelected, also when
+  the saved device is restored at startup): the orchestra sounds once the pedal goes down.
+  Clearing the pedal device un-silences (pedalDeviceCleared). With no pedal device nothing is
+  paused until the first CC64.
+- Renames: onPedalDown -> onPedalSilence, pedalDownSinceMs -> pedalSilentSinceMs,
+  getPedalDownForMs -> getPedalSilentForMs; the seating-plan "frozen" display now follows
+  pedal-up time. CUT line "pedal up: future removed from ...".
+
+Files changed (21 + 1 new): LaunchpadGrid.h, LaunchpadLighting.h, KeyboardLaunchpad.h,
+MoodPresets.h (new), PerformanceActivity.h, InstrumentUiColours.h (grey + dim shades),
+ActiveInstrumentsView.h/.cpp, UiConstants.h, MainComponent.cpp (pedal device select/clear),
+MidiInputProcess.h/.cpp (pedal), ReductionTransformer.h (comment), AppSession.cpp,
+InstrumentActiveLightWidget.cpp, tests (LaunchpadGridTest, KeyboardLaunchpadTest,
+AccompanimentTest, PerformanceActivityTest, SeatingPlanViewTest).
+Also in the working copy but NOT part of this work: cmake/CPM.cmake (local offline CPM, never
+commit) and OrchestrationModels.cpp (the modelsDir fix, already committed on offline-sim as
+f73a483).
+
+
+PART 2: CHANGES THAT HAVE TO BE MADE
+------------------------------------
+
+A. Commit the layout work
+   1. Commit it on its own branch off main (e.g. launchpad-two-sided), leaving out
+      cmake/CPM.cmake. OrchestrationModels.cpp can be left out too (same fix as f73a483).
+   2. Decide on a version marker for the layout (e.g. LaunchpadGrid::kLayoutVersion = 2), so
+      logs can say which layout a session used (see C3 and D).
+
+B. Merge with offline-sim (operation logs, log replay; pushed, 56a4aaa)
+   Files both sides changed, and what to do in each:
+   - LaunchpadGrid.h: offline-sim adds a PAD_PRESS record (and OpLog::currentPad) at the top of
+     handleInput and handleSceneInput. Layout-independent: keep it as is on top of the new code.
+   - AppSession.cpp:
+     * offline-sim wraps KeyboardLaunchpad::press in OpLog::padKey = label; keep that around
+       the new press call (resolve() runs inside press, so PAD_PRESS logs the resolved pad).
+     * offline-sim passes reasons to requestModeCut for TD / register / left Accompaniment;
+       add one to the new preset_callback: "preset <name> pNN: next 1 s kept".
+     * offline-sim's MODE record names modes Edit / Jam / Accompaniment; decide whether the
+       oplog says "Step-in" (user-facing name) or keeps "Edit" (code name), and say so in the
+       README. Suggestion: "Step-in", matching the session log.
+     * PAD_ACTION is emitted from action_callback, so Reset and Preset actions are logged
+       without further work.
+   - MidiInputProcess.cpp (handleSustainPedal) - semantic, not just textual:
+     * offline-sim logs PEDAL with state "down"/"up" and calls requestModeCut(pedalTime,
+       "pedal down") and setGenerationPause(pause, "pedal"). In the new code the cut happens on
+       pedal UP: the reason must become "pedal up", and the `stopped` edge replaces `pressed`.
+     * Add oplog records for pedalDeviceSelected / pedalDeviceCleared (they pause / resume
+       generation): e.g. PEDAL_DEVICE {selected: true}, and setGenerationPause(true,
+       "pedal device selected") so RT_PAUSE has a reason.
+     * PEDAL should say what the pedal did, not only the raw state: e.g. effect "stop" /
+       "play", since "down" means the opposite in old and new sessions.
+   - OrchestrationModels.cpp: identical fix on both sides; take either.
+   - After the merge: build, run the whole test suite, and the LogReplay tests (see D, which
+     will fail until D is done).
+
+C. Operation-log format (orchestration/performance_streams/oplogs/README.md)
+   1. PAD_PRESS row/col now refer to the new layout; document both layouts (or link this file).
+   2. PEDAL: document the new polarity and the PEDAL_DEVICE record.
+   3. SESSION_START: add `launchpad_layout` (1 = old, 2 = new) so a reader can interpret
+      PAD_PRESS without knowing the date.
+   4. New PAD_ACTION texts: "Reset: model instruments cleared", "Preset <name> (model|yours)",
+      "Flush: your instruments added to the model", "Mode: Step-in".
+
+D. Log replay of the OLD sessions (LogReplay.cpp, LogReplayTest, the oplog fill-in)
+   Every recorded session (Oct-Nov 2026) used the old layout and the old pedal. After the merge
+   the replay feeds their raw Launchpad notes and CC64 values to the new code, which would read
+   them wrongly (an old "model: Str Ens" press at row 4 col 0 is now "your Horn"; an old row-7
+   polyphony press is now a preset; the pedal is inverted). The permanent LogReplay test would
+   fail. Needed:
+   1. A legacy mode for replays of old sessions (Options::legacyLayout, set automatically for
+      sessions before the change):
+      - translate old pad presses to the new pad with the same meaning (old rows 2-3 -> your
+        side, rows 4-5 -> model side, using the family rows; old row 7 cols 0-3 -> row 6 cols
+        4-7; modes, TD, register unchanged);
+      - invert the app pedal's CC64 (value v -> 127 - v; this maps v >= 64 onto < 64 exactly),
+        and do not call pedalDeviceSelected (old sessions started un-silenced);
+      - old FLUSH: worked in every mode and switched your pads off afterwards. Replay it as
+        the new flush plus switching your pads off, and allow it outside Step-in;
+      - old Jam / Accompaniment allowed presses on the input rows; the new grid ignores
+        presses on your side outside Step-in. The replay must apply them anyway (e.g. set the
+        user-side pad state directly), or old sessions that changed input instruments in Jam
+        will diverge.
+   2. The replay compares log TEXT with the recorded log: the new code writes "Step-in"
+      (MODE line, "Mode: Step-in"), "Flush: your instruments added to the model" and
+      "pedal up: future removed". In legacy mode either write the old texts or map them
+      before comparing (LogReplay compareTag), so MODE / LAUNCHPAD / CUT stay exact.
+   3. Re-run the LogReplay tests (all must pass as before), then the oplog checks
+      (oplog_check.py) before regenerating the oplogs of the old sessions.
+
+E. Performance streams (orchestration/tools/performance_streams)
+   1. build_streams.py launchpad_button_name() hard-codes the old layout (_PAD_INSTR, rows
+      2-5 input/model, row 7 polyphony, "Mode: Edit", side 2 = flush). Choose the layout by
+      session date (or by the layout marker once logs carry it) and add the new one: family
+      rows with your/model sides, row 6 cols 4-7 polyphony, row 7 presets, side 3 = Reset.
+   2. Pedal parsing: it treats CC64 >= 64 on the app's pedal device as "down" = stopping
+      generation. For new sessions the meaning is inverted (down = playing); the Controls
+      track should show when the orchestra was stopped, not only the raw pedal position.
+   3. Keyboard-Launchpad lines ("KEYBOARD_LAUNCHPAD key Q | pad 4 0") change meaning: new
+      sessions log the resolved pad, so the key alone no longer says which side.
+   4. Viewer labels: "Mode: Step-in", "Reset", the preset names.
+
+F. To check on the hardware / decide
+   - Dim level of the model's side (kOtherSideDimLevel = 2) and the grey of yours: readable on
+     the Mini MK3 in a lit room?
+   - The preset table (instruments, TD, register) is a first guess; tune it by playing.
+   - F5-F12 on a Mac keyboard need fn unless "Use F1, F2, etc. keys as standard function keys"
+     is on.
+   - Row 5 has only Timpani on each side; cols 1-3 and 5-7 of row 5 are free (snare was dropped
+     because its channel is the contrabass now).
+   - Scripted MIDI input files (scripted-input work, a2240be) that contain Launchpad notes were
+     written for the old layout and must be updated.

@@ -8,6 +8,7 @@
 #include "VirtualOrch/BiasSettings.h"
 #include "VirtualOrch/reduction/TdOnsetBias.h"
 #include "VirtualOrch/SessionLog.h"
+#include "VirtualOrch/MoodPresets.h"
 #include "VirtualOrch/ui/UiConstants.h"
 #include "onnxruntime_cxx_api.h"
 
@@ -125,13 +126,14 @@ AppSession::AppSession()
     keyboardLaunchpad.isEnabled = [this] { return keyboardLaunchpadEnabled.load(); };
     keyboardLaunchpad.onPress = [this](const KeyboardLaunchpad::Target &target, const juce::String &label) {
         // Logged like a raw Launchpad press (MIDI_IN), so a session log shows which key was used.
+        const auto pressed = KeyboardLaunchpad::resolve(midiInputProcess.getLaunchpadGrid(), target);
         SessionLog::add("KEYBOARD_LAUNCHPAD",
                         "key " + label + " | "
-                            + (target.isScene() ? "top " + juce::String(target.scene)
-                                                : "pad " + juce::String(target.row) + " " + juce::String(target.col)));
+                            + (pressed.isScene() ? "top " + juce::String(pressed.scene)
+                                                 : "pad " + juce::String(pressed.row) + " " + juce::String(pressed.col)));
         KeyboardLaunchpad::press(midiInputProcess.getLaunchpadGrid(), target);
     };
-    midiInputProcess.onPedalDown = [this](int32_t pedalTimeCs) {
+    midiInputProcess.onPedalSilence = [this](int32_t pedalTimeCs) {
         outputPlayback.pedalClearRequests.push(pedalTimeCs);
     };
     midiInputProcess.allowInputThru = [this] {
@@ -153,7 +155,7 @@ AppSession::AppSession()
                     continue;
                 const auto &mapped =
                     grid.padInstruments[static_cast<size_t>(row)][static_cast<size_t>(col)];
-                const auto target = LaunchpadGrid::targetForRow(row);
+                const auto target = LaunchpadGrid::targetForPad(row, col);
                 if (! mapped.has_value() || ! target.has_value())
                     continue;
                 if (*target == InstrumentUpdateTarget::User)
@@ -177,6 +179,14 @@ AppSession::AppSession()
     midiInputProcess.getLaunchpadGrid().register_callback = [this] {
         const auto cut = static_cast<int32_t>(clock.getTime()) + kTdCutAheadCs;
         SessionLog::add("CUT", "register change: notes from " + juce::String(cut) + " (now + 1 s) removed");
+        activeReduction().requestModeCut(cut);
+    };
+    // A mood preset may change TD and register at once: one cut, as for a TD press.
+    midiInputProcess.getLaunchpadGrid().preset_callback = [this](int presetIndex) {
+        const auto cut = static_cast<int32_t>(clock.getTime()) + kTdCutAheadCs;
+        SessionLog::add("CUT", juce::String("preset ")
+                                   + MoodPresets::all()[static_cast<size_t>(presetIndex)].name
+                                   + ": notes from " + juce::String(cut) + " (now + 1 s) removed");
         activeReduction().requestModeCut(cut);
     };
     midiInputProcess.getLaunchpadGrid().mode_callback = [this](OrchestrationMode mode) {
@@ -220,25 +230,25 @@ AppSession::AppSession()
 
         syncPauseTopLeds();
     };
-    // Same two-row instrument layout for User (input) and Model; row offset within the set.
+    // One row per family; the same layout on your side (cols 0-3) and the model's (cols 4-7).
     struct PadMapping {
-        int rowOffset;
-        int col;
+        int rowOffset; // from LaunchpadGrid::kInstrumentRowFirst
+        int col;       // within the side, 0-3
         int32_t localId;
     };
     static constexpr std::array<PadMapping, 12> kInstrumentPads{{
         {0, 0, 6},  // string ensemble
         {0, 1, 5},  // pizzicato
         {0, 2, 4},  // tremolo
-        {0, 4, 7},  // flute
-        {0, 5, 8},  // oboe
-        {0, 6, 9},  // clarinet
-        {0, 7, 10}, // bassoon
-        {1, 0, 12}, // horn
-        {1, 1, 11}, // trumpet
-        {1, 2, 13}, // trombone
-        {1, 3, 14}, // tuba
-        {1, 4, 16}, // timpani (snare dropped: its channel 15 is the contrabass now)
+        {1, 0, 7},  // flute
+        {1, 1, 8},  // oboe
+        {1, 2, 9},  // clarinet
+        {1, 3, 10}, // bassoon
+        {2, 0, 12}, // horn
+        {2, 1, 11}, // trumpet
+        {2, 2, 13}, // trombone
+        {2, 3, 14}, // tuba
+        {3, 0, 16}, // timpani (snare dropped: its channel 15 is the contrabass now)
     }};
 
     // All instrument pads start off (User + Model).
@@ -246,10 +256,10 @@ AppSession::AppSession()
     orchestrationTransformer.modelInstruments.clear();
     {
         auto &grid = midiInputProcess.getLaunchpadGrid();
-        for (const int base: {LaunchpadGrid::kUserRowFirst, LaunchpadGrid::kModelRowFirst})
+        for (const int colBase: {LaunchpadGrid::kUserColFirst, LaunchpadGrid::kModelColFirst})
             for (const auto &pad: kInstrumentPads)
-                grid.padInstruments[static_cast<size_t>(base + pad.rowOffset)]
-                                   [static_cast<size_t>(pad.col)] = pad.localId;
+                grid.padInstruments[static_cast<size_t>(LaunchpadGrid::kInstrumentRowFirst + pad.rowOffset)]
+                                   [static_cast<size_t>(colBase + pad.col)] = pad.localId;
     }
 
     orchestrationTransformer.orchestrationModel = orchestrationModel.get();
@@ -685,7 +695,7 @@ auto AppSession::applyLogitAdjustments(const juce::var &a) -> void {
 
 auto AppSession::setOrchestrationMode(OrchestrationMode mode) -> void {
     const auto previous = orchestrationTransformer.getMode();
-    SessionLog::add("MODE", juce::String(mode == OrchestrationMode::Edit  ? "Edit"
+    SessionLog::add("MODE", juce::String(mode == OrchestrationMode::Edit  ? "Step-in"
                                          : mode == OrchestrationMode::Jam ? "Jam"
                                                                           : "Accompaniment"));
     orchestrationTransformer.setMode(mode);

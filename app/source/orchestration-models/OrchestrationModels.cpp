@@ -11,12 +11,12 @@ auto orchestrationModelNames() -> std::vector<std::string> {
 }
 
 auto createOrchestrationModel(const std::string &name) -> std::unique_ptr<OrchestrationModel> {
-    const auto modelsDir = projectModelsDir();
+    const auto projectDir = projectModelsDir();
 
     try {
         if (name == "TestModel") {
             auto model = std::make_unique<TestModel>();
-            const auto path = modelsDir.getChildFile("dumb_pitch_split_instrument.onnx").getFullPathName();
+            const auto path = projectDir.getChildFile("dumb_pitch_split_instrument.onnx").getFullPathName();
             model->init(path.toRawUTF8());
             return model;
         }

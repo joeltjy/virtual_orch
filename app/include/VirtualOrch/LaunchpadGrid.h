@@ -14,6 +14,7 @@
 #include "Fifo.h"
 #include "VirtualOrch/LaunchpadLighting.h"
 #include "VirtualOrch/LaunchpadProgrammerMap.h"
+#include "VirtualOrch/MoodPresets.h"
 #include "VirtualOrch/OrchestrationTransformer.h"
 #include "VirtualOrch/PerformanceActivity.h"
 #include "VirtualOrch/PolyphonyCap.h"
@@ -29,23 +30,28 @@
  *                        AUTO on: side green, levels unlit. AUTO off: side red, the
  *                        selected level lit. A level press turns AUTO off and selects it.
  *                        Only this class writes TemporalDensity.
- *    kUserRowFirst (2)   input (User) instruments, 2 rows; side of row 2 = flush:
- *                        every input instrument that is on is switched on in the model
- *                        set (added, not replaced), then all input pads switch off.
- *    kModelRowFirst (4)  model instruments, 2 rows (same layout as User)
+ *    kInstrumentRowFirst (2..5)  one row per family (strings, woodwinds, brass, percussion);
+ *                        YOUR instruments in cols 0..3, the MODEL's in cols 4..7 (same layout).
+ *                        The pads control your side in Edit and the model's side in Jam /
+ *                        Accompaniment; presses on the other side are ignored. Controlled
+ *                        side: family colour. Other side: yours grey, the model's dim.
+ *                        Side of row 2 = FLUSH (Edit only): your instruments are added to the
+ *                        model's (yours stay on). Side of row 3 = RESET (Edit only): every
+ *                        model instrument switches off.
  *    kRegisterRow (6)    register LOW / MEDIUM / HIGH (cols 0..2) + AUTO side pad; a register
- *                        other than AUTO switches TD to AUTO (TD 4 for the model)
- *    kAccompRow (7)      max polyphony 1..4 (cols 0..3); works and is lit in Jam and
- *                        Accompaniment; pressing the selected pad again clears the cap.
- *                        Entering Accompaniment with no cap starts at 1; kept across modes.
+ *                        other than AUTO switches TD to AUTO (TD 4 for the model).
+ *                        Same row, cols 4..7 (kAccompRow): max polyphony 1..4; works and is lit
+ *                        in Jam and Accompaniment; pressing the selected pad again clears the
+ *                        cap. Entering Accompaniment with no cap starts at 1; kept across modes.
+ *    kPresetRow (7)      mood presets (MoodPresets), cols 0..7: a press sets the controlled
+ *                        side's instruments, TD and register. Active preset bright, changed
+ *                        since dimmer, others dimmest; pressing it again re-applies it.
  *  Instrument pads: On (1) / Off (0), toggled on press; unmapped pads ignore presses.
  *  Instrument pad press → one InstrumentUpdate for that pad.
  *  Presses within kBurstMs on the same pad are ignored.
- *  LEDs: instrument pads lit in their family colour when on; unmapped pads stay off.
  *  Top-row CCs use `scene_callback(idx)` with idx = cc - 104 (0..7).
  *  App wiring: 0 (CC104) force restart (stop + start), 1 (CC105) RT pause, 2 (CC106) OT pause,
  *  3 (CC107) block the user's input from the reduction (ReductionInputGate); 4..7 unused.
- *  Row 6: register LOW / MEDIUM / HIGH (pads 0-2) and an AUTO side pad (RegisterRange).
  *  Pause and input-block buttons light red via setTopLed while on.
  */
 class LaunchpadGrid {
@@ -60,20 +66,29 @@ public:
 
     static constexpr int kModeRow = 0;
     static constexpr int kTdRow = 1;
-    static constexpr int kUserRowFirst = 2;
-    static constexpr int kModelRowFirst = 4;
-    static constexpr int kInstrumentRowsPerSet = 2;
+    /** Instrument rows: strings, woodwinds, brass, percussion. */
+    static constexpr int kInstrumentRowFirst = 2;
+    static constexpr int kInstrumentRowCount = 4;
+    /** Each side's columns: yours 0..3, the model's 4..7. */
+    static constexpr int kColsPerSide = 4;
+    static constexpr int kUserColFirst = 0;
+    static constexpr int kModelColFirst = kColsPerSide;
     static constexpr int kEditCol = 0;
     static constexpr int kJamCol = 1;
     static constexpr int kAccompanimentCol = 2;
-    static constexpr int kFlushRow = kUserRowFirst;
+    static constexpr int kFlushRow = kInstrumentRowFirst;
+    static constexpr int kResetRow = kInstrumentRowFirst + 1;
     static constexpr int kTdLevelCount = static_cast<int>(TemporalDensity::kLevels.size());
-    /** Bottom row: pads 0..3 pick the max polyphony 1..4 (Accompaniment mode only). */
-    static constexpr int kAccompRow = kRows - 1;
     /** Row 6: pads 0..2 = register LOW / MEDIUM / HIGH, the side pad = AUTO register. */
-    static constexpr int kRegisterRow = kRows - 2;
+    static constexpr int kRegisterRow = 6;
     static constexpr int kRegisterPadCount = 3;
+    /** Row 6, cols 4..7: max polyphony 1..4 (Jam / Accompaniment). */
+    static constexpr int kAccompRow = kRegisterRow;
+    static constexpr int kPolyphonyColFirst = 4;
     static constexpr int kPolyphonyPadCount = PolyphonyCap::kMaxCap;
+    /** Bottom row: the mood presets. */
+    static constexpr int kPresetRow = 7;
+    static constexpr int kPresetCount = MoodPresets::kCount;
 
     /** Max polyphony changed (the app applies the cap). */
     using AccompanimentCallback = std::function<void()>;
@@ -94,6 +109,11 @@ public:
     std::function<void()> td_callback;
     /** A register pad or AUTO was pressed (after RegisterRange changed); the app cuts the future. */
     std::function<void()> register_callback;
+    /**
+     * A mood preset was applied (index into MoodPresets::all(), after instruments, TD and
+     * register changed); the app cuts the future once, as for TD / register.
+     */
+    std::function<void(int presetIndex)> preset_callback;
     LedCallback set_led;
 
     /** (row, col) → local instrument id; leave empty slots unmapped. */
@@ -126,13 +146,76 @@ public:
                       .has_value();
     }
 
-    /** User for the input rows, Model for the model rows, nullopt otherwise. */
-    [[nodiscard]] static auto targetForRow(int rowIdx) -> std::optional<InstrumentUpdateTarget> {
-        if (rowIdx >= kUserRowFirst && rowIdx < kUserRowFirst + kInstrumentRowsPerSet)
-            return InstrumentUpdateTarget::User;
-        if (rowIdx >= kModelRowFirst && rowIdx < kModelRowFirst + kInstrumentRowsPerSet)
-            return InstrumentUpdateTarget::Model;
-        return std::nullopt;
+    [[nodiscard]] static auto isInstrumentRow(int rowIdx) -> bool {
+        return rowIdx >= kInstrumentRowFirst && rowIdx < kInstrumentRowFirst + kInstrumentRowCount;
+    }
+
+    /** User for cols 0..3 of the instrument rows, Model for cols 4..7, nullopt otherwise. */
+    [[nodiscard]] static auto targetForPad(int rowIdx, int colIdx) -> std::optional<InstrumentUpdateTarget> {
+        if (! isInstrumentRow(rowIdx) || colIdx < 0 || colIdx >= kCols)
+            return std::nullopt;
+        return colIdx < kModelColFirst ? InstrumentUpdateTarget::User : InstrumentUpdateTarget::Model;
+    }
+
+    /** The side the instrument pads control: yours in Edit, the model's in Jam / Accompaniment. */
+    [[nodiscard]] auto controlledTarget() const -> InstrumentUpdateTarget {
+        return getSelectedMode() == OrchestrationMode::Edit ? InstrumentUpdateTarget::User
+                                                            : InstrumentUpdateTarget::Model;
+    }
+
+    /**
+     * Whether presses on this side's instrument pads do anything: both sides in Edit
+     * (Step-in), only the model's in Jam / Accompaniment.
+     */
+    [[nodiscard]] auto isSidePressable(InstrumentUpdateTarget side) const -> bool {
+        return getSelectedMode() == OrchestrationMode::Edit || side == controlledTarget();
+    }
+
+    /** LED colour of an instrument pad (also used by the on-screen view). */
+    [[nodiscard]] auto instrumentPadColour(int rowIdx, int colIdx) const -> uint8_t {
+        const auto target = targetForPad(rowIdx, colIdx);
+        if (! isInstrumentPad(rowIdx, colIdx) || ! target.has_value())
+            return LaunchpadLighting::kOff;
+        return LaunchpadLighting::colourForSidedInstrumentPad(
+            *padInstruments[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)],
+            getEffectiveState(rowIdx, colIdx) != 0, *target == controlledTarget(),
+            *target == InstrumentUpdateTarget::User);
+    }
+
+    /** Mood preset index of a bottom-row pad. */
+    [[nodiscard]] static auto presetForPad(int rowIdx, int colIdx) -> std::optional<int> {
+        if (rowIdx != kPresetRow || colIdx < 0 || colIdx >= kPresetCount)
+            return std::nullopt;
+        return colIdx;
+    }
+
+    /** The preset applied last (cleared by a mode change), or -1. */
+    [[nodiscard]] auto getActivePreset() const -> int { return activePreset.load(std::memory_order_relaxed); }
+    /** Something the preset sets changed by hand since it was applied. */
+    [[nodiscard]] auto isActivePresetModified() const -> bool {
+        return activePresetModified.load(std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] auto presetPadColour(int presetIndex) const -> uint8_t {
+        if (presetIndex < 0 || presetIndex >= kPresetCount)
+            return LaunchpadLighting::kOff;
+        return LaunchpadLighting::colourForPresetPad(
+            MoodPresets::all()[static_cast<size_t>(presetIndex)].colour,
+            presetIndex == getActivePreset(), isActivePresetModified());
+    }
+
+    /** Side button colour (also used by the on-screen view). */
+    [[nodiscard]] auto sideColour(int rowIdx) const -> uint8_t {
+        const bool edit = getSelectedMode() == OrchestrationMode::Edit;
+        if (rowIdx == kTdRow)
+            return LaunchpadLighting::colourForAutoTd(TemporalDensity::isAuto());
+        if (rowIdx == kFlushRow)
+            return LaunchpadLighting::colourForEditOnlyButton(edit, LaunchpadLighting::kFlush);
+        if (rowIdx == kResetRow)
+            return LaunchpadLighting::colourForEditOnlyButton(edit, LaunchpadLighting::kReset);
+        if (rowIdx == kRegisterRow)
+            return LaunchpadLighting::colourForAutoTd(RegisterRange::isAuto());
+        return LaunchpadLighting::kOff;
     }
 
     auto refreshPadLed(int rowIdx, int colIdx) -> void {
@@ -165,13 +248,12 @@ public:
             return;
         }
 
-        const auto &mapped =
-            padInstruments[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
-        const auto colour = mapped.has_value()
-                                ? LaunchpadLighting::colourForInstrumentPad(
-                                      *mapped, getEffectiveState(rowIdx, colIdx) != 0)
-                                : LaunchpadLighting::kOff;
-        set_led(*note, colour);
+        if (const auto preset = presetForPad(rowIdx, colIdx)) {
+            set_led(*note, presetPadColour(*preset));
+            return;
+        }
+
+        set_led(*note, instrumentPadColour(rowIdx, colIdx));
     }
 
     auto refreshTopLed(int idx) -> void {
@@ -190,6 +272,13 @@ public:
         refreshPadLed(kModeRow, kJamCol);
         refreshPadLed(kModeRow, kAccompanimentCol);
         refreshAccompanimentLeds();
+        // The pads now control the other side: relight both sides, Flush / Reset; a preset
+        // applied to the old side is no longer the active one.
+        activePreset.store(-1, std::memory_order_relaxed);
+        refreshInstrumentLeds();
+        refreshPresetLeds();
+        refreshSideLed(kFlushRow);
+        refreshSideLed(kResetRow);
     }
 
     [[nodiscard]] auto getSelectedMode() const -> OrchestrationMode {
@@ -208,11 +297,12 @@ public:
         return std::nullopt;
     }
 
-    /** Max polyphony 1..4 for the first pads of the bottom row. */
+    /** Max polyphony 1..4 for cols 4..7 of row 6. */
     [[nodiscard]] static auto polyphonyForPad(int rowIdx, int colIdx) -> std::optional<int> {
-        if (rowIdx != kAccompRow || colIdx < 0 || colIdx >= kPolyphonyPadCount)
+        if (rowIdx != kAccompRow || colIdx < kPolyphonyColFirst
+            || colIdx >= kPolyphonyColFirst + kPolyphonyPadCount)
             return std::nullopt;
-        return colIdx + PolyphonyCap::kMinCap;
+        return colIdx - kPolyphonyColFirst + PolyphonyCap::kMinCap;
     }
 
     [[nodiscard]] auto isAccompanimentActive() const -> bool {
@@ -268,14 +358,7 @@ public:
         const auto note = LaunchpadProgrammerMap::noteFromPad(rowIdx, kSideCol);
         if (! note.has_value())
             return;
-        auto colour = LaunchpadLighting::kOff;
-        if (rowIdx == kTdRow)
-            colour = LaunchpadLighting::colourForAutoTd(TemporalDensity::isAuto());
-        else if (rowIdx == kFlushRow)
-            colour = LaunchpadLighting::kFlush;
-        else if (rowIdx == kRegisterRow)
-            colour = LaunchpadLighting::colourForAutoTd(RegisterRange::isAuto());
-        set_led(*note, colour);
+        set_led(*note, sideColour(rowIdx));
     }
 
     /** Persist and light a top-row button (CC 104+idx). */
@@ -336,6 +419,7 @@ public:
         if (const auto level = tdLevelIndexForPad(rowIdx, colIdx)) {
             auto &lastMs = gridLastAcceptMs[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
             if (acceptPress(lastMs, now)) {
+                markPresetModified();
                 selectTdLevel(*level);
                 emitAction({PerformanceActivity::LaunchpadAction::Kind::TdLevel, 0,
                             TemporalDensity::kLevels[static_cast<size_t>(*level)], false, false});
@@ -348,6 +432,7 @@ public:
         if (colIdx == kSideCol && rowIdx == kTdRow) {
             auto &lastMs = sideLastAcceptMs[static_cast<size_t>(rowIdx)];
             if (acceptPress(lastMs, now)) {
+                markPresetModified();
                 setTdAuto(! TemporalDensity::isAuto());
                 emitAction({PerformanceActivity::LaunchpadAction::Kind::TdAuto, 0, 0,
                             TemporalDensity::isAuto(), false});
@@ -360,6 +445,7 @@ public:
         if (const auto reg = registerForPad(rowIdx, colIdx)) {
             auto &lastMs = gridLastAcceptMs[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
             if (acceptPress(lastMs, now)) {
+                markPresetModified();
                 selectRegister(*reg);
                 emitAction({PerformanceActivity::LaunchpadAction::Kind::Register, 0, *reg, false, false});
                 if (register_callback)
@@ -372,6 +458,7 @@ public:
         if (colIdx == kSideCol && rowIdx == kRegisterRow) {
             auto &lastMs = sideLastAcceptMs[static_cast<size_t>(rowIdx)];
             if (acceptPress(lastMs, now)) {
+                markPresetModified();
                 setRegisterAuto(! RegisterRange::isAuto());
                 emitAction({PerformanceActivity::LaunchpadAction::Kind::RegisterAuto, 0, 0,
                             RegisterRange::isAuto(), false});
@@ -398,17 +485,45 @@ public:
 
         if (colIdx == kSideCol && rowIdx == kFlushRow) {
             auto &lastMs = sideLastAcceptMs[static_cast<size_t>(rowIdx)];
-            if (acceptPress(lastMs, now)) {
+            if (acceptPress(lastMs, now) && getSelectedMode() == OrchestrationMode::Edit) {
                 flushInputToModel();
                 emitAction({PerformanceActivity::LaunchpadAction::Kind::Flush, 0, 0, false, false});
             }
             return;
         }
 
+        if (colIdx == kSideCol && rowIdx == kResetRow) {
+            auto &lastMs = sideLastAcceptMs[static_cast<size_t>(rowIdx)];
+            if (acceptPress(lastMs, now) && getSelectedMode() == OrchestrationMode::Edit) {
+                resetModelInstruments();
+                emitAction({PerformanceActivity::LaunchpadAction::Kind::Reset, 0, 0, false, false});
+            }
+            return;
+        }
+
+        if (const auto preset = presetForPad(rowIdx, colIdx)) {
+            auto &lastMs = gridLastAcceptMs[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
+            if (acceptPress(lastMs, now)) {
+                applyPreset(*preset);
+                emitAction({PerformanceActivity::LaunchpadAction::Kind::Preset, 0, *preset,
+                            false, controlledTarget() == InstrumentUpdateTarget::Model});
+                if (preset_callback)
+                    preset_callback(*preset);
+            }
+            return;
+        }
+
         if (isInstrumentPad(rowIdx, colIdx)) {
             auto &lastMs = gridLastAcceptMs[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
+            // Jam / Accompaniment: only the model's side responds. Edit: both sides.
+            const auto side = *targetForPad(rowIdx, colIdx);
+            if (! isSidePressable(side))
+                return;
             if (! acceptPress(lastMs, now))
                 return;
+            // Presets set the controlled side, so only a press there changes the preset.
+            if (side == controlledTarget())
+                markPresetModified();
 
             auto &on = gridState[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
             on = ! on;
@@ -417,7 +532,7 @@ public:
             refreshPadLed(rowIdx, colIdx);
             emitAction({PerformanceActivity::LaunchpadAction::Kind::InstrumentPad,
                         *padInstruments[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)],
-                        0, on, targetForRow(rowIdx) == InstrumentUpdateTarget::Model});
+                        0, on, targetForPad(rowIdx, colIdx) == InstrumentUpdateTarget::Model});
             if (grid_callback)
                 grid_callback(rowIdx, colIdx, on);
         }
@@ -445,31 +560,84 @@ private:
         refreshTdLeds();
     }
 
-    [[nodiscard]] auto findPadForInstrument(int firstRow, int32_t localId) const
+    [[nodiscard]] static auto sideColFirst(InstrumentUpdateTarget target) -> int {
+        return target == InstrumentUpdateTarget::User ? kUserColFirst : kModelColFirst;
+    }
+
+    [[nodiscard]] auto findPadForInstrument(InstrumentUpdateTarget side, int32_t localId) const
         -> std::optional<std::pair<int, int>> {
-        for (int row = firstRow; row < firstRow + kInstrumentRowsPerSet; ++row)
-            for (int col = 0; col < kCols; ++col)
+        const int first = sideColFirst(side);
+        for (int row = kInstrumentRowFirst; row < kInstrumentRowFirst + kInstrumentRowCount; ++row)
+            for (int col = first; col < first + kColsPerSide; ++col)
                 if (padInstruments[static_cast<size_t>(row)][static_cast<size_t>(col)] == localId)
                     return std::pair{row, col};
         return std::nullopt;
     }
 
-    /** Model pads are switched on before input pads switch off, so no instrument drops out. */
+    /** Calls fn(row, col, localId) for every mapped instrument pad of one side. */
+    template <typename Fn>
+    auto forEachSidePad(InstrumentUpdateTarget side, Fn &&fn) const -> void {
+        const int first = sideColFirst(side);
+        for (int row = kInstrumentRowFirst; row < kInstrumentRowFirst + kInstrumentRowCount; ++row)
+            for (int col = first; col < first + kColsPerSide; ++col)
+                if (isInstrumentPad(row, col))
+                    fn(row, col, *padInstruments[static_cast<size_t>(row)][static_cast<size_t>(col)]);
+    }
+
+    /** Your instruments that are on are added to the model's; yours stay on. */
     auto flushInputToModel() -> void {
-        std::vector<std::pair<int, int>> flushed;
-        for (int row = kUserRowFirst; row < kUserRowFirst + kInstrumentRowsPerSet; ++row) {
-            for (int col = 0; col < kCols; ++col) {
-                if (! isInstrumentPad(row, col) || getEffectiveState(row, col) == 0)
-                    continue;
-                const auto localId =
-                    *padInstruments[static_cast<size_t>(row)][static_cast<size_t>(col)];
-                if (const auto modelPad = findPadForInstrument(kModelRowFirst, localId))
-                    setPadOn(modelPad->first, modelPad->second, true);
-                flushed.emplace_back(row, col);
-            }
-        }
-        for (const auto &[row, col]: flushed)
-            setPadOn(row, col, false);
+        forEachSidePad(InstrumentUpdateTarget::User, [this](int row, int col, int32_t localId) {
+            if (getEffectiveState(row, col) == 0)
+                return;
+            if (const auto modelPad = findPadForInstrument(InstrumentUpdateTarget::Model, localId))
+                setPadOn(modelPad->first, modelPad->second, true);
+        });
+    }
+
+    /** Every model instrument switches off. */
+    auto resetModelInstruments() -> void {
+        forEachSidePad(InstrumentUpdateTarget::Model,
+                       [this](int row, int col, int32_t) { setPadOn(row, col, false); });
+    }
+
+    /**
+     * The controlled side's instruments become exactly the preset's; then the register and
+     * TD (TD after the register, so the register's switch to AUTO TD does not apply).
+     */
+    auto applyPreset(int presetIndex) -> void {
+        const auto &preset = MoodPresets::all()[static_cast<size_t>(presetIndex)];
+        forEachSidePad(controlledTarget(), [this, &preset](int row, int col, int32_t localId) {
+            setPadOn(row, col, MoodPresets::contains(preset, localId));
+        });
+        if (preset.registerValue == RegisterRange::kAuto)
+            setRegisterAuto(true);
+        else
+            selectRegister(preset.registerValue);
+        if (preset.tdLevelIndex < 0)
+            setTdAuto(true);
+        else
+            selectTdLevel(preset.tdLevelIndex);
+        activePreset.store(presetIndex, std::memory_order_relaxed);
+        activePresetModified.store(false, std::memory_order_relaxed);
+        refreshPresetLeds();
+    }
+
+    auto markPresetModified() -> void {
+        if (getActivePreset() < 0 || isActivePresetModified())
+            return;
+        activePresetModified.store(true, std::memory_order_relaxed);
+        refreshPresetLeds();
+    }
+
+    auto refreshPresetLeds() -> void {
+        for (int col = 0; col < kPresetCount; ++col)
+            refreshPadLed(kPresetRow, col);
+    }
+
+    auto refreshInstrumentLeds() -> void {
+        for (int row = kInstrumentRowFirst; row < kInstrumentRowFirst + kInstrumentRowCount; ++row)
+            for (int col = 0; col < kCols; ++col)
+                refreshPadLed(row, col);
     }
 
     auto emitAction(const PerformanceActivity::LaunchpadAction &action) -> void {
@@ -505,9 +673,8 @@ private:
     }
 
     auto refreshAccompanimentLeds() -> void {
-        for (int col = 0; col < kPolyphonyPadCount; ++col)
+        for (int col = kPolyphonyColFirst; col < kPolyphonyColFirst + kPolyphonyPadCount; ++col)
             refreshPadLed(kAccompRow, col);
-        refreshSideLed(kAccompRow);
     }
 
     auto refreshTdLeds() -> void {
@@ -533,7 +700,7 @@ private:
             return;
 
         const auto &instrument = padInstruments[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
-        const auto target = targetForRow(rowIdx);
+        const auto target = targetForPad(rowIdx, colIdx);
         if (! instrument.has_value() || ! target.has_value())
             return;
 
@@ -553,6 +720,8 @@ private:
     std::atomic<int> manualTdLevelIndex{2}; // TD 4, the default (TemporalDensity::kDefault)
     std::atomic<int> manualRegister{RegisterRange::kMedium};
     std::atomic<int> maxPolyphony{0}; // 0 = no cap
+    std::atomic<int> activePreset{-1};
+    std::atomic<bool> activePresetModified{false};
 
     std::array<std::array<uint32_t, kCols>, kRows> gridLastAcceptMs{};
     std::array<uint32_t, kRows> sideLastAcceptMs{};

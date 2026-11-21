@@ -12,6 +12,7 @@
 
 #include "VirtualOrch/InstrumentConstants.h"
 #include "VirtualOrch/LaunchpadLighting.h"
+#include "VirtualOrch/MoodPresets.h"
 #include "VirtualOrch/TemporalDensity.h"
 
 /**
@@ -202,12 +203,12 @@ private:
 
 // ---- Pedal freeze ---------------------------------------------------------------------------
 
-/** The orchestra is shown as frozen once the pedal has been down this long. */
+/** The orchestra is shown as frozen once the pedal has been up (silencing it) this long. */
 inline constexpr int64_t kPedalFreezeShowAfterMs = 1000;
 
-/** pedalDownForMs: -1 while the pedal is up (MidiInputProcess::getPedalDownForMs). */
-[[nodiscard]] inline auto pedalShowsFrozen(int64_t pedalDownForMs) -> bool {
-    return pedalDownForMs >= kPedalFreezeShowAfterMs;
+/** pedalSilentForMs: -1 while the orchestra sounds (MidiInputProcess::getPedalSilentForMs). */
+[[nodiscard]] inline auto pedalShowsFrozen(int64_t pedalSilentForMs) -> bool {
+    return pedalSilentForMs >= kPedalFreezeShowAfterMs;
 }
 
 // ---- TD bar -------------------------------------------------------------------------------
@@ -240,6 +241,8 @@ struct LaunchpadAction {
         Register,      // value = 1 LOW, 2 MEDIUM, 3 HIGH
         RegisterAuto,  // on = AUTO now on
         InputBlock,    // on = the user's input no longer reaches the reduction (CC107)
+        Reset,         // every model instrument switched off (Edit mode)
+        Preset,        // value = MoodPresets index; model = applied to the model's side
     };
     Kind kind = Kind::Flush;
     int32_t local = 0;
@@ -257,13 +260,21 @@ template <typename NameFn>
             return juce::String(a.model ? "Model: " : "Input: ") + nameFor(a.local)
                    + (a.on ? " on" : " off");
         case Kind::Flush:
-            return "Flush: input instruments moved to the model";
+            return "Flush: your instruments added to the model";
+        case Kind::Reset:
+            return "Reset: model instruments cleared";
+        case Kind::Preset:
+            return juce::String("Preset ")
+                   + (a.value >= 0 && a.value < MoodPresets::kCount
+                          ? MoodPresets::all()[static_cast<size_t>(a.value)].name
+                          : "?")
+                   + (a.model ? " (model)" : " (yours)");
         case Kind::TdLevel:
             return "Temporal density set to " + juce::String(a.value);
         case Kind::TdAuto:
             return a.on ? "Temporal density AUTO on" : "Temporal density AUTO off";
         case Kind::Mode:
-            return a.value == 2 ? "Mode: Accompaniment" : (a.value == 1 ? "Mode: Jam" : "Mode: Edit");
+            return a.value == 2 ? "Mode: Accompaniment" : (a.value == 1 ? "Mode: Jam" : "Mode: Step-in");
         case Kind::Polyphony:
             return a.value > 0 ? "Max polyphony " + juce::String(a.value)
                                : juce::String("Max polyphony off");

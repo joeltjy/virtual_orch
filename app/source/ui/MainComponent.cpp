@@ -1781,6 +1781,8 @@ void MainComponent::clearPedalMidiInput() {
     session.selectedPedalMidiInputIdentifier = {};
     if (previous.isNotEmpty() && ! isMidiInputUsedByOtherRole(previous, 2))
         deviceManager.removeMidiInputDeviceCallback(previous, &session.midiInputProcess);
+    if (previous.isNotEmpty())
+        session.midiInputProcess.pedalDeviceCleared();
 }
 
 void MainComponent::clearAdditionalMidiInput() {
@@ -1826,6 +1828,8 @@ void MainComponent::setMidiInput(int index, int idx) {
 
     if (idx == 1)
         session.midiInputProcess.setLaunchpadMidiOutputForInputDevice(newInput);
+    else if (idx == 2)
+        session.midiInputProcess.pedalDeviceSelected();
 }
 
 void MainComponent::updateMtcClock() {

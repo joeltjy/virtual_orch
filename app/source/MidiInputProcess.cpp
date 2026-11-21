@@ -419,38 +419,55 @@ void MidiInputProcess::handleSustainPedal(const juce::MidiMessage &message) {
     if (! message.isController() || message.getControllerNumber() != 64)
         return;
 
+    // Pedal down = the orchestra sounds; pedal up = it stops (pause + clear). With no pedal
+    // device, nothing is paused until the first CC64, so the orchestra plays without a pedal;
+    // selecting a pedal device starts paused (pedalDeviceSelected).
     const int value = message.getControllerValue();
-    const bool pause = value >= 64;
-    const bool pressed = pause && ! pedalDown;
+    const bool pause = value < 64;
+    const bool wasSilenced = pedalSilenced.exchange(pause);
+    const bool stopped = pause && ! wasSilenced;
     if (OpLog::on())
         OpLog::emit(OpLog::Src::Midi, "PEDAL",
                     {{"cc", 64}, {"value", value},
-                     {"state", pause != pedalDown ? OpLog::Value(std::string(pause ? "down" : "up")) : OpLog::Value()},
+                     {"state", pause != wasSilenced ? OpLog::Value(std::string(pause ? "up" : "down")) : OpLog::Value()},
                      {"app_pedal", true}});
-    pedalDown = pause;
     notePedalState(pause, AppTime::nowMs());
     juce::Logger::writeToLog(
         "[pedal] CC64 value=" + juce::String(value)
-        + (pause ? " down→pause" : " up→resume")
+        + (pause ? " up→pause" : " down→resume")
         + " clockCs=" + juce::String(static_cast<int32_t>(clock.getTime()))
         + " wasPaused="
         + juce::String(activeReduction().generationPause.get() ? "true" : "false")
         + " wasOverflow="
         + juce::String(activeReduction().overflowPause.get() ? "true" : "false"));
-    if (pressed) {
-        // Stamp the press with the clock now and clear the playback queue right away; the
+    if (stopped) {
+        // Stamp the release with the clock now and clear the playback queue right away; the
         // upstream clear token carries the same time. Request before pausing so the reduction
         // thread sees it on the not-paused -> paused edge.
         const auto pedalTime = static_cast<int32_t>(clock.getTime());
-        if (onPedalDown)
-            onPedalDown(pedalTime);
+        if (onPedalSilence)
+            onPedalSilence(pedalTime);
         activeReduction().requestPedalClear(pedalTime);
-        // Playback drops every note from the press on, so the model forgets them too (the same
-        // cut as a TD press): after the release it continues from then, not from seconds ahead.
-        activeReduction().requestModeCut(pedalTime, "pedal down");
-        SessionLog::add("CUT", "pedal down: future removed from " + juce::String(pedalTime));
+        // Playback drops every note from the release on, so the model forgets them too (the
+        // same cut as a TD press): when the pedal goes down again it continues from then.
+        activeReduction().requestModeCut(pedalTime, "pedal up");
+        SessionLog::add("CUT", "pedal up: future removed from " + juce::String(pedalTime));
     }
     activeReduction().setGenerationPause(pause, "pedal");
+}
+
+void MidiInputProcess::pedalDeviceSelected() {
+    pedalSilenced = true;
+    notePedalState(true, AppTime::nowMs());
+    activeReduction().setGenerationPause(true);
+    SessionLog::add("PEDAL", "pedal device selected: orchestra silent until pedal down");
+}
+
+void MidiInputProcess::pedalDeviceCleared() {
+    pedalSilenced = false;
+    notePedalState(false, AppTime::nowMs());
+    activeReduction().setGenerationPause(false);
+    SessionLog::add("PEDAL", "pedal device cleared: orchestra sounds");
 }
 
 void MidiInputProcess::handleIncomingMidiMessage(juce::MidiInput *source, const juce::MidiMessage &message) {
@@ -479,7 +496,7 @@ void MidiInputProcess::handleMidiFrom(const juce::String &sourceId, const juce::
                                         && sourceId == selectedAdditionalMidiInputIdentifier;
     const bool fromPiano = fromPlayKeyboard || fromAdditionalKeyboard;
 
-    // Pedal keyboard: CC64 → generationPause only (no notes / thru / other CCs).
+    // Pedal keyboard: CC64 → generationPause only, up pauses (no notes / thru / other CCs).
     // If it is the same device as the play keyboard, fall through so notes still play.
     const bool fromPedalKeyboard = sourceId.isNotEmpty()
                                    && selectedPedalMidiInputIdentifier.isNotEmpty()

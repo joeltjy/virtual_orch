@@ -59,8 +59,9 @@ private:
 
     std::array<std::array<CellState, kUiCols>, kUiRows> cells{};
     juce::Rectangle<float> gridBounds;
-    juce::Rectangle<float> userLabelBounds;
-    juce::Rectangle<float> modelLabelBounds;
+    juce::Rectangle<float> instrumentLabelBounds;
+    /** The pads control your side (Edit), else the model's: framed on screen. */
+    bool controlsUserSide = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ActiveInstrumentsView)
 };

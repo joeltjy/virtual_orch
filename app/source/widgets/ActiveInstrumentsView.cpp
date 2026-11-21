@@ -5,6 +5,7 @@
 #include "VirtualOrch/InstrumentUiColours.h"
 #include "VirtualOrch/KeyboardLaunchpad.h"
 #include "VirtualOrch/LaunchpadLighting.h"
+#include "VirtualOrch/MoodPresets.h"
 #include "VirtualOrch/ui/UiConstants.h"
 
 ActiveInstrumentsView::ActiveInstrumentsView() {
@@ -110,11 +111,23 @@ auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid) -> void {
     autoTd.onPalette = LaunchpadLighting::colourForAutoTd(tdAuto);
     autoTd.lit = true;
 
-    // Flush side button.
+    // Flush / Reset side buttons (Edit only).
     auto &flush = cellAt(LaunchpadGrid::kFlushRow, LaunchpadGrid::kCols);
     flush.label = UiConstants::workspaceActiveInstrumentsFlushLabel;
     flush.onPalette = LaunchpadLighting::kFlush;
-    flush.lit = true;
+    flush.lit = grid.sideColour(LaunchpadGrid::kFlushRow) != LaunchpadLighting::kOff;
+    auto &reset = cellAt(LaunchpadGrid::kResetRow, LaunchpadGrid::kCols);
+    reset.label = UiConstants::workspaceActiveInstrumentsResetLabel;
+    reset.onPalette = LaunchpadLighting::kReset;
+    reset.lit = grid.sideColour(LaunchpadGrid::kResetRow) != LaunchpadLighting::kOff;
+
+    // Mood presets (bottom row): always shown, the active one brightest.
+    for (int preset = 0; preset < LaunchpadGrid::kPresetCount; ++preset) {
+        auto &cell = cellAt(LaunchpadGrid::kPresetRow, preset);
+        cell.label = MoodPresets::all()[static_cast<size_t>(preset)].name;
+        cell.onPalette = grid.presetPadColour(preset);
+        cell.lit = true;
+    }
 
     // Register (row 6): LOW / MEDIUM / HIGH pads and the AUTO side button.
     {
@@ -135,11 +148,12 @@ auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid) -> void {
         autoReg.lit = true;
     }
 
-    // Bottom row: polyphony pads 1..4, lit in Jam and Accompaniment.
+    // Row 6, cols 4..7: polyphony pads 1..4, lit in Jam and Accompaniment.
     const bool polyActive = grid.isPolyphonyActive();
     for (int pad = 0; pad < LaunchpadGrid::kPolyphonyPadCount; ++pad) {
-        const int polyphony = *LaunchpadGrid::polyphonyForPad(LaunchpadGrid::kAccompRow, pad);
-        auto &cell = cellAt(LaunchpadGrid::kAccompRow, pad);
+        const int col = LaunchpadGrid::kPolyphonyColFirst + pad;
+        const int polyphony = *LaunchpadGrid::polyphonyForPad(LaunchpadGrid::kAccompRow, col);
+        auto &cell = cellAt(LaunchpadGrid::kAccompRow, col);
         cell.label = UiConstants::workspaceActiveInstrumentsPolyphonyPrefix + juce::String(polyphony);
         cell.onPalette = LaunchpadLighting::colourForPolyphonyPad(true, true);
         cell.lit = polyActive && polyphony == grid.getMaxPolyphony();
@@ -156,7 +170,9 @@ auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid) -> void {
             cells[static_cast<size_t>(uiRow)][static_cast<size_t>(uiCol)].key = KeyboardLaunchpad::labelForTarget(target);
         }
 
-    // Instrument pads (input + model rows).
+    // Instrument pads (your side cols 0-3, the model's 4-7): the same colours as the pads, so
+    // the side the pads do not control shows grey (yours) or dim (the model's).
+    controlsUserSide = grid.controlledTarget() == InstrumentUpdateTarget::User;
     for (int padRow = 0; padRow < LaunchpadGrid::kRows; ++padRow) {
         for (int padCol = 0; padCol < LaunchpadGrid::kCols; ++padCol) {
             const auto &mapped = grid.padInstruments[static_cast<size_t>(padRow)]
@@ -165,8 +181,9 @@ auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid) -> void {
                 continue;
             auto &cell = cellAt(padRow, padCol);
             cell.label = shortNameForLocal(*mapped);
-            cell.onPalette = LaunchpadLighting::colourForInstrumentPad(*mapped, true);
             cell.lit = grid.getEffectiveState(padRow, padCol) != 0;
+            cell.onPalette = cell.lit ? grid.instrumentPadColour(padRow, padCol)
+                                      : LaunchpadLighting::colourForInstrumentPad(*mapped, true);
         }
     }
 }
@@ -177,13 +194,9 @@ auto ActiveInstrumentsView::resized() -> void {
 
     // UI row = pad row + 1 (top CC row is UI row 0).
     const auto cellH = bounds.getHeight() / static_cast<float>(kUiRows);
-    const auto setHeight = cellH * static_cast<float>(LaunchpadGrid::kInstrumentRowsPerSet);
-    userLabelBounds =
-        labelStrip.withY(bounds.getY() + cellH * static_cast<float>(LaunchpadGrid::kUserRowFirst + 1))
-            .withHeight(setHeight);
-    modelLabelBounds =
-        labelStrip.withY(bounds.getY() + cellH * static_cast<float>(LaunchpadGrid::kModelRowFirst + 1))
-            .withHeight(setHeight);
+    instrumentLabelBounds =
+        labelStrip.withY(bounds.getY() + cellH * static_cast<float>(LaunchpadGrid::kInstrumentRowFirst + 1))
+            .withHeight(cellH * static_cast<float>(LaunchpadGrid::kInstrumentRowCount));
     gridBounds = bounds;
 }
 
@@ -210,8 +223,10 @@ auto ActiveInstrumentsView::paintGroupBracket(juce::Graphics &g,
 auto ActiveInstrumentsView::paint(juce::Graphics &g) -> void {
     g.fillAll(UiConstants::pianoRollBackground);
 
-    paintGroupBracket(g, userLabelBounds, UiConstants::workspaceActiveInstrumentsInputGroupLabel);
-    paintGroupBracket(g, modelLabelBounds, UiConstants::workspaceActiveInstrumentsModelGroupLabel);
+    // The bracket names the side the pads control; that side is framed below.
+    paintGroupBracket(g, instrumentLabelBounds,
+                      controlsUserSide ? UiConstants::workspaceActiveInstrumentsInputGroupLabel
+                                       : UiConstants::workspaceActiveInstrumentsModelGroupLabel);
 
     if (gridBounds.isEmpty())
         return;
@@ -278,4 +293,18 @@ auto ActiveInstrumentsView::paint(juce::Graphics &g) -> void {
             }
         }
     }
+
+    // Instrument rows: a divider between your side and the model's, and a frame around the
+    // side the pads control in this mode.
+    const auto instrumentTop = gridBounds.getY() + cellH * static_cast<float>(LaunchpadGrid::kInstrumentRowFirst + 1);
+    const auto instrumentHeight = cellH * static_cast<float>(LaunchpadGrid::kInstrumentRowCount);
+    const auto sideWidth = cellW * static_cast<float>(LaunchpadGrid::kColsPerSide);
+    const auto dividerX = gridBounds.getX() + sideWidth;
+    g.setColour(UiConstants::workspaceWidgetTitleTextColour.withAlpha(0.35f));
+    g.drawLine(dividerX, instrumentTop, dividerX, instrumentTop + instrumentHeight, 1.5f);
+    const auto frame = juce::Rectangle<float>(controlsUserSide ? gridBounds.getX() : dividerX, instrumentTop,
+                                              sideWidth, instrumentHeight)
+                           .reduced(0.5f);
+    g.setColour(juce::Colours::white.withAlpha(0.9f));
+    g.drawRoundedRectangle(frame, 4.0f, 2.5f);
 }

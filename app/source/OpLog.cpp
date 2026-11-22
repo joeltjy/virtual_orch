@@ -84,8 +84,11 @@ public:
             text += format(r, s.seq.fetch_add(1));
             text += '\n';
         }
+        // No flush(): JUCE's GZIPCompressorOutputStream::flush() FINISHES the gzip stream, after
+        // which every write is dropped (live oplogs kept only their first 100 ms). Compressed data
+        // reaches the file as zlib's buffer fills; stop() finishes the stream. A crash loses at
+        // most what zlib still buffers (a few seconds).
         s.out->write(text.data(), text.size());
-        s.out->flush();
     }
 };
 

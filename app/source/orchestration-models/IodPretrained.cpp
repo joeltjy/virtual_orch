@@ -37,7 +37,8 @@ auto sampleRange(const float *vocabLogits,
                  int32_t claimedDeltas = 0,
                  std::optional<int32_t> forced = std::nullopt,
                  std::vector<OpLogDraw::Draw> *draws = nullptr,
-                 const char *fieldName = "") -> int32_t {
+                 const char *fieldName = "",
+                 const float *rawForLog = nullptr) -> int32_t {
     const int32_t start = excludeZero ? lo + 1 : lo;
     std::vector<float> local(static_cast<size_t>(hi - start), kNegInf);
     bool any = false;
@@ -64,7 +65,9 @@ auto sampleRange(const float *vocabLogits,
     // Operation log: tokens are recorded relative to the field (GROUPS: mask - 1; a family: its bit mask).
     const auto record = [&](int32_t token) {
         if (draws != nullptr)
-            draws->push_back(OpLogDraw::describe(fieldName, vocabLogits + lo, static_cast<size_t>(hi - lo), local,
+            // p_model is the model's own probability: from the logits before any bias (rawForLog).
+            draws->push_back(OpLogDraw::describe(fieldName, (rawForLog != nullptr ? rawForLog : vocabLogits) + lo,
+                                                 static_cast<size_t>(hi - lo), local,
                                                  start - lo, 1.0f, kComboSampleTemperature, token - lo,
                                                  forced.has_value()));
         return token;
@@ -275,6 +278,11 @@ auto IodPretrained::sampleComboForNote(IodPretrainedTypes::EncoderWindow &window
         if (logits.size() < logitsIndex(noteIdx, 0) + static_cast<size_t>(comboVocabSize))
             return combo;
         float *row = logits.data() + logitsIndex(noteIdx, 0);
+        // The operation log's p_model is the model's own: keep the logits from before the bias.
+        std::vector<float> rawRow;
+        if (draws != nullptr)
+            rawRow.assign(row, row + comboVocabSize);
+        const float *raw = rawRow.empty() ? nullptr : rawRow.data();
         if (applyGroupsBias && ! recentGroupsMasks.empty()) {
             const std::vector<int32_t> masks(recentGroupsMasks.begin(), recentGroupsMasks.end());
             applyGroupsTokenLogitsBias(row, static_cast<size_t>(comboVocabSize), masks.data(),
@@ -283,7 +291,7 @@ auto IodPretrained::sampleComboForNote(IodPretrainedTypes::EncoderWindow &window
         if (forced.has_value() && (*forced)[0] == endNote) {
             // The logged note had no orchestra notes: record the model's view of GROUPS, play nothing.
             sampleRange(row, groupsOffset, groupsHi, 0, forbid.fullyBannedFamilyBits, false, nullptr, 0,
-                        std::nullopt, draws, "groups");
+                        std::nullopt, draws, "groups", raw);
             if (draws != nullptr && ! draws->empty()) {
                 auto &d = draws->back();
                 d.forced = true;
@@ -296,7 +304,7 @@ auto IodPretrained::sampleComboForNote(IodPretrainedTypes::EncoderWindow &window
         const auto forcedGroups = forced.has_value() ? std::optional<int32_t>((*forced)[0]) : std::nullopt;
         const int32_t groupsTok = sampleRange(row, groupsOffset, groupsHi,
                                               /*forbidBits*/ 0, forbid.fullyBannedFamilyBits,
-                                              /*excludeZero*/ false, nullptr, 0, forcedGroups, draws, "groups");
+                                              /*excludeZero*/ false, nullptr, 0, forcedGroups, draws, "groups", raw);
         combo[0] = groupsTok;
         window.comboIn[static_cast<size_t>(noteIdx)][1] = groupsTok;
         recordGroupsMask(maskFromGroupsToken(groupsTok));

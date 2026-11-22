@@ -4,10 +4,12 @@
 
 #include <atomic>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "VirtualOrch/sim/OpLogReader.h"
 #include "VirtualOrch/sim/ReplayDriver.h"
+#include "VirtualOrch/sim/Rerun.h"
 
 class AppSession;
 class WorkspacePage;
@@ -54,10 +56,13 @@ private:
     auto attachWorkspace(AppSession *replaySession) -> void;
     [[nodiscard]] auto inputsText(size_t recordIndex) const -> juce::String;
     [[nodiscard]] auto drawText(size_t recordIndex) const -> juce::String;
+    /** Rerun the selected draw through the model (a worker thread), show and save the result. */
+    auto rerunSelected() -> void;
+    [[nodiscard]] static auto rerunText(const Rerun::Result &r) -> juce::String;
 
     AppSession &live;
     std::vector<OpLogReader::Launch> launches;
-    std::unique_ptr<OpLogReader::Log> log;
+    std::shared_ptr<OpLogReader::Log> log; // shared: a running rerun keeps it alive
     std::unique_ptr<ReplayDriver> driver;
     std::vector<size_t> rows; // record indices shown in the list
     int currentSession = -1;
@@ -71,6 +76,13 @@ private:
     juce::TabbedComponent rightTabs{juce::TabbedButtonBar::TabsAtTop};
     juce::Component workspaceHolder;
     juce::TextEditor inputsView, drawView;
+    juce::Component drawPanel;
+    juce::TextButton rerunButton{"Run through the model again"};
+    juce::Label rerunNote;
+    std::shared_ptr<Rerun::Engine> rerunEngine = std::make_shared<Rerun::Engine>();
+    std::atomic<bool> rerunning{false};
+    std::optional<size_t> selectedRecord;
+    juce::File loadedOplog;
     std::unique_ptr<WorkspacePage> workspace;
     std::atomic<int> epoch{0}; // bumped whenever the workspace is dropped (stale hand-outs ignored)
 

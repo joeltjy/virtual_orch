@@ -326,7 +326,31 @@ The code that maps a layout-1 pad to the layout-2 pad with the same meaning is
 LaunchpadGrid::layout1Pad (app/include/VirtualOrch/LaunchpadGrid.h).
 
 
-6. NOT LOGGED
+6. RERUNS (<oplog stem>.reruns.jsonl)
+--------------------------------------
+
+The Replay page's "Run through the model again" rebuilds a logged draw's model input from the
+oplog and runs the real model on it. Each rerun appends one JSON line to
+Logs/oplog_<stamp>.reruns.jsonl next to the oplog (the oplog itself is never changed):
+
+  source, seq and t (the draw's record), what ("RT_DRAW r12 (v1)" | "OT_DRAW for k3"), model
+  ("v1" | "W" | "T3" | "OT"), model_file, context_tokens / logged_context_tokens (RT: the
+  rebuilt context's length and the logged context_len), exact_context, matches_log (every
+  logged choice's p_model equals the rerun's: the input was rebuilt exactly), error (if it
+  failed), fields: [{field, lo, hi (the field's token range), chosen (absolute token),
+  p_model_logged, p_model_rerun, top: [[token, p_model], ... the 20 most probable]}]
+
+RT: the context is the drawing model's at the draw; the drawn onset, duration and pitch are fed
+one by one. OT: the window's OT_INPUT, with the combos drawn earlier in the window teacher-forced
+into combo_in, then this note's steps one by one. p_model is the model's softmax at temperature
+1 over the whole vocab (RT) or over the step's field (OT), as logged.
+
+Note on OT "groups" p_model: before this file's version, the logged p_model of the groups step
+included the recent-groups bias (it was computed after the bias was applied in place); it is
+now the model's own, like every other p_model.
+
+
+7. NOT LOGGED
 -------------
 
   - Draws and context of the Dense RT models.

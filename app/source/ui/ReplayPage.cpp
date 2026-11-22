@@ -17,7 +17,7 @@ auto noteName(int midi) -> juce::String { return juce::MidiMessage::getMidiNoteN
 /** A dense-vocab RT token in words (onset ids are relative to `base`). */
 auto rtTokenText(const juce::String &field, int token, int base) -> juce::String {
     if (field == "onset")
-        return "onset " + juce::String(token + base) + " cs";
+        return base != 0 ? "onset " + juce::String(token + base) + " cs" : "+" + juce::String(token) + " (model time)";
     if (field == "dur")
         return juce::String(token - static_cast<int>(DenseVocab::DurOffset)) + " cs";
     if (field == "pitch")
@@ -65,7 +65,15 @@ ReplayPage::ReplayPage(AppSession &liveSession) : live(liveSession) {
     }
     rightTabs.addTab("Workspace", UiConstants::appRootTabColour, &workspaceHolder, false);
     rightTabs.addTab("Model inputs", UiConstants::appRootTabColour, &inputsView, false);
-    rightTabs.addTab("Draw", UiConstants::appRootTabColour, &drawView, false);
+    drawPanel.addAndMakeVisible(drawView);
+    drawPanel.addAndMakeVisible(rerunButton);
+    drawPanel.addAndMakeVisible(rerunNote);
+    rerunNote.setColour(juce::Label::textColourId, kInk.withAlpha(0.7f));
+    rerunNote.setText("RT_DRAW / OT_DRAW: the model's whole distribution; saved to <launch>.reruns.jsonl",
+                      juce::dontSendNotification);
+    rerunButton.onClick = [this] { rerunSelected(); };
+    rerunButton.setEnabled(false);
+    rightTabs.addTab("Draw", UiConstants::appRootTabColour, &drawPanel, false);
     addAndMakeVisible(rightTabs);
 
     refreshLaunches();
@@ -106,6 +114,12 @@ auto ReplayPage::resized() -> void {
     rightTabs.setBounds(area.reduced(4));
     if (workspace != nullptr)
         workspace->setBounds(workspaceHolder.getLocalBounds());
+    auto panel = drawPanel.getLocalBounds();
+    auto buttons = panel.removeFromTop(30).reduced(2);
+    rerunButton.setBounds(buttons.removeFromLeft(230));
+    buttons.removeFromLeft(8);
+    rerunNote.setBounds(buttons);
+    drawView.setBounds(panel);
 }
 
 // ---- launches, loading
@@ -134,6 +148,7 @@ auto ReplayPage::loadSelectedLaunch() -> void {
     const auto &launch = launches[static_cast<size_t>(i)];
     statusLabel.setText("Loading " + launch.stamp + " ...", juce::dontSendNotification);
     if (launch.oplog.existsAsFile()) {
+        loadedOplog = launch.oplog;
         log = OpLogReader::Log::load(launch.oplog);
         if (! log->error.isEmpty()) {
             statusLabel.setText(log->error, juce::dontSendNotification);
@@ -269,9 +284,11 @@ auto ReplayPage::showRecord(size_t index) -> void {
             detachWorkspace();
         driver->seek(ms);
     }
+    selectedRecord = index;
     inputsView.setText(inputsText(index), false);
     drawView.setText(drawText(index), false);
     const auto &op = log->records()[index].op;
+    rerunButton.setEnabled((op == "RT_DRAW" || op == "OT_DRAW") && ! rerunning.load());
     if (op == "RT_DRAW" || op == "OT_DRAW" || op == "RT_WAIT" || op == "VOCSEP" || op == "TD_CTRL")
         rightTabs.setCurrentTabIndex(2, false);
 }
@@ -287,6 +304,63 @@ auto ReplayPage::timerCallback() -> void {
     if (workspace == nullptr)
         s << "  - workspace: waiting for the replay";
     statusLabel.setText(s, juce::dontSendNotification);
+}
+
+// ---- rerun through the model
+
+auto ReplayPage::rerunSelected() -> void {
+    if (log == nullptr || ! selectedRecord.has_value() || rerunning.exchange(true))
+        return;
+    rerunButton.setEnabled(false);
+    rerunNote.setText("Running the model (the first time loads it) ...", juce::dontSendNotification);
+    // The worker keeps the log and the engine alive while it runs; the page may close meanwhile.
+    auto logRef = log;
+    auto engine = rerunEngine;
+    const auto index = *selectedRecord;
+    const auto reruns = loadedOplog.existsAsFile() ? Rerun::rerunsFileFor(loadedOplog) : juce::File();
+    const auto source = loadedOplog.getFileName();
+    juce::Component::SafePointer<ReplayPage> self(this);
+    juce::Thread::launch([self, engine, logRef, index, reruns, source] {
+        auto result = engine->rerun(*logRef, index);
+        const bool saved = reruns != juce::File() && result.error.empty() && Rerun::append(reruns, result, source);
+        juce::MessageManager::callAsync([self, result = std::move(result), saved, reruns, index] {
+            if (self == nullptr)
+                return;
+            self->rerunning = false;
+            if (self->selectedRecord == index && self->log != nullptr)
+                self->drawView.setText(self->drawText(index) + "\n\n" + rerunText(result), false);
+            self->rerunNote.setText(result.error.empty()
+                                        ? (saved ? "Saved to " + reruns.getFileName() : juce::String("Not saved"))
+                                              + (result.matchesLog() ? "  - matches the log" : "  - differs from the log")
+                                        : juce::String("Rerun failed: ") + result.error,
+                                    juce::dontSendNotification);
+            self->rerunButton.setEnabled(true);
+        });
+    });
+}
+
+auto ReplayPage::rerunText(const Rerun::Result &r) -> juce::String {
+    juce::String out;
+    out << "==== Rerun: " << r.what << "   model " << juce::File(r.modelFile).getFileName() << "\n";
+    if (! r.error.empty())
+        return out + "failed: " + r.error + "\n";
+    if (r.model != "OT")
+        out << "context " << r.contextTokens << " tokens (logged " << r.loggedContextTokens << ")"
+            << (r.exactContext ? "" : "   approximate: the rebuilt context differs from the logged length") << "\n";
+    out << (r.matchesLog() ? "The rerun's p_model of every logged choice matches the log: the input was rebuilt exactly.\n"
+                           : "The rerun's p_model differs from the log (another model file, or an inexact input).\n");
+    for (const auto &f: r.fields) {
+        out << "\n  " << pad(f.name, 10) << "chosen " << f.chosen << "   p_model logged "
+            << juce::String(f.loggedPModel, 4) << ", rerun " << juce::String(f.rerunPModel, 4) << "\n";
+        out << "      rank  token      " << (r.model != "OT" ? pad("meaning", 18) : juce::String()) << "p_model\n";
+        for (size_t k = 0; k < f.top.size(); ++k) {
+            out << "      " << pad(juce::String(static_cast<int>(k) + 1), 6) << pad(juce::String(f.top[k].first), 11);
+            if (r.model != "OT")
+                out << pad(rtTokenText(f.name, f.top[k].first, 0), 18);
+            out << juce::String(f.top[k].second, 4) << (f.top[k].first == f.chosen ? "   <- chosen" : "") << "\n";
+        }
+    }
+    return out;
 }
 
 // ---- the text views

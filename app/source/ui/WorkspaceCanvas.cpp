@@ -342,12 +342,19 @@ auto WorkspaceCanvas::addWidget(std::unique_ptr<WorkspaceWidget> widget,
     widget->setBounds(scaleDesignToCanvas(design));
     bindWidget(*widget);
     applyTextScale(*widget);
+    widget->getContentComponent().setEnabled(! viewOnly);
     addAndMakeVisible(widget.get());
     widget->toFront(false);
     widgets.push_back(std::move(widget));
     rebindInputDataCallback();
     refreshPromptWidgetsFromSession();
     notifyLayoutChanged();
+}
+
+auto WorkspaceCanvas::setViewOnly(bool viewOnlyIn) -> void {
+    viewOnly = viewOnlyIn;
+    for (auto &w: widgets)
+        w->getContentComponent().setEnabled(! viewOnly);
 }
 
 auto WorkspaceCanvas::beginViewLayout() -> void {

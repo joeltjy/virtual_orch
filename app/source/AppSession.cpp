@@ -536,6 +536,11 @@ auto AppSession::vocsepEnsembleAvailable() const -> bool {
 }
 
 auto AppSession::startGeneration() -> void {
+    if (replayActive.load()) {
+        juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::InfoIcon, "Replay loaded",
+                                               "Close the replay on the Replay page to play live.");
+        return;
+    }
     if (! isMusicModelLoaded()) {
         juce::AlertWindow::showMessageBoxAsync(
             juce::AlertWindow::WarningIcon,

@@ -102,6 +102,11 @@ public:
 
     /** Computer keyboard as Launchpad (Settings: "Keyboard as Launchpad"); see KeyboardLaunchpad.h. */
     std::atomic<bool> keyboardLaunchpadEnabled{false};
+    /**
+     * A recorded session is loaded on the Replay page: it uses the process-wide simulated time
+     * and log captures, so live generation must not start (startGeneration refuses).
+     */
+    std::atomic<bool> replayActive{false};
     KeyboardLaunchpad::Listener keyboardLaunchpad;
 
     [[nodiscard]] auto activeReduction() -> ReductionTransformer &;

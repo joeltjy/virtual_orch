@@ -20,6 +20,9 @@ public:
 
     auto resized() -> void override;
 
+    /** View-only workspace (the Replay page): see WorkspaceCanvas::setViewOnly. */
+    auto setViewOnly(bool viewOnly) -> void { canvas.setViewOnly(viewOnly); }
+
 private:
     auto refreshViewCombo(const juce::String &selectName) -> void;
 

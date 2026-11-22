@@ -6,6 +6,7 @@ AppRootComponent::AppRootComponent() {
     session.logSessionStart("live");
     settingsPage = std::make_unique<MainComponent>(session);
     workspacePage = std::make_unique<WorkspacePage>(session);
+    replayPage = std::make_unique<ReplayPage>(session);
 
     // Capture before addTab: TabbedComponent parents the page and can zero its bounds.
     const int contentWidth = settingsPage->getWidth() > 0
@@ -17,6 +18,7 @@ AppRootComponent::AppRootComponent() {
 
     tabs.addTab("Settings", UiConstants::appRootTabColour, settingsPage.get(), false);
     tabs.addTab("Workspace", UiConstants::appRootTabColour, workspacePage.get(), false);
+    tabs.addTab("Replay", UiConstants::appRootTabColour, replayPage.get(), false);
     addAndMakeVisible(tabs);
 
     setSize(contentWidth, contentHeight + tabs.getTabBarDepth());

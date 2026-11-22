@@ -4,10 +4,11 @@
 
 #include "VirtualOrch/AppSession.h"
 #include "VirtualOrch/ui/MainComponent.h"
+#include "VirtualOrch/ui/ReplayPage.h"
 #include "VirtualOrch/ui/WorkspacePage.h"
 
 /**
- * Top-level content: Settings | Workspace. Owns the shared AppSession.
+ * Top-level content: Settings | Workspace | Replay. Owns the shared AppSession.
  */
 class AppRootComponent : public juce::Component {
 public:
@@ -28,6 +29,7 @@ private:
     juce::TabbedComponent tabs{juce::TabbedButtonBar::TabsAtTop};
     std::unique_ptr<MainComponent> settingsPage;
     std::unique_ptr<WorkspacePage> workspacePage;
+    std::unique_ptr<ReplayPage> replayPage;
     /** The window the keyboard-Launchpad listener is also attached to. */
     juce::Component::SafePointer<juce::Component> listenedWindow;
 

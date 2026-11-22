@@ -835,6 +835,9 @@ auto replay(const std::vector<Line> &log, const Options &options) -> Report {
         report.replayed.push_back({restamp ? restampMs : simMs, static_cast<int32_t>(s.clock.getTime()), kind, text});
     });
 
+    if (options.onSession)
+        options.onSession(s);
+
     // ---- run
     bool running = false;
     int64_t otLastClock = -1;       // OT / playback passes only when their input or the clock changed
@@ -1129,7 +1132,11 @@ auto replay(const std::vector<Line> &log, const Options &options) -> Report {
         if (! running && nextTick >= 1e299)
             nextTick = endMs + 1.0;
         tick = std::max(tick + 1e-3, nextTick);
+        if (options.onTick && ! options.onTick(simMs))
+            break;
     }
+    if (options.onTick)
+        (void) options.onTick(std::max(simMs, endMs)); // the end: a driver keeps the final state on show
     // The log ends here; the recorded session did not necessarily stop (no closing clear).
     rt.steppedBySimulator = false;
     SessionLog::setCapture(nullptr);

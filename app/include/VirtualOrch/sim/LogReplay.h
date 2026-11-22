@@ -2,6 +2,8 @@
 
 #include <JuceHeader.h>
 
+#include <functional>
+
 #include <map>
 #include <optional>
 #include <vector>
@@ -24,6 +26,8 @@
  *
  * Supports sessions recorded with the Hybrid reduction (Reduction Transformer Hybrid).
  */
+class AppSession;
+
 namespace LogReplay {
 
 struct Line {
@@ -75,6 +79,18 @@ struct Options {
      * compared in the old words. Unset: decided by the log's "launchpad layout" line (none = 1).
      */
     std::optional<bool> layout1;
+
+    /**
+     * Replay page (ReplayDriver): called on the replaying thread once the replay's AppSession is
+     * set up, before the first event; the session lives until replay() returns.
+     */
+    std::function<void(AppSession &)> onSession;
+    /**
+     * Called on the replaying thread after every simulated step with the simulated ms (the session
+     * log's ms), and once more when the log has been replayed to its end. Return false to stop
+     * early. It may block: the session stays as it is meanwhile (ReplayDriver pauses here).
+     */
+    std::function<bool(double simMs)> onTick;
 };
 
 struct TagResult {

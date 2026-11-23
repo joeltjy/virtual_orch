@@ -15,7 +15,8 @@
  *
  * Every tick (kTickMs):
  *   e     = clamp(log2(target / measured), -kMaxError, kMaxError)       (TD steps)
- *   gamma = gamma + K e,     K = (kTickMs / kTauMs) / max(S, kMinSensitivity) x N / (N + kNoiseN) x m
+ *   gamma = gamma + clamp(K e, -kMaxStep, kMaxStep),
+ *            K = (kTickMs / kTauMs) / max(S, kMinSensitivity) x N / (N + kNoiseN) x m
  *
  *  - measured: the orchestra's onsets in the 3 s ending at its newest generated note, in TD units
  *    (onsets per 2 s; at least one onset counted, so silence is a finite error).
@@ -29,15 +30,30 @@
  *  - gamma stays in [kMinGamma, kMaxGamma] and does not integrate further into a limit.
  *  - Frozen (gamma kept, not updated) at TD AUTO, while the clock is stopped, while the model
  *    waits (W2/W3 WAIT), and in a tick in which it drew nothing. A new target resets m.
+ *  - reset() on a stream restart and a pedal release: a gamma learnt before must not carry over
+ *    (frozen, it would otherwise stay until the model draws enough to undo it).
  */
 class TdController {
 public:
-    static constexpr double kTickMs = 250.0;
-    static constexpr double kTauMs = 2500.0;
-    static constexpr double kMinSensitivity = 0.05;
+    /**
+     * gamma changes at most once per tick. At 250 ms it moved 4 times within one 3 s
+     * measurement window, each time reading mostly notes drawn with an older gamma, and ran
+     * from +1.5 to -3 in 0.8 s (Nov 23 2026). 2 s lets most of the window reflect the last step.
+     */
+    static constexpr double kTickMs = 2000.0;
+    static constexpr double kTauMs = 20000.0; // gain per update kTickMs / kTauMs = 0.1, as before
+    /** The largest change of gamma in one update. */
+    static constexpr double kMaxStep = 0.25;
+    /** A low sensitivity estimate (as in a dense burst) must not inflate K: S is taken as at least this. */
+    static constexpr double kMinSensitivity = 0.2;
     static constexpr double kNoiseN = 4.0;
     static constexpr double kMaxError = 2.0;
-    static constexpr double kMinGamma = -10.0;
+    /**
+     * Negative gamma thins a busy model out by favouring longer gaps. Below about -2 one dense
+     * burst drove v1 to onsets 40-80 s ahead (Nov 23 2026), and the controller, frozen while
+     * nothing is drawn, took minutes to come back.
+     */
+    static constexpr double kMinGamma = -2.0;
     static constexpr double kMaxGamma = 20.0;
     static constexpr int kCheckTicks = static_cast<int>(kTauMs / kTickMs);
     static constexpr double kMaxM = 2.0;
@@ -110,7 +126,7 @@ public:
             return state;
         }
         state.k = (kTickMs / kTauMs) / std::max(state.sensitivity, kMinSensitivity) * n / (n + kNoiseN) * state.m;
-        const double next = state.gamma + state.k * state.error;
+        const double next = state.gamma + std::clamp(state.k * state.error, -kMaxStep, kMaxStep);
         if ((state.gamma >= kMaxGamma && state.error > 0) || (state.gamma <= kMinGamma && state.error < 0)) {
             state.why = "at limit"; // no further into the limit
         } else {
@@ -136,6 +152,13 @@ public:
     }
 
     [[nodiscard]] auto current() const -> const State & { return state; }
+
+    /** Back to gamma 0 and m 1, as at launch (a restart, a pedal release). Keeps the TD target. */
+    auto reset() -> void {
+        const int32_t target = state.target;
+        *this = TdController{};
+        state.target = target;
+    }
 
 private:
     State state;

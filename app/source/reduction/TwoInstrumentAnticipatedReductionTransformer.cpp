@@ -179,6 +179,7 @@ auto TwoInstrumentAnticipatedReductionTransformer::resetStream(int32_t now) -> v
     hybridPlayingFor.store(-1);
     hybridV1.store(true); // a (re)start begins with v1
     hybridReasonValue.store(HybridReason::Start);
+    tdResetRequested.store(true); // a restart starts from gamma 0, not the last session's
     currentTime = stage.stream.clock();
 }
 
@@ -531,6 +532,14 @@ auto TwoInstrumentAnticipatedReductionTransformer::tdGamma(bool silentModel) con
 }
 
 auto TwoInstrumentAnticipatedReductionTransformer::tickTdControl(int32_t now) -> void {
+    // Before the tick's rate limit, so the next draw already uses gamma 0.
+    if (tdResetRequested.exchange(false)) {
+        tdControlMain.reset();
+        tdControlV1.reset();
+        lastTdTickMs = AppTime::hiResMs(); // the first update after a full tick of new notes
+        if (OpLog::on())
+            OpLog::emit(OpLog::Src::Rt, "TD_CTRL_RESET", {});
+    }
     const double nowMs = AppTime::hiResMs();
     if (lastTdTickMs >= 0.0 && nowMs - lastTdTickMs < TdController::kTickMs)
         return;

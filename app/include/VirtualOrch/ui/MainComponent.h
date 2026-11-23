@@ -78,6 +78,9 @@ private:
     /** Clear the Additional MIDI piano. */
     void clearAdditionalMidiInput();
 
+    /** Clear the Launchpad device and close its LED output. */
+    void clearLaunchpadMidiInput();
+
     /** True when a device role other than `exceptRole` (setMidiInput idx) uses `identifier`. */
     [[nodiscard]] auto isMidiInputUsedByOtherRole(const juce::String &identifier, int exceptRole) const
         -> bool;

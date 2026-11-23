@@ -268,7 +268,8 @@ private:
             lastOnset = std::max(lastOnset, generated[i]);
         const int32_t lowerAbs = ctx.lowerOnsetModel + ctx.base;
         const int32_t offset = lastOnset == INT32_MIN ? 0 : std::max(0, lowerAbs - lastOnset);
-        if (const auto s = TdOnsetBias::sensitivity(scores, ctx.lowerOnsetModel, offset, logitTdLevel, temperature)) {
+        if (const auto s = TdOnsetBias::sensitivity(scores, ctx.lowerOnsetModel, offset, logitTdLevel, temperature,
+                                                    onsetOptions.gamma.value_or(0.0f))) {
             sensitivitySum += *s;
             ++sensitivityDraws;
         }

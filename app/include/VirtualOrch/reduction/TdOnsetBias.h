@@ -101,6 +101,21 @@ public:
         return -0.25f * std::log1p(x2 * x2);
     }
 
+    /** With negative gamma the long-gap bonus stops growing at this many mean gaps g_k. */
+    static constexpr float kNegativeGammaMaxGaps = 4.0f;
+
+    /**
+     * The kernel gamma multiplies. Positive gamma: kernel(k, c). Negative gamma favours longer
+     * gaps, and u keeps falling with c, so the bonus would grow without bound and push onsets
+     * tens of seconds ahead: it is held at its value at c = kNegativeGammaMaxGaps x g_k.
+     */
+    [[nodiscard]] static auto kernelFor(float gamma, int32_t tdLevel, int32_t gapCs) -> float {
+        if (gamma >= 0.0f || tdLevel < 1)
+            return kernel(tdLevel, gapCs);
+        const auto capCs = static_cast<int32_t>(std::ceil(kNegativeGammaMaxGaps * kWindowCs / static_cast<float>(tdLevel)));
+        return kernel(tdLevel, std::min(gapCs, capCs));
+    }
+
     /**
      * Sensitivity of the density to gamma at one onset draw, in TD steps (octaves) per unit of
      * gamma: S = d log2(density) / d gamma = -Cov(gap, u) / (T * E[gap] * ln 2), over the forward
@@ -110,7 +125,8 @@ public:
      * forward.
      */
     [[nodiscard]] static auto sensitivity(const std::vector<float> &scores, int32_t lowerModel, int32_t gapOffsetCs,
-                                          int32_t tdLevel, float temperature) -> std::optional<double> {
+                                          int32_t tdLevel, float temperature, float gamma = 0.0f)
+        -> std::optional<double> {
         const double temp = std::max(1e-4, static_cast<double>(temperature));
         const int32_t first = std::max(lowerModel + 1, 0);
         const auto n = static_cast<int32_t>(scores.size());
@@ -126,7 +142,7 @@ public:
                 continue;
             const double p = std::exp((static_cast<double>(l) - peak) / temp);
             const double gap = static_cast<double>(t - lowerModel + std::max(gapOffsetCs, 0));
-            const double u = kernel(tdLevel, t - lowerModel);
+            const double u = kernelFor(gamma, tdLevel, t - lowerModel); // the kernel gamma draws with
             z += p;
             eg += p * gap;
             eu += p * u;
@@ -235,7 +251,7 @@ public:
             for (int32_t t = firstForward; t < end; ++t) {
                 float &logit = logits[timeOffset + static_cast<size_t>(t)];
                 if (std::isfinite(logit))
-                    logit += options.gamma.has_value() ? *options.gamma * kernel(tdLevel, t - fromModelTime)
+                    logit += options.gamma.has_value() ? *options.gamma * kernelFor(*options.gamma, tdLevel, t - fromModelTime)
                                                        : shift(tdLevel, t - fromModelTime);
             }
             const float lseAfter = forwardLse();

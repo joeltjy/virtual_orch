@@ -180,7 +180,8 @@ Output and control:
                   cleared", Launchpad pause)
   RT_THROTTLE     state ("start" | "end"), for_ms, ahead_of (on start). The RT is too far
                   ahead of the clock and waits.
-  TD_CTRL         dynamic LogitTD, every 250 ms per model while TD is not AUTO: model ("W" |
+  TD_CTRL         dynamic LogitTD, every 2 s per model while TD is not AUTO (250 ms in files
+                  before Nov 23 2026): model ("W" |
                   "T3" | "v1"), td (target level), measured (the orchestra's density: distinct
                   onsets in the 3 s ending at its newest note, in onsets per 2 s), error
                   (log2(td / measured), clamped to +-2), gamma (the strength the model draws
@@ -189,7 +190,11 @@ Output and control:
                   per unit of gamma), m (the overshoot multiplier), frozen, why ("TD AUTO" |
                   "clock stopped" | "waiting" | "not drawing" | "dead zone" | "at limit").
                   Files from before the controller have none: LogitTD then had a fixed
-                  strength.
+                  strength. gamma moves by at most 0.25 per update and is kept in [-2, 20]
+                  (S is taken as at least 0.2); with negative gamma the long-gap bonus
+                  stops growing at 4 mean gaps (4 x 200 / td cs).
+  TD_CTRL_RESET   (no fields) every model's controller went back to gamma 0 and m 1: a
+                  stream restart or a pedal release.
 
 4.4 Orchestration model, OT  (src "ot")
 

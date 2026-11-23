@@ -74,9 +74,10 @@ TEST(TdController, reachesTheTargetWithoutOvershooting) {
 }
 
 TEST(TdController, aWrongSensitivityIsCaughtByTheOvershootRule) {
-    // the model is 32x more sensitive than reported: every step overshoots, growing at first
+    // the model is 128x more sensitive than the floor kMinSensitivity: even a capped step
+    // (kMaxStep, 6 TD steps here) overshoots, so the overshoot rule must shrink m
     TdController c;
-    const Plant plant{4.0, 4.0};
+    const Plant plant{4.0, 25.6};
     run(c, plant, 16, 0.125, 300);
     EXPECT_LT(std::abs(std::log2(16.0 / plant.density(c.current().gamma))), 0.3);
     EXPECT_LT(c.current().m, 1.0) << "m was halved";
@@ -84,10 +85,60 @@ TEST(TdController, aWrongSensitivityIsCaughtByTheOvershootRule) {
 
 TEST(TdController, thinsOutABusyModelWithNegativeGamma) {
     TdController c;
-    const Plant plant{32.0, 0.5};
+    const Plant plant{12.0, 0.5}; // TD 8 needs gamma -1.17, inside the bound
     run(c, plant, 8, 0.5, 120);
     EXPECT_LT(c.current().gamma, 0.0);
     EXPECT_LT(std::abs(std::log2(8.0 / plant.density(c.current().gamma))), 0.3);
+}
+
+TEST(TdController, aVeryBusyModelStopsAtTheNegativeLimit) {
+    // Nov 23 2026: a dense v1 burst at TD 4 drove gamma to -3 and v1 to onsets 40-80 s ahead.
+    TdController c;
+    const Plant plant{64.0, 0.5}; // TD 4 would need gamma -8
+    run(c, plant, 4, 0.5, 400);
+    EXPECT_DOUBLE_EQ(c.current().gamma, TdController::kMinGamma);
+    EXPECT_GE(TdController::kMinGamma, -2.0);
+    EXPECT_EQ(c.current().why, "at limit");
+}
+
+TEST(TdController, theNov23BurstMovesGammaAtMostOneStepPerUpdate) {
+    // v1's TD_CTRL on Nov 23 2026 (TD 4): measured and S per update as logged. At 250 ms ticks
+    // gamma went +1.49 -> -3.02 in four updates; now each update moves it by at most kMaxStep.
+    TdController c;
+    c.tick({4, 2.67, 0.199, true, false});
+    const double start = c.current().gamma;
+    const double measured[] = {6.67, 9.33, 11.33, 14.67};
+    const double s[] = {0.103, 0.073, 0.081, 0.057};
+    double prev = start;
+    for (int i = 0; i < 4; ++i) {
+        c.tick({4, measured[i], s[i], true, false});
+        EXPECT_LE(std::abs(c.current().gamma - prev), TdController::kMaxStep + 1e-12);
+        prev = c.current().gamma;
+    }
+    EXPECT_GE(c.current().gamma, start - 4 * TdController::kMaxStep);
+    EXPECT_GT(c.current().gamma, -1.0) << "4 updates (8 s) cannot reach the old -3";
+    EXPECT_DOUBLE_EQ(TdController::kTickMs, 2000.0);
+}
+
+TEST(TdController, resetGoesBackToGammaZeroAndKeepsTheTarget) {
+    TdController c;
+    run(c, Plant{64.0, 0.5}, 4, 0.5, 40);
+    ASSERT_LT(c.current().gamma, -1.0);
+    c.reset();
+    EXPECT_DOUBLE_EQ(c.current().gamma, 0.0);
+    EXPECT_DOUBLE_EQ(c.current().m, 1.0);
+    EXPECT_EQ(c.current().target, 4);
+    EXPECT_TRUE(c.current().frozen);
+}
+
+TEST(TdController, negativeGammaBonusStopsGrowingFarAhead) {
+    const int32_t td = 4; // mean gap 50 cs, the bonus held from 200 cs on
+    const float gamma = -2.0f;
+    const float at2s = gamma * TdOnsetBias::kernelFor(gamma, td, 200);
+    EXPECT_GT(at2s, gamma * TdOnsetBias::kernelFor(gamma, td, 100)) << "still favours longer gaps up to the cap";
+    EXPECT_FLOAT_EQ(gamma * TdOnsetBias::kernelFor(gamma, td, 4000), at2s) << "40 s ahead gets no more than 2 s";
+    // positive gamma keeps the full taper
+    EXPECT_FLOAT_EQ(TdOnsetBias::kernelFor(1.0f, td, 4000), TdOnsetBias::kernel(td, 4000));
 }
 
 TEST(TdController, freezesAtAutoWhenStoppedWaitingOrNotDrawing) {

@@ -280,6 +280,8 @@ private:
     // ---- dynamic LogitTD: one gamma per model, updated every TdController::kTickMs
     TdController tdControlMain, tdControlV1;
     double lastTdTickMs = -1.0;
+    /** Set on a stream restart or pedal release; tickTdControl resets both controllers. */
+    std::atomic<bool> tdResetRequested{false};
     mutable std::mutex tdViewMutex;
     std::vector<TdControlView> tdViews;
     /** Tick the controllers when one is due: measure, update, publish, log TD_CTRL. */
@@ -306,8 +308,10 @@ private:
      */
     [[nodiscard]] auto predictsSilenceFrom(int32_t nowCs) const -> bool;
     auto onGenerationPauseChanged(bool paused) -> void override {
-        if (! paused)
+        if (! paused) {
             pedalReleased.store(true);
+            tdResetRequested.store(true);
+        }
     }
     std::atomic<bool> hybridV1{true};
     std::atomic<HybridReason> hybridReasonValue{HybridReason::Start};

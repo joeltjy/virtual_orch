@@ -87,9 +87,9 @@ public:
                                    State &present,
                                    std::vector<float> &lastLogits) -> bool = 0;
     /**
-     * One token per branch on top of `past` (batch = ids.size() = past.batch): fills `present` and
-     * `logits` (batch x vocab, branch-major). False when the backend cannot batch (the caller then
-     * decodes branch by branch).
+     * n tokens per branch on top of `past` (ids = past.batch x n, branch-major): fills `present` and
+     * `logits` of each branch's LAST token (batch x vocab). False when the backend cannot batch (the
+     * caller then decodes branch by branch).
      */
     [[nodiscard]] virtual auto runBatched(const BatchState & /*past*/, const std::vector<int64_t> & /*ids*/,
                                           BatchState & /*present*/, std::vector<float> & /*logits*/) -> bool {
@@ -126,6 +126,12 @@ public:
     /** Sink rows that are never evicted (the first tokens of the stream). */
     [[nodiscard]] auto sinkRows() const -> size_t { return static_cast<size_t>(dims.sinkRows); }
     [[nodiscard]] auto backendCalls() const -> int { return calls; }
+    /**
+     * When newly committed tokens are the head of the scratch tail W was computed from (and W evicted
+     * nothing), take the committed cache as W cut to those rows instead of feeding them again (causal
+     * attention: the rows are the same). Off by default (W3 / T3'' keep their behaviour).
+     */
+    bool reuseScratchOnCommit = false;
     [[nodiscard]] auto tokensFed() const -> size_t { return fedTotal; }
     [[nodiscard]] auto lastFailed() const -> bool { return failed; }
 

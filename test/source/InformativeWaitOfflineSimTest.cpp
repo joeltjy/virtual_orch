@@ -37,6 +37,8 @@ public:
     [[nodiscard]] auto dims() const -> StreamingKv::Dims override { return inner.dims(); }
     auto run(const StreamingKv::State &past, const std::vector<int64_t> &ids, StreamingKv::State &present,
              std::vector<float> &last) -> bool override {
+        if (verbose)
+            std::cout << "      run n=" << ids.size() << " past rows " << past.rows << std::endl;
         virtualMs += msPerCall * (1.0 + static_cast<double>(ids.size() - 1) / 16.0);
         ++calls;
         return inner.run(past, ids, present, last);
@@ -53,6 +55,7 @@ public:
     double virtualMs = 0;
     long calls = 0;
     long batchedCalls = 0;
+    bool verbose = false;
 };
 
 struct PianoNote {
@@ -137,6 +140,7 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
     backend.msPerCall = envOr("IW_MS_PER_CALL", "40").getDoubleValue();
     backend.msPerBatched = envOr("IW_MS_PER_BATCHED", "98").getDoubleValue();
     const int only = envOr("IW_ONLY", "-1").getIntValue();
+    backend.verbose = envOr("IW_TRACE", "0") == "1";
 
     juce::StringArray modes;
     modes.addTokens(envOr("IW_MODES", "unconstrained,monophonic_A,monophonic_B"), ",", "");
@@ -151,6 +155,8 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
         Engine::Stats total;
         double lateSum = 0;
         int lateN = 0;
+        double lateAllSum = 0;
+        int lateAllN = 0;
         int lateMax = 0;
         for (int fi = 0; fi < dirs.size(); ++fi) {
             if (only >= 0 && fi != only)
@@ -168,11 +174,24 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
             s.seed = static_cast<uint64_t>(fi);
             s.precompute = precompute;
             engine.setSettings(s);
-            std::vector<int32_t> fireLate;
+            std::vector<int32_t> fireLate;      // first stacked note
+            std::vector<int32_t> fireLateAll;   // last stacked note
             int32_t lastFireOnset = INT32_MIN;
+            int32_t openFire = INT32_MIN;       // onset of the fire whose stack is still coming
+            int32_t openLeft = 0;
+            bool firstSeen = false;
+            const bool trace = envOr("IW_TRACE", "0") == "1";
+            int32_t traceNow = 0;
             engine.onEvent = [&](const Engine::Event &e) {
-                if (e.what == "fire")
+                if (e.what == "fire") {
                     lastFireOnset = e.atCs;
+                    openFire = e.atCs;
+                    openLeft = e.a; // k
+                    firstSeen = false;
+                }
+                if (trace)
+                    std::cout << "  t=" << traceNow << " " << e.what << " @" << e.atCs << " " << e.a << " " << e.b << " "
+                              << e.text << std::endl;
             };
             engine.reset(0);
             std::vector<std::pair<Engine::OutNote, int32_t>> orch;
@@ -197,8 +216,14 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
                 }
                 lastFireOnset = INT32_MIN;
                 backend.virtualMs = 0;
+                traceNow = now;
+                const long c0 = backend.calls;
+                const long b0 = backend.batchedCalls;
                 const auto out = engine.step(now);
                 const double ms = backend.virtualMs;
+                if (trace && ms > 0)
+                    std::cout << "    step t=" << now << " cost " << ms << " ms (" << backend.calls - c0 << " calls, "
+                              << backend.batchedCalls - b0 << " batched) out " << out.size() << std::endl;
                 const auto cost = std::max<int32_t>(1, static_cast<int32_t>(std::ceil(ms / 10.0)));
                 const int32_t producedAt = now + cost - 1; // the notes exist once the step has run
                 const auto cancel = engine.takeCancelFrom();
@@ -207,8 +232,17 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
                                orch.end());
                 for (const auto &n: out)
                     orch.emplace_back(n, producedAt);
-                if (lastFireOnset != INT32_MIN && ! out.empty())
-                    fireLate.push_back(producedAt - lastFireOnset);
+                for (const auto &n: out)
+                    if (openFire != INT32_MIN && n.onsetCs == openFire && openLeft > 0) {
+                        if (! firstSeen) {
+                            fireLate.push_back(producedAt - openFire);
+                            firstSeen = true;
+                        }
+                        if (--openLeft == 0) {
+                            fireLateAll.push_back(producedAt - openFire);
+                            openFire = INT32_MIN;
+                        }
+                    }
                 now += cost;
             }
             const auto dir = juce::File(outRoot).getChildFile(modeName).getChildFile(dirs[fi].getFileName());
@@ -249,7 +283,15 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
                 lateMax = std::max(lateMax, l);
             }
             o->setProperty("fire_latency_cs", lates);
+            juce::Array<juce::var> latesAll;
+            for (const auto l: fireLateAll) {
+                latesAll.add(l);
+                lateAllSum += l;
+                ++lateAllN;
+            }
+            o->setProperty("fire_latency_all_notes_cs", latesAll);
             o->setProperty("context_rebuilds", stt.contextRebuilds);
+            o->setProperty("lag_skips", stt.lagSkips);
             o->setProperty("model_calls", static_cast<int>(backend.calls - calls0));
             o->setProperty("batched_calls", static_cast<int>(backend.batchedCalls - batched0));
             o->setProperty("wall_seconds_this_machine",
@@ -270,6 +312,7 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
             total.removed += stt.removed;
             total.orchestraNotes += static_cast<int>(orch.size());
             total.fireDecoded += stt.fireDecoded;
+            total.precomputePartial += stt.precomputePartial;
             total.precomputeCompleted += stt.precomputeCompleted;
             total.precomputeMsTotal += stt.precomputeMsTotal;
             total.fireDecodeMsTotal += stt.fireDecodeMsTotal;
@@ -288,6 +331,8 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
         all->setProperty("waits_ge_10cs_share", total.waitsDrawn > 0 ? static_cast<double>(total.waitsGe10) / total.waitsDrawn : 0.0);
         all->setProperty("mean_fire_latency_cs", lateN > 0 ? lateSum / lateN : 0.0);
         all->setProperty("max_fire_latency_cs", lateMax);
+        all->setProperty("mean_fire_latency_all_notes_cs", lateAllN > 0 ? lateAllSum / lateAllN : 0.0);
+        all->setProperty("precompute_partial", total.precomputePartial);
         all->setProperty("mean_precompute_ms", total.precomputeCompleted > 0 ? total.precomputeMsTotal / total.precomputeCompleted : 0.0);
         all->setProperty("mean_fire_decode_ms", total.fireDecoded > 0 ? total.fireDecodeMsTotal / total.fireDecoded : 0.0);
         juce::File(outRoot).getChildFile(modeName).getChildFile("summary.json").replaceWithText(juce::JSON::toString(juce::var(all)));

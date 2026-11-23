@@ -63,7 +63,6 @@ public:
     static constexpr int32_t kMaxWait = 300;
     static constexpr int32_t kMaxCount = 10;
     static constexpr int32_t kMergeCs = 5;
-    static constexpr int32_t kHoldCommitCs = 1000;
     static constexpr int kBranches = 5;
 
     static constexpr auto waitToken(int32_t d) -> int32_t { return kWait0 + quantizeWait(d) / kGrid - 1; }
@@ -95,9 +94,19 @@ public:
         int32_t drawAheadCs = 50;
         /** A further chord note may join an orchestra onset at most this far in the past. */
         int32_t chordLateCs = 5;
+        /** Line A: a legato fill whose start is more than this in the past is skipped (the engine is behind). */
+        int32_t lagGuardCs = 10;
         /** Context window: past `maxTokens` the oldest events go (re-based to onset 0), down to `keepTokens`. */
         size_t maxTokens = 500;
-        size_t keepTokens = 384;
+        size_t keepTokens = 300;
+        /**
+         * Held keys: false (default) = written with an estimated duration (the median of the pianist's last 16
+         * released notes, at least the time it has been down) and never rewritten, so the KV cache never re-feeds;
+         * true = W3's way: the time it has been down, rewritten at its note-off (scratch tail), committed after
+         * holdCommitCs.
+         */
+        bool rewriteHeldDurations = false;
+        int32_t holdCommitCs = 100;
         uint64_t seed = 0;
     };
 
@@ -126,10 +135,12 @@ public:
         int precomputeStarted = 0;
         int precomputeCompleted = 0;
         int precomputeHits = 0;   // fires served from a complete branch
+        int precomputePartial = 0; // fires whose branch had some of the k notes (the rest decoded)
         int fireDecoded = 0;      // fires decoded on the spot
         double precomputeMsTotal = 0;
         double fireDecodeMsTotal = 0;
         int contextRebuilds = 0;
+        int lagSkips = 0;         // line A fills skipped because the engine was behind
     };
 
     /** One record per decision (the transformer logs them; tests read them). */
@@ -229,10 +240,11 @@ private:
     struct Precompute {
         int32_t targetCs = 0;
         int32_t k = 1;
-        int phase = 0; // 0 duration, 1 pitches, 2 tile + piano pitch, 3 piano velocity, then 3 per orchestra note
+        int phase = 0; // 0 top-5 (batch 1), 1 tile + [pitch, velocity, T], then 3 per orchestra note
         int32_t durationCs = 0;
         std::vector<float> pianoProbs; // 88 keys, p(A0..C8)
         std::vector<Branch> branches;
+        StreamingKv::State state; // batch 1: context + T + D (phase 0)
         StreamingKv::BatchState kv;
         std::vector<float> logits; // batch x vocab of the last batched call
         bool complete = false;
@@ -285,7 +297,16 @@ private:
     std::optional<OpenGroup> group;
     std::vector<PianoNote> inbox;                       // arrived, not yet applied
     std::vector<std::array<int32_t, 3>> offs;           // (onset, pitch, duration)
+    std::vector<int32_t> releasedDurations;             // the pianist's last released notes (cs)
+    int32_t lastPianoVelocity = 64;
+    auto estimatedDuration(int32_t heldSoFar) const -> int32_t;
     std::optional<Precompute> pre;
+    struct FireLeft {
+        int32_t onsetCs = 0;
+        int32_t left = 0;
+        int32_t minPitch = 21;
+    };
+    std::optional<FireLeft> fireLeft; // stacked notes of a fire still to decode (one per step)
     int32_t cancelFrom = INT32_MAX;
     std::vector<int32_t> emittedFuture;                 // onsets of generated notes not yet started (for cuts)
     Stats st;

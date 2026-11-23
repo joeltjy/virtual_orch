@@ -79,18 +79,20 @@ public:
             return false;
         const auto B = static_cast<size_t>(past.batch);
         const auto r = static_cast<size_t>(past.rows);
+        const size_t n = ids.size() / B;
         present.batch = past.batch;
-        present.rows = past.rows + 1;
+        present.rows = past.rows + static_cast<int>(n);
         present.key.clear();
         for (size_t b = 0; b < B; ++b) {
             present.key.insert(present.key.end(), past.key.begin() + static_cast<std::ptrdiff_t>(b * r),
                                past.key.begin() + static_cast<std::ptrdiff_t>((b + 1) * r));
-            present.key.push_back(static_cast<float>(ids[b]));
+            for (size_t i = 0; i < n; ++i)
+                present.key.push_back(static_cast<float>(ids[b * n + i]));
         }
         present.value = present.key;
         logits.clear();
         for (size_t b = 0; b < B; ++b) {
-            const auto l = logitsAfter(ids[b]);
+            const auto l = logitsAfter(ids[b * n + n - 1]);
             logits.insert(logits.end(), l.begin(), l.end());
         }
         ++batchedCalls;
@@ -150,12 +152,12 @@ TEST(InformativeWaitEngine, FireServedFromPrecomputedBranch) {
     rig.run(0, 6); // the group closes at 5 cs; the model draws [WAIT 30][COUNT 2]
     ASSERT_TRUE(rig.engine.hasPendingWait());
     EXPECT_EQ(rig.engine.stats().waitsDrawn, 1);
-    rig.run(7, 22); // 2 anticipation calls + 4k + 1 = 9 batched calls
+    rig.run(7, 22); // 1 anticipation call + 3k = 6 batched calls
     ASSERT_TRUE(rig.engine.precomputeComplete());
     const auto top = rig.engine.anticipatedPitches();
     ASSERT_EQ(top.size(), 5u);
     EXPECT_EQ(top.front(), 60);
-    EXPECT_EQ(rig.model.batchedCalls, 9);
+    EXPECT_EQ(rig.model.batchedCalls, 6);
     EXPECT_TRUE(rig.played.empty()); // the orchestra waits
 
     rig.engine.noteOn(30, 60, 80); // in the window [24, 36]
@@ -185,9 +187,13 @@ TEST(InformativeWaitEngine, MissDecodesOnTheSpot) {
     rig.engine.noteOn(0, 60, 80);
     rig.run(0, 30);
     rig.engine.noteOn(31, 50, 80); // not anticipated
-    const auto out = rig.engine.step(31);
+    rig.played.clear();
+    rig.run(31, 33); // decoded one note per step after the fire
+    const auto &out = rig.played;
     ASSERT_EQ(out.size(), 2u);
     EXPECT_FALSE(out[0].precomputed);
+    EXPECT_EQ(out[0].onsetCs, 31);
+    EXPECT_LT(out[0].pitch, out[1].pitch);
     EXPECT_EQ(rig.engine.stats().fireDecoded, 1);
     EXPECT_EQ(rig.engine.stats().antTop5, 0);
 }
@@ -238,8 +244,29 @@ TEST(InformativeWaitEngine, ChordNotesAfterTheStack) {
     EXPECT_EQ(toks[20], Engine::kPiano0 + 55);
 }
 
-TEST(InformativeWaitEngine, NoteOffRewritesTheHeldDuration) {
+TEST(InformativeWaitEngine, HeldKeyGetsAnEstimatedDuration) {
     Rig rig(Engine::Mode::Unconstrained);
+    *rig.model.waitD = 0; // no WAITs (keep the stream simple)
+    *rig.model.onsetRel = 9000;
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 6);
+    EXPECT_EQ(rig.engine.tokens()[1], Engine::kDur0 + 30); // nothing released yet: 30 cs
+    rig.engine.noteOff(0, 60, 120);
+    rig.run(7, 7);
+    EXPECT_EQ(rig.engine.tokens()[1], Engine::kDur0 + 30); // not rewritten (the cache never re-feeds)
+    rig.engine.noteOn(100, 62, 80);
+    rig.run(100, 106);
+    const auto toks = rig.engine.tokens();
+    const auto at = std::find(toks.begin(), toks.end(), Engine::kPiano0 + 62);
+    ASSERT_NE(at, toks.end());
+    EXPECT_EQ(*(at - 1), Engine::kDur0 + 120); // the pianist's released notes: median 120
+}
+
+TEST(InformativeWaitEngine, RewriteModeRewritesTheHeldDuration) {
+    Rig rig(Engine::Mode::Unconstrained);
+    auto s = rig.engine.settings();
+    s.rewriteHeldDurations = true;
+    rig.engine.setSettings(s);
     rig.engine.noteOn(0, 60, 80);
     rig.run(0, 6);
     EXPECT_EQ(rig.engine.tokens()[1], Engine::kDur0 + 5); // held: the time it was down when written
@@ -318,7 +345,9 @@ TEST(InformativeWaitEngine, NoBatchingStillAnticipates) {
     rig.run(0, 29);
     EXPECT_FALSE(rig.engine.precomputeComplete());
     rig.engine.noteOn(30, 60, 80);
-    const auto out = rig.engine.step(30);
+    rig.played.clear();
+    rig.run(30, 32);
+    const auto &out = rig.played;
     EXPECT_EQ(out.size(), 2u);
     EXPECT_FALSE(out[0].precomputed);
     EXPECT_EQ(rig.engine.stats().antTop1, 1); // top-5 still scored
@@ -394,8 +423,60 @@ TEST(InformativeWaitOnnx, BatchedBranchesEqualBatchOne) {
             worst = std::max(worst, std::abs(last[i] - batched[b * last.size() + i]));
     }
     EXPECT_LT(worst, 1e-3f);
+    // three tokens per branch (the precompute's [piano pitch, velocity, T] feed)
+    {
+        std::vector<int64_t> feed3;
+        for (const auto f: feed)
+            feed3.insert(feed3.end(), {f, 11640 + 64, 300});
+        BatchState next3;
+        std::vector<float> batched3;
+        ASSERT_TRUE(backend.runBatched(tiled, feed3, next3, batched3));
+        EXPECT_EQ(next3.rows, tiled.rows + 3);
+        float worst3 = 0;
+        for (size_t b = 0; b < 5; ++b) {
+            State present;
+            std::vector<float> last;
+            ASSERT_TRUE(backend.run(one, {feed3[b * 3], feed3[b * 3 + 1], feed3[b * 3 + 2]}, present, last));
+            for (size_t i = 0; i < last.size(); ++i)
+                worst3 = std::max(worst3, std::abs(last[i] - batched3[b * last.size() + i]));
+        }
+        EXPECT_LT(worst3, 1e-3f);
+        std::cout << "[iw] 3 tokens per branch: max |logit diff| " << worst3 << std::endl;
+    }
     std::cout << "[iw] batch-5 call " << msB << " ms, 5 batch-1 calls " << msOne << " ms (avg " << msOne / 5
               << "), max |logit diff| " << worst << std::endl;
+}
+
+TEST(InformativeWaitOnnx, CommitFromScratchMatchesRefeeding) {
+    // committed prefix lagging 12 tokens behind, growing by 1-5 tokens per call: the cache that cuts C out
+    // of W must give the same logits as the one that feeds the committed tokens again
+    const auto tokensPath = home() + "/orchestration/samples/overnight_112226/v2/m2_r10__unconstrained/sample_00/tokens.txt";
+    if (! juce::File(modelPath()).existsAsFile() || ! juce::File(tokensPath).existsAsFile())
+        GTEST_SKIP() << "export or sample tokens not on this machine";
+    OnnxBackend backend;
+    std::string err;
+    ASSERT_TRUE(backend.init(modelPath().c_str(), err)) << err;
+    const auto toks = readTokens(tokensPath);
+    CommittedScratchCache plain(backend), reuse(backend);
+    reuse.reuseScratchOnCommit = true;
+    float worst = 0;
+    size_t n = 20;
+    int callsPlain = 0, callsReuse = 0;
+    for (int step = 0; step < 24 && n < toks.size(); ++step) {
+        const std::vector<int32_t> desired(toks.begin(), toks.begin() + static_cast<std::ptrdiff_t>(n));
+        const size_t committed = n > 12 ? n - 12 : 0;
+        const auto a = plain.logitsAfter(desired, committed);
+        const auto b = reuse.logitsAfter(desired, committed);
+        ASSERT_EQ(a.size(), b.size());
+        for (size_t i = 0; i < a.size(); ++i)
+            worst = std::max(worst, std::abs(a[i] - b[i]));
+        n += 1 + static_cast<size_t>(step % 5);
+    }
+    callsPlain = plain.backendCalls();
+    callsReuse = reuse.backendCalls();
+    EXPECT_LT(worst, 1e-3f);
+    std::cout << "[iw] commit-from-scratch: max |logit diff| " << worst << ", backend calls " << callsReuse
+              << " vs " << callsPlain << ", tokens fed " << reuse.tokensFed() << " vs " << plain.tokensFed() << std::endl;
 }
 
 TEST(InformativeWaitOnnx, MatchesPythonSampler) {

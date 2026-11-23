@@ -146,6 +146,33 @@ auto CommittedScratchCache::logitsAfter(const std::vector<int32_t> &desired, siz
     if (! prefixOk)
         reset();
 
+    // 2a. Newly committed tokens already in W: C = W cut to them (no feeding).
+    if (reuseScratchOnCommit && cFed.size() < committedLen && wValid && wVersion == cVersion) {
+        const size_t n = committedLen - cFed.size();
+        const bool headMatches = n <= wFed.size()
+                                 && std::equal(wFed.begin(), wFed.begin() + static_cast<std::ptrdiff_t>(n),
+                                               desired.begin() + static_cast<std::ptrdiff_t>(cFed.size()));
+        const bool noEviction = w.rows == c.rows + static_cast<int>(wFed.size());
+        const bool logitsKnown = n == wFed.size() || desired.size() > committedLen;
+        if (headMatches && noEviction && logitsKnown) {
+            const bool all = n == wFed.size();
+            State cut = w;
+            cutRows(cut, dims, c.rows + static_cast<int>(n));
+            c = std::move(cut);
+            cFed.insert(cFed.end(), wFed.begin(), wFed.begin() + static_cast<std::ptrdiff_t>(n));
+            wFed.erase(wFed.begin(), wFed.begin() + static_cast<std::ptrdiff_t>(n));
+            if (all)
+                cLogits = wLogits;
+            ++cVersion;
+            wVersion = cVersion; // W = C + the rest of wFed, still
+            wValid = ! wFed.empty() || all;
+            if (all) {
+                w = c;
+                wFed.clear();
+            }
+        }
+    }
+
     // 2. Advance C over the newly committed tokens.
     if (cFed.size() < committedLen) {
         if (! feed(c, cLogits, desired, cFed.size(), committedLen)) {
@@ -529,13 +556,17 @@ auto OnnxBackend::runOnHost(const State &past, const std::vector<int64_t> &ids, 
 
 auto OnnxBackend::runBatched(const BatchState &past, const std::vector<int64_t> &ids, BatchState &present,
                              std::vector<float> &logits) -> bool {
-    if (session == nullptr || cuda != nullptr || ids.empty() || static_cast<int>(ids.size()) != past.batch)
+    if (session == nullptr || cuda != nullptr || ids.empty() || past.batch <= 0
+        || ids.size() % static_cast<size_t>(past.batch) != 0)
         return false;
     try {
         std::vector<int64_t> idsCopy = ids;
-        const auto batch = static_cast<int64_t>(ids.size());
-        const std::array<int64_t, 2> idsShape{batch, 1};
-        std::vector<int64_t> positions(ids.size(), static_cast<int64_t>(past.rows));
+        const auto batch = static_cast<int64_t>(past.batch);
+        const auto perBranch = static_cast<int64_t>(ids.size()) / batch;
+        const std::array<int64_t, 2> idsShape{batch, perBranch};
+        std::vector<int64_t> positions(ids.size());
+        for (size_t i = 0; i < positions.size(); ++i)
+            positions[i] = static_cast<int64_t>(past.rows) + static_cast<int64_t>(i % static_cast<size_t>(perBranch));
         const std::array<int64_t, 5> pastShape{dimsValue.layers, batch, dimsValue.heads, past.rows,
                                                dimsValue.headDim};
         static float emptyData = 0.0f;

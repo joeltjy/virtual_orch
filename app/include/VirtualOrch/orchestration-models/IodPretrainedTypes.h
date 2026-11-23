@@ -529,10 +529,8 @@ struct EncoderWindow {
             assigned.token.note =
                 static_cast<int32_t>(Vocab::NoteOffset) + outPitch;
             assigned.localInstrumentId = *local;
-            const int32_t scaledVel =
-                InstrumentConstants::scaleVelocityForInstrument(*local, velocity);
-            assigned.velocity = scaledVel;
-            assigned.token.velocity = scaledVel;
+            assigned.velocity = velocity; // the reduction's velocity, the same for every instrument
+            assigned.token.velocity = velocity;
             notes.push_back(assigned);
             claimedDeltas |= deltaBit;
         }

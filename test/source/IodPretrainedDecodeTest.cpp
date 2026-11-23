@@ -88,10 +88,10 @@ TEST(IodPretrainedDecode, MultipleInstrumentsAndFamilies) {
 
     EXPECT_EQ(notes[0].localInstrumentId, 5);
     EXPECT_EQ(notes[0].token.getPitch(), 72);
-    EXPECT_EQ(notes[0].velocity, 70); // strings ×1
+    EXPECT_EQ(notes[0].velocity, 70);
     EXPECT_EQ(notes[1].localInstrumentId, 12);
     EXPECT_EQ(notes[1].token.getPitch(), 60);
-    EXPECT_EQ(notes[1].velocity, 25); // brass ×0.35
+    EXPECT_EQ(notes[1].velocity, 70); // no brass scaling: the reduction's velocity
 }
 
 TEST(IodPretrainedDecode, DropsSecondInstrumentOnSharedOctave) {

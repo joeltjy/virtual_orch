@@ -48,10 +48,8 @@ TEST(InstrumentCombinations, EncodedCombinationToInstruments_ViolinFluteTuba) {
         EXPECT_EQ(notes[i].token.time, 0) << "note " << i;
         EXPECT_EQ(notes[i].token.getRealDuration(), 50) << "note " << i;
         EXPECT_EQ(notes[i].token.getPitch(), 60) << "note " << i;
-        // Woodwinds are scaled up and brass down per instrument (scaleVelocityForInstrument).
-        EXPECT_EQ(notes[i].velocity,
-                  InstrumentConstants::scaleVelocityForInstrument(expectedInstruments[i], 100))
-            << "note " << i;
+        // Every instrument takes the reduction's velocity unchanged (no brass / woodwind scaling).
+        EXPECT_EQ(notes[i].velocity, 100) << "note " << i;
         EXPECT_EQ(notes[i].localInstrumentId, expectedInstruments[i]) << "note " << i;
     }
 }

@@ -115,11 +115,8 @@ inline constexpr int32_t kBrassLocalIdLast = 14;
 inline constexpr int32_t kWoodwindLocalIdFirst = 7;
 inline constexpr int32_t kWoodwindLocalIdLast = 10;
 
-/** Default playback scale for brass (too loud at full reduction velocity). */
-inline constexpr float kBrassVelocityScale = 0.35f;
-
-/** Boost for woodwinds relative to unscaled reduction velocity (clamped to 127). */
-inline constexpr float kWoodwindVelocityScale = 1.5f;
+// Orchestra notes take the reduction's velocity unchanged. (Until Nov 23 2026 brass was scaled
+// x0.35 and woodwinds x1.5, which made horn / trumpet / trombone nearly inaudible at velocity ~17.)
 
 [[nodiscard]] inline auto isBrassLocalInstrumentId(int32_t localInstrumentId) -> bool {
     return localInstrumentId >= kBrassLocalIdFirst && localInstrumentId <= kBrassLocalIdLast;
@@ -128,22 +125,6 @@ inline constexpr float kWoodwindVelocityScale = 1.5f;
 [[nodiscard]] inline auto isWoodwindLocalInstrumentId(int32_t localInstrumentId) -> bool {
     return localInstrumentId >= kWoodwindLocalIdFirst
            && localInstrumentId <= kWoodwindLocalIdLast;
-}
-
-/** Apply default family velocity scales (brass ↓, woodwinds ↑). Keeps 0 as 0. */
-[[nodiscard]] inline auto scaleVelocityForInstrument(int32_t localInstrumentId, int32_t velocity)
-    -> int32_t {
-    if (velocity <= 0)
-        return velocity;
-    float scale = 1.0f;
-    if (isBrassLocalInstrumentId(localInstrumentId))
-        scale = kBrassVelocityScale;
-    else if (isWoodwindLocalInstrumentId(localInstrumentId))
-        scale = kWoodwindVelocityScale;
-    else
-        return velocity;
-    const auto scaled = static_cast<int32_t>(static_cast<float>(velocity) * scale + 0.5f);
-    return scaled < 1 ? 1 : (scaled > 127 ? 127 : scaled);
 }
 
 [[nodiscard]] inline auto gmIdForLocalInstrumentId(int32_t localInstrumentId) -> std::optional<int32_t> {

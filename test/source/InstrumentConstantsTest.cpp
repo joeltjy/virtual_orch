@@ -4,26 +4,18 @@
 
 namespace virtual_orch_test {
 
-TEST(InstrumentConstants, BrassVelocityReducedByDefault) {
+TEST(InstrumentConstants, BrassFamilyIds) {
     EXPECT_TRUE(InstrumentConstants::isBrassLocalInstrumentId(11));
     EXPECT_TRUE(InstrumentConstants::isBrassLocalInstrumentId(14));
     EXPECT_FALSE(InstrumentConstants::isBrassLocalInstrumentId(10));
     EXPECT_FALSE(InstrumentConstants::isBrassLocalInstrumentId(15));
-
-    EXPECT_EQ(InstrumentConstants::scaleVelocityForInstrument(11, 100), 35);
-    EXPECT_EQ(InstrumentConstants::scaleVelocityForInstrument(6, 100), 100); // strings ×1
-    EXPECT_EQ(InstrumentConstants::scaleVelocityForInstrument(12, 0), 0);
 }
 
-TEST(InstrumentConstants, WoodwindVelocityBoostedAndCapped) {
+TEST(InstrumentConstants, WoodwindFamilyIds) {
     EXPECT_TRUE(InstrumentConstants::isWoodwindLocalInstrumentId(7));
     EXPECT_TRUE(InstrumentConstants::isWoodwindLocalInstrumentId(10));
     EXPECT_FALSE(InstrumentConstants::isWoodwindLocalInstrumentId(6));
     EXPECT_FALSE(InstrumentConstants::isWoodwindLocalInstrumentId(11));
-
-    EXPECT_EQ(InstrumentConstants::scaleVelocityForInstrument(7, 100), 127); // 100×1.5 capped
-    EXPECT_EQ(InstrumentConstants::scaleVelocityForInstrument(9, 80), 120);
-    EXPECT_EQ(InstrumentConstants::scaleVelocityForInstrument(8, 60), 90);
 }
 
 TEST(InstrumentConstants, MapsTaxonomyLocalIdsToGmPrograms) {

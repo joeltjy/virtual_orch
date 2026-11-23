@@ -535,6 +535,21 @@ TEST(InformativeWaitOnnx, CommitFromScratchMatchesRefeeding) {
               << " vs " << callsPlain << ", tokens fed " << reuse.tokensFed() << " vs " << plain.tokensFed() << std::endl;
 }
 
+TEST(InformativeWaitOnnx, HybridV11LoadsBothModels) {
+    const auto dir = home() + "/Documents/virtual_orch_models/";
+    const auto m1 = dir + "continuation_m1_r6.onnx";
+    const auto m2 = dir + "informative_wait_m2_r10_p30_q03.onnx";
+    if (! juce::File(m1).existsAsFile() || ! juce::File(m2).existsAsFile())
+        GTEST_SKIP() << "model 1 / p30_q03 exports not on this machine";
+    ModelConfig config;
+    HybridInformativeWaitReductionTransformer hy(config);
+    ASSERT_TRUE(hy.init(m1.c_str(), m2.c_str())) << hy.lastInitError;
+    EXPECT_TRUE(hy.isModelLoaded());
+    // the wrong way round is refused (vocab check)
+    HybridInformativeWaitReductionTransformer wrong(config);
+    EXPECT_FALSE(wrong.init(m2.c_str(), m1.c_str()));
+}
+
 TEST(InformativeWaitOnnx, MatchesPythonSampler) {
     // The Python sampler's trace: for each pick, the top-25 raw probabilities after tokens[:pos].
     const auto tracePath = home() + "/orchestration/samples/overnight_112226/v2/m2_r10__unconstrained/sample_00/trace.json.gz";

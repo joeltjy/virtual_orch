@@ -108,6 +108,12 @@ public:
         bool rewriteHeldDurations = false;
         int32_t holdCommitCs = 100;
         uint64_t seed = 0;
+        /**
+         * Overnight model 1 (continuation, vocab 11768): no WAIT / COUNT / EXPIRED; the piano goes first when a
+         * drawn orchestra onset is AT or after a piano onset (gap 0, not 5); an orchestra note may share the piano's
+         * onset (the T3'' / v1 rules of sample_overnight.generate for m1). Unconstrained mode only.
+         */
+        bool continuation = false;
     };
 
     struct OutNote {
@@ -176,6 +182,14 @@ public:
      * one anticipation call). Returns the orchestra notes to play (several at a fire).
      */
     auto step(int32_t stepNowCs) -> std::vector<OutNote>;
+    /** Hybrid, the model that is not drawing: apply input (piano groups, note-offs, mirrored notes) and nothing else. */
+    auto absorb(int32_t stepNowCs) -> void;
+    /** Hybrid: a note the OTHER model generated joins this context (applied in onset order at the next step). */
+    auto mirrorNote(const OutNote &note) -> void;
+    /** Hybrid switch: forget a pending WAIT, its anticipation and any stack still being decoded. */
+    auto interrupt() -> void;
+    /** Hybrid: generated notes from cutCs on leave the context (they were cut from playback). */
+    auto dropGeneratedFrom(int32_t cutCs) -> void;
 
     /** Generated notes from this onset on were cut (the piano came first): INT32_MAX = none. */
     auto takeCancelFrom() -> int32_t;
@@ -301,6 +315,10 @@ private:
     int32_t lastPianoVelocity = 64;
     auto estimatedDuration(int32_t heldSoFar) const -> int32_t;
     std::optional<Precompute> pre;
+    std::vector<OutNote> mirrored;
+    auto gap() const -> int32_t { return cfg.continuation ? 0 : kMergeCs; }
+    auto vocab() const -> int32_t { return cfg.continuation ? kWait0 : kVocab; }
+    auto applyMirrored() -> void;
     struct FireLeft {
         int32_t onsetCs = 0;
         int32_t left = 0;

@@ -78,6 +78,7 @@ auto InformativeWaitEngine::reset(int32_t startCs) -> void {
     cancelFrom = INT32_MAX;
     releasedDurations.clear();
     fireLeft.reset();
+    mirrored.clear();
     st = {};
     rng.seed(cfg.seed);
     if (cache != nullptr)
@@ -151,7 +152,7 @@ auto InformativeWaitEngine::logitsFor(const std::vector<int32_t> &desired) -> co
     if (cache == nullptr || desired.empty())
         return nullptr;
     const auto &logits = cache->logitsAfter(desired, std::min(committedLen(), desired.size()));
-    if (logits.size() < static_cast<size_t>(kVocab)) {
+    if (logits.size() < static_cast<size_t>(vocab())) {
         lastError = "model returned no usable logits (vocab " + std::to_string(logits.size()) + ")";
         return nullptr;
     }
@@ -241,7 +242,7 @@ auto InformativeWaitEngine::cutFuture(int32_t pianoOnsetCs) -> void {
     // everything written after it (the sampler's "the piano goes first, redraw" rule).
     for (size_t i = 0; i < items.size(); ++i) {
         const auto &it = items[i];
-        if (it.kind == Kind::Orch && it.onsetCs > nowCs && it.onsetCs >= pianoOnsetCs - kMergeCs) {
+        if (it.kind == Kind::Orch && it.onsetCs > nowCs && it.onsetCs >= pianoOnsetCs - gap()) {
             int cut = 0;
             for (size_t j = i; j < items.size(); ++j)
                 cut += items[j].kind == Kind::Orch ? 1 : 0;
@@ -404,7 +405,8 @@ auto InformativeWaitEngine::closeGroup() -> std::vector<OutNote> {
     }
     writePianoNotes(notes);
     cur.clockCs = cur.floorCs = g.headCs;
-    cur.exclHiCs = g.headCs + kMergeCs;
+    // model 2: nothing within 5 cs after a piano onset; model 1: the orchestra may share it
+    cur.exclHiCs = cfg.continuation ? g.headCs - 1 : g.headCs + kMergeCs;
     cur.chordOnCs = INT32_MIN;
     cur.chordCount = 0;
     cur.lastPianoCs = g.headCs;
@@ -624,7 +626,7 @@ auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
                          && cur.chordOnCs < lo && cur.lastOrchPitch < kPianoHigh && cur.chordCount < kMaxChord;
     if (chordOk)
         ranges.push_back({rel(cur.chordOnCs), rel(cur.chordOnCs) + 1});
-    const bool waitOk = cfg.mode != Mode::LineLegato;
+    const bool waitOk = cfg.mode != Mode::LineLegato && ! cfg.continuation;
     if (waitOk) {
         // only WAITs whose window has not already passed: ref + d + 6 > now
         const int32_t dMin = std::max(kGrid, nowCs + 1 - cur.clockCs - kEps);
@@ -694,7 +696,7 @@ auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
     cur.chordCount = same ? cur.chordCount + 1 : 1;
     cur.lastOrchPitch = note->pitch;
     cur.clockCs = cur.floorCs = cur.chordOnCs = onset;
-    cur.exclHiCs = onset + kMergeCs;
+    cur.exclHiCs = onset + gap();
     event("orch", onset, note->pitch, note->durationCs);
     out.push_back(*note);
     return out;
@@ -893,6 +895,64 @@ auto InformativeWaitEngine::maybeShrinkContext() -> void {
         startPrecompute(); // its context changed
 }
 
+// ---------------------------------------------------------------- hybrid support
+
+auto InformativeWaitEngine::mirrorNote(const OutNote &note) -> void { mirrored.push_back(note); }
+
+auto InformativeWaitEngine::applyMirrored() -> void {
+    if (mirrored.empty() || items.empty())
+        return;
+    std::stable_sort(mirrored.begin(), mirrored.end(), [](const auto &a, const auto &b) { return a.onsetCs < b.onsetCs; });
+    for (const auto &n: mirrored) {
+        Item it;
+        it.kind = Kind::Orch;
+        it.onsetCs = n.onsetCs;
+        it.durationCs = q5(n.durationCs);
+        it.pitch = std::clamp(n.pitch, kPianoLow, kPianoHigh);
+        it.velocity = std::clamp(8 * ((n.velocity + 4) / 8), 8, 120);
+        append(it);
+        const bool same = cur.chordOnCs == n.onsetCs;
+        cur.chordCount = same ? cur.chordCount + 1 : 1;
+        cur.lastOrchPitch = it.pitch;
+        cur.clockCs = std::max(cur.clockCs, n.onsetCs);
+        cur.floorCs = std::max(cur.floorCs, n.onsetCs);
+        cur.chordOnCs = n.onsetCs;
+        cur.exclHiCs = n.onsetCs + gap();
+    }
+    mirrored.clear();
+}
+
+auto InformativeWaitEngine::interrupt() -> void {
+    if (pending.has_value() && pending->provisional)
+        removeProvisionalWait(pending->waitItem);
+    pending.reset();
+    pre.reset();
+    fireLeft.reset();
+}
+
+auto InformativeWaitEngine::dropGeneratedFrom(int32_t cutCs) -> void {
+    mirrored.erase(std::remove_if(mirrored.begin(), mirrored.end(), [cutCs](const auto &n) { return n.onsetCs >= cutCs; }),
+                   mirrored.end());
+    for (size_t i = 0; i < items.size(); ++i)
+        if (items[i].kind == Kind::Orch && items[i].onsetCs >= cutCs) {
+            truncateTo(i);
+            return;
+        }
+}
+
+auto InformativeWaitEngine::absorb(int32_t stepNowCs) -> void {
+    nowCs = stepNowCs;
+    if (! started)
+        return;
+    applyInput();
+    applyMirrored();
+    commitLongHolds();
+    if (group.has_value() && nowCs >= group->headCs + kMergeCs)
+        closeGroup();
+    maybeShrinkContext();
+    cancelFrom = INT32_MAX; // the drawing model reports cuts
+}
+
 // ---------------------------------------------------------------- main step
 
 auto InformativeWaitEngine::step(int32_t stepNowCs) -> std::vector<OutNote> {
@@ -901,6 +961,7 @@ auto InformativeWaitEngine::step(int32_t stepNowCs) -> std::vector<OutNote> {
     if (! started || backend == nullptr)
         return out;
     out = applyInput();
+    applyMirrored();
     commitLongHolds();
     if (fireLeft.has_value() && out.empty()) {
         // the next stacked note of a fire

@@ -1,0 +1,14 @@
+{
+  "arch": "dense",
+  "contextNotes": 40,
+  "outputInstruments": [
+    1
+  ],
+  "defaultPreset": {},
+  "onnx": "informative_wait_m2_r10_p30_q03",
+  "silentOnnx": "continuation_m1_r6",
+  "reductionType": 10,
+  "iwMode": "unconstrained",
+  "precompute": true,
+  "notes": "Hybrid v1.1: overnight model 1 round 6 (ovn_m1_r6 best_eval_loss, eval 0.8852; continuation_m1_r6.onnx) while the piano is silent, the informative-WAIT model p30_q03 (informative_wait_m2_r10_p30_q03.onnx) while it plays; W3's HybridTransformer switching rules. See orchestration/112326_decisions.txt."
+}

@@ -4,10 +4,11 @@
 #include "VirtualOrch/orchestration-models/InstrumentCombinations.h"
 #include "VirtualOrch/orchestration-models/IodPretrained.h"
 #include "VirtualOrch/orchestration-models/IodPretrainedTD.h"
+#include "VirtualOrch/orchestration-models/IodPretrainedExpressive.h"
 #include "VirtualOrch/orchestration-models/TestModel.h"
 
 auto orchestrationModelNames() -> std::vector<std::string> {
-    return {"TestModel", "InstrumentCombinations", "IodPretrained", "IodPretrainedTD"};
+    return {"TestModel", "InstrumentCombinations", "IodPretrained", "IodPretrainedTD", "IodPretrainedExpressive"};
 }
 
 auto createOrchestrationModel(const std::string &name) -> std::unique_ptr<OrchestrationModel> {
@@ -43,6 +44,21 @@ auto createOrchestrationModel(const std::string &name) -> std::unique_ptr<Orches
             model->init(path.toRawUTF8());
             if (! model->isModelLoaded()) {
                 DBG("IodPretrained init failed for " + path);
+                return nullptr;
+            }
+            return model;
+        }
+        if (name == "IodPretrainedExpressive") {
+            auto model = std::make_unique<IodPretrainedExpressive>();
+            const auto onnx = modelsDir().getChildFile(IodPretrainedExpressive::kOnnxFile);
+            const auto path = onnx.getFullPathName();
+            if (! onnx.existsAsFile()) {
+                DBG("IodPretrainedExpressive model missing at " + path);
+                return nullptr;
+            }
+            model->init(path.toRawUTF8());
+            if (! model->isModelLoaded()) {
+                DBG("IodPretrainedExpressive init failed for " + path);
                 return nullptr;
             }
             return model;

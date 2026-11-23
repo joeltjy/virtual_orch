@@ -36,6 +36,8 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     session.presetStore.setLogitAdjustmentsProvider([this] { return session.logitAdjustmentsToVar(); });
     session.presetStore.setReductionTypeProvider([this]() -> juce::String {
         switch (reductionTypeList.getSelectedId()) {
+            case 10:
+                return "hybridInformativeWait";
             case 9:
                 return "informativeWait";
             case 8:
@@ -498,6 +500,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     reductionTypeList.addItem("Anticipated Reduction + WAIT (W2/W3)", 7);
     reductionTypeList.addItem("HybridTransformer (v1 silent / W2-W3 playing)", 8);
     reductionTypeList.addItem("Informative WAIT (model 2: unconstrained / line A / line B)", 9);
+    reductionTypeList.addItem("Hybrid v1.1 (model 1 silent / informative WAIT playing)", 10);
     reductionTypeList.setSelectedId(2, juce::dontSendNotification);
     reductionTypeList.onChange = [this] {
         stop();
@@ -1048,7 +1051,9 @@ void MainComponent::loadPresetFromName(const juce::String &presetName) {
     const juce::String reductionKey =
         preset.getProperty("reduction", checkpoint->isDense ? "v1" : "amt").toString().toLowerCase();
     int desiredReductionId = 1;
-    if (reductionKey == "informativewait")
+    if (reductionKey == "hybridinformativewait")
+        desiredReductionId = 10;
+    else if (reductionKey == "informativewait")
         desiredReductionId = 9;
     else if (reductionKey == "hybrid")
         desiredReductionId = 8;
@@ -1177,7 +1182,7 @@ void MainComponent::clearModel() {
 
 auto MainComponent::selectedReductionIsDense() const -> bool {
     const auto id = reductionTypeList.getSelectedId();
-    return id >= 2 && id <= 9;
+    return id >= 2 && id <= 10;
 }
 
 auto MainComponent::selectedCheckpointName() const -> juce::String {
@@ -1228,6 +1233,9 @@ auto MainComponent::selectPreferredCheckpointForCurrentReduction() -> bool {
             break;
         case 9: // Informative WAIT
             preferred = "w4_informative_wait";
+            break;
+        case 10: // Hybrid v1.1
+            preferred = "hybrid_v11";
             break;
         default:
             // AMT: leave first listed checkpoint if any.
@@ -1367,6 +1375,28 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
                     checkpointList.setSelectedId(0, juce::dontSendNotification);
                     return;
                 }
+            } else if (reductionId == 10) {
+                session.setMusicModelArch(MusicModelArch::DenseHybridInformativeWait);
+                // "onnx" = model 2 (piano playing), "silentOnnx" = model 1 (piano silent)
+                juce::String silentStem = parsedJson.getProperty("silentOnnx", {}).toString().trim();
+                if (silentStem.endsWithIgnoreCase(".onnx"))
+                    silentStem = silentStem.dropLastCharacters(5);
+                const auto silentFile = silentStem.isNotEmpty() ? modelsDir().getChildFile(silentStem + ".onnx") : juce::File();
+                auto &hy = session.reductionTransformerHybridIW;
+                hy.setWaitMode(InformativeWaitReductionTransformer::modeFromName(
+                    parsedJson.getProperty("iwMode", "unconstrained").toString()));
+                hy.setPrecompute(static_cast<bool>(parsedJson.getProperty("precompute", true)));
+                if (! silentFile.existsAsFile()
+                    || ! hy.init(silentFile.getFullPathName().toRawUTF8(), modelPathStr.toRawUTF8())) {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::AlertWindow::WarningIcon, "Error",
+                        "Failed to load '" + modelName + "' for Hybrid v1.1: it needs model 1's export ('" + silentStem
+                            + "', vocab 11768) and the informative-WAIT export (vocab 11879) in virtual_orch_models. "
+                            + juce::String(hy.lastInitError));
+                    checkpointList.setSelectedId(0, juce::dontSendNotification);
+                    return;
+                }
+                SessionLog::add("HYBRID", "loaded " + modelName);
             } else if (reductionId == 9) {
                 session.setMusicModelArch(MusicModelArch::DenseInformativeWait);
                 auto &iw = session.reductionTransformerInformativeWait;

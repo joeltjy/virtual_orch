@@ -9,6 +9,8 @@
 #include <fstream>
 #include <sstream>
 
+#include <VirtualOrch/reduction/DenseTypes.h>
+#include <VirtualOrch/reduction/HybridInformativeWaitReductionTransformer.h>
 #include <VirtualOrch/reduction/InformativeWaitEngine.h>
 #include <VirtualOrch/reduction/StreamingKvCache.h>
 
@@ -366,6 +368,60 @@ TEST(InformativeWaitEngine, ContextWindowRebases) {
     EXPECT_GT(rig.engine.stats().contextRebuilds, 0);
     EXPECT_LE(rig.engine.tokens().size(), 60u);
     EXPECT_EQ(rig.engine.tokens().front(), 0); // the window starts at onset 0, as training lines
+}
+
+TEST(InformativeWaitEngine, ContinuationModeNeverWaitsAndMayShareThePianoOnset) {
+    Rig rig(Engine::Mode::Unconstrained);
+    auto s = rig.engine.settings();
+    s.continuation = true;
+    rig.engine.setSettings(s);
+    *rig.model.waitD = 30; // a WAIT is the model's favourite, but model 1 has none
+    *rig.model.onsetRel = 0; // and it likes to share the piano's onset
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 8);
+    EXPECT_EQ(rig.engine.stats().waitsDrawn, 0);
+    ASSERT_FALSE(rig.played.empty());
+    EXPECT_GE(rig.played[0].onsetCs, 5); // never in the past (the group closed at 5 cs)
+    const auto toks = rig.engine.tokens();
+    for (const auto t: toks)
+        EXPECT_LT(t, Engine::kWait0);
+}
+
+TEST(HybridInformativeWait, SwitchesToTheWaitModelAfterOneSecondOfPlayingAndBackOnSilence) {
+    ModelConfig config;
+    HybridInformativeWaitReductionTransformer hy(config);
+    auto silent = std::make_unique<ScriptBackend>();
+    *silent->waitD = 0;
+    *silent->onsetRel = 40;
+    auto wait = std::make_unique<ScriptBackend>();
+    hy.initWithBackends(std::move(silent), std::move(wait));
+    int32_t now = 0;
+    int64_t wall = 0;
+    int64_t silentFor = INT64_MAX;
+    hy.nowCsProvider = [&] { return now; };
+    hy.wallMsProvider = [&] { return wall; };
+    hy.pianoSilentForMs = [&] { return silentFor; };
+    hy.stepOnce();
+    EXPECT_TRUE(hy.usesSilentModel());
+    // the pianist plays for 1.2 s: model 2 takes over
+    for (int i = 0; i < 12; ++i) {
+        Token t{now, static_cast<int32_t>(DenseVocab::DurOffset) + 20, static_cast<int32_t>(DenseVocab::NoteOffset) + 60};
+        t.velocity = 80;
+        hy.inputTokenQueue.push(t);
+        silentFor = 0;
+        for (int k = 0; k < 10; ++k) {
+            hy.stepOnce();
+            now += 1;
+            wall += 10;
+        }
+    }
+    EXPECT_FALSE(hy.usesSilentModel());
+    EXPECT_EQ(hy.reason(), HybridInformativeWaitReductionTransformer::Reason::Playing);
+    // silent for 0.6 s: back to model 1
+    silentFor = 600;
+    hy.stepOnce();
+    EXPECT_TRUE(hy.usesSilentModel());
+    EXPECT_EQ(hy.reason(), HybridInformativeWaitReductionTransformer::Reason::Stopped);
 }
 
 // ---- the real export (skipped unless the files are on this machine) ----

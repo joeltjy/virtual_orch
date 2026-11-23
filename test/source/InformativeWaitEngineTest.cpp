@@ -433,7 +433,7 @@ auto home() -> std::string {
 
 auto modelPath() -> std::string {
     const char *p = std::getenv("IW_MODEL");
-    return p != nullptr ? p : home() + "/Documents/virtual_orch_models/informative_wait_m2_r10.onnx";
+    return p != nullptr ? p : home() + "/Documents/virtual_orch_models/simultaneous_model_v3.onnx";
 }
 
 auto readTokens(const std::string &path) -> std::vector<int32_t> {
@@ -537,10 +537,10 @@ TEST(InformativeWaitOnnx, CommitFromScratchMatchesRefeeding) {
 
 TEST(InformativeWaitOnnx, HybridV11LoadsBothModels) {
     const auto dir = home() + "/Documents/virtual_orch_models/";
-    const auto m1 = dir + "continuation_m1_r6.onnx";
-    const auto m2 = dir + "informative_wait_m2_r10_p30_q03.onnx";
+    const auto m1 = dir + "continuation_model_v2.onnx";
+    const auto m2 = dir + "simultaneous_model_v3.onnx";
     if (! juce::File(m1).existsAsFile() || ! juce::File(m2).existsAsFile())
-        GTEST_SKIP() << "model 1 / p30_q03 exports not on this machine";
+        GTEST_SKIP() << "continuation_model_v2 / simultaneous_model_v3 not on this machine";
     ModelConfig config;
     HybridInformativeWaitReductionTransformer hy(config);
     ASSERT_TRUE(hy.init(m1.c_str(), m2.c_str())) << hy.lastInitError;
@@ -552,7 +552,7 @@ TEST(InformativeWaitOnnx, HybridV11LoadsBothModels) {
 
 TEST(InformativeWaitOnnx, MatchesPythonSampler) {
     // The Python sampler's trace: for each pick, the top-25 raw probabilities after tokens[:pos].
-    const auto tracePath = home() + "/orchestration/samples/overnight_112226/v2/m2_r10__unconstrained/sample_00/trace.json.gz";
+    const auto tracePath = home() + "/orchestration/samples/overnight_112226/v2/m2_r10_p30_q03__unconstrained/sample_00/trace.json.gz";
     if (! juce::File(modelPath()).existsAsFile() || ! juce::File(tracePath).existsAsFile())
         GTEST_SKIP() << "export or trace not on this machine";
     juce::FileInputStream raw(juce::File{tracePath});

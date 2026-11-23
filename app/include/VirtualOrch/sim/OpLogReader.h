@@ -12,9 +12,9 @@
 /**
  * Reads operation logs (docs/OPLOGS.txt) for the Replay page.
  *
- *  - Launches: the log pairs in Documents/virtual-orch/Logs (oplog_<stamp>.jsonl.gz with
- *    session_<stamp>.log), and the older ones in Logs/oplogs and Logs/sessions (paired by the
- *    nearest stamp within a few seconds).
+ *  - Launches: Logs/oplogs/oplog_<stamp>.jsonl.gz with Logs/sessions/session_<stamp>.log (paired
+ *    by the same stamp, or for logs before Nov 2026 the nearest within a few seconds), and the
+ *    Nov 21-23 2026 pairs written directly in Documents/virtual-orch/Logs.
  *  - A loaded oplog keeps the decompressed text and the header of every record (seq, t, clock,
  *    src, op); a record's fields are parsed when asked for. A file cut short (a crash) is read
  *    up to its last whole line.

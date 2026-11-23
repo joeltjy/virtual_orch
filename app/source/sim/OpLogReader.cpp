@@ -85,7 +85,7 @@ auto parseHeader(const char *p, const char *end, Record &r) -> bool {
 
 auto listLaunches(const juce::File &logsDir) -> std::vector<Launch> {
     std::vector<Launch> out;
-    // Current layout: pairs with the same stamp directly in Logs/.
+    // Nov 21-23 2026: pairs with the same stamp directly in Logs/.
     std::map<juce::String, Launch> byStamp;
     for (const auto &f: logsDir.findChildFiles(juce::File::findFiles, false, "oplog_*.jsonl.gz")) {
         const auto stamp = stampOf(f, "oplog_", ".jsonl.gz");
@@ -101,7 +101,8 @@ auto listLaunches(const juce::File &logsDir) -> std::vector<Launch> {
         l.time = timeOfStamp(stamp);
         out.push_back(l);
     }
-    // Before Nov 2026: Logs/oplogs and Logs/sessions, each with its own stamp a moment apart.
+    // Logs/oplogs and Logs/sessions: from Nov 23 2026 a pair shares one stamp; before Nov 2026
+    // each had its own stamp a moment apart (paired by the nearest within 5 s).
     std::vector<Launch> old;
     for (const auto &f: logsDir.getChildFile("sessions").findChildFiles(juce::File::findFiles, false, "session_*.log*")) {
         const auto name = f.getFileName();
@@ -113,8 +114,14 @@ auto listLaunches(const juce::File &logsDir) -> std::vector<Launch> {
         const auto t = timeOfStamp(stamp);
         Launch *nearest = nullptr;
         for (auto &l: old)
-            if (! l.oplog.exists() && std::abs((l.time - t).inSeconds()) <= 5.0
-                && (nearest == nullptr || std::abs((l.time - t).inSeconds()) < std::abs((nearest->time - t).inSeconds())))
+            if (! l.oplog.exists() && l.stamp == stamp)
+                nearest = &l;
+        for (auto &l: old)
+            if (nearest == nullptr && ! l.oplog.exists() && std::abs((l.time - t).inSeconds()) <= 5.0)
+                nearest = &l;
+        for (auto &l: old)
+            if (nearest != nullptr && nearest->stamp != stamp && ! l.oplog.exists()
+                && std::abs((l.time - t).inSeconds()) < std::abs((nearest->time - t).inSeconds()))
                 nearest = &l;
         if (nearest != nullptr)
             nearest->oplog = f;

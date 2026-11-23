@@ -19,15 +19,21 @@
 }
 
 /**
- * Where each app launch writes its logs: Documents/virtual-orch/Logs, one pair per launch with
- * the same stamp, session_<stamp>.log (text) and oplog_<stamp>.jsonl.gz (operation log). Logs
- * written before Nov 2026 are in its sessions/ and oplogs/ subfolders.
+ * Documents/virtual-orch/Logs. Each app launch writes one pair with the same stamp:
+ * sessions/session_<stamp>.log (text) and oplogs/oplog_<stamp>.jsonl.gz (operation log).
+ * Launches from Nov 21-23 2026 wrote both directly in Logs/; the Replay page reads all three.
  */
 [[nodiscard]] inline auto logsDir() -> juce::File {
     return juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
         .getChildFile("virtual-orch")
         .getChildFile("Logs");
 }
+
+/** Logs/sessions: the text session logs (SessionLog). */
+[[nodiscard]] inline auto sessionLogsDir() -> juce::File { return logsDir().getChildFile("sessions"); }
+
+/** Logs/oplogs: the operation logs (OpLog, docs/OPLOGS.txt). */
+[[nodiscard]] inline auto oplogsDir() -> juce::File { return logsDir().getChildFile("oplogs"); }
 
 /** Checked-in .json configs (and presets) under the app/ folder (VIRTUAL_ORCH_APP_DIR). */
 [[nodiscard]] inline auto projectModelsDir() -> juce::File {

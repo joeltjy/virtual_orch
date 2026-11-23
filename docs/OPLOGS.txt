@@ -16,12 +16,12 @@ called "Edit".
 
 Each app launch writes two logs, both opened at start-up and closed at quit:
 
-  Documents/virtual-orch/Logs/oplog_<YYYY-MM-DD_HH-MM-SS>.jsonl.gz   (this format)
-  Documents/virtual-orch/Logs/session_<YYYY-MM-DD_HH-MM-SS>.log      (older text log)
+  Documents/virtual-orch/Logs/oplogs/oplog_<YYYY-MM-DD_HH-MM-SS>.jsonl.gz    (this format)
+  Documents/virtual-orch/Logs/sessions/session_<YYYY-MM-DD_HH-MM-SS>.log     (older text log)
 
 Both files of one launch share the stamp (a second launch in the same second adds "_2").
-Logs written before Nov 2026 are in the subfolders Logs/oplogs/ and Logs/sessions/, with
-their own stamps.
+Logs written before Nov 2026 are in the same subfolders with their own stamps, a moment
+apart; launches from Nov 21-23 2026 wrote both files directly in Logs/.
 
 The session log is short human-readable text (one tagged line per event: MIDI_IN, RT, OT,
 MIDI_OUT, CUT, WAIT, HYBRID, LAUNCHPAD, MODE, CLOCK, ...). LogReplay and tools/oplog_replay

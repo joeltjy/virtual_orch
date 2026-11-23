@@ -383,12 +383,14 @@ void MidiInputProcess::handleSustainPedal(const juce::MidiMessage &message) {
         return;
 
     const int value = message.getControllerValue();
-    const bool pause = value >= 64;
-    const bool pressed = pause && ! pedalDown;
-    pedalDown = pause;
+    setPedal(value >= 64, "CC64 value=" + juce::String(value));
+}
+
+auto MidiInputProcess::setPedal(bool pause, const juce::String &source) -> void {
+    const bool pressed = pause && ! pedalDown.exchange(pause);
     notePedalState(pause, juce::Time::currentTimeMillis());
     juce::Logger::writeToLog(
-        "[pedal] CC64 value=" + juce::String(value)
+        "[pedal] " + source
         + (pause ? " down→pause" : " up→resume")
         + " clockCs=" + juce::String(static_cast<int32_t>(clock.getTime()))
         + " wasPaused="

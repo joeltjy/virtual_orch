@@ -253,6 +253,14 @@ protected:
     auto pushOutputToken(const Token &token) -> void;
 
     /**
+     * Sympathetic Orchestra tempo: stretch a just-generated note by the warp factor about the
+     * clock now (Sympathetic::warpNote), before it enters the model context (inputData) and the
+     * output. No-op while the gesture layer is off or warp == 1. Floor: currentTime.
+     */
+    auto applySympatheticWarp(Token &token) const -> void;
+    auto applySympatheticWarp(int32_t &onsetCs, int32_t &durationCs) const -> void;
+
+    /**
      * Earliest onset the next generated note may have: currentTime, raised by the accompaniment
      * polyphony cap (generated notes still sounding at currentTime, see PolyphonyCap.h).
      */

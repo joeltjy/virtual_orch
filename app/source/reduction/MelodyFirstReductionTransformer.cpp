@@ -267,13 +267,16 @@ auto MelodyFirstReductionTransformer::generateReductionNote(int32_t now) -> std:
     params.biases = biasesActiveNow();
     params.pitchLow = RegisterRange::lowPitch();
     params.pitchHigh = RegisterRange::highPitch();
-    const auto note = reductionStage.generate(params);
+    auto note = reductionStage.generate(params);
     if (! note.has_value()) {
         if (! reductionStage.lastError.empty())
             reportSamplingError("Melody-first (T7''): " + juce::String(reductionStage.lastError));
         return std::nullopt;
     }
 
+    // Sympathetic tempo: the output and inputData get the warped note. The anticipation stage's
+    // own KV stream already holds the unwarped draw (see README.md).
+    applySympatheticWarp(note->onsetCs, note->durationCs);
     const auto quad = dense(note->onsetCs, note->durationCs, AnticipatedStream::kEventInstrument,
                             note->pitch, note->velocity);
     inputData.insert(inputData.end(), quad.begin(), quad.end());

@@ -193,6 +193,10 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
             session.rebuildInputFilter();
         };
 
+        controller->onSympatheticPedal = [this](bool stop) {
+            session.midiInputProcess.setPedal(stop, stop ? "Sympathetic stop" : "Sympathetic play");
+        };
+
         controllerConnectButton.setEnabled(false);
     };
 

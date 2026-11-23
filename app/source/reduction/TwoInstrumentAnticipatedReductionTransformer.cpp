@@ -395,7 +395,7 @@ auto TwoInstrumentAnticipatedReductionTransformer::generateOne(int32_t now) -> s
         t3.pitchHigh = params.pitchHigh;
         params = t3;
     }
-    const auto note = active.generate(params);
+    auto note = active.generate(params);
     if (! note.has_value()) {
         if (! active.lastError.empty())
             reportSamplingError("Anticipated reduction: " + juce::String(active.lastError));
@@ -409,6 +409,9 @@ auto TwoInstrumentAnticipatedReductionTransformer::generateOne(int32_t now) -> s
         logModelInput(active, silent ? loggedV1 : loggedMain,
                       variant == Variant::Hybrid ? (silent ? "v1" : "W") : (variant == Variant::Wait ? "W" : "T3"));
 
+    // Sympathetic tempo: the output and inputData get the warped note. The anticipation stage's
+    // own KV stream already holds the unwarped draw (see README.md).
+    applySympatheticWarp(note->onsetCs, note->durationCs);
     const auto quad = dense(note->onsetCs, note->durationCs, AnticipatedStream::kEventInstrument,
                             note->pitch, note->velocity);
     inputData.insert(inputData.end(), quad.begin(), quad.end());

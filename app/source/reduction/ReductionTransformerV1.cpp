@@ -155,6 +155,8 @@ void ReductionTransformerV1::threadRun() {
         wasGenerationPaused = false;
 
         Token newToken = generateNewToken(forceAtTime);
+
+        applySympatheticWarp(newToken); // Sympathetic tempo: models see the warped note
         forceAtTime = -1;
         step.prep = loopAccum.prep;
         step.onnx = loopAccum.onnx;

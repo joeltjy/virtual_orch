@@ -1,4 +1,5 @@
 #include "VirtualOrch/OutputPlayback.h"
+#include "VirtualOrch/Sympathetic.h"
 #include "VirtualOrch/PerformanceActivity.h"
 
 #include "VirtualOrch/InstrumentConstants.h"
@@ -90,13 +91,21 @@ void OutputPlayback::handleNoteForOutput(const OrchestrationNote &note, TokenNot
     const int32_t pitch = note.token.getPitch();
     switch (tokenEventType) {
         case TokenNoteOn: {
-            const float midiVelocity =
-                note.velocity > 0 ? static_cast<float>(note.velocity) / 127.0f : 100.0f / 127.0f;
+            // Sympathetic: uncued parts stay silent (safety net behind the model mask, e.g. a
+            // string-ensemble note routed to an uncued solo string); Select/Expression set the
+            // velocity. Both are no-ops while the gesture layer is off.
+            const auto &sym = Sympathetic::state();
+            if (! sym.maySound(instrument, pitch))
+                break;
+            auto played = note;
+            played.velocity =
+                sym.playbackVelocity(note.velocity > 0 ? note.velocity : 100, instrument, pitch);
+            const float midiVelocity = static_cast<float>(played.velocity) / 127.0f;
             NoteOnEvent noteOnEvent = {
                 .instrument = instrument, .note = pitch, .velocity = midiVelocity};
             outputProcessor->send(noteOnEvent);
             if (const auto channel = outputProcessor->channelForInstrument(instrument, pitch))
-                recordNoteOn(note, *channel);
+                recordNoteOn(played, *channel);
             break;
         }
         case TokenNoteOff: {

@@ -71,6 +71,13 @@ public:
      */
     std::function<void(int32_t pedalTimeCs)> onPedalDown;
 
+    /**
+     * Pedal state from any source: `down` pauses generation and clears the future (the CC64
+     * press path), up resumes. CC64 and the Sympathetic Stop/Play gestures both come here.
+     * Safe from the MIDI and message threads.
+     */
+    auto setPedal(bool down, const juce::String &source) -> void;
+
     /** Record the pedal state (called for every CC64 at wall-clock `nowMs`). */
     auto notePedalState(bool down, int64_t nowMs) -> void {
         if (down) {
@@ -120,7 +127,7 @@ private:
 
     Clock &clock;
     std::function<ReductionTransformer &()> activeReduction;
-    bool pedalDown = false;
+    std::atomic<bool> pedalDown{false};
     /** Wall-clock ms of the last pedal press, -1 while the pedal is up. */
     std::atomic<int64_t> pedalDownSinceMs{-1};
     ModelConfig &modelConfig;

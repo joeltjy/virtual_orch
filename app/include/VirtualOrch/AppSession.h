@@ -25,6 +25,7 @@
 #include "VirtualOrch/reduction/ReductionTransformerV2.h"
 #include "VirtualOrch/reduction/MelodyFirstReductionTransformer.h"
 #include "VirtualOrch/reduction/TwoInstrumentAnticipatedReductionTransformer.h"
+#include "VirtualOrch/reduction/InformativeWaitReductionTransformer.h"
 #include "VirtualOrch/orchestration-models/OrchestrationModel.h"
 #include "VirtualOrch/TestOrchestrationTransformerThread.h"
 #include "VirtualOrch/ui/ModelConfigurationComponent.h"
@@ -72,6 +73,7 @@ public:
     TwoInstrumentAnticipatedReductionTransformer reductionTransformerWait;
     /** HybridTransformer: v1 while the piano is silent, W2/W3 while it plays. */
     TwoInstrumentAnticipatedReductionTransformer reductionTransformerHybrid;
+    InformativeWaitReductionTransformer reductionTransformerInformativeWait;
     MelodyFirstReductionTransformer reductionTransformerMelodyFirst;
     OrchestrationTransformer orchestrationTransformer;
     VoiceSeparation voiceSeparation;

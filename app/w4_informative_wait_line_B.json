@@ -1,0 +1,15 @@
+{
+  "arch": "dense",
+  "contextNotes": 40,
+  "outputInstruments": [
+    1
+  ],
+  "defaultPreset": {},
+  "onnx": "informative_wait_m2_r10",
+  "reductionType": 9,
+  "iwMode": "monophonic_B",
+  "bandLow": 55,
+  "bandHigh": 84,
+  "precompute": true,
+  "notes": "Informative WAIT = overnight model 2 round 10 (ovn_m2_r10 best_eval_loss, eval loss 0.9054; KV + StreamingLLM export, vocab 11879; informative_wait_m2_r10.onnx sha256 9ecadf23...). Mode monophonic_B. Sampling: min-p 0.25 (duration/pitch/velocity), onset/WAIT/COUNT T 1.0, others T 0.5, top-p 0.98; batched top-5 anticipation precompute. See orchestration/112326_decisions.txt."
+}

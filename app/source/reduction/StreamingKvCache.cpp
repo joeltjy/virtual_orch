@@ -65,6 +65,37 @@ auto evictForIncoming(State &state, const Dims &dims, int incoming) -> void {
     keepHeadAndTail(state, dims, head, tailFrom);
 }
 
+auto tileState(const State &one, const Dims &dims, int batch, BatchState &out) -> bool {
+    if (batch <= 0 || one.device != nullptr || (one.rows > 0 && one.key.empty()))
+        return false;
+    const size_t layerBlock = static_cast<size_t>(dims.heads) * static_cast<size_t>(one.rows)
+                              * static_cast<size_t>(dims.headDim);
+    const auto tile = [&](const std::vector<float> &src, std::vector<float> &dst) {
+        dst.resize(layerBlock * static_cast<size_t>(dims.layers) * static_cast<size_t>(batch));
+        for (int l = 0; l < dims.layers; ++l)
+            for (int b = 0; b < batch; ++b)
+                std::memcpy(dst.data() + (static_cast<size_t>(l) * static_cast<size_t>(batch) + static_cast<size_t>(b)) * layerBlock,
+                            src.data() + static_cast<size_t>(l) * layerBlock, layerBlock * sizeof(float));
+    };
+    tile(one.key, out.key);
+    tile(one.value, out.value);
+    out.rows = one.rows;
+    out.batch = batch;
+    return true;
+}
+
+auto evictBatchForIncoming(BatchState &state, const Dims &dims, int incoming) -> void {
+    if (state.rows + incoming <= dims.maxRows)
+        return;
+    const int keepRecent = std::max(0, dims.maxRows - dims.sinkRows - incoming);
+    const int head = std::min(dims.sinkRows, state.rows);
+    const int tailFrom = std::max(head, state.rows - keepRecent);
+    const int blocks = dims.layers * state.batch * dims.heads;
+    state.key = sliceRows(state.key, blocks, state.rows, dims.headDim, head, tailFrom);
+    state.value = sliceRows(state.value, blocks, state.rows, dims.headDim, head, tailFrom);
+    state.rows = head + (state.rows - tailFrom);
+}
+
 CommittedScratchCache::CommittedScratchCache(Backend &backendIn, int chunkTokens)
     : backend(backendIn), dims(backendIn.dims()), chunk(std::max(1, chunkTokens)) {}
 
@@ -153,6 +184,14 @@ auto CommittedScratchCache::logitsAfter(const std::vector<int32_t> &desired, siz
         wFed.assign(scratchBegin, desired.end());
     }
     return wLogits;
+}
+
+auto CommittedScratchCache::stateAfter(const std::vector<int32_t> &desired, size_t committedLen)
+    -> const State * {
+    const auto &logits = logitsAfter(desired, committedLen);
+    if (logits.empty())
+        return nullptr;
+    return desired.size() > std::min(committedLen, desired.size()) ? &w : &c;
 }
 
 // ---- ONNX backend ----
@@ -476,6 +515,78 @@ auto OnnxBackend::runOnHost(const State &past, const std::vector<int64_t> &ids, 
                     return false;
                 present.rows = static_cast<int>(shape[3]);
                 present.device.reset();
+                present.key.assign(data, data + info.GetElementCount());
+            } else if (name == "present_value") {
+                present.value.assign(data, data + info.GetElementCount());
+            }
+        }
+        return true;
+    } catch (const Ort::Exception &ex) {
+        lastError = ex.what();
+        return false;
+    }
+}
+
+auto OnnxBackend::runBatched(const BatchState &past, const std::vector<int64_t> &ids, BatchState &present,
+                             std::vector<float> &logits) -> bool {
+    if (session == nullptr || cuda != nullptr || ids.empty() || static_cast<int>(ids.size()) != past.batch)
+        return false;
+    try {
+        std::vector<int64_t> idsCopy = ids;
+        const auto batch = static_cast<int64_t>(ids.size());
+        const std::array<int64_t, 2> idsShape{batch, 1};
+        std::vector<int64_t> positions(ids.size(), static_cast<int64_t>(past.rows));
+        const std::array<int64_t, 5> pastShape{dimsValue.layers, batch, dimsValue.heads, past.rows,
+                                               dimsValue.headDim};
+        static float emptyData = 0.0f;
+        auto *keyPtr = const_cast<float *>(past.key.empty() ? &emptyData : past.key.data());
+        auto *valuePtr = const_cast<float *>(past.value.empty() ? &emptyData : past.value.data());
+        std::vector<Ort::Value> inputs;
+        std::vector<const char *> inputNamePtrs;
+        for (const auto &name: inputNames) {
+            inputNamePtrs.push_back(name.c_str());
+            if (name == "input_ids")
+                inputs.push_back(Ort::Value::CreateTensor<int64_t>(
+                    memoryInfo, idsCopy.data(), idsCopy.size(), idsShape.data(), idsShape.size()));
+            else if (name == "position_ids")
+                inputs.push_back(Ort::Value::CreateTensor<int64_t>(
+                    memoryInfo, positions.data(), positions.size(), idsShape.data(), idsShape.size()));
+            else if (name == "past_key")
+                inputs.push_back(Ort::Value::CreateTensor<float>(
+                    memoryInfo, keyPtr, past.key.size(), pastShape.data(), pastShape.size()));
+            else if (name == "past_value")
+                inputs.push_back(Ort::Value::CreateTensor<float>(
+                    memoryInfo, valuePtr, past.value.size(), pastShape.data(), pastShape.size()));
+            else {
+                lastError = "unexpected input " + name;
+                return false;
+            }
+        }
+        std::vector<const char *> outputNamePtrs;
+        for (const auto &name: outputNames)
+            outputNamePtrs.push_back(name.c_str());
+        auto outputs = session->Run(Ort::RunOptions{nullptr}, inputNamePtrs.data(), inputs.data(),
+                                    inputs.size(), outputNamePtrs.data(), outputNamePtrs.size());
+        for (size_t i = 0; i < outputNames.size(); ++i) {
+            const auto &name = outputNames[i];
+            const auto info = outputs[i].GetTensorTypeAndShapeInfo();
+            const auto shape = info.GetShape();
+            const float *data = outputs[i].GetTensorData<float>();
+            if (name == "logits") {
+                if (shape.size() != 3 || shape[0] != batch || shape[1] <= 0 || shape[2] <= 0)
+                    return false;
+                const auto v = static_cast<size_t>(shape[2]);
+                const auto n = static_cast<size_t>(shape[1]);
+                logits.resize(static_cast<size_t>(batch) * v);
+                for (size_t b = 0; b < static_cast<size_t>(batch); ++b) {
+                    const float *row = data + (b * n + (n - 1)) * v;
+                    std::copy(row, row + v, logits.begin() + static_cast<std::ptrdiff_t>(b * v));
+                }
+            } else if (name == "present_key") {
+                if (shape.size() != 5 || shape[1] != batch)
+                    return false;
+                present.rows = static_cast<int>(shape[3]);
+                present.batch = static_cast<int>(batch);
                 present.key.assign(data, data + info.GetElementCount());
             } else if (name == "present_value") {
                 present.value.assign(data, data + info.GetElementCount());

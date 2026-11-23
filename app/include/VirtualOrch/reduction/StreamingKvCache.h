@@ -60,6 +60,23 @@ auto cutRows(State &state, const Dims &dims, int keepRows) -> void;
 /** Make room for `incoming` rows: keep the sink rows and the newest rows. */
 auto evictForIncoming(State &state, const Dims &dims, int incoming) -> void;
 
+/**
+ * Several branches of one context (informative-WAIT anticipation): keys / values laid out
+ * [layer][batch][head][row][dim] in host memory, every branch with the same number of rows.
+ */
+struct BatchState {
+    std::vector<float> key;
+    std::vector<float> value;
+    int rows = 0;
+    int batch = 0;
+};
+
+/** `batch` copies of a batch-1 host State (false for a device State: the caller decodes one by one). */
+auto tileState(const State &one, const Dims &dims, int batch, BatchState &out) -> bool;
+
+/** Make room for `incoming` rows in every branch (sink rows + newest rows, as evictForIncoming). */
+auto evictBatchForIncoming(BatchState &state, const Dims &dims, int incoming) -> void;
+
 class Backend {
 public:
     virtual ~Backend() = default;
@@ -69,6 +86,15 @@ public:
                                    const std::vector<int64_t> &ids,
                                    State &present,
                                    std::vector<float> &lastLogits) -> bool = 0;
+    /**
+     * One token per branch on top of `past` (batch = ids.size() = past.batch): fills `present` and
+     * `logits` (batch x vocab, branch-major). False when the backend cannot batch (the caller then
+     * decodes branch by branch).
+     */
+    [[nodiscard]] virtual auto runBatched(const BatchState & /*past*/, const std::vector<int64_t> & /*ids*/,
+                                          BatchState & /*present*/, std::vector<float> & /*logits*/) -> bool {
+        return false;
+    }
 };
 
 class CommittedScratchCache {
@@ -83,6 +109,12 @@ public:
         -> const std::vector<float> &;
 
     auto reset() -> void;
+
+    /**
+     * The KV state after `desired` (as logitsAfter computes it), for branching off it; nullptr when
+     * the backend failed. Valid until the next call on this cache.
+     */
+    [[nodiscard]] auto stateAfter(const std::vector<int32_t> &desired, size_t committedLen) -> const State *;
 
     [[nodiscard]] auto committedFed() const -> size_t { return cFed.size(); }
     [[nodiscard]] auto scratchFed() const -> size_t { return wValid ? wFed.size() : 0; }
@@ -142,6 +174,9 @@ public:
     [[nodiscard]] auto dims() const -> Dims override { return dimsValue; }
     [[nodiscard]] auto run(const State &past, const std::vector<int64_t> &ids, State &present,
                            std::vector<float> &lastLogits) -> bool override;
+    /** Host sessions only (the CUDA session keeps batch-1 device states: returns false). */
+    [[nodiscard]] auto runBatched(const BatchState &past, const std::vector<int64_t> &ids, BatchState &present,
+                                  std::vector<float> &logits) -> bool override;
 
     std::string lastError;
 

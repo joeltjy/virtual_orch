@@ -14,6 +14,17 @@
 namespace InstrumentUiColours {
 
 [[nodiscard]] inline auto fromPalette(uint8_t palette) -> juce::Colour {
+    // Greys, and the dimmer shades of each hue (4k+2, 4k+3) as darker versions of 4k+1.
+    if (palette == 1)
+        return juce::Colour(0xff4a4a4a);
+    if (palette == 2)
+        return juce::Colour(0xff8a8a8a);
+    if (palette >= 4 && palette < 64) {
+        const int shade = (palette - 4) % 4;
+        if (shade == 2 || shade == 3)
+            return fromPalette(static_cast<uint8_t>(palette - shade + 1))
+                .withMultipliedBrightness(shade == 2 ? 0.55f : 0.32f);
+    }
     switch (palette) {
         case LaunchpadLighting::kWhite:
             return juce::Colour(0xffe8e8e8);

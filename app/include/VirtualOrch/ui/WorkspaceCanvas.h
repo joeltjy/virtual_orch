@@ -94,6 +94,11 @@ public:
     auto addPerformanceViewWidgets() -> void;
 
     auto getWidgetCount() const -> int { return (int) widgets.size(); }
+    /**
+     * View-only (the Replay page): every widget's content ignores the mouse and its controls are
+     * disabled, so nothing changes the session; widgets can still be added, moved and resized.
+     */
+    auto setViewOnly(bool viewOnlyIn) -> void;
 
     [[nodiscard]] auto toVar() const -> juce::var;
 
@@ -103,6 +108,7 @@ public:
 
 private:
     float textScale = 1.0f;
+    bool viewOnly = false;
     auto applyTextScale(WorkspaceWidget &widget) const -> void;
     auto removeWidget(WorkspaceWidget *widget) -> void;
 

@@ -4,6 +4,9 @@
 
 #include <atomic>
 #include <functional>
+#include <map>
+#include <mutex>
+#include <string>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -17,6 +20,7 @@
 #include "VirtualOrch/reduction/DenseTypes.h"
 #include "VirtualOrch/reduction/ReductionTransformer.h"
 #include "VirtualOrch/reduction/StreamingKvCache.h"
+#include "VirtualOrch/reduction/TdController.h"
 
 /**
  * Piano -> piano reduction with the T3'' model (maestro replay, dense vocab 11776, RoPE with a
@@ -111,6 +115,16 @@ public:
     [[nodiscard]] auto hybridReason() const -> HybridReason { return hybridReasonValue.load(); }
     /** Hybrid: ms the user has been playing (-1 = not playing), for the widget. */
     [[nodiscard]] auto hybridPlayingForMs() const -> int64_t { return hybridPlayingFor.load(); }
+    /** Dynamic LogitTD (TdController), per model: what the TD widget shows. */
+    struct TdControlView {
+        std::string model; // "W", "T3" or "v1"
+        TdController::State state;
+    };
+    /** The controllers' last states (any thread). */
+    [[nodiscard]] auto getTdControlStates() const -> std::vector<TdControlView> {
+        const std::lock_guard<std::mutex> lock(tdViewMutex);
+        return tdViews;
+    }
     /** Hybrid, v1 side: its own logit adjustments, all ON by default. */
     std::atomic<bool> hybridV1PitchBias{true};
     std::atomic<bool> hybridV1DurationBias{true};
@@ -185,7 +199,37 @@ public:
     /** One loop iteration without waiting: drain input, then generate one note if allowed. */
     auto stepOnce() -> bool;
 
+    /** What one pass of the live loop did (the thread waits 5 ms after Idle / NothingGenerated). */
+    enum class LiveStep { Idle, StoppedWithInput, NothingGenerated, Generated };
+    /**
+     * Exactly one pass of the thread's loop (threadRun calls it): throttle release, mode cut,
+     * clock jump, input drain + Jam cut, hybrid rules, then one note unless stopped. The offline
+     * simulator calls beginLive() once and then liveStep() itself, with no thread.
+     */
+    auto liveStep() -> LiveStep;
+    /** What threadRun does before its loop (clear queues and history, reset the stream). */
+    auto beginLive() -> void;
+
+    /** Replay (LogReplay): the samplers that draw notes (W2/W3 or T3'' first, then v1 for Hybrid). */
+    auto samplersForReplay() -> std::vector<AnticipationSampler *> {
+        std::vector<AnticipationSampler *> out{&stage.sampler};
+        if (variant == Variant::Hybrid)
+            out.push_back(&silentStage.sampler);
+        return out;
+    }
+    /** The last pass stopped before drawing because a replay sampler held the draw. */
+    [[nodiscard]] auto drawWasHeld() const -> bool {
+        return stage.lastHeld() || (variant == Variant::Hybrid && silentStage.lastHeld());
+    }
+    /** The drawing model is waiting for the soloist (a W2/W3 WAIT, not timed out yet). */
+    [[nodiscard]] auto isWaitingForSoloist() const -> bool {
+        return (useSilentStage() ? silentStage : stage).lastWaited();
+    }
+
     auto setWaitMaxAheadForTest(int32_t cs) -> void { stage.maxAheadCs = cs; }
+
+    /** Operation log: "W" or "v1" for a note this transformer drew. */
+    [[nodiscard]] auto modelOfNote(int32_t noteId) -> std::string override;
     [[nodiscard]] auto streamForTest() const -> const AnticipatedStream & { return stage.stream; }
     [[nodiscard]] auto silentStreamForTest() const -> const AnticipatedStream & { return silentStage.stream; }
     [[nodiscard]] auto cacheForTest() const -> const StreamingKv::CommittedScratchCache * {
@@ -231,15 +275,43 @@ private:
     auto updateHybrid(int32_t nowCs) -> void;
     auto setHybridModel(bool v1, HybridReason why, int32_t nowCs) -> void;
     /** Drop every generated note from nowCs on (playback, history, both contexts). */
-    auto cutGeneratedFrom(int32_t nowCs) -> void;
+    auto cutGeneratedFrom(int32_t nowCs, const std::string &reason = {}) -> void;
+
+    // ---- dynamic LogitTD: one gamma per model, updated every TdController::kTickMs
+    TdController tdControlMain, tdControlV1;
+    double lastTdTickMs = -1.0;
+    /** Set on a stream restart or pedal release; tickTdControl resets both controllers. */
+    std::atomic<bool> tdResetRequested{false};
+    mutable std::mutex tdViewMutex;
+    std::vector<TdControlView> tdViews;
+    /** Tick the controllers when one is due: measure, update, publish, log TD_CTRL. */
+    auto tickTdControl(int32_t now) -> void;
+    /** The gamma a model draws with now (empty at TD AUTO). */
+    [[nodiscard]] auto tdGamma(bool silentModel) const -> std::optional<float>;
+
+    // ---- operation log (OpLog): the context as a diff after every pass that changed it
+    struct ContextLog {
+        std::vector<AnticipatedStream::ItemView> prev;
+        int32_t base = INT32_MIN;
+    };
+    ContextLog contextLogMain, contextLogV1;
+    std::string removalReason;        // why the next removals from the context happen
+    std::vector<int32_t> drainedKeys; // keys taken in by the last drain
+    std::map<int32_t, std::string> noteModels;
+    std::mutex noteModelsMutex;
+    auto logContext(const AnticipationStage &st, ContextLog &log, const char *model) -> void;
+    auto logContexts() -> void;
+    auto logCheckpoint(int32_t now) -> void;
     /**
      * No generated note sounds at nowCs, and the next one starts >= 2 s later; with none queued,
      * the last one ended (or W2/W3 took over) >= 2 s ago.
      */
     [[nodiscard]] auto predictsSilenceFrom(int32_t nowCs) const -> bool;
     auto onGenerationPauseChanged(bool paused) -> void override {
-        if (! paused)
+        if (! paused) {
             pedalReleased.store(true);
+            tdResetRequested.store(true);
+        }
     }
     std::atomic<bool> hybridV1{true};
     std::atomic<HybridReason> hybridReasonValue{HybridReason::Start};

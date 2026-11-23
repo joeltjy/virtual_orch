@@ -67,17 +67,10 @@ auto SessionLog::writerMutex() -> std::mutex & {
     return m;
 }
 
-auto SessionLog::start() -> void {
+auto SessionLog::start(const juce::File &file) -> void {
     const std::lock_guard<std::mutex> lock(writerMutex());
     if (writer() != nullptr)
         return;
-    const auto stamp = juce::Time::getCurrentTime().formatted("%Y-%m-%d_%H-%M-%S");
-    const auto file = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
-                          .getChildFile("virtual-orch")
-                          .getChildFile("Logs")
-                          .getChildFile("sessions")
-                          .getChildFile("session_" + stamp + ".log")
-                          .getNonexistentSibling();
     writer() = std::make_unique<Writer>(file);
     writer()->startThread();
     // Not add(): it takes writerMutex, which this function already holds.
@@ -95,7 +88,7 @@ auto SessionLog::stop() -> void {
 }
 
 auto SessionLog::isRunning() -> bool {
-    return running.load();
+    return running.load() || capturing.load(std::memory_order_relaxed);
 }
 
 auto SessionLog::currentFile() -> juce::File {
@@ -111,7 +104,18 @@ auto SessionLog::clock() -> const Clock * {
     return clockPtr.load();
 }
 
+auto SessionLog::setCapture(Capture capture) -> void {
+    const std::lock_guard<std::mutex> lock(writerMutex());
+    captureFn() = std::move(capture);
+    capturing.store(captureFn() != nullptr);
+}
+
 auto SessionLog::add(const char *kind, const juce::String &text) -> void {
+    if (capturing.load(std::memory_order_relaxed)) {
+        const std::lock_guard<std::mutex> lock(writerMutex());
+        if (captureFn())
+            captureFn()(kind, text);
+    }
     if (! running.load(std::memory_order_relaxed))
         return;
     const std::lock_guard<std::mutex> lock(writerMutex());

@@ -58,6 +58,8 @@ struct GridFixture {
 };
 
 constexpr int kRow = LaunchpadGrid::kAccompRow;
+/** Column of the polyphony-1 pad; polyphony n is kPoly + n - 1. */
+constexpr int kPoly = LaunchpadGrid::kPolyphonyColFirst;
 
 } // namespace
 
@@ -86,10 +88,7 @@ TEST(AccompanimentGrid, startsWithNoCapAndTheOldToggleIsGone) {
     EXPECT_EQ(f.grid.getMaxPolyphony(), 0) << "no cap until a pad is pressed";
     EXPECT_EQ(f.grid.effectivePolyphonyCap(), 0);
     for (int col = 0; col < LaunchpadGrid::kPolyphonyPadCount; ++col)
-        EXPECT_EQ(f.colourOf(kRow, col), LaunchpadLighting::kOff);
-    EXPECT_EQ(f.colourOf(kRow, LaunchpadGrid::kSideCol), LaunchpadLighting::kOff);
-    f.press(kRow, LaunchpadGrid::kSideCol);
-    EXPECT_FALSE(f.grid.isAccompanimentActive()) << "the side pad no longer toggles anything";
+        EXPECT_EQ(f.colourOf(kRow, kPoly + col), LaunchpadLighting::kOff);
 }
 
 TEST(AccompanimentGrid, polyphonyPadsWorkInJamAndAccompaniment) {
@@ -98,21 +97,21 @@ TEST(AccompanimentGrid, polyphonyPadsWorkInJamAndAccompaniment) {
         f.grid.setMaxPolyphony(0);
         f.grid.setSelectedMode(mode);
         f.grid.setMaxPolyphony(0); // start without a cap in both modes
-        f.press(kRow, 2);
+        f.press(kRow, kPoly + 2);
         EXPECT_EQ(f.grid.getMaxPolyphony(), 3);
         EXPECT_EQ(f.grid.effectivePolyphonyCap(), 3);
-        EXPECT_EQ(f.colourOf(kRow, 2), LaunchpadLighting::kYellow);
-        EXPECT_EQ(f.colourOf(kRow, 0), LaunchpadLighting::kOff);
+        EXPECT_EQ(f.colourOf(kRow, kPoly + 2), LaunchpadLighting::kYellow);
+        EXPECT_EQ(f.colourOf(kRow, kPoly + 0), LaunchpadLighting::kOff);
 
-        f.press(kRow, 0);
+        f.press(kRow, kPoly + 0);
         EXPECT_EQ(f.grid.effectivePolyphonyCap(), 1);
-        f.press(kRow, 0); // pressing the selected pad again clears the cap
+        f.press(kRow, kPoly + 0); // pressing the selected pad again clears the cap
         EXPECT_EQ(f.grid.getMaxPolyphony(), 0);
         EXPECT_EQ(f.grid.effectivePolyphonyCap(), 0);
-        EXPECT_EQ(f.colourOf(kRow, 0), LaunchpadLighting::kOff);
+        EXPECT_EQ(f.colourOf(kRow, kPoly + 0), LaunchpadLighting::kOff);
         EXPECT_EQ(f.callbacks, 3);
 
-        f.press(kRow, 4); // not a polyphony pad
+        f.press(kRow, 3); // not a polyphony pad (between register and polyphony)
         EXPECT_EQ(f.grid.getMaxPolyphony(), 0);
     }
 }
@@ -120,11 +119,11 @@ TEST(AccompanimentGrid, polyphonyPadsWorkInJamAndAccompaniment) {
 TEST(AccompanimentGrid, polyphonyPadsDoNothingInEdit) {
     GridFixture f;
     f.grid.setSelectedMode(OrchestrationMode::Edit);
-    f.press(kRow, 2);
+    f.press(kRow, kPoly + 2);
     EXPECT_EQ(f.grid.getMaxPolyphony(), 0);
     EXPECT_EQ(f.grid.effectivePolyphonyCap(), 0);
     EXPECT_EQ(f.callbacks, 0);
-    EXPECT_EQ(f.colourOf(kRow, 2), LaunchpadLighting::kOff);
+    EXPECT_EQ(f.colourOf(kRow, kPoly + 2), LaunchpadLighting::kOff);
 }
 
 TEST(AccompanimentGrid, accompanimentStartsAtOneUnlessACapWasAlreadyChosen) {
@@ -134,11 +133,11 @@ TEST(AccompanimentGrid, accompanimentStartsAtOneUnlessACapWasAlreadyChosen) {
         EXPECT_TRUE(f.grid.isAccompanimentActive());
         EXPECT_EQ(f.grid.getMaxPolyphony(), 1);
         EXPECT_EQ(f.grid.effectivePolyphonyCap(), 1);
-        EXPECT_EQ(f.colourOf(kRow, 0), LaunchpadLighting::kYellow) << "pad (7,0) = polyphony 1 lit";
+        EXPECT_EQ(f.colourOf(kRow, kPoly + 0), LaunchpadLighting::kYellow) << "pad (6,4) = polyphony 1 lit";
     }
     {
         GridFixture f;
-        f.press(kRow, 2); // a cap chosen in Jam
+        f.press(kRow, kPoly + 2); // a cap chosen in Jam
         f.grid.setSelectedMode(OrchestrationMode::Accompaniment);
         EXPECT_EQ(f.grid.getMaxPolyphony(), 3) << "kept, not reset to 1";
         f.grid.setSelectedMode(OrchestrationMode::Jam); // back to Jam: the cap stays
@@ -149,17 +148,17 @@ TEST(AccompanimentGrid, accompanimentStartsAtOneUnlessACapWasAlreadyChosen) {
 TEST(AccompanimentGrid, polyphonyIsKeptAcrossModes) {
     GridFixture f;
     f.grid.setSelectedMode(OrchestrationMode::Accompaniment);
-    f.press(kRow, 2);
+    f.press(kRow, kPoly + 2);
     ASSERT_EQ(f.grid.getMaxPolyphony(), 3);
 
     f.grid.setSelectedMode(OrchestrationMode::Edit);
     EXPECT_FALSE(f.grid.isAccompanimentActive());
     EXPECT_EQ(f.grid.effectivePolyphonyCap(), 0) << "no cap in Edit mode";
-    EXPECT_EQ(f.colourOf(kRow, 2), LaunchpadLighting::kOff);
+    EXPECT_EQ(f.colourOf(kRow, kPoly + 2), LaunchpadLighting::kOff);
 
     f.grid.setSelectedMode(OrchestrationMode::Accompaniment);
     EXPECT_EQ(f.grid.effectivePolyphonyCap(), 3) << "restored";
-    EXPECT_EQ(f.colourOf(kRow, 2), LaunchpadLighting::kYellow);
+    EXPECT_EQ(f.colourOf(kRow, kPoly + 2), LaunchpadLighting::kYellow);
 }
 
 TEST(TdPress, everyTdLevelAndAutoPressCutsTheFuture) {
@@ -179,7 +178,7 @@ TEST(TdPress, everyTdLevelAndAutoPressCutsTheFuture) {
     f.press(LaunchpadGrid::kTdRow, LaunchpadGrid::kSideCol); // AUTO off
     EXPECT_EQ(cuts, 3);
     f.press(LaunchpadGrid::kModeRow, LaunchpadGrid::kJamCol);
-    f.press(kRow, 2); // polyphony pad: no cut
+    f.press(kRow, kPoly + 2); // polyphony pad: no cut
     EXPECT_EQ(cuts, 3);
     f.press(LaunchpadGrid::kTdRow, LaunchpadGrid::kSideCol); // back to AUTO for later tests
     EXPECT_TRUE(TemporalDensity::isAuto());

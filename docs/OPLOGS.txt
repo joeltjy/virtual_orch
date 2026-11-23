@@ -1,0 +1,363 @@
+VIRTUAL ORCH OPERATION LOGS (OPLOGS)
+====================================
+
+What virtual_orch records about a performance, as of offline-sim after the merge of the
+two-sided Launchpad layout (launchpad-two-sided, Nov 2026). Written so that another machine
+or person can read the files without the source. Code: app/include/VirtualOrch/OpLog.h,
+OpLogDraw.h, app/source/OpLog.cpp, and the OpLog::emit calls in the pipeline.
+
+Files written before that merge differ in three ways, described where they apply: they use
+Launchpad layout 1 (section 5), the pedal had the opposite effect (PEDAL), and Step-in was
+called "Edit".
+
+
+1. FILES
+--------
+
+Each app launch writes two logs, both opened at start-up and closed at quit:
+
+  Documents/virtual-orch/Logs/oplog_<YYYY-MM-DD_HH-MM-SS>.jsonl.gz   (this format)
+  Documents/virtual-orch/Logs/session_<YYYY-MM-DD_HH-MM-SS>.log      (older text log)
+
+Both files of one launch share the stamp (a second launch in the same second adds "_2").
+Logs written before Nov 2026 are in the subfolders Logs/oplogs/ and Logs/sessions/, with
+their own stamps.
+
+The session log is short human-readable text (one tagged line per event: MIDI_IN, RT, OT,
+MIDI_OUT, CUT, WAIT, HYBRID, LAUNCHPAD, MODE, CLOCK, ...). LogReplay and tools/oplog_replay
+read it to re-run a performance. The oplog is the detailed machine-readable record
+described below. The oplog alone rebuilds the session log's notes, clears, MIDI in, modes
+and Launchpad actions. Session logs from layout 2 on start with "SESSION | launchpad layout
+2". A session log without that line was recorded with layout 1, and LogReplay replays it with
+the layout-1 grid and pedal.
+
+The oplog is gzip-compressed JSON Lines: one JSON object per line, in the order the writer
+thread received them. Threads append records to a buffer under a short lock, and a writer
+thread formats and compresses them every 100 ms. A crashed run can therefore lose its last
+~100 ms, and the gzip stream may end without a trailer: read it with a tolerant decoder.
+
+Files written by the offline replay (tools/oplog_replay, for sessions recorded before
+oplogs existed) use the same format. They start with a REPLAY record, and every model
+choice in them is forced to the recorded one.
+
+
+2. LINE FORMAT
+--------------
+
+Every line has these keys first:
+
+  seq    integer, 0, 1, 2, ... per file
+  t      milliseconds since the file was opened (up to 4 decimals). In replay files this is
+         simulated time.
+  clock  app clock in centiseconds (the musical time that note onsets use), -1 if none
+  src    which part of the app: "midi" | "input" | "rt" | "ot" | "play" | "ui" | "state"
+  op     record type (section 4)
+
+followed by that record's own fields. Fields without a value are left out, not written as
+null. Numbers are integers or decimals with up to 4 decimal places. Non-finite numbers are
+written as null.
+
+Times: "onset", "from", "at" and "now" fields are in app-clock centiseconds. "dur" is in
+centiseconds. "*_ms" fields are in milliseconds.
+
+
+3. IDS
+------
+
+Ids link one note through every stage. The counters restart at 0 in every file.
+
+  k<N>    a key the user pressed (from KEY_DOWN)
+  r<N>    a note the reduction model (RT) generated
+  o<N>    a note the orchestration model (OT) produced (an output id)
+  p<N>    a Launchpad press (also a computer key acting as a Launchpad button)
+  run<N>  one Start -> Stop of generation
+
+"CLEAR c<time>" in a queue item is a Clear Queue marker (everything from <time> on is
+dropped). OT output items are "o<N>". In OT records, an input is named by its key ("k...")
+when it came from the user, or by its RT note ("r...") otherwise.
+
+SESSIONS: one file holds one app launch, which can contain several performances. Split the
+file at RUN_START / RUN_STOP to get each Start -> Stop as its own session.
+
+
+4. RECORDS
+----------
+
+4.1 Session, runs, UI  (src "ui")
+
+  SESSION_START   origin, app (version), settings (the full settings XML on one line),
+                  rt (name of the active reduction model), models ({"ot": name}),
+                  checkpoint_every_ms (5000), launchpad_layout (2, or 1 in a replay of a
+                  layout-1 session; missing in files from before the field = layout 1)
+  RUN_START       run, rt, settings (XML)            -- Start pressed
+  RUN_STOP        run, reason ("stop" | "restart")   -- Stop, or a force restart
+  SESSION_END     ops (number of records written)    -- app quit
+  MODE            from, to ("Step-in" | "Jam" | "Accompaniment"), by (a press id "p..." or
+                  "ui"). Files written before the Step-in rename say "Edit" for Step-in.
+  PAD_ACTION      p, action (text: what the press did). Texts:
+                    "Input: <instrument> on|off"  /  "Model: <instrument> on|off"
+                    "Flush: your instruments added to the model"
+                        (layout 1: "Flush: input instruments moved to the model")
+                    "Reset: model instruments cleared"
+                    "Preset <name> (model)" / "Preset <name> (yours)"
+                    "Temporal density set to <N>", "Temporal density AUTO on|off"
+                    "Mode: Step-in|Jam|Accompaniment" (layout 1: "Mode: Edit")
+                    "Max polyphony <N>" / "Max polyphony off"
+                    register changes, pauses, input block, "Force restart"
+  REPLAY          (replay files only) source, rt_v1, rt_wait, ot (model files), real_models,
+                  note
+
+4.2 User input  (src "midi", "input")
+
+  MIDI_IN         device, roles (list of "piano" | "piano2" | "pedal" | "launchpad"), bytes,
+                  desc
+  KEY_DOWN        k, pitch, vel, piano (which keyboard)
+  KEY_UP          k, pitch, held_cs
+  PEDAL           cc (64), value, state ("down" | "up": the raw pedal position, value >= 64 =
+                  down), effect ("play" | "stop": what it did to the orchestra), app_pedal.
+                  state and effect only when they change. Layout 2: pedal DOWN plays the
+                  orchestra and pedal UP stops it (pause, playback cleared, future cut).
+                  Layout 1 had the opposite: down stopped, up played. Files from before the
+                  effect field have only state, and were all layout 1.
+  PEDAL_DEVICE    selected (true | false), effect ("stop" | "play"). Selecting a pedal device
+                  (also when the saved one is restored at start-up) starts the orchestra
+                  stopped until the pedal goes down. Clearing it lets it play.
+  PAD_PRESS       p, then row + col (grid pad, col 9 = the round side button at the right of
+                  the row) or top (top-row button 0-7), source ("launchpad" | "keyboard"), key
+                  (the computer key, when source is keyboard). row / col are in the layout
+                  given by SESSION_START launchpad_layout (section 5). A keyboard press logs
+                  the pad it resolved to.
+  INPUT_FLUSH     keys (the keys sent to the models together in one input window),
+                  window_cs, start_on_input (clock value, when the press started generation)
+  INPUT_RELEASE   k, onset, dur (final length), flushed (whether it had already been sent
+                  as a held note)
+
+4.3 Reduction model, RT  (src "rt")
+
+Draw and context records exist only for the anticipated reduction models: W (W2/W3 with
+WAIT), T3, and Hybrid (v1 while the piano is silent, W while it plays). The Dense models
+(V1, V2, PianoReduction, MelodyFirst) log only RT_NOTE, RT_CUT, RT_PAUSE, RT_THROTTLE and
+their queue records.
+
+"model" is "W", "T3" or "v1". A Hybrid run keeps two contexts, one for "W" and one for
+"v1", and every context record says which one it is about.
+
+Context changes (together they rebuild each model's exact token context between
+checkpoints):
+
+  RT_ADD          model, pos (token position), kind, id, onset, dur/pitch/vel (notes only),
+                  held (true while the key is still down), tokens (the item's tokens)
+                  kind: "given" (user note) | "gen" (generated note) | "td" (temporal
+                  density token) | "wait" | "rest" | "control"
+  RT_REMOVE       model, items ([{pos, kind, id}]), reason (e.g. a cut, or "reordered")
+  RT_REWRITE      model, pos, id, old (tokens), new (tokens), reason (e.g. "key released:
+                  length 95 cs", "held key: length so far 40 cs")
+  RT_REBASE       model, old_base, new_base, dropped (tokens), dropped_items. The context
+                  window keeps 4 + 508 rows. A rebase drops the oldest items, re-encodes
+                  onsets relative to the new base, and forces a checkpoint.
+
+Draws:
+
+  RT_DRAW         model, r (the note drawn), now, floor (earliest allowed onset), base,
+                  context_len, fields: one entry per field, in the order
+                  "onset", "dur", "pitch", "vel". Each entry is a DRAW (see 4.8).
+  RT_WAIT         model ("W"), decision ("wait" | "wait-given" | "resume" | "timeout" |
+                  "reorder"), at, p_wait (the model's P(wait), on "wait" / "wait-given"
+                  decisions), p_wait_recorded (when
+                  a replay forced a different recorded value)
+
+Output and control:
+
+  RT_NOTE         r, onset, dur, pitch, vel, model, voice (vocsep voice id)
+  RT_DRAIN        keys, releases (what the RT took from its input queues in one pass)
+  RT_SWITCH       to ("v1" | "W"), reason ("start" | "pedal released" | "playing 1 s" |
+                  "silent 0.5 s" | "2 s of predicted silence")
+  RT_CUT          from, reason, removed (ids). Reasons include "TD press pNN: next 1 s kept",
+                  "register change pNN: next 1 s kept", "preset <name> pNN: next 1 s kept",
+                  "pedal up" (layout 1: "pedal down"), "left Accompaniment", input cuts
+                  ("... (Step-in: next 2 s kept)" in Step-in)
+  RT_PAUSE        paused, reason (e.g. "pedal", "pedal device selected", "pedal device
+                  cleared", Launchpad pause)
+  RT_THROTTLE     state ("start" | "end"), for_ms, ahead_of (on start). The RT is too far
+                  ahead of the clock and waits.
+  TD_CTRL         dynamic LogitTD, every 2 s per model while TD is not AUTO (250 ms in files
+                  before Nov 23 2026): model ("W" |
+                  "T3" | "v1"), td (target level), measured (the orchestra's density: distinct
+                  onsets in the 3 s ending at its newest note, in onsets per 2 s), error
+                  (log2(td / measured), clamped to +-2), gamma (the strength the model draws
+                  with: onset logits get gamma x -(1/4) ln(1 + (c k / 200)^4)), k (the step
+                  size of this update, 0 while frozen), s_hat (smoothed sensitivity, TD steps
+                  per unit of gamma), m (the overshoot multiplier), frozen, why ("TD AUTO" |
+                  "clock stopped" | "waiting" | "not drawing" | "dead zone" | "at limit").
+                  Files from before the controller have none: LogitTD then had a fixed
+                  strength. gamma moves by at most 0.25 per update and is kept in [-2, 20]
+                  (S is taken as at least 0.2); with negative gamma the long-gap bonus
+                  stops growing at 4 mean gaps (4 x 200 / td cs).
+  TD_CTRL_RESET   (no fields) every model's controller went back to gamma 0 and m 1: a
+                  stream restart or a pedal release.
+
+4.4 Orchestration model, OT  (src "ot")
+
+  OT_CALL         mode (as in MODE), user_inputs (k ids, Step-in mode only),
+                  reduction_inputs (r ids),
+                  user_instruments, model_instruments (instrument ids)
+  OT_DRAW         for (k or r id of the input note), pitch, onset, instruments,
+                  steps (list of DRAW, see 4.8; field names "groups", then the instrument
+                  families "strings" | "woodwinds" | "brass" | "other"), combo (final tokens)
+  OT_NOTE         o, from (k or r), instrument, pitch, vel, onset, dur, voice
+  OT_HOLD         id, onset (an RT note waiting in the hold-back until near its onset)
+  OT_RELEASE      ids, window_cs (notes released from the hold-back to the model)
+  OT_DROP         ids, reason (removed by a clear, or "paused, past")
+  OT_CLEAR        from (a Clear Queue passed through to playback)
+
+4.4b Voice separation  (src "rt")
+
+  VOCSEP          for (the note's id), voice (the voice id it got), reason ("inherit" |
+                  "inherit_win_score" | "inherit_lose_score" | "new_no_parent" |
+                  "new_singleton" | "new_no_pots" | "new_empty_graph" | "new_onnx_error"),
+                  parent (index into window of the chosen parent, -1 = none), parent_score,
+                  window (the notes the model saw, oldest first, the new note last:
+                  [[onset, dur, pitch, voice, id], ...], voices after this assignment),
+                  candidates ([[window index, edge score], ...] of the edges into the new note).
+                  Written for the RT's notes, and for the user's notes the OT stamps in Step-in.
+
+4.4c Orchestration model input  (src "ot")
+
+  OT_INPUT        notes (the ids of the encoder window's notes, oldest first), base_onset
+                  (the onset input_ids count from), input_ids (tokens_per_note = 3 per note:
+                  onset - base_onset, duration token, pitch token), combo_in (combo_len per
+                  note: the already decoded combos teacher-forced in, 0 = none yet). One per
+                  encoder window; the draws that follow (OT_DRAW) are made in window order,
+                  each draw's combo then joining combo_in, so every draw's input follows.
+
+4.5 Queues  (any src)
+
+  Q_PUSH          queue, item
+  Q_POP           queue, item
+  Q_DROP          queue, item, reason
+
+  Queues: "input->rt", "updates->rt" (key-release length updates), "input->ot",
+  "conditioning", "rt->ot", "rt->play", "ot->play". In the file the arrow is the Unicode
+  character U+2192, for example "input→rt".
+
+4.6 Playback  (src "play")
+
+  PLAY_SCHEDULE   o, onset
+  PLAY_LENGTH     o, dur, sounding (true if already playing when the length changed)
+  PLAY_DROP       o, reason (e.g. "pedal (late arrival)")
+  MIDI_OUT        kind "on" | "off": o, instrument, channel, pitch, vel (on only)
+                  kind "thru": pitch / vel / cc / value, on  (the user's input relayed)
+                  kind "clear": all notes off
+
+4.7 Checkpoints  (src "state", op "CHECKPOINT")
+
+Each of rt, ot and play writes one every 5 s of session time. One is also forced at the
+start of a file, at RUN_START, and after an RT_REBASE. Field "part" says which.
+
+  part "rt"       rt: {"<model>": {base, tokens (the full token context), items ([{pos,
+                  kind, id}]), pending (k ids not yet confirmed)}, ...}  -- "W" or "T3",
+                  plus "v1" for Hybrid
+                  state: {td, register, polyphony, paused, throttled, step_in,
+                  accompaniment, hybrid_model ("v1" | "W" | "")}. Files written before the
+                  Step-in rename have "edit" instead of "step_in".
+  part "ot"       ot: {holdback (ids), paused, mode, user_instruments, model_instruments}
+  part "play"     play: {scheduled (o ids), playing (o ids), source ("orchestration" |
+                  "reduction"), pedal_drop_active}
+
+To get the state at time T: start from the last checkpoint of each part before T, then
+apply the records between it and T.
+
+4.8 DRAW objects  (inside RT_DRAW.fields and OT_DRAW.steps)
+
+  {"field": name, "chosen": token, "p": prob, "p_model": prob,
+   "top": [[token, p, p_model], ... up to 10], "forced": true (only if forced)}
+
+  p        probability under the distribution the sampler actually drew from: legal masks,
+           every logit bias (LogitTD, onset gap, short-gap, pitch, duration ...), top-p and
+           temperature
+  p_model  softmax of the model's raw logits at temperature 1, with no masks or biases
+  top      the 10 most probable tokens ranked by p (adjusted). A token the model rated
+           highly but the adjustments pushed down may be missing. Tokens outside the top-p
+           nucleus have p = 0.
+  token    the value within that field (RT: onset / duration / pitch / velocity bin; OT:
+           relative to the field, groups = mask - 1, a family = its bit mask)
+
+
+5. LAUNCHPAD LAYOUTS
+--------------------
+
+PAD_PRESS row / col: rows from the top of the 8x8 grid (0-7), columns from the left (0-7),
+col 9 = the round side button at the right end of the row. The top row of round buttons
+(PAD_PRESS "top") is the same in both layouts: 0 force restart, 1 RT pause, 2 OT pause,
+3 block input (the reduction does not hear the user).
+
+Layout 2 (launchpad_layout 2, Nov 2026 on). Cols 0-3 = YOUR instruments, cols 4-7 = the
+MODEL's, the same instrument in the same place on both sides.
+
+          col 0      1         2        3        | 4        5        6        7       | side
+  row 0   Step-in    Jam       Accomp   -        | -        -        -        -       |
+  row 1   TD 1       TD 2      TD 4     TD 8     | TD 16    TD 32    TD 64    -       | TD AUTO
+  row 2   StrEns     Pizz      Tremolo  -        | StrEns   Pizz     Tremolo  -       | FLUSH
+  row 3   Flute      Oboe      Clarinet Bassoon  | Flute    Oboe     Clarinet Bassoon | RESET
+  row 4   Horn       Trumpet   Trombone Tuba     | Horn     Trumpet  Trombone Tuba    |
+  row 5   Timpani    -         -        -        | Timpani  -        -        -       |
+  row 6   Reg LOW    Reg MED   Reg HIGH -        | Poly 1   Poly 2   Poly 3   Poly 4  | Reg AUTO
+  row 7   Solemn     Mysterious Tender  Playful  | Passionate Heroic Stormy   Grand   |
+
+  - Step-in: your side is controlled, and both sides respond to presses. Jam / Accompaniment:
+    the model's side is controlled, and presses on your side are ignored.
+  - FLUSH (Step-in only): your instruments that are on are added to the model's; yours stay
+    on. RESET (Step-in only): every model instrument switches off.
+  - Row 7 mood presets: the controlled side's instruments become the preset's, then the
+    register and TD are set, and the future from now + 1 s is cut.
+
+Layout 1 (launchpad_layout 1 or missing; every session before Nov 2026):
+
+          col 0      1         2        3        4        5        6        7       | side
+  row 0   Edit       Jam       Accomp   -        -        -        -        -       |
+  row 1   TD 1       TD 2      TD 4     TD 8     TD 16    TD 32    TD 64    -       | TD AUTO
+  row 2   in:StrEns  in:Pizz   in:Trem  -        in:Fl    in:Ob    in:Cl    in:Bsn  | FLUSH
+  row 3   in:Horn    in:Tpt    in:Tbn   in:Tuba  in:Timp  -        -        -       |
+  row 4   mdl:StrEns mdl:Pizz  mdl:Trem -        mdl:Fl   mdl:Ob   mdl:Cl   mdl:Bsn |
+  row 5   mdl:Horn   mdl:Tpt   mdl:Tbn  mdl:Tuba mdl:Timp -        -        -       |
+  row 6   Reg LOW    Reg MED   Reg HIGH -        -        -        -        -       | Reg AUTO
+  row 7   Poly 1     Poly 2    Poly 3   Poly 4   -        -        -        -       |
+
+  - "in" = your (input) instruments, "mdl" = the model's. Both worked in every mode.
+  - FLUSH worked in every mode: your instruments were added to the model's, and yours
+    switched off. There was no RESET and there were no presets.
+
+The code that maps a layout-1 pad to the layout-2 pad with the same meaning is
+LaunchpadGrid::layout1Pad (app/include/VirtualOrch/LaunchpadGrid.h).
+
+
+6. RERUNS (<oplog stem>.reruns.jsonl)
+--------------------------------------
+
+The Replay page's "Run through the model again" rebuilds a logged draw's model input from the
+oplog and runs the real model on it. Each rerun appends one JSON line to
+Logs/oplog_<stamp>.reruns.jsonl next to the oplog (the oplog itself is never changed):
+
+  source, seq and t (the draw's record), what ("RT_DRAW r12 (v1)" | "OT_DRAW for k3"), model
+  ("v1" | "W" | "T3" | "OT"), model_file, context_tokens / logged_context_tokens (RT: the
+  rebuilt context's length and the logged context_len), exact_context, matches_log (every
+  logged choice's p_model equals the rerun's: the input was rebuilt exactly), error (if it
+  failed), fields: [{field, lo, hi (the field's token range), chosen (absolute token),
+  p_model_logged, p_model_rerun, top: [[token, p_model], ... the 20 most probable]}]
+
+RT: the context is the drawing model's at the draw; the drawn onset, duration and pitch are fed
+one by one. OT: the window's OT_INPUT, with the combos drawn earlier in the window teacher-forced
+into combo_in, then this note's steps one by one. p_model is the model's softmax at temperature
+1 over the whole vocab (RT) or over the step's field (OT), as logged.
+
+Note on OT "groups" p_model: before this file's version, the logged p_model of the groups step
+included the recent-groups bias (it was computed after the bias was applied in place); it is
+now the model's own, like every other p_model.
+
+
+7. NOT LOGGED
+-------------
+
+  - Draws and context of the Dense RT models.
+  - Distributions beyond the top 10, and a top 10 for WAIT decisions (only P(wait)).
+  - The random seed (live samplers seed from std::random_device).

@@ -10,6 +10,7 @@
 #include "VirtualOrch/widgets/InstrumentActiveLightWidget.h"
 #include "VirtualOrch/widgets/InstrumentGroupActivityWidget.h"
 #include "VirtualOrch/widgets/ScoreWidget.h"
+#include "VirtualOrch/widgets/TdControlWidget.h"
 #include "VirtualOrch/widgets/ActiveModelWidget.h"
 #include "VirtualOrch/widgets/OnsetGapsWidget.h"
 #include "VirtualOrch/widgets/TdViewerWidget.h"
@@ -235,6 +236,12 @@ auto WorkspaceCanvas::createWidgetForType(const juce::String &type) const
         return std::make_unique<ScoreWidget>(*session);
     }
 
+    if (type == UiConstants::workspaceWidgetTypeTdControl) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<TdControlWidget>(*session);
+    }
+
     if (type == UiConstants::workspaceWidgetTypeUserSelection) {
         if (session == nullptr)
             return nullptr;
@@ -335,12 +342,19 @@ auto WorkspaceCanvas::addWidget(std::unique_ptr<WorkspaceWidget> widget,
     widget->setBounds(scaleDesignToCanvas(design));
     bindWidget(*widget);
     applyTextScale(*widget);
+    widget->getContentComponent().setEnabled(! viewOnly);
     addAndMakeVisible(widget.get());
     widget->toFront(false);
     widgets.push_back(std::move(widget));
     rebindInputDataCallback();
     refreshPromptWidgetsFromSession();
     notifyLayoutChanged();
+}
+
+auto WorkspaceCanvas::setViewOnly(bool viewOnlyIn) -> void {
+    viewOnly = viewOnlyIn;
+    for (auto &w: widgets)
+        w->getContentComponent().setEnabled(! viewOnly);
 }
 
 auto WorkspaceCanvas::beginViewLayout() -> void {

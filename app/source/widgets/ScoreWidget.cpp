@@ -2,6 +2,8 @@
 
 #include "VirtualOrch/AppSession.h"
 #include "VirtualOrch/ChordNaming.h"
+#include "VirtualOrch/ScoreHarmony.h"
+#include "VirtualOrch/Spelling.h"
 #include "VirtualOrch/ui/UiConstants.h"
 #include "VirtualOrchBinaryData.h"
 
@@ -18,6 +20,13 @@ constexpr juce::juce_wchar kGClef = 0x1D11E;
 constexpr juce::juce_wchar kFClef = 0x1D122;
 constexpr juce::juce_wchar kSharp = 0x266F;
 constexpr juce::juce_wchar kFlat = 0x266D;
+constexpr juce::juce_wchar kNatural = 0x266E;
+constexpr juce::juce_wchar kDoubleSharp = 0x1D12A;
+constexpr juce::juce_wchar kDoubleFlat = 0x1D12B;
+
+/** Key-signature positions (staff steps) on the treble staff; the bass staff is 14 steps lower. */
+constexpr int kSharpSteps[7] = {45, 42, 46, 43, 40, 44, 41}; // F5 C5 G5 D5 A4 E5 B4
+constexpr int kFlatSteps[7] = {41, 44, 40, 43, 39, 42, 38};  // B4 E5 A4 D5 G4 C5 F4
 
 auto musicTypeface() -> juce::Typeface::Ptr {
     static const auto typeface = juce::Typeface::createSystemTypefaceFor(
@@ -41,26 +50,40 @@ ScoreView::ScoreView() : musicFont(musicTypeface()) {
     };
     sharpSign = outline(kSharp);
     flatSign = outline(kFlat);
+    naturalSign = outline(kNatural);
+    doubleSharpSign = outline(kDoubleSharp);
+    doubleFlatSign = outline(kDoubleFlat);
 }
 
-auto ScoreView::setFrame(int32_t now, std::vector<DrawNote> nextNotes, std::vector<DrawName> nextNames) -> void {
+auto ScoreView::setFrame(int32_t now, std::vector<DrawNote> nextNotes, std::vector<DrawName> nextNames, DrawKey nextKey)
+    -> void {
     nowCs = now;
     notes = std::move(nextNotes);
     names = std::move(nextNames);
+    key = std::move(nextKey);
     repaint();
 }
 
-auto ScoreView::drawAccidental(juce::Graphics &g, bool sharp, float headLeftX, float cy, float s) -> void {
+auto ScoreView::setFrame(int32_t now, std::vector<DrawNote> nextNotes, std::vector<DrawName> nextNames) -> void {
+    setFrame(now, std::move(nextNotes), std::move(nextNames), DrawKey{});
+}
+
+auto ScoreView::drawAccidental(juce::Graphics &g, int accidental, float headLeftX, float cy, float s) -> void {
     // Place by the glyph's own outline, not its text box: the music font's boxes are not centred
     // on the sign, which left sharps and flats off the note's line.
-    juce::Path sign = sharp ? sharpSign : flatSign;
-    sign.applyTransform(juce::AffineTransform::scale(s * 3.4f));
+    const bool flat = accidental < 0;
+    juce::Path sign = accidental == -2 ? doubleFlatSign
+                      : accidental == -1 ? flatSign
+                      : accidental == 0  ? naturalSign
+                      : accidental == 1  ? sharpSign
+                                         : doubleSharpSign;
+    sign.applyTransform(juce::AffineTransform::scale(s * (accidental == 2 ? 4.4f : 3.4f)));
     const auto b = sign.getBounds();
     if (b.isEmpty())
         return;
     const float targetRight = headLeftX - s * 0.25f;
-    const float dy = sharp ? cy - b.getCentreY()          // the two bars straddle the note
-                           : cy + s * 0.45f - b.getBottom(); // the bowl sits on the note
+    const float dy = flat ? cy + s * 0.45f - b.getBottom() // the bowl sits on the note
+                          : cy - b.getCentreY();           // centred on the note
     sign.applyTransform(juce::AffineTransform::translation(targetRight - b.getRight(), dy));
     g.fillPath(sign);
 }
@@ -77,7 +100,9 @@ auto ScoreView::paint(juce::Graphics &g) -> void {
     const float s = std::max(4.0f, h / (19.2f + nameRows));
     const float trebleTop = s * (3.7f + nameRows); // F5 line
     const float bassTop = trebleTop + s * 8.0f; // A3 line
-    const float gutter = s * 3.2f;              // clefs
+    const int sigCount = showKeySignature ? std::clamp(key.signature, -7, 7) : 0;
+    const float clefGutter = s * 3.2f;
+    const float gutter = clefGutter + (sigCount != 0 ? s * (0.4f + 0.9f * static_cast<float>(std::abs(sigCount))) : 0.0f);
     const float nowX = gutter + (w - gutter) * 0.5f;
     const float pxPerCs = (w - gutter) * 0.5f / static_cast<float>(kWindowCs);
 
@@ -95,12 +120,21 @@ auto ScoreView::paint(juce::Graphics &g) -> void {
     g.setColour(kInk);
     g.setFont(musicFont.withHeight(s * 6.6f));
     g.drawText(juce::String::charToString(kGClef),
-               juce::Rectangle<float>(2.0f, trebleTop - s * 2.4f, gutter, s * 8.0f),
+               juce::Rectangle<float>(2.0f, trebleTop - s * 2.4f, clefGutter, s * 8.0f),
                juce::Justification::centred, false);
     g.setFont(musicFont.withHeight(s * 3.6f));
     g.drawText(juce::String::charToString(kFClef),
-               juce::Rectangle<float>(2.0f, bassTop - s * 0.9f, gutter, s * 4.4f),
+               juce::Rectangle<float>(2.0f, bassTop - s * 0.9f, clefGutter, s * 4.4f),
                juce::Justification::centred, false);
+
+    // Key signature after the clefs.
+    for (int i = 0; i < std::abs(sigCount); ++i) {
+        const int trebleStep = sigCount > 0 ? kSharpSteps[i] : kFlatSteps[i];
+        const float x = clefGutter + s * (1.1f + 0.9f * static_cast<float>(i));
+        g.setColour(kInk);
+        drawAccidental(g, sigCount > 0 ? 1 : -1, x, yOf(trebleStep, true), s);
+        drawAccidental(g, sigCount > 0 ? 1 : -1, x, yOf(trebleStep - 14, false), s);
+    }
 
     g.saveState();
     g.reduceClipRegion(juce::Rectangle<float>(gutter, 0.0f, w - gutter, h).toNearestInt());
@@ -112,10 +146,9 @@ auto ScoreView::paint(juce::Graphics &g) -> void {
             continue;
         const bool past = n.onsetCs < nowCs;
         const bool treble = onTreble(n.pitch);
-        const auto sp = spell(n.pitch, n.flats);
-        const float cy = yOf(sp.step, treble);
+        const float cy = yOf(n.step, treble);
         g.setColour(kInk.withAlpha(past ? 0.45f : 0.8f));
-        for (const int ls: ledgerSteps(sp.step, treble ? kTrebleBottomStep : kBassBottomStep,
+        for (const int ls: ledgerSteps(n.step, treble ? kTrebleBottomStep : kBassBottomStep,
                                        treble ? kTrebleTopStep : kBassTopStep))
             g.drawLine(x - s * 0.95f, yOf(ls, treble), x + s * 0.95f, yOf(ls, treble), 1.2f);
 
@@ -125,9 +158,11 @@ auto ScoreView::paint(juce::Graphics &g) -> void {
         g.setColour((n.bass ? kBassLine : kSkyline).withMultipliedAlpha(past ? 0.55f : 1.0f));
         g.fillPath(head);
 
-        if (sp.accidental != 0) {
+        // With a key signature, only where the note departs from it (a natural cancels it).
+        const int fromSignature = showKeySignature ? Spelling::signatureAccidental(Spelling::mod(n.step, 7), sigCount) : 0;
+        if (n.accidental != fromSignature) {
             g.setColour(kInk.withMultipliedAlpha(past ? 0.55f : 1.0f));
-            drawAccidental(g, sp.accidental > 0, x - s * 0.62f, cy, s);
+            drawAccidental(g, n.accidental, x - s * 0.62f, cy, s);
         }
     }
 
@@ -148,6 +183,21 @@ auto ScoreView::paint(juce::Graphics &g) -> void {
     }
     g.restoreState();
 
+    // The key, top left (greyed while uncertain; a close second in brackets).
+    if (! key.name.empty()) {
+        const auto keyFont = juce::Font(s * 1.1f * textScale);
+        auto text = juce::String(key.name);
+        if (! key.runnerUp.empty())
+            text << " (" << juce::String(key.runnerUp) << ")";
+        const float textW = keyFont.getStringWidthFloat(text) + s * 0.8f;
+        const juce::Rectangle<float> box(2.0f, s * 0.4f, textW, s * nameRows);
+        g.setColour(UiConstants::pianoRollBackground.withAlpha(0.85f));
+        g.fillRect(box);
+        g.setFont(keyFont);
+        g.setColour(kInk.withAlpha(key.uncertain ? 0.45f : 0.95f));
+        g.drawText(text, box.reduced(s * 0.3f, 0.0f), juce::Justification::centredLeft, false);
+    }
+
     // Nowbar.
     g.setColour(kNowbar.withAlpha(0.8f));
     g.fillRect(juce::Rectangle<float>(nowX - 1.0f, trebleTop - s * 2.5f, 2.0f, bassTop + s * 6.5f - (trebleTop - s * 2.5f)));
@@ -157,6 +207,9 @@ ScoreWidget::ScoreWidget(AppSession &sessionIn)
     : WorkspaceWidget(UiConstants::workspaceScoreTitle, UiConstants::workspaceWidgetTypeScore),
       session(sessionIn) {
     getContentComponent().addAndMakeVisible(view);
+    keySignatureToggle.setToggleState(false, juce::dontSendNotification);
+    keySignatureToggle.onClick = [this] { view.setShowKeySignature(keySignatureToggle.getToggleState()); };
+    getContentComponent().addAndMakeVisible(keySignatureToggle);
     startTimerHz(30);
 }
 
@@ -166,7 +219,10 @@ ScoreWidget::~ScoreWidget() {
 
 auto ScoreWidget::resized() -> void {
     WorkspaceWidget::resized();
-    view.setBounds(getContentComponent().getLocalBounds());
+    const auto area = getContentComponent().getLocalBounds();
+    view.setBounds(area);
+    keySignatureToggle.setBounds(area.getRight() - 130, area.getY() + 2, 126, 22);
+    keySignatureToggle.toFront(false);
 }
 
 auto ScoreWidget::nameFor(const std::vector<int> &pitches) -> const std::string & {
@@ -179,31 +235,64 @@ auto ScoreWidget::nameFor(const std::vector<int> &pitches) -> const std::string 
 }
 
 auto ScoreWidget::timerCallback() -> void {
+    // Chord labels show only changes, so they are worked out from kLookBackCs before the window:
+    // a name stays put while earlier chords scroll out.
+    constexpr int32_t kLookBackCs = 600;
     const auto now = static_cast<int32_t>(session.clock.getTime());
+    const int32_t from = now - ScoreView::kWindowCs - kLookBackCs;
     std::vector<ScoreLayout::Note> generated;
-    for (const auto &t: session.activeReduction().getOutputHistorySince(now - ScoreView::kWindowCs)) {
+    for (const auto &t: session.activeReduction().getOutputHistorySince(from)) {
         if (t.note < static_cast<int32_t>(Vocab::NoteOffset) || t.note >= static_cast<int32_t>(Vocab::Rest))
             continue; // ClearQueue and other markers
-        if (t.time < now - ScoreView::kWindowCs - 100 || t.time > now + ScoreView::kWindowCs + 100)
+        if (t.time < from || t.time > now + ScoreView::kWindowCs + 100)
             continue;
         generated.push_back({t.time, t.getRealDuration(), t.getPitch()});
     }
-    // Names (and their flat / sharp spelling) from the chords after the 30 ms snap.
-    std::vector<ScoreView::DrawName> names;
-    std::map<int32_t, bool> flatsAt;
-    for (auto &c: ScoreLayout::groupChords(ScoreLayout::snapOnsets(generated))) {
-        const auto &name = nameFor(c.pitches);
-        flatsAt[c.onsetCs] = ChordNaming::rootIsFlat(name);
-        names.push_back({c.onsetCs, ChordNaming::basicChord(name)}); // root + quality only
+
+    // The key, from what has started by now: the orchestra's notes and the piano's.
+    std::vector<ScoreLayout::Note> heard;
+    for (const auto &n: generated)
+        if (n.onsetCs <= now)
+            heard.push_back(n);
+    {
+        const auto snap = session.orchestrationTransformer.getDebugSnapshotSince(now - KeyDetector::kMaxAgeCs - 300);
+        for (const auto *tokens: {&snap.midiHistory, &snap.midiPending})
+            for (const auto &t: *tokens)
+                if (t.time <= now && t.note >= static_cast<int32_t>(Vocab::NoteOffset)
+                    && t.note < static_cast<int32_t>(Vocab::Rest))
+                    heard.push_back({t.time, std::max(1, t.getRealDuration()), t.getPitch()});
     }
+    heard = ScoreLayout::prepare(std::move(heard));
+    const auto lowest = ScoreLayout::lowestAtOnset(heard);
+    std::vector<KeyDetector::Note> keyNotes;
+    keyNotes.reserve(heard.size());
+    for (size_t i = 0; i < heard.size(); ++i)
+        keyNotes.push_back({heard[i].onsetCs, heard[i].durationCs, heard[i].pitch, lowest[i]});
+    const auto &found = keyDetector.update(keyNotes, now);
+    const Spelling::Key key = found.key.value_or(Spelling::Key{}); // C major until one is known
+
+    // Chords and their labels, then the melody and bass spelled in the key.
+    const auto prepared = ScoreLayout::prepare(generated);
+    const auto chords = ScoreHarmony::chords(prepared, key, [this](const std::vector<int> &p) { return nameFor(p); });
+    std::vector<ScoreView::DrawName> names;
+    for (const auto &l: ScoreHarmony::labels(chords))
+        names.push_back({l.onsetCs, l.text});
     std::vector<ScoreView::DrawNote> notes;
-    const auto lines = ScoreLayout::skylineAndBass(std::move(generated));
-    for (const bool bass: {true, false})
-        for (const auto &n: bass ? lines.bass : lines.melody) {
-            // the chord whose onset is the nearest at or before the note's
-            auto it = flatsAt.upper_bound(n.onsetCs);
-            const bool flats = it != flatsAt.begin() && std::prev(it)->second;
-            notes.push_back({n.onsetCs, n.pitch, flats, bass});
-        }
-    view.setFrame(now, std::move(notes), std::move(names));
+    const auto lines = ScoreLayout::skylineAndBass(generated);
+    for (const bool bass: {true, false}) {
+        const auto &line = bass ? lines.bass : lines.melody;
+        const auto spelled = ScoreHarmony::spellLine(line, chords, key);
+        for (size_t i = 0; i < line.size(); ++i)
+            notes.push_back({line[i].onsetCs, line[i].pitch, Spelling::staffStep(line[i].pitch, spelled[i]),
+                             Spelling::accidentalOf(spelled[i]), bass});
+    }
+    ScoreView::DrawKey drawKey;
+    if (found.key.has_value()) {
+        drawKey.name = KeyDetector::name(*found.key);
+        drawKey.signature = Spelling::signature(*found.key);
+    }
+    if (found.runnerUp.has_value())
+        drawKey.runnerUp = KeyDetector::name(*found.runnerUp);
+    drawKey.uncertain = found.uncertain;
+    view.setFrame(now, std::move(notes), std::move(names), std::move(drawKey));
 }

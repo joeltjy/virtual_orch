@@ -1,4 +1,6 @@
 #include "VirtualOrch/reduction/ReductionTransformer.h"
+#include "VirtualOrch/AppTime.h"
+#include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/PedalClear.h"
 #include "VirtualOrch/PolyphonyCap.h"
 #include "VirtualOrch/SessionLog.h"
@@ -45,9 +47,11 @@ auto ReductionTransformer::notifyPausedChanged() -> void {
     });
 }
 
-auto ReductionTransformer::setGenerationPause(bool paused) -> void {
+auto ReductionTransformer::setGenerationPause(bool paused, const char *reason) -> void {
     if (generationPause.get() == paused)
         return;
+    if (OpLog::on())
+        OpLog::emit(OpLog::Src::Rt, "RT_PAUSE", {{"paused", paused}, {"reason", reason}});
     const bool wasPaused = generationPause.get();
     generationPause.set(paused);
     const int32_t clockCs =
@@ -87,7 +91,10 @@ auto ReductionTransformer::startAheadThrottle() -> void {
     if (sleepMs == 0)
         return;
     overflowPause.set(true);
-    aheadThrottleUntilMs = juce::Time::getMillisecondCounter() + sleepMs;
+    aheadThrottleUntilMs = AppTime::counterMs() + sleepMs;
+    if (OpLog::on())
+        OpLog::emit(OpLog::Src::Rt, "RT_THROTTLE", {{"state", "start"}, {"for_ms", static_cast<int64_t>(sleepMs)},
+                                                    {"ahead_of", static_cast<int64_t>(currentTime)}});
     const int32_t clockCs =
         clock != nullptr ? static_cast<int32_t>(clock->getTime()) : -1;
     juce::Logger::writeToLog(
@@ -99,7 +106,7 @@ auto ReductionTransformer::startAheadThrottle() -> void {
 auto ReductionTransformer::finishAheadThrottleIfDue() -> void {
     if (aheadThrottleUntilMs == 0)
         return;
-    if (juce::Time::getMillisecondCounter() < aheadThrottleUntilMs)
+    if (AppTime::counterMs() < aheadThrottleUntilMs)
         return;
     // Still too far ahead (the model chose long gaps): keep waiting for the clock instead of
     // drawing one more note, which would push the lead further each throttle period.
@@ -110,6 +117,8 @@ auto ReductionTransformer::finishAheadThrottleIfDue() -> void {
 
 auto ReductionTransformer::resetAheadThrottle() -> void {
     const bool wasOverflow = overflowPause.get();
+    if (wasOverflow && OpLog::on())
+        OpLog::emit(OpLog::Src::Rt, "RT_THROTTLE", {{"state", "end"}});
     aheadThrottleUntilMs = 0;
     overflowPause.set(false);
     wasGenerationPaused = generationPause.get();
@@ -200,9 +209,22 @@ auto ReductionTransformer::getOutputHistorySince(int32_t cutoffCs) const -> std:
     return NoteWindow::filteredTokens(outputHistory, cutoffCs);
 }
 
-auto ReductionTransformer::dropOutputHistoryFrom(int32_t cutCs) -> void {
-    const juce::ScopedLock lock(outputHistoryLock);
-    std::erase_if(outputHistory, [cutCs](const Token &token) { return token.time >= cutCs; });
+auto ReductionTransformer::dropOutputHistoryFrom(int32_t cutCs, const std::string &reason) -> void {
+    OpLog::Ints removed;
+    {
+        const juce::ScopedLock lock(outputHistoryLock);
+        if (OpLog::on())
+            for (const auto &t: outputHistory)
+                if (t.time >= cutCs && t.noteId >= 0)
+                    removed.push_back(t.noteId);
+        std::erase_if(outputHistory, [cutCs](const Token &token) { return token.time >= cutCs; });
+    }
+    if (OpLog::on()) {
+        OpLog::Strings ids;
+        for (const auto n: removed)
+            ids.push_back(OpLog::id('r', n));
+        OpLog::emit(OpLog::Src::Rt, "RT_CUT", {{"from", cutCs}, {"reason", reason}, {"removed", std::move(ids)}});
+    }
 }
 
 auto ReductionTransformer::hasGeneratedFrom(int32_t fromCs) const -> bool {
@@ -217,7 +239,12 @@ auto ReductionTransformer::consumeModeCut() -> std::optional<int32_t> {
     const int32_t cut = modeCutTimeCs.exchange(-1, std::memory_order_acq_rel);
     if (cut < 0)
         return std::nullopt;
-    dropOutputHistoryFrom(cut);
+    std::string reason;
+    {
+        const std::lock_guard<std::mutex> lock(modeCutReasonMutex);
+        reason = modeCutReason;
+    }
+    dropOutputHistoryFrom(cut, reason);
     pushOutputToken(PedalClear::makeClearToken(cut));
     return cut;
 }
@@ -374,10 +401,18 @@ auto ReductionTransformer::generatedNotesAtOnset(int32_t onsetCs) const -> int32
 }
 
 auto ReductionTransformer::pushOutputToken(const Token &tokenIn) -> void {
+    lastOutputHeld = holdOutput && holdOutput(tokenIn);
+    if (lastOutputHeld)
+        return; // the replay delivers it later (deliverOutputToken, then afterOutputDelivered)
+    deliverOutputToken(tokenIn);
+}
+
+auto ReductionTransformer::deliverOutputToken(const Token &tokenIn) -> void {
     Token token = tokenIn;
     if (token.note >= static_cast<int32_t>(Vocab::NoteOffset)
         && token.note < static_cast<int32_t>(Vocab::Rest)) {
-        token.noteId = nextNoteId.fetch_add(1, std::memory_order_relaxed);
+        if (token.noteId < 0) // a transformer may assign it when the note is drawn
+            token.noteId = nextNoteId.fetch_add(1, std::memory_order_relaxed);
         if (token.getRealDuration() > kMaxNoteDurationCs)
             token.duration = static_cast<int32_t>(Vocab::DurOffset) + kMaxNoteDurationCs;
     }
@@ -399,6 +434,17 @@ auto ReductionTransformer::pushOutputToken(const Token &tokenIn) -> void {
                                   + (td == TemporalDensity::kAuto ? juce::String("AUTO") : juce::String(td))
                                   + " LogitTD " + (TdOnsetBias::enabled() ? "on" : "off") + " s "
                                   + juce::String(TdOnsetBias::strength(), 1));
+    }
+    if (OpLog::on()) {
+        const bool clear = token.note == static_cast<int32_t>(Vocab::ClearQueue);
+        const std::string item = clear ? "CLEAR c" + std::to_string(token.time) : OpLog::id('r', token.noteId);
+        if (! clear && token.note >= static_cast<int32_t>(Vocab::NoteOffset) && token.note < static_cast<int32_t>(Vocab::Rest))
+            OpLog::emit(OpLog::Src::Rt, "RT_NOTE",
+                        {{"r", item}, {"onset", token.time}, {"dur", token.getRealDuration()}, {"pitch", token.getPitch()},
+                         {"vel", token.velocity}, {"model", modelOfNote(token.noteId)}, {"voice", token.voiceId}});
+        OpLog::emit(OpLog::Src::Rt, "Q_PUSH", {{"queue", "rt→play"}, {"item", item}});
+        if (orchestrationReductionIncoming != nullptr)
+            OpLog::emit(OpLog::Src::Rt, "Q_PUSH", {{"queue", "rt→ot"}, {"item", item}});
     }
     outputTokenQueue.push(token);
     if (orchestrationReductionIncoming != nullptr)

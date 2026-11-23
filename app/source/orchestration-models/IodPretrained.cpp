@@ -4,6 +4,8 @@
 #include "VirtualOrch/NoteWindow.h"
 #include "VirtualOrch/OrtEnv.h"
 #include "VirtualOrch/OrchLoopProfile.h"
+#include "VirtualOrch/OpLog.h"
+#include "VirtualOrch/OpLogDraw.h"
 #include "VirtualOrch/orchestration-models/VocsepEnsemble.h"
 
 #include <algorithm>
@@ -32,7 +34,11 @@ auto sampleRange(const float *vocabLogits,
                  int32_t forbidGroupsFamilies,
                  bool excludeZero,
                  const IodPretrainedTypes::FamilySpec *family = nullptr,
-                 int32_t claimedDeltas = 0) -> int32_t {
+                 int32_t claimedDeltas = 0,
+                 std::optional<int32_t> forced = std::nullopt,
+                 std::vector<OpLogDraw::Draw> *draws = nullptr,
+                 const char *fieldName = "",
+                 const float *rawForLog = nullptr) -> int32_t {
     const int32_t start = excludeZero ? lo + 1 : lo;
     std::vector<float> local(static_cast<size_t>(hi - start), kNegInf);
     bool any = false;
@@ -56,6 +62,18 @@ auto sampleRange(const float *vocabLogits,
         local[static_cast<size_t>(id - start)] = v;
         any = true;
     }
+    // Operation log: tokens are recorded relative to the field (GROUPS: mask - 1; a family: its bit mask).
+    const auto record = [&](int32_t token) {
+        if (draws != nullptr)
+            // p_model is the model's own probability: from the logits before any bias (rawForLog).
+            draws->push_back(OpLogDraw::describe(fieldName, (rawForLog != nullptr ? rawForLog : vocabLogits) + lo,
+                                                 static_cast<size_t>(hi - lo), local,
+                                                 start - lo, 1.0f, kComboSampleTemperature, token - lo,
+                                                 forced.has_value()));
+        return token;
+    };
+    if (forced.has_value())
+        return record(*forced);
     if (! any) {
         if (forbidGroupsFamilies != 0) {
             for (int32_t groupsMask = 1; groupsMask <= hi - lo; ++groupsMask) {
@@ -72,7 +90,7 @@ auto sampleRange(const float *vocabLogits,
         return start < hi ? start : lo;
     }
     const int32_t localIdx = sampleTopP(local, /*p*/ 1.0f, kComboSampleTemperature);
-    return start + localIdx;
+    return record(start + localIdx);
 }
 
 auto logitsIndex(int32_t noteIdx, int32_t step) -> size_t {
@@ -94,6 +112,7 @@ auto IodPretrained::init(const char *modelPath) -> void {
     };
 
 #ifdef __linux__
+    (void) sharedOrtEnv(); // the ORT environment must exist before the CUDA provider is appended
     try {
         Ort::SessionOptions cudaOptions;
         OrtCUDAProviderOptions cudaProvider{};
@@ -232,7 +251,9 @@ auto IodPretrained::runLogits(IodPretrainedTypes::EncoderWindow &window) -> std:
 auto IodPretrained::sampleComboForNote(IodPretrainedTypes::EncoderWindow &window,
                                        int32_t noteIdx,
                                        const std::vector<int32_t> &instruments,
-                                       bool applyGroupsBias)
+                                       bool applyGroupsBias,
+                                       const std::optional<std::array<int32_t, IodPretrainedTypes::comboLen>> &forced,
+                                       std::vector<OpLogDraw::Draw> *draws)
     -> std::array<int32_t, IodPretrainedTypes::comboLen> {
     using namespace IodPretrainedTypes;
 
@@ -257,14 +278,33 @@ auto IodPretrained::sampleComboForNote(IodPretrainedTypes::EncoderWindow &window
         if (logits.size() < logitsIndex(noteIdx, 0) + static_cast<size_t>(comboVocabSize))
             return combo;
         float *row = logits.data() + logitsIndex(noteIdx, 0);
+        // The operation log's p_model is the model's own: keep the logits from before the bias.
+        std::vector<float> rawRow;
+        if (draws != nullptr)
+            rawRow.assign(row, row + comboVocabSize);
+        const float *raw = rawRow.empty() ? nullptr : rawRow.data();
         if (applyGroupsBias && ! recentGroupsMasks.empty()) {
             const std::vector<int32_t> masks(recentGroupsMasks.begin(), recentGroupsMasks.end());
             applyGroupsTokenLogitsBias(row, static_cast<size_t>(comboVocabSize), masks.data(),
                                        masks.size(), groupsBiasTau.load());
         }
+        if (forced.has_value() && (*forced)[0] == endNote) {
+            // The logged note had no orchestra notes: record the model's view of GROUPS, play nothing.
+            sampleRange(row, groupsOffset, groupsHi, 0, forbid.fullyBannedFamilyBits, false, nullptr, 0,
+                        std::nullopt, draws, "groups", raw);
+            if (draws != nullptr && ! draws->empty()) {
+                auto &d = draws->back();
+                d.forced = true;
+                d.chosen = -1;
+                d.p = 0.0f;
+                d.pModel = 0.0f;
+            }
+            return combo;
+        }
+        const auto forcedGroups = forced.has_value() ? std::optional<int32_t>((*forced)[0]) : std::nullopt;
         const int32_t groupsTok = sampleRange(row, groupsOffset, groupsHi,
                                               /*forbidBits*/ 0, forbid.fullyBannedFamilyBits,
-                                              /*excludeZero*/ false);
+                                              /*excludeZero*/ false, nullptr, 0, forcedGroups, draws, "groups", raw);
         combo[0] = groupsTok;
         window.comboIn[static_cast<size_t>(noteIdx)][1] = groupsTok;
         recordGroupsMask(maskFromGroupsToken(groupsTok));
@@ -287,11 +327,16 @@ auto IodPretrained::sampleComboForNote(IodPretrainedTypes::EncoderWindow &window
 
         const auto &family = familySpecs[static_cast<size_t>(familyIdx)];
         const float *row = logits.data() + logitsIndex(noteIdx, step);
+        static constexpr const char *kFamilyNames[] = {"strings", "woodwinds", "brass", "other"};
+        const auto forcedFam = forced.has_value() && (*forced)[static_cast<size_t>(comboWrite)] != endNote
+                                   ? std::optional<int32_t>((*forced)[static_cast<size_t>(comboWrite)])
+                                   : std::nullopt;
         const int32_t famTok =
             sampleRange(row, family.tokenOffset, family.tokenOffset + family.tokenSize,
                         forbid.familyForbid[static_cast<size_t>(familyIdx)],
                         /*forbidGroupsFamilies*/ 0,
-                        /*excludeZero*/ true, &family, claimedDeltas);
+                        /*excludeZero*/ true, &family, claimedDeltas, forcedFam, draws,
+                        kFamilyNames[familyIdx]);
         combo[static_cast<size_t>(comboWrite++)] = famTok;
         claimedDeltas |=
             deltasUsedByFamilyMask(family, maskFromFamilyToken(family, famTok));
@@ -468,6 +513,29 @@ auto IodPretrained::getOutput(const std::vector<Token> &incomingTokens,
             }
         }
 
+        if (OpLog::on()) {
+            // OT_INPUT (docs/OPLOGS.txt): the encoder input this window's draws start from. The
+            // combos decoded within the window are teacher-forced into combo_in as they are drawn
+            // (each OT_DRAW's combo), so every draw's input follows from this record.
+            OpLog::Strings ids;
+            OpLog::Ints inputIds, combos;
+            int32_t baseOnset = window.onsetCs[0]; // input_ids' onsets count from the earliest note
+            for (int32_t i = 1; i < window.nNotes; ++i)
+                baseOnset = std::min(baseOnset, window.onsetCs[static_cast<size_t>(i)]);
+            for (int32_t i = 0; i < window.nNotes; ++i) {
+                const size_t listIdx = windowBase + start + static_cast<size_t>(i);
+                const auto &t = inputNotes[std::min(listIdx, inputNotes.size() - 1)].token;
+                ids.push_back(t.keyId >= 0 ? OpLog::id('k', t.keyId) : OpLog::id('r', t.noteId));
+                for (int32_t k = 0; k < noteTokensPerNote; ++k)
+                    inputIds.push_back(static_cast<int32_t>(window.inputIds[static_cast<size_t>(i * noteTokensPerNote + k)]));
+                for (int32_t k = 0; k < comboLen; ++k)
+                    combos.push_back(static_cast<int32_t>(window.comboIn[static_cast<size_t>(i)][static_cast<size_t>(k)]));
+            }
+            OpLog::emit(OpLog::Src::Ot, "OT_INPUT",
+                        {{"notes", std::move(ids)}, {"base_onset", baseOnset}, {"input_ids", std::move(inputIds)},
+                         {"combo_in", std::move(combos)}, {"tokens_per_note", noteTokensPerNote}, {"combo_len", comboLen}});
+        }
+
         {
             const ScopedMs sampleMs(getOutputTimings != nullptr ? &getOutputTimings->sample
                                                                 : nullptr);
@@ -478,7 +546,25 @@ auto IodPretrained::getOutput(const std::vector<Token> &incomingTokens,
                     break;
                 if (inputNotes[listIdx].hasResult)
                     continue;
-                const auto comboA = sampleComboForNote(window, i, instruments, applyGroupsBias);
+                std::optional<std::array<int32_t, comboLen>> forced;
+                if (forcedCombo)
+                    forced = forcedCombo(inputNotes[listIdx].token);
+                std::vector<OpLogDraw::Draw> draws;
+                const bool logging = OpLog::on();
+                const auto comboA = sampleComboForNote(window, i, instruments, applyGroupsBias, forced,
+                                                       logging ? &draws : nullptr);
+                if (logging) {
+                    const auto &in = inputNotes[listIdx].token;
+                    std::string steps = "[";
+                    for (size_t d = 0; d < draws.size(); ++d)
+                        steps += (d ? "," : "") + draws[d].json();
+                    steps += "]";
+                    OpLog::emit(OpLog::Src::Ot, "OT_DRAW",
+                                {{"for", in.keyId >= 0 ? OpLog::id('k', in.keyId) : OpLog::id('r', in.noteId)},
+                                 {"pitch", in.getPitch()}, {"onset", in.time},
+                                 {"instruments", OpLog::Ints(instruments.begin(), instruments.end())},
+                                 {"steps", OpLog::Raw{steps}}, {"combo", OpLog::Ints(comboA.begin(), comboA.end())}});
+                }
                 {
                     auto &rec = inputNotes[listIdx];
                     rec.dataA = dataFromCombo(comboA);
@@ -521,8 +607,10 @@ auto IodPretrained::getOutput(const std::vector<Token> &incomingTokens,
                     basePitch,
                     window.velocity[static_cast<size_t>(i)],
                     safeCombo);
-                for (auto &n: notes)
+                for (auto &n: notes) {
                     n.token.keyId = inputNotes[listIdx].token.keyId;
+                    n.sourceNoteId = inputNotes[listIdx].token.noteId;
+                }
                 if (balance != nullptr && ! notes.empty()) {
                     std::vector<int32_t> ids;
                     ids.reserve(notes.size());

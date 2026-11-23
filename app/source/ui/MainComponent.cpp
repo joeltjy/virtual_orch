@@ -5,6 +5,8 @@
 #include <iostream>
 
 #include "VirtualOrch/MidiOutputProcessor.h"
+#include "VirtualOrch/MidiReconnect.h"
+#include "VirtualOrch/SessionLog.h"
 #include "VirtualOrch/reduction/TdOnsetBias.h"
 #include "VirtualOrch/OSCOutputProcessor.h"
 #include "VirtualOrch/OSCController.h"
@@ -70,6 +72,9 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
 
     midiInputs = juce::MidiInput::getAvailableDevices();
     hardwareMidiOutputs = juce::MidiOutput::getAvailableDevices();
+
+    presentMidiInputIds = MidiReconnect::identifiers(midiInputs);
+    midiDeviceListConnection = juce::MidiDeviceListConnection::make([this] { handleMidiDeviceListChange(); });
 
     // FOR DEBUG ONLY
     virtualMidiInput = juce::MidiInput::createNewDevice("virtual-orch Virtual MIDI Input", &session.midiInputProcess);
@@ -433,36 +438,46 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     addAndMakeVisible(launchpadMidiList);
     launchpadMidiList.setTextWhenNoChoicesAvailable("No MIDI Inputs Enabled");
 
-    launchpadMidiList.addItemList(midiInputNames, 1);
+    // Id 1 = no Launchpad; device i = id i + 2 (as the pedal list).
+    launchpadMidiList.addItem("(none)", 1);
+    for (int i = 0; i < midiInputNames.size(); ++i)
+        launchpadMidiList.addItem(midiInputNames[i], i + 2);
     launchpadMidiList.onChange = [this] {
-        if (launchpadMidiList.getSelectedItemIndex() < 0)
+        const int id = launchpadMidiList.getSelectedId();
+        auto launchpadSettings =
+            session.presetStore.settings.getOrCreateChildWithName("launchpadInput", nullptr);
+        if (id <= 1) {
+            clearLaunchpadMidiInput();
+            launchpadSettings.setProperty("identifier", "", nullptr);
             return;
-        setMidiInput(launchpadMidiList.getSelectedItemIndex(), 1);
-        DBG("Saving launchpad input: " + midiInputs[launchpadMidiList.getSelectedItemIndex()].identifier);
-        session.presetStore.settings.getOrCreateChildWithName("launchpadInput", nullptr).setProperty(
-            "identifier", midiInputs[launchpadMidiList.getSelectedItemIndex()].identifier, nullptr);
+        }
+        const int deviceIndex = id - 2;
+        if (! juce::isPositiveAndBelow(deviceIndex, midiInputs.size()))
+            return;
+        setMidiInput(deviceIndex, 1);
+        DBG("Saving launchpad input: " + midiInputs[deviceIndex].identifier);
+        launchpadSettings.setProperty("identifier", midiInputs[deviceIndex].identifier, nullptr);
     };
-    juce::String savedLaunchpadInput =
-        session.presetStore.settings.getOrCreateChildWithName("launchpadInput", nullptr).getProperty("identifier", "");
-    if (savedLaunchpadInput.isNotEmpty()) {
-        DBG("Saved Launchpad Input: " + savedLaunchpadInput);
-        int index = -1;
-        for (int i = 0; i < midiInputs.size(); i++) {
-            if (midiInputs[i].identifier == savedLaunchpadInput) {
-                index = i;
-                break;
-            }
+    {
+        // Never fall back to another input: the LED output of a loopback port such as ALSA's
+        // "Midi Through" comes straight back as pad presses (top LED 0 = Force restart, so the
+        // app restarted itself in a loop). A saved loopback port is not restored either.
+        const juce::String savedLaunchpadInput =
+            session.presetStore.settings.getOrCreateChildWithName("launchpadInput", nullptr)
+                .getProperty("identifier", "");
+        int launchpadId = 1;
+        for (int i = 0; savedLaunchpadInput.isNotEmpty() && i < midiInputs.size(); ++i) {
+            if (midiInputs[i].identifier != savedLaunchpadInput)
+                continue;
+            if (midiInputs[i].name.startsWithIgnoreCase("Midi Through"))
+                DBG("Saved launchpad input is a loopback port; not restoring it.");
+            else
+                launchpadId = i + 2;
+            break;
         }
-        if (index != -1) {
-            DBG("Set to saved launchpad input.");
-            launchpadMidiList.setSelectedItemIndex(index);
-        } else {
-            DBG("Saved launchpad input not found, setting to first input.");
-            launchpadMidiList.setSelectedItemIndex(0);
-        }
-    } else {
-        DBG("No saved launchpad input, setting to first input.");
-        launchpadMidiList.setSelectedItemIndex(0);
+        // "(none)" without notifying: a Launchpad that is only unplugged keeps its saved setting.
+        launchpadMidiList.setSelectedId(launchpadId, launchpadId == 1 ? juce::dontSendNotification
+                                                                      : juce::sendNotificationAsync);
     }
 
     /* KEYBOARD AS LAUNCHPAD */
@@ -1839,6 +1854,16 @@ void MainComponent::clearPedalMidiInput() {
     session.selectedPedalMidiInputIdentifier = {};
     if (previous.isNotEmpty() && ! isMidiInputUsedByOtherRole(previous, 2))
         deviceManager.removeMidiInputDeviceCallback(previous, &session.midiInputProcess);
+    if (previous.isNotEmpty())
+        session.midiInputProcess.pedalDeviceCleared();
+}
+
+void MainComponent::clearLaunchpadMidiInput() {
+    const juce::String previous = session.selectedLaunchpadMidiIdentifier;
+    session.selectedLaunchpadMidiIdentifier = {};
+    if (previous.isNotEmpty() && ! isMidiInputUsedByOtherRole(previous, 1))
+        deviceManager.removeMidiInputDeviceCallback(previous, &session.midiInputProcess);
+    session.midiInputProcess.setLaunchpadMidiOutput(nullptr);
 }
 
 void MainComponent::clearAdditionalMidiInput() {
@@ -1846,6 +1871,42 @@ void MainComponent::clearAdditionalMidiInput() {
     session.selectedAdditionalMidiInputIdentifier = {};
     if (previous.isNotEmpty() && ! isMidiInputUsedByOtherRole(previous, 3))
         deviceManager.removeMidiInputDeviceCallback(previous, &session.midiInputProcess);
+}
+
+void MainComponent::handleMidiDeviceListChange() {
+    const auto devices = juce::MidiInput::getAvailableDevices();
+    const auto now = MidiReconnect::identifiers(devices);
+
+    juce::StringArray inUse{session.selectedMidiInputIdentifier, session.selectedLaunchpadMidiIdentifier,
+                            session.selectedPedalMidiInputIdentifier,
+                            session.selectedAdditionalMidiInputIdentifier};
+    if (session.mtcClockActive)
+        inUse.add(session.selectedMtcClockIdentifier);
+
+    for (const auto &id: MidiReconnect::disappeared(presentMidiInputIds, now, inUse)) {
+        const auto text = "input " + id + " disconnected; it is reopened when it comes back";
+        SessionLog::add("MIDI_DEVICE", text);
+        std::cerr << "[midi] " << text << std::endl;
+    }
+
+    for (const auto &id: MidiReconnect::reappeared(presentMidiInputIds, now, inUse)) {
+        // The MidiInput opened before the drop is dead: close it and open the device again. The
+        // callbacks are registered per identifier in deviceManager, so they stay attached.
+        deviceManager.setMidiInputDeviceEnabled(id, false);
+        deviceManager.setMidiInputDeviceEnabled(id, true);
+        const bool reopened = deviceManager.isMidiInputDeviceEnabled(id);
+
+        if (id == session.selectedLaunchpadMidiIdentifier)
+            for (const auto &device: devices)
+                if (device.identifier == id)
+                    session.midiInputProcess.setLaunchpadMidiOutputForInputDevice(device);
+
+        const auto text = "input " + id + (reopened ? " reconnected: reopened" : " reconnected but failed to reopen");
+        SessionLog::add("MIDI_DEVICE", text);
+        std::cerr << "[midi] " << text << std::endl;
+    }
+
+    presentMidiInputIds = now;
 }
 
 void MainComponent::setMidiInput(int index, int idx) {
@@ -1884,6 +1945,8 @@ void MainComponent::setMidiInput(int index, int idx) {
 
     if (idx == 1)
         session.midiInputProcess.setLaunchpadMidiOutputForInputDevice(newInput);
+    else if (idx == 2)
+        session.midiInputProcess.pedalDeviceSelected();
 }
 
 void MainComponent::updateMtcClock() {

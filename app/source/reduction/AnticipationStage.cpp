@@ -7,6 +7,8 @@
 auto AnticipationStage::generate(const Params &params) -> std::optional<AnticipatedStream::Note> {
     lastError.clear();
     waiting = false;
+    held = false;
+    sampler.clearDraw();
     stream.waitToken = waitToken;
     if (cache == nullptr)
         return std::nullopt;
@@ -82,6 +84,11 @@ auto AnticipationStage::generate(const Params &params) -> std::optional<Anticipa
         const auto tokens = stream.tokens();
         if (stream.isEmpty())
             return std::nullopt; // nothing to continue from yet
+        // Replay: the recorded run had not drawn its next note yet (the model was still busy).
+        if (redraw == 0 && sampler.drawHeld && sampler.drawHeld()) {
+            held = true;
+            return std::nullopt;
+        }
         const auto &logits = cache->logitsAfter(tokens, stream.committedLen());
         if (logits.empty() || logits.size() < static_cast<size_t>(DenseVocab::VocabSize)) {
             lastError = "KV cache returned no usable logits";

@@ -1,6 +1,7 @@
 #include "VirtualOrch/InputFilter.h"
 
 #include "VirtualOrch/InstrumentConstants.h"
+#include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/ReductionInputGate.h"
 
 InputFilter::InputFilter(CircularFifo<Token> &inputTokenQueueIn,
@@ -27,6 +28,8 @@ auto InputFilter::processUpdates() -> int {
         const bool updatedConditioning = applyTokenUpdateToHistory(pastConditioning, update);
         if (updatedInput || updatedConditioning) {
             updatesFromFilter.push(update);
+            if (OpLog::on())
+                OpLog::emit(OpLog::Src::Input, "Q_PUSH", {{"queue", "updates→rt"}, {"item", OpLog::id('k', update.newNote.keyId)}});
             ++applied;
         }
     }
@@ -34,12 +37,22 @@ auto InputFilter::processUpdates() -> int {
 }
 
 void InputFilter::pushToken(const Token &token) {
-    if (! ReductionInputGate::isBlocked()) // CC107: the reduction does not hear the user
+    const bool toRt = ! ReductionInputGate::isBlocked(); // CC107: the reduction does not hear the user
+    if (toRt)
         inputTokenQueue.push(token);
     pastInput.push_back(token);
     if (orchestrationMidiOutgoing != nullptr)
         orchestrationMidiOutgoing->push(
             token.withInstrument(InstrumentConstants::kKeyboardLocalInstrumentId));
+    if (OpLog::on()) {
+        if (toRt)
+            OpLog::emit(OpLog::Src::Input, "Q_PUSH", {{"queue", "input→rt"}, {"item", OpLog::id('k', token.keyId)}});
+        else
+            OpLog::emit(OpLog::Src::Input, "Q_DROP", {{"queue", "input→rt"}, {"item", OpLog::id('k', token.keyId)},
+                                                      {"reason", "reduction input blocked (CC107)"}});
+        if (orchestrationMidiOutgoing != nullptr)
+            OpLog::emit(OpLog::Src::Input, "Q_PUSH", {{"queue", "input→ot"}, {"item", OpLog::id('k', token.keyId)}});
+    }
 }
 
 void InputFilter::pushConditioning(const Token &token) {
@@ -48,6 +61,8 @@ void InputFilter::pushConditioning(const Token &token) {
     pastConditioning.push_back(token);
     if (orchestrationConditioningOutgoing != nullptr)
         orchestrationConditioningOutgoing->push(token);
+    if (OpLog::on())
+        OpLog::emit(OpLog::Src::Input, "Q_PUSH", {{"queue", "conditioning"}, {"item", OpLog::id('k', token.keyId)}});
 }
 
 void PassthroughInputFilter::filter(const Token &current) {

@@ -72,6 +72,22 @@ public:
 
     void threadInit();
     void threadRun();
+
+    /**
+     * The thread's loop as two calls: beginSteps() resets everything (what a Start does), each
+     * stepOnce() is one pass (drain, hold-back, model, output). The offline simulator calls them
+     * itself, with no thread.
+     */
+    auto beginSteps() -> void;
+    auto stepOnce() -> void;
+
+    /**
+     * Replay: when set and it returns true for an output note, the note is not sent now; the
+     * replay sends it later with deliverOutputNote (when the recorded model had finished).
+     */
+    std::function<bool(const OrchestrationNote &)> holdOutput;
+    /** Send an output note now: released length, the OT log line, the queue and the history. */
+    auto deliverOutputNote(const OrchestrationNote &note) -> void;
     void threadStop();
 
     CircularFifo<Token> midiInputIncoming;

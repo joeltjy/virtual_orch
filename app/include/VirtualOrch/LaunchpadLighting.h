@@ -22,7 +22,7 @@ inline constexpr uint8_t kPurple = 49;
 inline constexpr uint8_t kMagenta = 53;
 inline constexpr uint8_t kPink = 57;
 
-/** Flush side button: always lit. */
+/** Flush side button (lit in Edit mode only). */
 inline constexpr uint8_t kFlush = kWhite;
 
 /** Instrument families, taxonomy order: strings 0–6, woodwinds 7–10, brass 11–14, other 15–19. */
@@ -59,6 +59,53 @@ enum class Family : uint8_t { Strings, Woodwinds, Brass, Other };
 [[nodiscard]] inline auto colourForInstrumentPad(int32_t localId, bool on) -> uint8_t {
     const auto family = familyForLocalInstrument(localId);
     return on && family.has_value() ? colourForFamily(*family) : kOff;
+}
+
+/** Dark grey: an instrument that is on but frozen (the user's side in Jam / Accompaniment). */
+inline constexpr uint8_t kGrey = 1;
+
+/**
+ * A dimmer shade of a palette colour. The Mk3 palette groups each hue in fours from 4
+ * (4k+1 full, 4k+2 dimmer, 4k+3 dimmest); white 3 dims to grey 2, then 1.
+ * `level` 1 = dimmer, 2 = dimmest. Other colours come back unchanged.
+ */
+[[nodiscard]] inline auto dimmed(uint8_t colour, int level) -> uint8_t {
+    level = level < 1 ? 1 : (level > 2 ? 2 : level);
+    if (colour == kWhite)
+        return static_cast<uint8_t>(kWhite - level);
+    if (colour >= 4 && colour < 64 && (colour - 4) % 4 == 1)
+        return static_cast<uint8_t>(colour + level);
+    return colour;
+}
+
+/** How much the model's side is dimmed while the pads control yours (tune on the hardware). */
+inline constexpr int kOtherSideDimLevel = 2;
+
+/**
+ * Instrument pad in the two-sided layout. `controlled` = the pads control this side in the
+ * current mode (bright); otherwise the user's side shows grey and the model's side dim.
+ */
+[[nodiscard]] inline auto colourForSidedInstrumentPad(int32_t localId, bool on, bool controlled,
+                                                      bool userSide) -> uint8_t {
+    const auto bright = colourForInstrumentPad(localId, on);
+    if (bright == kOff || controlled)
+        return bright;
+    return userSide ? kGrey : dimmed(bright, kOtherSideDimLevel);
+}
+
+/** Reset side button colour (Flush keeps kFlush). */
+inline constexpr uint8_t kReset = kRed;
+
+/** Flush / Reset side buttons: lit only in Edit mode, where they work. */
+[[nodiscard]] inline auto colourForEditOnlyButton(bool editMode, uint8_t colour) -> uint8_t {
+    return editMode ? colour : kOff;
+}
+
+/** Mood preset pad: full colour when active, dimmer when active but changed since, dimmest otherwise. */
+[[nodiscard]] inline auto colourForPresetPad(uint8_t colour, bool active, bool modified) -> uint8_t {
+    if (active && ! modified)
+        return colour;
+    return dimmed(colour, active ? 1 : 2);
 }
 
 /** TD levels 1..64, low → high: cyan, sky, blue, purple, magenta, pink, red. */

@@ -3,18 +3,38 @@
 #include <VirtualOrch/LaunchpadGrid.h>
 #include <VirtualOrch/LaunchpadLighting.h>
 #include <VirtualOrch/LaunchpadProgrammerMap.h>
+#include <VirtualOrch/MoodPresets.h>
 #include <VirtualOrch/RegisterRange.h>
 #include <VirtualOrch/TemporalDensity.h>
 
 #include <map>
+#include <optional>
+#include <set>
 #include <vector>
 
 namespace virtual_orch_test {
 
 namespace {
 
-constexpr int kUser = LaunchpadGrid::kUserRowFirst;
-constexpr int kModel = LaunchpadGrid::kModelRowFirst;
+constexpr int kStrings = LaunchpadGrid::kInstrumentRowFirst;
+constexpr int kWinds = LaunchpadGrid::kInstrumentRowFirst + 1;
+constexpr int kBrass = LaunchpadGrid::kInstrumentRowFirst + 2;
+constexpr int kPerc = LaunchpadGrid::kInstrumentRowFirst + 3;
+/** Column of pad `c` (0-3) on your side / the model's side. */
+constexpr auto user(int c) -> int { return LaunchpadGrid::kUserColFirst + c; }
+constexpr auto model(int c) -> int { return LaunchpadGrid::kModelColFirst + c; }
+
+/** Map the app's instruments on both sides (as AppSession does). */
+auto mapAppInstruments(LaunchpadGrid &grid) -> void {
+    struct Pad { int row, col; int32_t id; };
+    const Pad pads[] = {{kStrings, 0, 6}, {kStrings, 1, 5}, {kStrings, 2, 4}, {kWinds, 0, 7},
+                        {kWinds, 1, 8},   {kWinds, 2, 9},   {kWinds, 3, 10},  {kBrass, 0, 12},
+                        {kBrass, 1, 11},  {kBrass, 2, 13},  {kBrass, 3, 14},  {kPerc, 0, 16}};
+    for (const auto &pad: pads) {
+        grid.padInstruments[static_cast<size_t>(pad.row)][static_cast<size_t>(user(pad.col))] = pad.id;
+        grid.padInstruments[static_cast<size_t>(pad.row)][static_cast<size_t>(model(pad.col))] = pad.id;
+    }
+}
 
 auto drain(CircularFifo<InstrumentUpdate> &updates) -> std::vector<InstrumentUpdate> {
     std::vector<InstrumentUpdate> out;
@@ -51,11 +71,12 @@ TEST(LaunchpadGrid, StartsAllOff) {
 
 TEST(LaunchpadGrid, InstrumentPadPressTogglesAndEmits) {
     LaunchpadGrid grid;
+    grid.setSelectedMode(OrchestrationMode::Edit);
     CircularFifo<InstrumentUpdate> updates;
     grid.instrumentUpdates = &updates;
-    grid.padInstruments[kUser][5] = 7;
+    grid.padInstruments[kWinds][user(1)] = 7;
 
-    grid.handleInput(kUser, 5, true, 1000);
+    grid.handleInput(kWinds, user(1), true, 1000);
     InstrumentUpdate u{};
     ASSERT_TRUE(updates.pull(u));
     EXPECT_EQ(u.localInstrumentId, 7);
@@ -63,64 +84,97 @@ TEST(LaunchpadGrid, InstrumentPadPressTogglesAndEmits) {
     EXPECT_EQ(u.state, 1);
     EXPECT_FALSE(updates.pull(u));
 
-    grid.handleInput(kUser, 5, false, 1000); // release ignored
+    grid.handleInput(kWinds, user(1), false, 1000); // release ignored
     EXPECT_FALSE(updates.pull(u));
 
-    grid.handleInput(kUser, 5, true, 1000 + LaunchpadGrid::kBurstMs);
+    grid.handleInput(kWinds, user(1), true, 1000 + LaunchpadGrid::kBurstMs);
     ASSERT_TRUE(updates.pull(u));
     EXPECT_EQ(u.state, 0);
 }
 
-TEST(LaunchpadGrid, InputRowsAreUserModelRowsAreModel) {
-    EXPECT_FALSE(LaunchpadGrid::targetForRow(LaunchpadGrid::kModeRow).has_value());
-    EXPECT_FALSE(LaunchpadGrid::targetForRow(LaunchpadGrid::kTdRow).has_value());
-    EXPECT_EQ(LaunchpadGrid::targetForRow(kUser), InstrumentUpdateTarget::User);
-    EXPECT_EQ(LaunchpadGrid::targetForRow(kUser + 1), InstrumentUpdateTarget::User);
-    EXPECT_EQ(LaunchpadGrid::targetForRow(kModel), InstrumentUpdateTarget::Model);
-    EXPECT_EQ(LaunchpadGrid::targetForRow(kModel + 1), InstrumentUpdateTarget::Model);
-    EXPECT_FALSE(LaunchpadGrid::targetForRow(6).has_value());
-    EXPECT_FALSE(LaunchpadGrid::targetForRow(7).has_value());
+TEST(LaunchpadGrid, LeftHalfIsUserRightHalfIsModel) {
+    EXPECT_FALSE(LaunchpadGrid::targetForPad(LaunchpadGrid::kModeRow, 0).has_value());
+    EXPECT_FALSE(LaunchpadGrid::targetForPad(LaunchpadGrid::kTdRow, 0).has_value());
+    for (int row = kStrings; row <= kPerc; ++row) {
+        EXPECT_EQ(LaunchpadGrid::targetForPad(row, user(0)), InstrumentUpdateTarget::User);
+        EXPECT_EQ(LaunchpadGrid::targetForPad(row, user(3)), InstrumentUpdateTarget::User);
+        EXPECT_EQ(LaunchpadGrid::targetForPad(row, model(0)), InstrumentUpdateTarget::Model);
+        EXPECT_EQ(LaunchpadGrid::targetForPad(row, model(3)), InstrumentUpdateTarget::Model);
+    }
+    EXPECT_FALSE(LaunchpadGrid::targetForPad(LaunchpadGrid::kRegisterRow, 0).has_value());
+    EXPECT_FALSE(LaunchpadGrid::targetForPad(LaunchpadGrid::kPresetRow, 0).has_value());
+}
 
+TEST(LaunchpadGrid, BothSidesRespondInStepInOnlyTheModelsInJamAndAccompaniment) {
     LaunchpadGrid grid;
     CircularFifo<InstrumentUpdate> updates;
     grid.instrumentUpdates = &updates;
-    grid.padInstruments[kUser + 1][0] = 12;
-    grid.padInstruments[kModel + 1][0] = 12;
+    mapAppInstruments(grid);
 
-    grid.handleInput(kUser + 1, 0, true, 1000);
-    grid.handleInput(kModel + 1, 0, true, 1000);
+    grid.setSelectedMode(OrchestrationMode::Edit);
+    EXPECT_EQ(grid.controlledTarget(), InstrumentUpdateTarget::User);
+    grid.handleInput(kBrass, user(0), true, 1000);
+    grid.handleInput(kBrass, model(0), true, 1000); // Step-in: the model's side responds too
+    EXPECT_TRUE(grid.getGridState(kBrass, user(0)));
+    EXPECT_TRUE(grid.getGridState(kBrass, model(0)));
+
+    for (const auto mode: {OrchestrationMode::Jam, OrchestrationMode::Accompaniment}) {
+        grid.setSelectedMode(mode);
+        EXPECT_EQ(grid.controlledTarget(), InstrumentUpdateTarget::Model);
+    }
+    grid.handleInput(kBrass, user(0), true, 2000); // ignored in Jam / Accompaniment
+    grid.handleInput(kBrass, model(0), true, 2000); // toggles off
+    EXPECT_TRUE(grid.getGridState(kBrass, user(0)));
+    EXPECT_FALSE(grid.getGridState(kBrass, model(0)));
+
     const auto emitted = drain(updates);
-    ASSERT_EQ(emitted.size(), 2u);
+    ASSERT_EQ(emitted.size(), 3u);
     EXPECT_EQ(emitted[0].target, InstrumentUpdateTarget::User);
     EXPECT_EQ(emitted[1].target, InstrumentUpdateTarget::Model);
+    EXPECT_EQ(emitted[2].target, InstrumentUpdateTarget::Model);
+}
+
+TEST(LaunchpadGrid, AModelPadPressInStepInKeepsYourPresetActive) {
+    LaunchpadGrid grid;
+    mapAppInstruments(grid);
+    grid.setSelectedMode(OrchestrationMode::Edit);
+    grid.handleInput(LaunchpadGrid::kPresetRow, 0, true, 1000);
+    ASSERT_EQ(grid.getActivePreset(), 0);
+    grid.handleInput(kBrass, model(0), true, 2000);
+    EXPECT_FALSE(grid.isActivePresetModified()) << "presets set your side in Step-in";
+    grid.handleInput(kBrass, user(3), true, 3000);
+    EXPECT_TRUE(grid.isActivePresetModified());
 }
 
 TEST(LaunchpadGrid, UnmappedPadIgnored) {
     LaunchpadGrid grid;
+    grid.setSelectedMode(OrchestrationMode::Edit);
     CircularFifo<InstrumentUpdate> updates;
     grid.instrumentUpdates = &updates;
-    grid.handleInput(6, 0, true, 1000);
-    grid.handleInput(kUser, 3, true, 1000); // gap in the input layout
-    EXPECT_FALSE(grid.getGridState(6, 0));
-    EXPECT_FALSE(grid.getGridState(kUser, 3));
+    mapAppInstruments(grid);
+    grid.handleInput(kStrings, user(3), true, 1000); // gap after tremolo
+    grid.handleInput(kPerc, user(1), true, 1000);    // only timpani in the percussion row
+    EXPECT_FALSE(grid.getGridState(kStrings, user(3)));
+    EXPECT_FALSE(grid.getGridState(kPerc, user(1)));
     EXPECT_TRUE(drain(updates).empty());
 }
 
 TEST(LaunchpadGrid, GridBurstIgnoresRapidRepress) {
     LaunchpadGrid grid;
+    grid.setSelectedMode(OrchestrationMode::Edit);
     CircularFifo<InstrumentUpdate> updates;
     grid.instrumentUpdates = &updates;
-    grid.padInstruments[kUser][0] = 6;
+    grid.padInstruments[kStrings][user(0)] = 6;
 
-    grid.handleInput(kUser, 0, true, 5000);
-    EXPECT_TRUE(grid.getGridState(kUser, 0));
+    grid.handleInput(kStrings, user(0), true, 5000);
+    EXPECT_TRUE(grid.getGridState(kStrings, user(0)));
 
-    grid.handleInput(kUser, 0, true, 5000 + LaunchpadGrid::kBurstMs - 1);
-    EXPECT_TRUE(grid.getGridState(kUser, 0)); // ignored
+    grid.handleInput(kStrings, user(0), true, 5000 + LaunchpadGrid::kBurstMs - 1);
+    EXPECT_TRUE(grid.getGridState(kStrings, user(0))); // ignored
     ASSERT_EQ(drain(updates).size(), 1u);
 
-    grid.handleInput(kUser, 0, true, 5000 + LaunchpadGrid::kBurstMs);
-    EXPECT_FALSE(grid.getGridState(kUser, 0));
+    grid.handleInput(kStrings, user(0), true, 5000 + LaunchpadGrid::kBurstMs);
+    EXPECT_FALSE(grid.getGridState(kStrings, user(0)));
     const auto emitted = drain(updates);
     ASSERT_EQ(emitted.size(), 1u);
     EXPECT_EQ(emitted[0].state, 0);
@@ -227,82 +281,238 @@ TEST(LaunchpadGrid, NonLevelTdPadsDoNothing) {
     EXPECT_TRUE(TemporalDensity::isAuto());
 }
 
-TEST(LaunchpadGrid, FlushAddsInputToModelThenClearsInput) {
+TEST(LaunchpadGrid, FlushAddsYourInstrumentsToTheModelAndKeepsYours) {
     LaunchpadGrid grid;
     CircularFifo<InstrumentUpdate> updates;
     grid.instrumentUpdates = &updates;
-    for (const int base: {kUser, kModel}) {
-        grid.padInstruments[base][0] = 6;
-        grid.padInstruments[base][1] = 5;
-        grid.padInstruments[base][4] = 7;
-    }
+    mapAppInstruments(grid);
 
-    grid.handleInput(kModel, 1, true, 1000); // model already has pizzicato
-    grid.handleInput(kUser, 0, true, 1000);  // input: string ensemble + flute
-    grid.handleInput(kUser, 4, true, 1000);
+    grid.setSelectedMode(OrchestrationMode::Jam);
+    grid.handleInput(kStrings, model(1), true, 1000); // model already has pizzicato
+    grid.setSelectedMode(OrchestrationMode::Edit);
+    grid.handleInput(kStrings, user(0), true, 1000); // yours: string ensemble + flute
+    grid.handleInput(kWinds, user(0), true, 1000);
     drain(updates);
 
     grid.handleInput(LaunchpadGrid::kFlushRow, LaunchpadGrid::kSideCol, true, 2000);
 
-    EXPECT_TRUE(grid.getGridState(kModel, 0));
-    EXPECT_TRUE(grid.getGridState(kModel, 1)); // kept: flush adds, never replaces
-    EXPECT_TRUE(grid.getGridState(kModel, 4));
-    EXPECT_FALSE(grid.getGridState(kUser, 0));
-    EXPECT_FALSE(grid.getGridState(kUser, 1));
-    EXPECT_FALSE(grid.getGridState(kUser, 4));
+    EXPECT_TRUE(grid.getGridState(kStrings, model(0)));
+    EXPECT_TRUE(grid.getGridState(kStrings, model(1))); // kept: flush adds, never replaces
+    EXPECT_TRUE(grid.getGridState(kWinds, model(0)));
+    EXPECT_TRUE(grid.getGridState(kStrings, user(0))); // yours stay on
+    EXPECT_TRUE(grid.getGridState(kWinds, user(0)));
 
     const auto emitted = drain(updates);
-    ASSERT_EQ(emitted.size(), 4u);
-    // Model on first, then input off.
-    EXPECT_EQ(emitted[0].target, InstrumentUpdateTarget::Model);
-    EXPECT_EQ(emitted[0].state, 1);
-    EXPECT_EQ(emitted[1].target, InstrumentUpdateTarget::Model);
-    EXPECT_EQ(emitted[1].state, 1);
-    EXPECT_EQ(emitted[2].target, InstrumentUpdateTarget::User);
-    EXPECT_EQ(emitted[2].state, 0);
-    EXPECT_EQ(emitted[3].target, InstrumentUpdateTarget::User);
-    EXPECT_EQ(emitted[3].state, 0);
+    ASSERT_EQ(emitted.size(), 2u);
+    for (const auto &u: emitted) {
+        EXPECT_EQ(u.target, InstrumentUpdateTarget::Model);
+        EXPECT_EQ(u.state, 1);
+    }
 }
 
-TEST(LaunchpadGrid, FlushWithEmptyInputDoesNothing) {
+TEST(LaunchpadGrid, FlushWithNothingOnDoesNothing) {
     LaunchpadGrid grid;
+    grid.setSelectedMode(OrchestrationMode::Edit);
     CircularFifo<InstrumentUpdate> updates;
     grid.instrumentUpdates = &updates;
-    grid.padInstruments[kUser][0] = 6;
-    grid.padInstruments[kModel][0] = 6;
+    mapAppInstruments(grid);
 
     grid.handleInput(LaunchpadGrid::kFlushRow, LaunchpadGrid::kSideCol, true, 1000);
-    EXPECT_FALSE(grid.getGridState(kModel, 0));
+    EXPECT_FALSE(grid.getGridState(kStrings, model(0)));
     EXPECT_TRUE(drain(updates).empty());
 }
 
-TEST(LaunchpadGrid, LedsFollowFamilyColoursAndSideButtons) {
+TEST(LaunchpadGrid, ResetClearsTheModelInstrumentsOnly) {
+    LaunchpadGrid grid;
+    CircularFifo<InstrumentUpdate> updates;
+    grid.instrumentUpdates = &updates;
+    mapAppInstruments(grid);
+    grid.setSelectedMode(OrchestrationMode::Jam);
+    grid.handleInput(kStrings, model(0), true, 1000);
+    grid.handleInput(kBrass, model(2), true, 1000);
+    grid.setSelectedMode(OrchestrationMode::Edit);
+    grid.handleInput(kWinds, user(0), true, 1000);
+    drain(updates);
+
+    grid.handleInput(LaunchpadGrid::kResetRow, LaunchpadGrid::kSideCol, true, 2000);
+    EXPECT_FALSE(grid.getGridState(kStrings, model(0)));
+    EXPECT_FALSE(grid.getGridState(kBrass, model(2)));
+    EXPECT_TRUE(grid.getGridState(kWinds, user(0)));
+    const auto emitted = drain(updates);
+    ASSERT_EQ(emitted.size(), 2u);
+    for (const auto &u: emitted) {
+        EXPECT_EQ(u.target, InstrumentUpdateTarget::Model);
+        EXPECT_EQ(u.state, 0);
+    }
+}
+
+TEST(LaunchpadGrid, FlushAndResetOnlyWorkAndLightInEdit) {
     LaunchpadGrid grid;
     std::map<int, uint8_t> leds;
     grid.set_led = [&](int note, uint8_t colour) { leds[note] = colour; };
-    grid.padInstruments[kUser][0] = 6;  // strings
-    grid.padInstruments[kUser][4] = 7;  // woodwinds
-    grid.padInstruments[kUser + 1][0] = 12; // brass
-    grid.padInstruments[kUser + 1][4] = 16; // other
-
+    mapAppInstruments(grid);
+    grid.setSelectedMode(OrchestrationMode::Edit);
+    grid.handleInput(kStrings, user(0), true, 1000);
+    grid.setSelectedMode(OrchestrationMode::Jam);
+    grid.handleInput(kBrass, model(0), true, 1000);
     grid.refreshAllLeds();
-    EXPECT_EQ(ledFor(leds, kUser, 0), LaunchpadLighting::kOff);
-    EXPECT_EQ(ledFor(leds, LaunchpadGrid::kFlushRow, LaunchpadGrid::kSideCol),
-              LaunchpadLighting::kFlush);
+
+    EXPECT_EQ(ledFor(leds, LaunchpadGrid::kFlushRow, LaunchpadGrid::kSideCol), LaunchpadLighting::kOff);
+    EXPECT_EQ(ledFor(leds, LaunchpadGrid::kResetRow, LaunchpadGrid::kSideCol), LaunchpadLighting::kOff);
+    grid.handleInput(LaunchpadGrid::kFlushRow, LaunchpadGrid::kSideCol, true, 2000);
+    grid.handleInput(LaunchpadGrid::kResetRow, LaunchpadGrid::kSideCol, true, 2000);
+    EXPECT_FALSE(grid.getGridState(kStrings, model(0))) << "no flush in Jam";
+    EXPECT_TRUE(grid.getGridState(kBrass, model(0))) << "no reset in Jam";
+
+    grid.setSelectedMode(OrchestrationMode::Edit);
+    EXPECT_EQ(ledFor(leds, LaunchpadGrid::kFlushRow, LaunchpadGrid::kSideCol), LaunchpadLighting::kFlush);
+    EXPECT_EQ(ledFor(leds, LaunchpadGrid::kResetRow, LaunchpadGrid::kSideCol), LaunchpadLighting::kReset);
+}
+
+TEST(LaunchpadGrid, LedsBrightForTheControlledSideGreyOrDimForTheOther) {
+    LaunchpadGrid grid;
+    std::map<int, uint8_t> leds;
+    grid.set_led = [&](int note, uint8_t colour) { leds[note] = colour; };
+    mapAppInstruments(grid);
+
+    grid.setSelectedMode(OrchestrationMode::Edit);
+    grid.handleInput(kStrings, user(0), true, 1000);
+    grid.handleInput(kWinds, user(0), true, 1000);
+    grid.handleInput(kBrass, user(0), true, 1000);
+    grid.handleInput(kPerc, user(0), true, 1000);
+    grid.handleInput(LaunchpadGrid::kFlushRow, LaunchpadGrid::kSideCol, true, 1000);
+    grid.refreshAllLeds();
+
+    // Edit: yours bright family colours, the model's dim.
+    EXPECT_EQ(ledFor(leds, kStrings, user(0)), LaunchpadLighting::kYellow);
+    EXPECT_EQ(ledFor(leds, kWinds, user(0)), LaunchpadLighting::kLime);
+    EXPECT_EQ(ledFor(leds, kBrass, user(0)), LaunchpadLighting::kOrange);
+    EXPECT_EQ(ledFor(leds, kPerc, user(0)), LaunchpadLighting::kMint);
+    EXPECT_EQ(ledFor(leds, kStrings, model(0)),
+              LaunchpadLighting::dimmed(LaunchpadLighting::kYellow, LaunchpadLighting::kOtherSideDimLevel));
+    EXPECT_EQ(ledFor(leds, kStrings, user(1)), LaunchpadLighting::kOff); // mapped, off
+    EXPECT_EQ(ledFor(leds, kStrings, user(3)), LaunchpadLighting::kOff); // unmapped
+
+    // Jam: yours grey, the model's bright.
+    grid.setSelectedMode(OrchestrationMode::Jam);
+    EXPECT_EQ(ledFor(leds, kStrings, user(0)), LaunchpadLighting::kGrey);
+    EXPECT_EQ(ledFor(leds, kBrass, user(0)), LaunchpadLighting::kGrey);
+    EXPECT_EQ(ledFor(leds, kStrings, model(0)), LaunchpadLighting::kYellow);
+    EXPECT_EQ(ledFor(leds, kBrass, model(0)), LaunchpadLighting::kOrange);
+    EXPECT_EQ(ledFor(leds, kStrings, user(1)), LaunchpadLighting::kOff);
+
     EXPECT_EQ(ledFor(leds, 0, LaunchpadGrid::kSideCol), LaunchpadLighting::kOff) << "unused side pad";
     EXPECT_EQ(ledFor(leds, LaunchpadGrid::kRegisterRow, LaunchpadGrid::kSideCol),
               LaunchpadLighting::colourForAutoTd(RegisterRange::isAuto()))
         << "row 6 side = register AUTO";
+}
 
-    grid.handleInput(kUser, 0, true, 1000);
-    grid.handleInput(kUser, 4, true, 1000);
-    grid.handleInput(kUser + 1, 0, true, 1000);
-    grid.handleInput(kUser + 1, 4, true, 1000);
-    EXPECT_EQ(ledFor(leds, kUser, 0), LaunchpadLighting::kYellow);
-    EXPECT_EQ(ledFor(leds, kUser, 4), LaunchpadLighting::kLime);
-    EXPECT_EQ(ledFor(leds, kUser + 1, 0), LaunchpadLighting::kOrange);
-    EXPECT_EQ(ledFor(leds, kUser + 1, 4), LaunchpadLighting::kMint);
-    EXPECT_EQ(ledFor(leds, kUser, 3), LaunchpadLighting::kOff); // unmapped
+TEST(LaunchpadGrid, PresetSetsTheControlledSideTdAndRegister) {
+    LaunchpadGrid grid;
+    CircularFifo<InstrumentUpdate> updates;
+    grid.instrumentUpdates = &updates;
+    mapAppInstruments(grid);
+    std::vector<int> applied;
+    grid.preset_callback = [&](int idx) { applied.push_back(idx); };
+    const auto stormy = 6;
+    const auto &preset = MoodPresets::all()[stormy];
+    ASSERT_STREQ(preset.name, "Stormy");
+
+    // Jam: the model's side becomes exactly the preset; yours is untouched.
+    grid.setSelectedMode(OrchestrationMode::Edit);
+    grid.handleInput(kWinds, user(0), true, 500);
+    grid.setSelectedMode(OrchestrationMode::Jam);
+    grid.handleInput(kWinds, model(0), true, 500); // flute: not in Stormy, switched off
+    grid.handleInput(LaunchpadGrid::kPresetRow, stormy, true, 1000);
+
+    ASSERT_EQ(applied.size(), 1u);
+    EXPECT_EQ(applied[0], stormy);
+    for (int row = kStrings; row <= kPerc; ++row)
+        for (int c = 0; c < LaunchpadGrid::kColsPerSide; ++c) {
+            const auto &id = grid.padInstruments[static_cast<size_t>(row)][static_cast<size_t>(model(c))];
+            if (id.has_value())
+                EXPECT_EQ(grid.getGridState(row, model(c)), MoodPresets::contains(preset, *id))
+                    << "model pad " << row << "," << c;
+        }
+    EXPECT_TRUE(grid.getGridState(kWinds, user(0))) << "your side is not the controlled one";
+    EXPECT_EQ(TemporalDensity::get(), TemporalDensity::kLevels[static_cast<size_t>(preset.tdLevelIndex)]);
+    EXPECT_EQ(RegisterRange::get(), preset.registerValue);
+    EXPECT_EQ(grid.getActivePreset(), stormy);
+    EXPECT_FALSE(grid.isActivePresetModified());
+
+    // Edit: the same preset sets your side.
+    grid.setSelectedMode(OrchestrationMode::Edit);
+    grid.handleInput(LaunchpadGrid::kPresetRow, stormy, true, 2000);
+    EXPECT_FALSE(grid.getGridState(kWinds, user(0)));
+    EXPECT_TRUE(grid.getGridState(kStrings, user(2))); // tremolo
+
+    // Leave the process-wide TD / register as the other tests expect.
+    grid.handleInput(LaunchpadGrid::kRegisterRow, LaunchpadGrid::kSideCol, true, 3000);
+    restoreAutoTd(grid, 4000);
+    ASSERT_TRUE(RegisterRange::isAuto());
+}
+
+TEST(LaunchpadGrid, PresetLedDimsWhenChangedAndAModeChangeClearsIt) {
+    LaunchpadGrid grid;
+    std::map<int, uint8_t> leds;
+    grid.set_led = [&](int note, uint8_t colour) { leds[note] = colour; };
+    mapAppInstruments(grid);
+    grid.setSelectedMode(OrchestrationMode::Jam);
+    const int tender = 2;
+    const auto colour = MoodPresets::all()[tender].colour;
+
+    grid.refreshAllLeds();
+    EXPECT_EQ(ledFor(leds, LaunchpadGrid::kPresetRow, tender), LaunchpadLighting::dimmed(colour, 2));
+
+    grid.handleInput(LaunchpadGrid::kPresetRow, tender, true, 1000);
+    EXPECT_EQ(ledFor(leds, LaunchpadGrid::kPresetRow, tender), colour);
+
+    grid.handleInput(kBrass, model(1), true, 1500); // trumpet by hand
+    EXPECT_TRUE(grid.isActivePresetModified());
+    EXPECT_EQ(ledFor(leds, LaunchpadGrid::kPresetRow, tender), LaunchpadLighting::dimmed(colour, 1));
+
+    grid.handleInput(LaunchpadGrid::kPresetRow, tender, true, 2000); // re-applies it
+    EXPECT_FALSE(grid.isActivePresetModified());
+    EXPECT_FALSE(grid.getGridState(kBrass, model(1)));
+    EXPECT_EQ(ledFor(leds, LaunchpadGrid::kPresetRow, tender), colour);
+
+    grid.setSelectedMode(OrchestrationMode::Edit);
+    EXPECT_EQ(grid.getActivePreset(), -1);
+    EXPECT_EQ(ledFor(leds, LaunchpadGrid::kPresetRow, tender), LaunchpadLighting::dimmed(colour, 2));
+
+    restoreAutoTd(grid, 3000);
+}
+
+TEST(LaunchpadGrid, PolyphonyPadsAreTheRightHalfOfRow6) {
+    EXPECT_EQ(LaunchpadGrid::kAccompRow, LaunchpadGrid::kRegisterRow);
+    EXPECT_FALSE(LaunchpadGrid::polyphonyForPad(LaunchpadGrid::kAccompRow, 0).has_value());
+    EXPECT_FALSE(LaunchpadGrid::polyphonyForPad(LaunchpadGrid::kAccompRow, 3).has_value());
+    for (int i = 0; i < LaunchpadGrid::kPolyphonyPadCount; ++i)
+        EXPECT_EQ(LaunchpadGrid::polyphonyForPad(LaunchpadGrid::kAccompRow, LaunchpadGrid::kPolyphonyColFirst + i),
+                  i + 1);
+    EXPECT_TRUE(LaunchpadGrid::registerForPad(LaunchpadGrid::kRegisterRow, 2).has_value());
+}
+
+TEST(MoodPresets, InstrumentsAreMappedAndValuesValid) {
+    const std::set<int32_t> mapped{4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16};
+    for (const auto &preset: MoodPresets::all()) {
+        EXPECT_FALSE(preset.instruments.empty()) << preset.name;
+        for (const auto id: preset.instruments)
+            EXPECT_EQ(mapped.count(id), 1u) << preset.name << " uses unmapped instrument " << id;
+        EXPECT_GE(preset.tdLevelIndex, -1) << preset.name;
+        EXPECT_LT(preset.tdLevelIndex, LaunchpadGrid::kTdLevelCount) << preset.name;
+        EXPECT_TRUE(RegisterRange::isValid(preset.registerValue)) << preset.name;
+    }
+}
+
+TEST(LaunchpadLighting, DimmedShades) {
+    using LaunchpadLighting::dimmed;
+    EXPECT_EQ(dimmed(LaunchpadLighting::kYellow, 1), LaunchpadLighting::kYellow + 1);
+    EXPECT_EQ(dimmed(LaunchpadLighting::kYellow, 2), LaunchpadLighting::kYellow + 2);
+    EXPECT_EQ(dimmed(LaunchpadLighting::kRed, 2), LaunchpadLighting::kRed + 2);
+    EXPECT_EQ(dimmed(LaunchpadLighting::kWhite, 1), 2);
+    EXPECT_EQ(dimmed(LaunchpadLighting::kWhite, 2), 1);
+    EXPECT_EQ(dimmed(LaunchpadLighting::kOff, 2), LaunchpadLighting::kOff);
 }
 
 TEST(LaunchpadGrid, SceneCallbackByIndex) {
@@ -348,6 +558,49 @@ TEST(TemporalDensity, StartsAutoAndKnowsValidLevels) {
     EXPECT_FALSE(TemporalDensity::isValid(3));
     EXPECT_TRUE(TemporalDensity::isValid(64));
     EXPECT_FALSE(TemporalDensity::isValid(128));
+}
+
+
+TEST(LaunchpadGrid, Layout1PadsMapToTheirLayout2Meaning) {
+    using P = std::optional<std::pair<int, int>>;
+    // old input rows 2-3 -> your side, old model rows 4-5 -> the model's side, by family
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(2, 1), P({kStrings, user(1)}));  // your Pizz
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(2, 6), P({kWinds, user(2)}));    // your Clarinet
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(3, 3), P({kBrass, user(3)}));    // your Tuba
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(3, 4), P({kPerc, user(0)}));     // your Timpani
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(4, 0), P({kStrings, model(0)})); // model Str Ens
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(5, 4), P({kPerc, model(0)}));    // model Timpani
+    // old row 7 polyphony -> row 6 cols 4-7; old empty pads do nothing
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(7, 2), P({LaunchpadGrid::kAccompRow, LaunchpadGrid::kPolyphonyColFirst + 2}));
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(7, 5), std::nullopt);
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(2, 3), std::nullopt);
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(3, LaunchpadGrid::kSideCol), std::nullopt); // RESET did not exist
+    // modes, TD, register and their side buttons are unchanged
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(0, 0), P({0, 0}));
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(1, 6), P({1, 6}));
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(6, LaunchpadGrid::kSideCol), P({6, LaunchpadGrid::kSideCol}));
+}
+
+TEST(LaunchpadGrid, Layout1ReplayActsLikeTheOldGrid) {
+    LaunchpadGrid grid;
+    CircularFifo<InstrumentUpdate> updates;
+    grid.instrumentUpdates = &updates;
+    mapAppInstruments(grid);
+    grid.layout1 = true;
+    grid.setSelectedMode(OrchestrationMode::Jam);
+
+    grid.handleInput(2, 0, true, 1000); // old "input: Str Ens" works in Jam too
+    EXPECT_TRUE(grid.getGridState(kStrings, user(0)));
+    grid.handleInput(4, 5, true, 1000); // old "model: Oboe"
+    EXPECT_TRUE(grid.getGridState(kWinds, model(1)));
+
+    // the old FLUSH worked in Jam and switched your pads off
+    grid.handleInput(LaunchpadGrid::kFlushRow, LaunchpadGrid::kSideCol, true, 2000);
+    EXPECT_TRUE(grid.getGridState(kStrings, model(0)));
+    EXPECT_FALSE(grid.getGridState(kStrings, user(0)));
+
+    grid.handleInput(7, 5, true, 3000); // an empty old pad is not a preset now
+    EXPECT_EQ(grid.getActivePreset(), -1);
 }
 
 } // namespace virtual_orch_test

@@ -1,5 +1,8 @@
 #include <JuceHeader.h>
 #include "VirtualOrch/SessionLog.h"
+#include "VirtualOrch/OpLog.h"
+#include "VirtualOrch/LaunchpadGrid.h"
+#include "VirtualOrch/ProjectPaths.h"
 #include "VirtualOrch/ui/AppRootComponent.h"
 
 //==============================================================================
@@ -16,7 +19,21 @@ public:
     //==============================================================================
     void initialise(const juce::String &commandLine) override {
         // This method is where you should put your application's initialisation code..
-        SessionLog::start();
+        // One pair of logs per launch, directly in Logs/, with the same stamp (the Replay page
+        // pairs them by it). The oplog's format: docs/OPLOGS.txt.
+        const auto stamp = juce::Time::getCurrentTime().formatted("%Y-%m-%d_%H-%M-%S");
+        auto sessionFile = logsDir().getChildFile("session_" + stamp + ".log");
+        auto oplogFile = logsDir().getChildFile("oplog_" + stamp + ".jsonl.gz");
+        for (int n = 2; sessionFile.exists() || oplogFile.exists(); ++n) { // two launches in one second
+            sessionFile = logsDir().getChildFile("session_" + stamp + "_" + juce::String(n) + ".log");
+            oplogFile = logsDir().getChildFile("oplog_" + stamp + "_" + juce::String(n) + ".jsonl.gz");
+        }
+        logsDir().createDirectory();
+        SessionLog::start(sessionFile);
+        // Which Launchpad layout this session uses: LogReplay replays logs without this line
+        // (recorded before Nov 2026) with the layout-1 grid and pedal.
+        SessionLog::add("SESSION", "launchpad layout " + juce::String(LaunchpadGrid::kLayoutVersion));
+        OpLog::start(oplogFile);
 
         mainWindow.reset(new MainWindow(getApplicationName()));
     }
@@ -25,6 +42,7 @@ public:
         // Add your application's shutdown code here..
 
         mainWindow = nullptr; // (deletes our window)
+        OpLog::stop();
         SessionLog::stop();
     }
 

@@ -3,6 +3,8 @@
 #include <JuceHeader.h>
 
 #include <atomic>
+#include <mutex>
+#include <string>
 #include <optional>
 #include <functional>
 #include <memory>
@@ -53,6 +55,29 @@ enum class MusicModelArch : uint8_t {
  */
 class ReductionTransformer : public juce::Thread {
 public:
+    /**
+     * Set while the offline simulator steps this transformer itself (no thread runs then).
+     * Code that asks "is generation running?" uses isRunningOrSimulated().
+     */
+    std::atomic<bool> steppedBySimulator{false};
+    /**
+     * Replay: when set and it returns true for an output token, the token is not sent now; the
+     * replay sends it later with deliverOutputToken (the time the recorded model took to draw it).
+     */
+    std::function<bool(const Token &)> holdOutput;
+    /** Send an output token now: note id, voice, the RT log line, the queues and the history. */
+    auto deliverOutputToken(const Token &token) -> void;
+    /** What a generated note's delivery starts: the ahead throttle when it is too far ahead. */
+    auto afterOutputDelivered(const Token &token) -> void {
+        if (isGeneratedTooFarAhead(token.time))
+            startAheadThrottle();
+    }
+    /** The last pushOutputToken was held by holdOutput. */
+    bool lastOutputHeld = false;
+    [[nodiscard]] auto isRunningOrSimulated() const -> bool {
+        return isThreadRunning() || steppedBySimulator.load();
+    }
+
     ReductionTransformer(const juce::String &threadName, ModelConfig &modelConfigIn);
 
     ~ReductionTransformer() override = default;
@@ -80,7 +105,7 @@ public:
     juce::Atomic<bool> directInputBlock = false;
 
     /**
-     * Manual pause (Launchpad CC105 / Mode widget / pedal-keyboard CC64). Stops all
+     * Manual pause (Launchpad CC105 / Mode widget / pedal CC64 up). Stops all
      * reduction generation. Independent of overflowPause — clearing overflow never clears this.
      */
     juce::Atomic<bool> generationPause{false};
@@ -89,7 +114,7 @@ public:
     /** Every generated note is played at most this long (5 s), whatever the model drew. */
     static constexpr int32_t kMaxNoteDurationCs = 500;
 
-    auto setGenerationPause(bool paused) -> void;
+    auto setGenerationPause(bool paused, const char *reason = "") -> void;
 
     /**
      * Sustain-pedal press at clock time `pedalTimeCs` (MIDI thread). The reduction thread turns
@@ -161,7 +186,11 @@ public:
      * drops its generated notes from that time on and sends the cut marker downstream
      * (a PedalClear ClearQueue token, which ends OutputPlayback's drop window).
      */
-    auto requestModeCut(int32_t timeCs) -> void {
+    auto requestModeCut(int32_t timeCs, std::string reason = {}) -> void {
+        {
+            const std::lock_guard<std::mutex> lock(modeCutReasonMutex);
+            modeCutReason = std::move(reason);
+        }
         modeCutTimeCs.store(timeCs, std::memory_order_release);
     }
 
@@ -215,7 +244,10 @@ public:
     auto forgetClock() -> void { lastNowCs = INT32_MIN; }
 
     /** Remove the output-history tokens with onset >= cutCs (they were cut from playback). */
-    auto dropOutputHistoryFrom(int32_t cutCs) -> void;
+    /** Drop the generated notes from cutCs on; the operation log gets RT_CUT with `reason`. */
+    auto dropOutputHistoryFrom(int32_t cutCs, const std::string &reason = {}) -> void;
+    /** Operation log: which model drew note `noteId` ("" = this transformer has one model). */
+    [[nodiscard]] virtual auto modelOfNote(int32_t /*noteId*/) -> std::string { return {}; }
     /** True when a generated note (not a marker) in the output history has onset >= fromCs. */
     [[nodiscard]] auto hasGeneratedFrom(int32_t fromCs) const -> bool;
 
@@ -369,6 +401,15 @@ protected:
     std::vector<HeldKey> heldKeys; // reduction thread only
     /** Pending mode cut (cs), -1 when none; consumed by consumeModeCut. */
     std::atomic<int32_t> modeCutTimeCs{-1};
+    std::mutex modeCutReasonMutex;
+    std::string modeCutReason;
+
+protected:
+    /** Why the last mode cut was requested (operation log). */
+    [[nodiscard]] auto lastModeCutReason() -> std::string {
+        const std::lock_guard<std::mutex> lock(modeCutReasonMutex);
+        return modeCutReason;
+    }
 
     uint32_t aheadThrottleUntilMs = 0;
     std::atomic<float> lastThreadLoopMs{0.0f};

@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <vector>
+
 #include <cstdio>
 #include <cstdlib>
 
@@ -192,20 +194,76 @@ TEST(PedalFreeze, showsFrozenOnlyAfterTheThresholdAndNotWhenTheOrchestraIsNotSto
     EXPECT_TRUE(pedalShowsFrozen(30000));
 }
 
-TEST(PedalFreeze, midiInputTracksHowLongThePedalHasBeenDown) {
+TEST(PedalFreeze, midiInputTracksHowLongThePedalHasSilencedTheOrchestra) {
     const juce::ScopedJuceInitialiser_GUI gui;
     AppSession session;
     auto &midi = session.midiInputProcess;
-    EXPECT_EQ(midi.getPedalDownForMs(5000), -1);
-    midi.notePedalState(true, 1000);
-    EXPECT_EQ(midi.getPedalDownForMs(1000), 0);
-    EXPECT_EQ(midi.getPedalDownForMs(2500), 1500);
-    midi.notePedalState(true, 3000); // a repeated "down" does not restart the timer
-    EXPECT_EQ(midi.getPedalDownForMs(3500), 2500);
-    midi.notePedalState(false, 4000);
-    EXPECT_EQ(midi.getPedalDownForMs(4100), -1);
-    midi.notePedalState(true, 9000); // the next press starts again
-    EXPECT_EQ(midi.getPedalDownForMs(9200), 200);
+    EXPECT_EQ(midi.getPedalSilentForMs(5000), -1) << "no pedal message yet: the orchestra sounds";
+    midi.notePedalState(true, 1000); // pedal up: silenced
+    EXPECT_EQ(midi.getPedalSilentForMs(1000), 0);
+    EXPECT_EQ(midi.getPedalSilentForMs(2500), 1500);
+    midi.notePedalState(true, 3000); // a repeated "up" does not restart the timer
+    EXPECT_EQ(midi.getPedalSilentForMs(3500), 2500);
+    midi.notePedalState(false, 4000); // pedal down: sounding
+    EXPECT_EQ(midi.getPedalSilentForMs(4100), -1);
+    midi.notePedalState(true, 9000); // the next release starts again
+    EXPECT_EQ(midi.getPedalSilentForMs(9200), 200);
+}
+
+TEST(PedalFreeze, pedalDownLetsTheOrchestraSoundAndUpStopsIt) {
+    const juce::ScopedJuceInitialiser_GUI gui;
+    AppSession session;
+    session.selectedMidiInputIdentifier = "test-piano";
+    auto &midi = session.midiInputProcess;
+    std::vector<int32_t> silences;
+    midi.onPedalSilence = [&](int32_t t) { silences.push_back(t); };
+    const auto cc64 = [&](int value) {
+        midi.handleMidiFrom("test-piano", "Test Piano", juce::MidiMessage::controllerEvent(1, 64, value));
+    };
+
+    EXPECT_FALSE(session.activeReduction().generationPause.get()) << "no pedal yet: the orchestra plays";
+    cc64(127); // down: sounds
+    EXPECT_FALSE(session.activeReduction().generationPause.get());
+    EXPECT_TRUE(silences.empty());
+    cc64(0); // up: paused, the queue cleared once
+    EXPECT_TRUE(session.activeReduction().generationPause.get());
+    EXPECT_EQ(silences.size(), 1u);
+    cc64(0); // still up: no second clear
+    EXPECT_EQ(silences.size(), 1u);
+    cc64(100); // down again: sounds
+    EXPECT_FALSE(session.activeReduction().generationPause.get());
+    EXPECT_EQ(silences.size(), 1u);
+}
+
+TEST(PedalFreeze, selectingAPedalDeviceStartsSilentUntilThePedalGoesDown) {
+    const juce::ScopedJuceInitialiser_GUI gui;
+    AppSession session;
+    session.selectedMidiInputIdentifier = "test-piano";
+    session.selectedPedalMidiInputIdentifier = "test-pedal";
+    auto &midi = session.midiInputProcess;
+    std::vector<int32_t> silences;
+    midi.onPedalSilence = [&](int32_t t) { silences.push_back(t); };
+    const auto cc64 = [&](const char *id, int value) {
+        midi.handleMidiFrom(id, id, juce::MidiMessage::controllerEvent(1, 64, value));
+    };
+
+    midi.pedalDeviceSelected(); // a pedal at rest sends nothing
+    EXPECT_TRUE(session.activeReduction().generationPause.get()) << "silent before any pedal message";
+    EXPECT_GE(midi.getPedalSilentForMs(juce::Time::currentTimeMillis()), 0);
+    cc64("test-pedal", 0); // up while already silent: no clear
+    EXPECT_TRUE(silences.empty());
+    cc64("test-piano", 127); // the piano's sustain is ignored while a pedal device is selected
+    EXPECT_TRUE(session.activeReduction().generationPause.get());
+    cc64("test-pedal", 127); // down: sounds
+    EXPECT_FALSE(session.activeReduction().generationPause.get());
+    cc64("test-pedal", 0); // up: stops and clears once
+    EXPECT_TRUE(session.activeReduction().generationPause.get());
+    EXPECT_EQ(silences.size(), 1u);
+
+    session.selectedPedalMidiInputIdentifier = {};
+    midi.pedalDeviceCleared();
+    EXPECT_FALSE(session.activeReduction().generationPause.get()) << "no pedal device: the orchestra plays";
+    EXPECT_EQ(midi.getPedalSilentForMs(juce::Time::currentTimeMillis()), -1);
 }
 
 } // namespace virtual_orch_test

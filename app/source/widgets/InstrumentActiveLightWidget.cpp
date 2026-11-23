@@ -279,5 +279,5 @@ auto InstrumentActiveLightWidget::timerCallback() -> void {
     const auto nowMs = juce::Time::currentTimeMillis();
     view.setActive(session.activityLog.activeSectors(nowMs));
     view.setFrozen(PerformanceActivity::pedalShowsFrozen(
-        session.midiInputProcess.getPedalDownForMs(nowMs)));
+        session.midiInputProcess.getPedalSilentForMs(nowMs)));
 }

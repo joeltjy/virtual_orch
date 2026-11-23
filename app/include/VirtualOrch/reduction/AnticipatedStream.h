@@ -75,6 +75,8 @@ public:
         int32_t durationCs = 0;
         int32_t pitch = 60;
         int32_t velocity = 64;
+        /** Operation log: the key (keyId) of a given note, the noteId of a generated one; -1 = none. */
+        int32_t id = -1;
     };
 
     /** How a pending note is written and when it is released. */
@@ -587,6 +589,61 @@ public:
             n += tokenCount(item);
         }
         return n;
+    }
+
+    /** One context item as the operation log describes it (RT_ADD / RT_REMOVE / CHECKPOINT). */
+    struct ItemView {
+        char kind = 'e';     // 'g' given (your note), 'e' generated, 't' TD, 'w' WAIT, 'r' rest, 'c' control token
+        int32_t id = -1;     // key id (given) / note id (generated)
+        int32_t onsetCs = 0; // absolute onset; TD: its boundary; WAIT: the group's onset
+        int32_t durationCs = 0;
+        int32_t pitch = 0;
+        int32_t velocity = 0;
+        int32_t instrument = 0;
+        bool provisional = false;
+        std::vector<int32_t> tokens;
+    };
+    [[nodiscard]] auto itemViews() const -> std::vector<ItemView> {
+        std::vector<ItemView> out;
+        out.reserve(items.size());
+        for (const auto &item: items) {
+            ItemView v;
+            switch (item.kind) {
+                case Kind::Control: v.kind = item.control.spec.controlToken ? 'c' : 'g'; break;
+                case Kind::Event: v.kind = 'e'; break;
+                case Kind::Td: v.kind = 't'; break;
+                case Kind::Rest: v.kind = 'r'; break;
+                case Kind::Wait: v.kind = 'w'; break;
+            }
+            const auto &n = item.control.note;
+            v.id = n.id;
+            v.onsetCs = item.kind == Kind::Td ? item.tdBoundaryCs : n.onsetCs;
+            v.durationCs = n.durationCs;
+            v.pitch = n.pitch;
+            v.velocity = n.velocity;
+            v.instrument = item.kind == Kind::Event ? kEventInstrument : item.control.spec.instrument;
+            v.provisional = item.kind == Kind::Control && item.control.provisional;
+            appendTokens(v.tokens, item);
+            out.push_back(std::move(v));
+        }
+        return out;
+    }
+    /** Your notes that arrived but are not written into the context yet (checkpoints). */
+    [[nodiscard]] auto pendingIds() const -> std::vector<int32_t> {
+        std::vector<int32_t> out;
+        for (const auto &c: pending)
+            out.push_back(c.note.id);
+        for (const auto &c: late)
+            out.push_back(c.note.id);
+        return out;
+    }
+    /** Give the last generated event an id (its note id, once known). */
+    auto setLastEventId(int32_t id) -> void {
+        for (auto it = items.rbegin(); it != items.rend(); ++it)
+            if (it->kind == Kind::Event) {
+                it->control.note.id = id;
+                return;
+            }
     }
 
     [[nodiscard]] auto pendingCount() const -> size_t { return pending.size(); }

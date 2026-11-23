@@ -65,25 +65,44 @@ public:
     std::function<bool()> allowInputThru;
 
     /**
-     * Called on the MIDI thread at every sustain-pedal press (CC64 going from up to down) with
-     * the app clock time in cs. AppSession points it at OutputPlayback::pedalClearRequests so
-     * the playback queue is cleared without waiting for the transformer threads.
+     * Called on the MIDI thread each time the pedal stops the orchestra (CC64 going from down
+     * to up) with the app clock time in cs. AppSession points it at
+     * OutputPlayback::pedalClearRequests so the playback queue is cleared without waiting for
+     * the transformer threads.
      */
-    std::function<void(int32_t pedalTimeCs)> onPedalDown;
+    std::function<void(int32_t pedalTimeCs)> onPedalSilence;
 
-    /** Record the pedal state (called for every CC64 at wall-clock `nowMs`). */
-    auto notePedalState(bool down, int64_t nowMs) -> void {
-        if (down) {
+    /**
+     * A pedal device was selected (also on startup, when the saved one is restored). A pedal at
+     * rest sends nothing, so start silenced: the orchestra sounds once the pedal goes down.
+     */
+    void pedalDeviceSelected();
+
+    /** The pedal device was cleared (the pianos' CC64 is used again): the orchestra sounds. */
+    void pedalDeviceCleared();
+
+    /**
+     * Log replay of layout-1 sessions (before Nov 2026): the app's pedal had the old polarity,
+     * pedal DOWN stopped the orchestra and pedal up let it play. Never set in the live app.
+     */
+    std::atomic<bool> layout1PedalPolarity{false};
+
+    /** Record whether the pedal is silencing the orchestra (pedal up), at wall-clock `nowMs`. */
+    auto notePedalState(bool silenced, int64_t nowMs) -> void {
+        if (silenced) {
             int64_t expected = -1;
-            pedalDownSinceMs.compare_exchange_strong(expected, nowMs);
+            pedalSilentSinceMs.compare_exchange_strong(expected, nowMs);
         } else {
-            pedalDownSinceMs.store(-1);
+            pedalSilentSinceMs.store(-1);
         }
     }
 
-    /** How long the pedal has been down, in ms; -1 while it is up. */
-    [[nodiscard]] auto getPedalDownForMs(int64_t nowMs) const -> int64_t {
-        const auto since = pedalDownSinceMs.load();
+    /**
+     * How long the pedal has kept the orchestra silent (pedal up), in ms; -1 while it lets it
+     * sound (pedal down) or before any pedal message.
+     */
+    [[nodiscard]] auto getPedalSilentForMs(int64_t nowMs) const -> int64_t {
+        const auto since = pedalSilentSinceMs.load();
         return since < 0 ? -1 : std::max<int64_t>(0, nowMs - since);
     }
 
@@ -106,7 +125,7 @@ private:
 
     void handleLaunchpadMessage(const juce::MidiMessage &message);
 
-    /** CC64 → generationPause (down pauses, up resumes); ignores everything else. */
+    /** CC64 → generationPause (up pauses and clears, down resumes); ignores everything else. */
     void handleSustainPedal(const juce::MidiMessage &message);
 
     /** `piano`: 0 = MIDI Input, 1 = Additional MIDI (held keys are tracked per piano). */
@@ -120,9 +139,13 @@ private:
 
     Clock &clock;
     std::function<ReductionTransformer &()> activeReduction;
-    bool pedalDown = false;
-    /** Wall-clock ms of the last pedal press, -1 while the pedal is up. */
-    std::atomic<int64_t> pedalDownSinceMs{-1};
+    /**
+     * The pedal is up, so the orchestra is paused. False until the first CC64, or true from when
+     * a pedal device is selected. Written on the MIDI and message threads.
+     */
+    std::atomic<bool> pedalSilenced{false};
+    /** Wall-clock ms the pedal last silenced the orchestra, -1 while it sounds. */
+    std::atomic<int64_t> pedalSilentSinceMs{-1};
     ModelConfig &modelConfig;
     std::unique_ptr<OutputProcessor> &outputProcessor;
     std::unique_ptr<InputFilter> &inputFilter;

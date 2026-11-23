@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <random>
+#include <set>
 
 #include <VirtualOrch/reduction/TwoInstrumentAnticipatedReductionTransformer.h>
 
@@ -196,13 +197,42 @@ TEST(AnticipatedReduction, tdTokensFollowTheLaunchpad) {
         }
     EXPECT_TRUE(seen);
 
-    // AUTO repeats the last level the user chose
+    // The dense vocab has no "unknown" TD id, so AUTO is written as TD 4 (TdTokens.h). TD tokens
+    // already in the context keep the level they were written with; boundaries written after the
+    // switch say TD 4. (This used to expect TD 16 after the switch, which only passed when the
+    // randomly generated notes happened not to cross the next 2 s boundary.)
+    struct SeedScope {
+        SeedScope() { SamplingRng::seed(7); }
+        ~SeedScope() { SamplingRng::unseed(); }
+    } seedScope;
+    std::set<int32_t> boundariesBefore;
+    int32_t lastBoundary = 0;
+    for (const auto &item: rig.rt.streamForTest().itemViews())
+        if (item.kind == 't') {
+            boundariesBefore.insert(item.onsetCs);
+            lastBoundary = std::max(lastBoundary, item.onsetCs);
+        }
     rig.tdValue = TemporalDensity::kAuto;
+    // a note past the next boundary, so a TD token is written under AUTO on every run
+    const int32_t later = lastBoundary + TdTokens::kBoundaryCs + 50;
+    rig.now = later;
+    rig.playNote(later, 62, 80);
     for (int i = 0; i < 5; ++i)
         (void) rig.rt.stepOnce();
-    for (const auto id: rig.rt.streamForTest().tokens())
-        if (isTd(id))
-            EXPECT_EQ(id, TdTokens::denseIdForLevel(16, 11776));
+    int writtenUnderAuto = 0;
+    for (const auto &item: rig.rt.streamForTest().itemViews()) {
+        if (item.kind != 't')
+            continue;
+        ASSERT_EQ(item.tokens.size(), 1u);
+        if (boundariesBefore.count(item.onsetCs) != 0) {
+            EXPECT_EQ(item.tokens[0], TdTokens::denseIdForLevel(16, 11776)) << "boundary " << item.onsetCs;
+        } else {
+            EXPECT_EQ(item.tokens[0], TdTokens::denseIdForLevel(TdTokens::kDenseDefaultLevel, 11776))
+                << "boundary " << item.onsetCs;
+            ++writtenUnderAuto;
+        }
+    }
+    EXPECT_GT(writtenUnderAuto, 0) << "the note past the boundary writes a TD token under AUTO";
 }
 
 TEST(AnticipatedReduction, level64FallsBackWithTheSmallerVocab) {

@@ -1,5 +1,12 @@
 #pragma once
 
+#include "VirtualOrch/OpLog.h"
+#include "VirtualOrch/OpLogDraw.h"
+
+#include <functional>
+#include <optional>
+#include <utility>
+
 #include <algorithm>
 #include <array>
 #include <climits>
@@ -75,8 +82,13 @@ public:
      */
     [[nodiscard]] auto decideWait(const std::vector<float> &logits, const Context &ctx, int32_t waitId,
                                   float minPlayProbability) -> bool {
+        // Replay: the recorded decision wins; with the operation log on, P(wait) is still computed
+        // from the model so the log has the model's value.
+        if (forcedWait && ! OpLog::on())
+            if (const auto forced = forcedWait(ctx))
+                return *forced;
         if (waitId < 0 || static_cast<size_t>(waitId) >= logits.size())
-            return false;
+            return forcedWait ? forcedWait(ctx).value_or(false) : false;
         std::vector<float> raw = logits;
         applyBiases(0, raw, ctx);
         TdOnsetBias::apply(raw, logitTdLevel, ctx.lowerOnsetModel, 0, DenseConfig::MaxTime, 1.0f,
@@ -95,10 +107,32 @@ public:
                 play += std::exp(static_cast<double>(l - peak));
         const double wait = std::exp(static_cast<double>(waitLogit - peak));
         lastWaitProbability = static_cast<float>(wait / (wait + play));
+        modelWaitProbability = lastWaitProbability;
+        if (forcedWait)
+            if (const auto forced = forcedWait(ctx))
+                return *forced;
         return 1.0f - lastWaitProbability < minPlayProbability;
     }
     /** P(WAIT) at the last decideWait (for the log / UI). */
     float lastWaitProbability = 0.0f;
+    /** The model's P(WAIT) at the last decideWait that computed it (a replay may override lastWaitProbability). */
+    float modelWaitProbability = 0.0f;
+
+    /**
+     * Dynamic LogitTD: the mean sensitivity (TdOnsetBias::sensitivity) of the onset draws since the
+     * last call, and how many there were; resets. Read by the reduction thread's TdController.
+     */
+    [[nodiscard]] auto takeSensitivity() -> std::pair<std::optional<double>, int> {
+        const int draws = sensitivityDraws;
+        const std::optional<double> mean = draws > 0 ? std::optional<double>(sensitivitySum / draws) : std::nullopt;
+        sensitivitySum = 0.0;
+        sensitivityDraws = 0;
+        return {mean, draws};
+    }
+
+    /** Operation log: the fields drawn since clearDraw() (RT_DRAW). Only filled while OpLog::on(). */
+    std::vector<OpLogDraw::Draw> lastDraw;
+    auto clearDraw() -> void { lastDraw.clear(); }
 
     auto reset() -> void {
         generated.clear();
@@ -132,9 +166,25 @@ public:
                             generated.end() - static_cast<std::ptrdiff_t>(kKeep));
     }
 
+    /**
+     * Replay (LogReplay): when set and it returns a value, that token is used for the field
+     * instead of drawing one (onset ids are model-relative: absolute - ctx.base).
+     */
+    std::function<std::optional<int32_t>(int field, const Context &ctx)> forcedSample;
+    /** Replay: when set and true at the start of a draw, the stage returns without drawing. */
+    std::function<bool()> drawHeld;
+    /** Replay: when set and it returns a value, that decides WAIT instead of the threshold rule. */
+    std::function<std::optional<bool>(const Context &ctx)> forcedWait;
+
     /** Sample one field (0 onset, 1 duration, 2 note, 3 velocity) from the model's logits. */
     [[nodiscard]] auto sample(int field, const std::vector<float> &logits, const Context &ctx,
                               float temperature, float topP = kTopP) -> int32_t {
+        std::optional<int32_t> forced;
+        if (forcedSample)
+            forced = forcedSample(field, ctx);
+        const bool logging = OpLog::on();
+        if (forced && ! logging)
+            return *forced;
         std::vector<float> raw = logits;
         applyBiases(field, raw, ctx);
         if (field == 0)
@@ -148,7 +198,17 @@ public:
         // illegal id): fall back to the model's own logits.
         if (! hasFinite(scores))
             scores = masked(field, logits, ctx);
-        return sampleTopP(scores, topP, temperature);
+        if (field == 0 && onsetOptions.gamma.has_value() && logitTdLevel != TemporalDensity::kAuto)
+            recordSensitivity(scores, ctx, temperature);
+        const int32_t token = forced ? *forced : sampleTopP(scores, topP, temperature);
+        if (logging) {
+            static constexpr const char *kNames[] = {"onset", "dur", "pitch", "vel"};
+            auto d = OpLogDraw::describe(kNames[std::clamp(field, 0, 3)], logits.data(), logits.size(), scores, 0, topP,
+                                         temperature, token, forced.has_value());
+            // onsets are model-relative ids; the log keeps them as drawn
+            lastDraw.push_back(std::move(d));
+        }
+        return token;
     }
 
     /** The legal-id mask of a field applied to `logits` (illegal ids -> -inf). */
@@ -198,6 +258,23 @@ public:
     }
 
 private:
+    double sensitivitySum = 0.0;
+    int sensitivityDraws = 0;
+
+    /** One onset draw's sensitivity, gaps measured from this sampler's last generated onset. */
+    auto recordSensitivity(const std::vector<float> &scores, const Context &ctx, float temperature) -> void {
+        int32_t lastOnset = INT32_MIN;
+        for (size_t i = 0; i + 4 <= generated.size(); i += 4)
+            lastOnset = std::max(lastOnset, generated[i]);
+        const int32_t lowerAbs = ctx.lowerOnsetModel + ctx.base;
+        const int32_t offset = lastOnset == INT32_MIN ? 0 : std::max(0, lowerAbs - lastOnset);
+        if (const auto s = TdOnsetBias::sensitivity(scores, ctx.lowerOnsetModel, offset, logitTdLevel, temperature,
+                                                    onsetOptions.gamma.value_or(0.0f))) {
+            sensitivitySum += *s;
+            ++sensitivityDraws;
+        }
+    }
+
     /** Notes this sampler generated with absolute onset exactly onsetAbs. */
     [[nodiscard]] auto chordNotesAt(int32_t onsetAbs) const -> int32_t {
         int32_t n = 0;

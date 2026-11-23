@@ -106,6 +106,11 @@ public:
 
     /** Computer keyboard as Launchpad (Settings: "Keyboard as Launchpad"); see KeyboardLaunchpad.h. */
     std::atomic<bool> keyboardLaunchpadEnabled{false};
+    /**
+     * A recorded session is loaded on the Replay page: it uses the process-wide simulated time
+     * and log captures, so live generation must not start (startGeneration refuses).
+     */
+    std::atomic<bool> replayActive{false};
     KeyboardLaunchpad::Listener keyboardLaunchpad;
 
     [[nodiscard]] auto activeReduction() -> ReductionTransformer &;
@@ -152,6 +157,12 @@ public:
     auto startGeneration() -> void;
 
     auto stopGeneration() -> void;
+
+    /** Start / Stop without the worker threads: the offline simulator (LogReplay) steps them. */
+
+    auto startGenerationForReplay(uint32_t clockCs) -> void;
+
+    auto stopGenerationForReplay() -> void;
 
     /** Set the OT Edit/Jam mode and light the matching Launchpad mode pad. */
     auto setOrchestrationMode(OrchestrationMode mode) -> void;
@@ -204,5 +215,14 @@ private:
     /** Cleared when the session is destroyed, so a pending restart never touches freed state. */
     std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>>(true);
     std::atomic<bool> restartInFlight{false};
+    int64_t currentRun = -1; // operation log run number, -1 = not running
+    auto logRunStart() -> void;
+    auto logRunStop() -> void;
+
+public:
+    /** Operation log: SESSION_START with the settings and models (origin "live" or "replay"). */
+    auto logSessionStart(const juce::String &origin) -> void;
+
+private:
     std::atomic<int> restartsCompleted{0};
 };

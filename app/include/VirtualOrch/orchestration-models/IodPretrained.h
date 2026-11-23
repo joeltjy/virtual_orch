@@ -1,5 +1,9 @@
 #pragma once
 
+#include "VirtualOrch/OpLogDraw.h"
+#include <functional>
+#include <optional>
+
 #include <array>
 #include <atomic>
 #include <deque>
@@ -58,7 +62,9 @@ private:
     [[nodiscard]] auto sampleComboForNote(IodPretrainedTypes::EncoderWindow &window,
                                           int32_t noteIdx,
                                           const std::vector<int32_t> &instruments,
-                                          bool applyGroupsBias)
+                                          bool applyGroupsBias,
+                                          const std::optional<std::array<int32_t, IodPretrainedTypes::comboLen>> &forced = std::nullopt,
+                                          std::vector<OpLogDraw::Draw> *draws = nullptr)
         -> std::array<int32_t, IodPretrainedTypes::comboLen>;
 
     auto recordGroupsMask(int32_t groupsMask) -> void;
@@ -87,6 +93,15 @@ private:
 
     /** Last GROUPS masks (1…15) from sampled notes — drives −τ log π_y. */
     std::deque<int32_t> recentGroupsMasks;
+
+public:
+    /**
+     * Replay hook: the combo to force for an input note (the logged choice), or nullopt to sample.
+     * The model still runs, so the operation log records its probabilities for the forced tokens.
+     */
+    std::function<std::optional<std::array<int32_t, IodPretrainedTypes::comboLen>>(const Token &input)> forcedCombo;
+
+private:
 
     std::atomic<float> groupsBiasTau{IodPretrainedTypes::groupsBiasTau};
 

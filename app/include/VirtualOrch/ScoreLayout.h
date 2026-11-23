@@ -16,10 +16,13 @@
  *  - Step: diatonic position, 7 per octave (C = 0 … B = 6, octave = midi / 12), so a line or
  *    space is one step. Treble lines are E4 G4 B4 D5 F5, bass lines G2 B2 D3 F3 A3.
  *  - Spelling: sharps, or flats for a chord whose name's root is flat.
+ *  - Sounding together: two notes overlap only if they sound together for at least
+ *    min(150 ms, half the shorter note); less is a legato hand-over, not harmony.
  *  - Melody + bass (what the score shows): onsets within kSnapCs (30 ms) of the previous one
- *    are snapped to the first onset of their cluster; a note that is the highest sounding note
- *    for at least 100 ms in one stretch is melody, any other with nothing below it for more than
- *    70% of its length is bass.
+ *    are snapped to the first onset of their cluster (an onset group). The melody is the top
+ *    note of each onset group unless an earlier note sounding together with it lies above; the
+ *    bass is the bottom note of each group (when it is not the melody) unless an earlier note
+ *    sounding together with it lies below. No minimum length.
  */
 namespace ScoreLayout {
 
@@ -68,102 +71,96 @@ struct Lines {
     std::vector<Note> bass;
 };
 
-/** Share of a note's own time [onset, end) during which some other note sounds above (below) it. */
-inline constexpr float kLineCoveredMax = 0.30f; // a line note is uncovered for more than 70%
-
-[[nodiscard]] inline auto coveredFraction(const std::vector<Note> &notes, size_t idx, bool above) -> float {
-    const auto &n = notes[idx];
-    const int32_t start = n.onsetCs;
-    const int32_t end = n.onsetCs + n.durationCs;
-    if (end <= start)
-        return 1.0f;
-    std::vector<std::pair<int32_t, int32_t>> spans; // the parts of [start, end) another note covers
-    for (size_t k = 0; k < notes.size(); ++k) {
-        const auto &o = notes[k];
-        if (k == idx || (above ? o.pitch <= n.pitch : o.pitch >= n.pitch))
-            continue;
-        const int32_t a = std::max(start, o.onsetCs);
-        const int32_t b = std::min(end, o.onsetCs + o.durationCs);
-        if (a < b)
-            spans.emplace_back(a, b);
-    }
-    std::ranges::sort(spans);
-    int32_t covered = 0;
-    int32_t reach = start;
-    for (const auto &[a, b]: spans) {
-        if (b <= reach)
-            continue;
-        covered += b - std::max(a, reach);
-        reach = b;
-    }
-    return static_cast<float>(covered) / static_cast<float>(end - start);
-}
-
-/** A melody note is the highest sounding note for at least this long in one stretch (100 ms). */
-inline constexpr int32_t kMelodyMinTopCs = 10;
+/** Overlap below which two notes count as a hand-over, not as sounding together (150 ms). */
+inline constexpr int32_t kOverlapMaxCs = 15;
 
 /**
- * Longest stretch (cs) during which notes[idx] is the highest sounding note (a note of the same
- * pitch sounding with it does not take that away).
+ * Whether two notes sound together: they overlap for at least min(150 ms, half the shorter
+ * note). Notes starting together always do.
  */
-[[nodiscard]] inline auto longestTopStretch(const std::vector<Note> &notes, size_t idx) -> int32_t {
-    const auto &n = notes[idx];
-    const int32_t start = n.onsetCs;
-    const int32_t end = n.onsetCs + n.durationCs;
-    // the times inside the note where the set of sounding notes changes
-    std::vector<int32_t> cuts{start, end};
-    for (const auto &o: notes) {
-        const int32_t a = o.onsetCs;
-        const int32_t b = o.onsetCs + o.durationCs;
-        if (a > start && a < end)
-            cuts.push_back(a);
-        if (b > start && b < end)
-            cuts.push_back(b);
-    }
-    std::ranges::sort(cuts);
-    cuts.erase(std::unique(cuts.begin(), cuts.end()), cuts.end());
-    int32_t best = 0;
-    int32_t run = 0;
-    for (size_t k = 0; k + 1 < cuts.size(); ++k) {
-        const int32_t a = cuts[k];
-        const int32_t b = cuts[k + 1];
-        bool top = true;
-        for (const auto &o: notes)
-            if (o.pitch > n.pitch && o.onsetCs < b && o.onsetCs + o.durationCs > a) {
-                top = false;
-                break;
-            }
-        run = top ? run + (b - a) : 0;
-        best = std::max(best, run);
-    }
-    return best;
+[[nodiscard]] inline auto soundTogether(const Note &a, const Note &b) -> bool {
+    const int32_t overlap = std::min(a.onsetCs + a.durationCs, b.onsetCs + b.durationCs) - std::max(a.onsetCs, b.onsetCs);
+    if (overlap <= 0)
+        return false;
+    const int32_t shorter = std::min(a.durationCs, b.durationCs);
+    return 2 * overlap >= std::min(2 * kOverlapMaxCs, shorter);
 }
 
-/**
- * Melody and bass of `notes`, after snapOnsets: the melody (the skyline) is every note that is
- * the highest sounding note for at least 100 ms in one stretch; the bass is every other note with
- * nothing below it for more than 70% of its length. A note keeps its own onset and length. The
- * two lines never share a note.
- */
-[[nodiscard]] inline auto skylineAndBass(std::vector<Note> notes, int32_t snapCs = kSnapCs) -> Lines {
+/** Notes starting at one (snapped) onset, and the earlier notes still sounding together with them. */
+struct OnsetGroup {
+    int32_t onsetCs = 0;
+    std::vector<size_t> members; // indices of the notes starting here
+    std::vector<size_t> held;    // earlier notes sounding together with at least one member
+};
+
+/** Onset groups of notes that are snapped and sorted by onset (as skylineAndBass prepares them). */
+[[nodiscard]] inline auto onsetGroups(const std::vector<Note> &notes) -> std::vector<OnsetGroup> {
+    std::vector<OnsetGroup> groups;
+    for (size_t i = 0; i < notes.size(); ++i) {
+        if (groups.empty() || notes[i].onsetCs != groups.back().onsetCs)
+            groups.push_back({notes[i].onsetCs, {}, {}});
+        groups.back().members.push_back(i);
+    }
+    for (auto &g: groups)
+        for (size_t k = 0; k < notes.size() && notes[k].onsetCs < g.onsetCs; ++k)
+            for (const size_t m: g.members)
+                if (soundTogether(notes[k], notes[m])) {
+                    g.held.push_back(k);
+                    break;
+                }
+    return groups;
+}
+
+/** Notes snapped (kSnapCs), sorted by onset then pitch, the same pitch at one onset kept once. */
+[[nodiscard]] inline auto prepare(std::vector<Note> notes, int32_t snapCs = kSnapCs) -> std::vector<Note> {
     notes = snapOnsets(std::move(notes), snapCs);
     std::ranges::stable_sort(notes, [](const Note &a, const Note &b) {
         return a.onsetCs != b.onsetCs ? a.onsetCs < b.onsetCs : a.pitch < b.pitch;
     });
-    // the same pitch at the same onset twice is one note
     notes.erase(std::unique(notes.begin(), notes.end(),
                             [](const Note &a, const Note &b) { return a.onsetCs == b.onsetCs && a.pitch == b.pitch; }),
                 notes.end());
+    notes.erase(std::remove_if(notes.begin(), notes.end(), [](const Note &n) { return n.durationCs <= 0; }),
+                notes.end());
+    return notes;
+}
+
+/**
+ * Melody and bass of `notes` (see the namespace comment): per onset group, the top note unless a
+ * held note sounding together lies above, and the bottom note (if not the melody) unless one lies
+ * below. A note keeps its own onset (after the snap) and length. The two lines never share a note.
+ */
+[[nodiscard]] inline auto skylineAndBass(std::vector<Note> notes, int32_t snapCs = kSnapCs) -> Lines {
+    notes = prepare(std::move(notes), snapCs);
     Lines lines;
-    for (size_t i = 0; i < notes.size(); ++i) {
-        if (notes[i].durationCs <= 0)
-            continue;
-        if (longestTopStretch(notes, i) >= kMelodyMinTopCs)
-            lines.melody.push_back(notes[i]);
-        else if (coveredFraction(notes, i, false) < kLineCoveredMax)
-            lines.bass.push_back(notes[i]);
+    for (const auto &g: onsetGroups(notes)) {
+        const size_t top = g.members.back();     // members are in pitch order
+        const size_t bottom = g.members.front();
+        bool above = false, below = false;
+        for (const size_t h: g.held) {
+            above = above || notes[h].pitch > notes[top].pitch;
+            below = below || notes[h].pitch < notes[bottom].pitch;
+        }
+        const bool melody = ! above;
+        if (melody)
+            lines.melody.push_back(notes[top]);
+        if (! below && ! (melody && bottom == top))
+            lines.bass.push_back(notes[bottom]);
     }
     return lines;
+}
+
+/** Whether each note (of prepare()d notes) is the lowest of the notes sounding at its onset. */
+[[nodiscard]] inline auto lowestAtOnset(const std::vector<Note> &notes) -> std::vector<bool> {
+    std::vector<bool> out(notes.size(), false);
+    for (const auto &g: onsetGroups(notes)) {
+        bool below = false;
+        for (const size_t h: g.held)
+            below = below || notes[h].pitch < notes[g.members.front()].pitch;
+        if (! below)
+            out[g.members.front()] = true;
+    }
+    return out;
 }
 
 /** The skyline (top line) only. */

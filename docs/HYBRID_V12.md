@@ -54,11 +54,12 @@ which m2c's training data has too. No new design decision was needed.
 
 ## Open points for Joel
 
-- **Root-field offset in training.** `wait3.analyse_stack` names the CHORD root from the token `11128 + p`, and
-  11128 % 12 = 4, so the root field is (true root + 4) mod 12. The voicing bank uses the same convention, and the
-  engine looks it up the same way, so decoding is correct. Only the stacked fallback converts the field
-  (`VoicingBank::trueRootPc`). `m2c_init.py` assumed true roots, so the CHORD embeddings started 4 semitones off.
-  If the tokenizer is fixed for a later run, the bank must be rebuilt and `kRootFieldOffset` set to 0.
+- **Root-field offset: fixed (2026-11-24).** The first m2c tokenizer named CHORD roots from the token
+  `11128 + p`, and 11128 % 12 = 4, so its roots were (true root + 4) mod 12. `wait3.analyse_stack` now uses MIDI
+  pitches, the voicing bank was rebuilt on true roots (bass_iv = (bass pitch class − root) mod 12, so a
+  root-position C major is `maj|3|0`), and the m2c run was restarted on the fixed tokenizer. The engine and
+  `VoicingBank` now take the CHORD root as the true pitch class, with no offset. An ONNX from the first
+  (pre-fix) run would decode every chord 4 semitones off with this engine, so don't use one.
 - **The engine never writes a never-comes `[EXPIRED]` right after a WAIT.** Training's never-comes lines
   (q ≈ 3%) have that, while the engine always tries a LATE first. To match those lines, set `maxLates = 0`.
 - **Order versus time in the `[DUR?]` rule.** The engine rule goes by order: a model unit written after the quad

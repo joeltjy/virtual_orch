@@ -117,7 +117,7 @@ public:
     }
     struct ChordValue {
         int32_t type = 0;
-        int32_t root = 0; // the token's root field (see VoicingBank: true root + 4)
+        int32_t root = 0; // pitch class of the root
         int32_t n = 1;
     };
     static constexpr auto chordValue(int32_t token) -> ChordValue {

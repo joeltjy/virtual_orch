@@ -25,8 +25,8 @@ using namespace StreamingKv;
 
 constexpr int32_t kMaj = 7; // VoicingBank::kTypeNames index
 constexpr int32_t kBass = 48;
-// C major: true root 0, so the token's root field is (0 + 4) % 12 = 4 (wait3 names roots from 11128 + p)
-const int32_t kCMajor3 = Engine::chordToken(kMaj, 4, 3);
+// C major (roots are true pitch classes, wait3 since the 2026-11-24 fix)
+const int32_t kCMajor3 = Engine::chordToken(kMaj, 0, 3);
 
 /** Scripted m2c: the logits depend on the last token only; the engine's masks pick the right field. */
 class ChordScript : public Backend {
@@ -121,7 +121,7 @@ public:
 
 auto testBank() -> std::shared_ptr<VoicingBank> {
     auto bank = std::make_shared<VoicingBank>();
-    bank->add(kMaj, 3, 8, {{0, 4, 7}}); // root position (bass_iv 8 under wait3's root field)
+    bank->add(kMaj, 3, 0, {{0, 4, 7}}); // root position: bass_iv 0
     return bank;
 }
 
@@ -214,25 +214,25 @@ TEST(ChordTokenEngine, TokenIdsMatchWait3) {
 TEST(ChordTokenEngine, VoicingBankDecodesExactNearestAndStacked) {
     const auto bank = testBank();
     std::mt19937_64 rng(1);
-    // exact key: C major (field 4), bass C3 -> bass_iv (48 - 4) % 12 = 8 -> [0, 4, 7]
-    auto d = bank->decode(kMaj, 4, 3, kBass, rng);
+    // exact key: C major, bass C3 -> bass_iv 0 -> [0, 4, 7]
+    auto d = bank->decode(kMaj, 0, 3, kBass, rng);
     EXPECT_EQ(d.source, VoicingBank::Decoded::Source::Bank);
     EXPECT_EQ(d.pitches, (std::vector<int32_t>{48, 52, 55}));
     // no maj|5|8: the nearest n with the same type and bass position
-    d = bank->decode(kMaj, 4, 5, kBass, rng);
+    d = bank->decode(kMaj, 0, 5, kBass, rng);
     EXPECT_EQ(d.source, VoicingBank::Decoded::Source::NearestN);
     EXPECT_EQ(d.pitches, (std::vector<int32_t>{48, 52, 55}));
-    // no dom7 at all: the chord tones stacked upward from the bass, with the TRUE root (field 4 -> C)
-    d = bank->decode(11, 4, 5, kBass, rng);
+    // no dom7 at all: the chord tones stacked upward from the bass (C7 on C3)
+    d = bank->decode(11, 0, 5, kBass, rng);
     EXPECT_EQ(d.source, VoicingBank::Decoded::Source::Stacked);
     EXPECT_EQ(d.pitches, (std::vector<int32_t>{48, 52, 55, 58, 60}));
     // JSON in the bank file's format
     VoicingBank parsed;
     std::string error;
-    ASSERT_TRUE(parsed.loadJson(R"({"format": "x", "bank": {"min|3|8": [[0, 3, 7], [0, 15, 19]], "unison|2|8": [[0, 12]]}})", error))
+    ASSERT_TRUE(parsed.loadJson(R"({"format": "x", "bank": {"min|3|0": [[0, 3, 7], [0, 15, 19]], "unison|2|0": [[0, 12]]}})", error))
         << error;
     EXPECT_EQ(parsed.size(), 2u);
-    d = parsed.decode(VoicingBank::typeIndex("unison"), 4, 2, 60, rng); // unison of C: (60 - 4) % 12 = 8
+    d = parsed.decode(VoicingBank::typeIndex("unison"), 0, 2, 60, rng); // unison of C on C4: bass_iv 0
     EXPECT_EQ(d.pitches, (std::vector<int32_t>{60, 72}));
     EXPECT_FALSE(parsed.loadJson("{\"nobank\": 1}", error));
 }
@@ -247,8 +247,8 @@ TEST(ChordTokenEngine, RealBankFileRootPositionMajorIsAMajorTriad) {
     EXPECT_GT(bank.size(), 200u);
     std::mt19937_64 rng(2);
     for (int i = 0; i < 20; ++i) {
-        // D major (true root 2 -> field 6) with the bass on D3 (50): every voicing is D / F# / A only
-        const auto d = bank.decode(kMaj, 6, 3, 50, rng);
+        // D major (root 2) with the bass on D3 (50): every voicing is D / F# / A only
+        const auto d = bank.decode(kMaj, 2, 3, 50, rng);
         ASSERT_EQ(d.source, VoicingBank::Decoded::Source::Bank);
         std::set<int> pcs;
         for (const auto p: d.pitches)

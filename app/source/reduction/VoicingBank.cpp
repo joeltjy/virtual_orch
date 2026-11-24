@@ -81,11 +81,12 @@ auto VoicingBank::loadJson(const std::string &text, std::string &error) -> bool 
     return true;
 }
 
-auto VoicingBank::decode(int type, int rootField, int n, int32_t bassPitch, std::mt19937_64 &rng) const -> Decoded {
+auto VoicingBank::decode(int type, int root, int n, int32_t bassPitch, std::mt19937_64 &rng) const -> Decoded {
     Decoded out;
     n = std::clamp(n, 1, 10);
     type = std::clamp(type, 0, kTypes - 1);
-    const int bassIv = ((bassPitch - rootField) % 12 + 12) % 12;
+    root = ((root % 12) + 12) % 12;
+    const int bassIv = ((bassPitch - root) % 12 + 12) % 12;
     const std::vector<std::vector<int>> *found = nullptr;
     if (const auto it = bank.find(key(type, n, bassIv)); it != bank.end()) {
         found = &it->second;
@@ -109,7 +110,7 @@ auto VoicingBank::decode(int type, int rootField, int n, int32_t bassPitch, std:
         out.source = Decoded::Source::Stacked;
         std::vector<int> pcs;
         for (const int iv: intervals(type))
-            pcs.push_back((trueRootPc(rootField) + iv) % 12);
+            pcs.push_back((root + iv) % 12);
         out.pitches.push_back(bassPitch);
         int32_t p = bassPitch;
         while (static_cast<int>(out.pitches.size()) < n) {

@@ -91,7 +91,7 @@ TEST(AccompanimentGrid, startsWithNoCapAndTheOldToggleIsGone) {
         EXPECT_EQ(f.colourOf(kRow, kPoly + col), LaunchpadLighting::kOff);
 }
 
-TEST(AccompanimentGrid, polyphonyPadsWorkInJamAndAccompaniment) {
+TEST(AccompanimentGrid, polyphonyPadsWorkInJamAndAccompaniment) { // and Step-in (theMonoPadWorksInStepInToo)
     // One pad (6,4): monophonic (max polyphony 1) on / off. Caps 2-4 (cols 5-7) were dropped.
     for (const auto mode: {OrchestrationMode::Jam, OrchestrationMode::Accompaniment}) {
         GridFixture f;
@@ -117,14 +117,14 @@ TEST(AccompanimentGrid, polyphonyPadsWorkInJamAndAccompaniment) {
     }
 }
 
-TEST(AccompanimentGrid, polyphonyPadsDoNothingInEdit) {
+TEST(AccompanimentGrid, theMonoPadWorksInStepInToo) {
     GridFixture f;
     f.grid.setSelectedMode(OrchestrationMode::Edit);
     f.press(kRow, kPoly + 0);
-    EXPECT_EQ(f.grid.getMaxPolyphony(), 0);
-    EXPECT_EQ(f.grid.effectivePolyphonyCap(), 0);
-    EXPECT_EQ(f.callbacks, 0);
-    EXPECT_EQ(f.colourOf(kRow, kPoly + 0), LaunchpadLighting::kOff);
+    EXPECT_EQ(f.grid.getMaxPolyphony(), 1);
+    EXPECT_EQ(f.grid.effectivePolyphonyCap(), 1);
+    EXPECT_EQ(f.callbacks, 1);
+    EXPECT_EQ(f.colourOf(kRow, kPoly + 0), LaunchpadLighting::kYellow);
 }
 
 TEST(AccompanimentGrid, accompanimentDoesNotTurnMonoOnByItself) {
@@ -154,8 +154,8 @@ TEST(AccompanimentGrid, polyphonyIsKeptAcrossModes) {
 
     f.grid.setSelectedMode(OrchestrationMode::Edit);
     EXPECT_FALSE(f.grid.isAccompanimentActive());
-    EXPECT_EQ(f.grid.effectivePolyphonyCap(), 0) << "no cap in Edit mode";
-    EXPECT_EQ(f.colourOf(kRow, kPoly + 0), LaunchpadLighting::kOff);
+    EXPECT_EQ(f.grid.effectivePolyphonyCap(), 1) << "Mono applies in Step-in too";
+    EXPECT_EQ(f.colourOf(kRow, kPoly + 0), LaunchpadLighting::kYellow);
 
     f.grid.setSelectedMode(OrchestrationMode::Accompaniment);
     EXPECT_EQ(f.grid.effectivePolyphonyCap(), 1) << "restored";

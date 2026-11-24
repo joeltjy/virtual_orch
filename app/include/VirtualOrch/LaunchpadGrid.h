@@ -43,8 +43,8 @@
  *    kRegisterRow (6)    register LOW / MEDIUM / HIGH (cols 0..2) + AUTO side pad; a register
  *                        other than AUTO switches TD to AUTO (TD 4 for the model).
  *                        Same row, col 4 (kAccompRow): MONOPHONIC, max polyphony 1 (cols 5..7 are
- *                        free; caps 2-4 were dropped Nov 24 2026); works and is lit in Jam and
- *                        Accompaniment; pressing it again clears the cap (unconstrained).
+ *                        free; caps 2-4 were dropped Nov 24 2026); works and is lit in every mode
+ *                        (Step-in too); pressing it again clears the cap (unconstrained).
  *                        Entering Accompaniment leaves it as it is; kept across modes.
  *    kPresetRow (7)      mood presets (MoodPresets), cols 0..7: a press sets the controlled
  *                        side's instruments, TD and register. Active preset bright, changed
@@ -92,7 +92,7 @@ public:
     /** Row 6: pads 0..2 = register LOW / MEDIUM / HIGH, the side pad = AUTO register. */
     static constexpr int kRegisterRow = 6;
     static constexpr int kRegisterPadCount = 3;
-    /** Row 6, col 4: monophonic (max polyphony 1) on / off (Jam / Accompaniment). */
+    /** Row 6, col 4: monophonic (max polyphony 1) on / off, in every mode. */
     static constexpr int kAccompRow = kRegisterRow;
     static constexpr int kPolyphonyColFirst = 4;
     static constexpr int kPolyphonyPadCount = 1;
@@ -355,17 +355,15 @@ public:
     [[nodiscard]] auto isAccompanimentActive() const -> bool {
         return getSelectedMode() == OrchestrationMode::Accompaniment;
     }
-    /** The polyphony pads work in Jam and Accompaniment mode. */
-    [[nodiscard]] auto isPolyphonyActive() const -> bool {
-        return isJamLike(getSelectedMode());
-    }
+    /** The Mono pad works in every mode (Step-in too, Nov 24 2026). */
+    [[nodiscard]] auto isPolyphonyActive() const -> bool { return true; }
     [[nodiscard]] auto getMaxPolyphony() const -> int {
         return maxPolyphony.load(std::memory_order_relaxed);
     }
 
     /**
-     * Cap the reduction transformers must apply now: the selected max polyphony in Jam or
-     * Accompaniment mode, 0 = no cap (nothing selected, or Edit mode).
+     * Cap the reduction transformers must apply now: the selected max polyphony (Mono = 1), in any
+     * mode; 0 = no cap.
      */
     [[nodiscard]] auto effectivePolyphonyCap() const -> int {
         return isPolyphonyActive() ? getMaxPolyphony() : 0;

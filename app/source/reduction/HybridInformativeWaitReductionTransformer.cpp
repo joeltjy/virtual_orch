@@ -155,10 +155,13 @@ auto HybridInformativeWaitReductionTransformer::applySettings() -> void {
     w.drawAheadCs = 1 << 20;
     w.noWaitAfterExpiry = true; // no retry WAITs after an expiry: m2 plays on until the next piano note
     w.fireWindowCs = 6;         // +-6 cs, as in training
-    w.waitTopK = 3;
+    w.waitTopK = 3;             // a piano onset at any of the model's 3 most likely WAIT lengths fires
     w.minWaitCs = minWaitCs.load(); // the checkpoint JSON's "minWaitCs" (0 = any length)
     w.shortWaitRedraw = shortWaitRedraw.load(); // ... and "shortWaitRedraw"
-    w.expiryGraceCs = 20;       // live input arrives ~12 cs late (p90 ~15): wait for it before expiring             // a piano onset at any of the model's 3 most likely WAIT lengths fires
+    w.expiryGraceCs = 20;       // live input arrives ~12 cs late (p90 ~15): wait for it before expiring
+    // a pitch outside the anticipated top 5 is decoded for the note played (not the rank-1 branch's):
+    // with the substitution, half the fires in a B-flat/D passage played chords made for other pitches
+    w.outsideTopFiveAsRankOne = false;
     w.ascendingChords = true; // W's rule: pitch >= the previous one at a shared onset
     w.maxAheadCs = 300;       // W: onsets at most 3 s ahead
     w.tdLevel = td;

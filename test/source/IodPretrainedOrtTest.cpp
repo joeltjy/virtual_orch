@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 
 #include <VirtualOrch/MusicToken.h>
@@ -36,10 +37,9 @@ TEST(IodPretrainedOrt, LoadAndForwardPadWindow) {
     }
 
     auto window = IodPretrainedTypes::packEncoderWindow({makeToken(0, 40, 60)});
-    const auto logits = model.runLogits(window);
+    const auto logits = model.runNoteLogits(window, 0); // the split export when it is next to the model
     ASSERT_FALSE(logits.empty());
-    const size_t expected = static_cast<size_t>(IodPretrainedTypes::nNotesMax)
-                            * static_cast<size_t>(IodPretrainedTypes::comboLen)
+    const size_t expected = static_cast<size_t>(IodPretrainedTypes::comboLen)
                             * static_cast<size_t>(IodPretrainedTypes::comboVocabSize);
     EXPECT_EQ(logits.size(), expected);
     bool anyFinite = false;
@@ -144,4 +144,43 @@ TEST(IodPretrainedOrt, GetOutputEndToEnd) {
 }
 
 } // namespace
+
+TEST(IodPretrainedOrt, TheSplitExportGivesTheFullModelsLogits) {
+    // ot_robust_enc.onnx + ot_robust_dec.onnx (Nov 24 2026): the backbone once per window, the decoder per
+    // step for one note. Loaded through a folder holding only a link to ot_robust.onnx, the same model runs
+    // whole; both must give the same logits for every step of a note.
+    const auto full = modelsDir().getChildFile("ot_robust.onnx");
+    if (! full.existsAsFile() || ! modelsDir().getChildFile("ot_robust_dec.onnx").existsAsFile())
+        GTEST_SKIP() << "no ot_robust split export";
+    const auto dir = juce::File::createTempFile("ot_full_only");
+    ASSERT_TRUE(dir.createDirectory());
+    const auto link = dir.getChildFile("ot_robust.onnx");
+    ASSERT_TRUE(full.createSymbolicLink(link, true));
+    IodPretrained whole, split;
+    whole.init(link.getFullPathName().toRawUTF8());
+    split.init(full.getFullPathName().toRawUTF8());
+    if (! whole.isModelLoaded() || ! split.isModelLoaded())
+        GTEST_SKIP() << "ORT session failed";
+    EXPECT_FALSE(whole.usesSplitModel());
+    ASSERT_TRUE(split.usesSplitModel());
+    std::vector<Token> tokens;
+    for (int n = 0; n < 60; ++n)
+        tokens.push_back(makeToken(25 * n, 20 + (n * 7) % 60, 40 + (n * 5) % 40));
+    auto window = IodPretrainedTypes::packEncoderWindow(tokens);
+    for (int n = 0; n < 50; ++n) // earlier notes' choices
+        for (int st = 1; st < IodPretrainedTypes::comboLen; ++st)
+            window.comboIn[static_cast<size_t>(n)][static_cast<size_t>(st)] = 1 + (n * 3 + st * 11) % 30;
+    for (const int note: {0, 17, 49}) {
+        const auto a = whole.runNoteLogits(window, note);
+        const auto b = split.runNoteLogits(window, note);
+        ASSERT_EQ(a.size(), b.size());
+        ASSERT_FALSE(a.empty());
+        float maxd = 0.0f;
+        for (size_t i = 0; i < a.size(); ++i)
+            maxd = std::max(maxd, std::abs(a[i] - b[i]));
+        EXPECT_LT(maxd, 1e-3f) << "note " << note;
+    }
+    dir.deleteRecursively();
+}
+
 } // namespace virtual_orch_test

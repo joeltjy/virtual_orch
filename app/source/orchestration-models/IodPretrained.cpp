@@ -105,7 +105,53 @@ IodPretrained::IodPretrained() = default;
 
 auto IodPretrained::init(const char *modelPath) -> void {
     session.reset();
+    encoderSession.reset();
+    decoderSession.reset();
+    cachedHidden.reset();
     juce::String lastError;
+
+    // The split export next to the model: used instead of it (the backbone once per window, the decoder
+    // per step; ~10-13 ms a note instead of ~27, the same logits). Nov 24 2026.
+    {
+        const juce::File full(modelPath);
+        const auto enc = full.getSiblingFile(full.getFileNameWithoutExtension() + "_enc.onnx");
+        const auto dec = full.getSiblingFile(full.getFileNameWithoutExtension() + "_dec.onnx");
+        if (enc.existsAsFile() && dec.existsAsFile()) {
+#ifdef __linux__
+            (void) sharedOrtEnv();
+            try {
+                Ort::SessionOptions e, d;
+                OrtCUDAProviderOptions cudaProvider{};
+                e.AppendExecutionProvider_CUDA(cudaProvider);
+                d.AppendExecutionProvider_CUDA(cudaProvider);
+                encoderSession = std::make_unique<Ort::Session>(sharedOrtEnv(), enc.getFullPathName().toRawUTF8(), e);
+                decoderSession = std::make_unique<Ort::Session>(sharedOrtEnv(), dec.getFullPathName().toRawUTF8(), d);
+                splitOnCuda = true;
+            } catch (const Ort::Exception &ex) {
+                lastError = ex.what();
+                encoderSession.reset();
+                decoderSession.reset();
+            }
+#endif
+            if (decoderSession == nullptr) {
+                try {
+                    Ort::SessionOptions e, d;
+                    encoderSession = std::make_unique<Ort::Session>(sharedOrtEnv(), enc.getFullPathName().toRawUTF8(), e);
+                    decoderSession = std::make_unique<Ort::Session>(sharedOrtEnv(), dec.getFullPathName().toRawUTF8(), d);
+                    splitOnCuda = false;
+                } catch (const Ort::Exception &ex) {
+                    lastError = ex.what();
+                    encoderSession.reset();
+                    decoderSession.reset();
+                }
+            }
+            if (decoderSession != nullptr) {
+                modelVocabSize = static_cast<size_t>(IodPretrainedTypes::comboVocabSize);
+                return;
+            }
+            reportSamplingError("IodPretrained: split export failed (" + lastError + "), using the full model");
+        }
+    }
 
     const auto tryCreate = [&](Ort::SessionOptions &opts) {
         session = std::make_unique<Ort::Session>(sharedOrtEnv(), modelPath, opts);
@@ -248,6 +294,74 @@ auto IodPretrained::runLogits(IodPretrainedTypes::EncoderWindow &window) -> std:
     }
 }
 
+auto IodPretrained::runNoteLogits(IodPretrainedTypes::EncoderWindow &window, int32_t noteIdx) -> std::vector<float> {
+    using namespace IodPretrainedTypes;
+    const size_t rows = static_cast<size_t>(comboLen) * static_cast<size_t>(comboVocabSize);
+    if (decoderSession == nullptr) {
+        const auto all = runLogits(window);
+        const size_t at = logitsIndex(noteIdx, 0);
+        if (all.size() < at + rows)
+            return {};
+        return std::vector<float>(all.begin() + static_cast<std::ptrdiff_t>(at),
+                                  all.begin() + static_cast<std::ptrdiff_t>(at + rows));
+    }
+    try {
+        const std::array<int64_t, 2> idsShape{1, noteSeqLen};
+        const std::array<int64_t, 2> validShape{1, nNotesMax};
+        const std::array<int64_t, 3> comboShape{1, nNotesMax, comboLen};
+        const std::array<int64_t, 1> indexShape{1};
+        // the backbone: once while the window's tokens stay the same (only combo_in changes between steps)
+        std::vector<int64_t> ids(window.inputIds.begin(), window.inputIds.end());
+        std::vector<int64_t> attention(window.attentionMask.begin(), window.attentionMask.end());
+        if (! cachedHidden.has_value() || ids != cachedIds || attention != cachedAttention) {
+            cachedIds = ids;
+            cachedAttention = attention;
+            Ort::IoBinding b(*encoderSession);
+            b.BindInput("input_ids", Ort::Value::CreateTensor<int64_t>(memoryInfo, cachedIds.data(), cachedIds.size(),
+                                                                       idsShape.data(), idsShape.size()));
+            b.BindInput("attention_mask", Ort::Value::CreateTensor<int64_t>(memoryInfo, cachedAttention.data(),
+                                                                            cachedAttention.size(), idsShape.data(),
+                                                                            idsShape.size()));
+            if (splitOnCuda)
+                b.BindOutput("/backbone/Reshape_2_output_0", Ort::MemoryInfo("Cuda", OrtArenaAllocator, 0, OrtMemTypeDefault));
+            else
+                b.BindOutput("/backbone/Reshape_2_output_0", memoryInfo);
+            encoderSession->Run(Ort::RunOptions{nullptr}, b);
+            b.SynchronizeOutputs();
+            auto out = b.GetOutputValues();
+            if (out.empty())
+                return {};
+            cachedHidden = std::move(out[0]);
+        }
+        std::array<int64_t, nNotesMax * comboLen> comboFlat{};
+        for (int32_t n = 0; n < nNotesMax; ++n)
+            for (int32_t s = 0; s < comboLen; ++s)
+                comboFlat[static_cast<size_t>(n * comboLen + s)] = window.comboIn[static_cast<size_t>(n)][static_cast<size_t>(s)];
+        std::vector<int64_t> valid(window.noteValid.begin(), window.noteValid.end());
+        std::array<int64_t, 1> index{noteIdx};
+        Ort::IoBinding b(*decoderSession);
+        b.BindInput("hidden", *cachedHidden);
+        b.BindInput("combo_in", Ort::Value::CreateTensor<int64_t>(memoryInfo, comboFlat.data(), comboFlat.size(),
+                                                                  comboShape.data(), comboShape.size()));
+        b.BindInput("note_valid", Ort::Value::CreateTensor<int64_t>(memoryInfo, valid.data(), valid.size(),
+                                                                    validShape.data(), validShape.size()));
+        b.BindInput("note_index", Ort::Value::CreateTensor<int64_t>(memoryInfo, index.data(), index.size(),
+                                                                    indexShape.data(), indexShape.size()));
+        b.BindOutput("logits", memoryInfo);
+        decoderSession->Run(Ort::RunOptions{nullptr}, b);
+        b.SynchronizeOutputs();
+        auto out = b.GetOutputValues();
+        if (out.empty() || out[0].GetTensorTypeAndShapeInfo().GetElementCount() < rows)
+            return {};
+        const float *data = out[0].GetTensorData<float>();
+        return std::vector<float>(data, data + rows);
+    } catch (const Ort::Exception &ex) {
+        reportSamplingError(juce::String("IodPretrained ORT (split): ") + ex.what());
+        cachedHidden.reset();
+        return {};
+    }
+}
+
 auto IodPretrained::sampleComboForNote(IodPretrainedTypes::EncoderWindow &window,
                                        int32_t noteIdx,
                                        const std::vector<int32_t> &instruments,
@@ -274,10 +388,10 @@ auto IodPretrained::sampleComboForNote(IodPretrainedTypes::EncoderWindow &window
     window.comboIn[static_cast<size_t>(noteIdx)].fill(bos);
 
     {
-        auto logits = runLogits(window);
-        if (logits.size() < logitsIndex(noteIdx, 0) + static_cast<size_t>(comboVocabSize))
+        auto logits = runNoteLogits(window, noteIdx);
+        if (logits.size() < static_cast<size_t>(comboVocabSize))
             return combo;
-        float *row = logits.data() + logitsIndex(noteIdx, 0);
+        float *row = logits.data();
         // The operation log's p_model is the model's own: keep the logits from before the bias.
         std::vector<float> rawRow;
         if (draws != nullptr)
@@ -321,12 +435,13 @@ auto IodPretrained::sampleComboForNote(IodPretrainedTypes::EncoderWindow &window
         if (step >= comboLen)
             break;
 
-        auto logits = runLogits(window);
-        if (logits.size() < logitsIndex(noteIdx, step) + static_cast<size_t>(comboVocabSize))
+        auto logits = runNoteLogits(window, noteIdx);
+        const size_t stepAt = static_cast<size_t>(step) * static_cast<size_t>(comboVocabSize);
+        if (logits.size() < stepAt + static_cast<size_t>(comboVocabSize))
             break;
 
         const auto &family = familySpecs[static_cast<size_t>(familyIdx)];
-        const float *row = logits.data() + logitsIndex(noteIdx, step);
+        const float *row = logits.data() + stepAt;
         static constexpr const char *kFamilyNames[] = {"strings", "woodwinds", "brass", "other"};
         const auto forcedFam = forced.has_value() && (*forced)[static_cast<size_t>(comboWrite)] != endNote
                                    ? std::optional<int32_t>((*forced)[static_cast<size_t>(comboWrite)])

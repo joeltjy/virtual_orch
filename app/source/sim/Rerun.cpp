@@ -50,11 +50,6 @@ auto otRange(const std::string &field) -> std::pair<int, int> {
     return {groupsOffset, groupsHi};
 }
 
-auto otLogitsIndex(int noteIdx, int step) -> size_t {
-    using namespace IodPretrainedTypes;
-    return (static_cast<size_t>(noteIdx) * static_cast<size_t>(comboLen) + static_cast<size_t>(step))
-           * static_cast<size_t>(comboVocabSize);
-}
 
 } // namespace
 
@@ -316,8 +311,8 @@ auto Engine::rerunOt(const OpLogReader::Log &log, size_t index, Result &r) -> vo
             const int chosenRel = static_cast<int>(d["chosen"]);
             field.chosen = chosenRel >= 0 ? lo + chosenRel : -1;
             field.loggedPModel = static_cast<double>(d["p_model"]);
-            const auto logits = model->runLogits(window);
-            const auto at = otLogitsIndex(noteIdx, step);
+            const auto logits = model->runNoteLogits(window, noteIdx); // [step][vocab] of this note
+            const auto at = static_cast<size_t>(step) * static_cast<size_t>(IodPretrainedTypes::comboVocabSize);
             if (logits.size() < at + static_cast<size_t>(hi)) {
                 r.error = "the OT model returned too few logits";
                 return;

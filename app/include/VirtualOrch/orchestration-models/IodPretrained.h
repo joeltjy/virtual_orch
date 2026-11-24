@@ -27,11 +27,23 @@ public:
 
     [[nodiscard]] auto tokenHistory() const -> const std::vector<OrchestrationNote> & override;
 
-    [[nodiscard]] auto isModelLoaded() const -> bool { return session != nullptr; }
+    [[nodiscard]] auto isModelLoaded() const -> bool { return session != nullptr || decoderSession != nullptr; }
 
-    /** Logits layout: [note][step][vocab] = nNotesMax × comboLen × comboVocabSize. */
+    /** Logits layout: [note][step][vocab] = nNotesMax × comboLen × comboVocabSize. Full model only. */
     [[nodiscard]] auto runLogits(IodPretrainedTypes::EncoderWindow &window)
         -> std::vector<float>;
+
+    /**
+     * One note's logits, [step][vocab] = comboLen × comboVocabSize. With the split export
+     * (<model>_enc.onnx + <model>_dec.onnx next to the model) the backbone runs once per window
+     * (cached on the GPU while input_ids / attention_mask stay the same) and each call runs only
+     * the combo decoder for that note; otherwise the full model runs and the note's rows are copied.
+     */
+    [[nodiscard]] auto runNoteLogits(IodPretrainedTypes::EncoderWindow &window, int32_t noteIdx)
+        -> std::vector<float>;
+
+    /** The split export is loaded (backbone + decoder). */
+    [[nodiscard]] auto usesSplitModel() const -> bool { return decoderSession != nullptr; }
 
     [[nodiscard]] auto getOutput(
         const std::vector<Token> &incomingTokens,
@@ -107,6 +119,15 @@ private:
 
     std::unique_ptr<Ort::Session> session;
     Ort::MemoryInfo memoryInfo = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault);
+
+    // the split export: backbone (input_ids, attention_mask -> hidden) and combo decoder
+    // (hidden, combo_in, note_valid, note_index -> one note's logits)
+    std::unique_ptr<Ort::Session> encoderSession;
+    std::unique_ptr<Ort::Session> decoderSession;
+    bool splitOnCuda = false;
+    std::optional<Ort::Value> cachedHidden;
+    std::vector<int64_t> cachedIds;
+    std::vector<int64_t> cachedAttention;
 
     std::vector<std::string> allocatedInputNames;
     std::vector<std::string> allocatedOutputNames;

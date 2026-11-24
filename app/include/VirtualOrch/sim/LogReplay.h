@@ -125,4 +125,11 @@ auto replay(const std::vector<Line> &log, const Options &options = {}) -> Report
 /** The preset the Hybrid runs of Oct–Nov 2026 used (as logged on 12 Nov: hybrid_v1_w3). */
 auto hybridV1W3Preset() -> juce::var;
 
+/**
+ * The preset a session log's first run started with: its first "UI | Preset applied: {...}" line
+ * (written at every Start since 22 Nov 2026), else `fallback` (void: hybridV1W3Preset()). Unless the
+ * logged preset has its own LogitTD strength, the strength is taken from the RT lines ("... LogitTD on s 6.0").
+ */
+auto presetOf(const std::vector<Line> &log, const juce::var &fallback = {}) -> juce::var;
+
 } // namespace LogReplay

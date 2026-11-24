@@ -39,6 +39,11 @@ public:
 
     auto applyPreset(const juce::var &parsedJson) -> void;
 
+    /** The current settings as a preset (what savePreset would write); model "" without a model. */
+    [[nodiscard]] auto currentPresetJson() const -> juce::var {
+        return buildPresetJson(modelNameProvider ? modelNameProvider() : juce::String());
+    }
+
     auto savePreset(const juce::String &presetName) -> bool override;
 
     auto setModelNameProvider(std::function<juce::String()> provider) -> void {

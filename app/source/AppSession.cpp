@@ -602,6 +602,8 @@ auto AppSession::startGeneration() -> void {
         clock.setMtcTime(0);
     }
     logRunStart();
+    // The settings this run starts with, for replaying the session log (LogReplay::presetOf).
+    SessionLog::add("UI", "Preset applied: " + juce::JSON::toString(presetStore.currentPresetJson(), true));
     startThreadOrReport(activeReduction(), modelSamplingAlert);
     startThreadOrReport(orchestrationTransformer, modelSamplingAlert);
     startThreadOrReport(outputPlayback, modelSamplingAlert);

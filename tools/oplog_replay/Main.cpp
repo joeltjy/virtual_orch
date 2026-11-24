@@ -3,7 +3,12 @@
 // log (format: orchestration/performance_streams/oplogs/README.md).
 //
 //   oplog_replay --models DIR --out DIR [--rt-v1 rt_continuation_legacy.onnx] [--rt-wait rt_simultaneous_legacy.onnx]
-//                [--ot ot_legacy.onnx] [--zero] session_*.log[.gz] ...
+//                [--ot ot_legacy.onnx] [--preset FILE] [--layout 1|2] [--zero] session_*.log[.gz] ...
+//
+// --preset: for logs without a "UI | Preset applied" line (before 22 Nov 2026), the preset the app
+// was using, on top of the Hybrid default (LogReplay::presetOf; the LogitTD strength comes from the
+// RT lines).
+// --layout: the Launchpad layout for logs without a "launchpad layout" line (default: from the log).
 //
 // Resumable: a session whose oplog_<stamp>.jsonl.gz exists is skipped; each file is written to
 // .part and renamed when complete. Progress and a per-session summary go to stdout (unbuffered).
@@ -20,19 +25,19 @@
 
 namespace {
 
-auto presetFor(const std::vector<LogReplay::Line> &log) -> juce::var {
-    // The last non-empty preset the session applied before its first Start; else the Hybrid default.
-    juce::var preset;
-    for (const auto &l: log) {
-        if (l.tag == "UI" && l.text.startsWith("Start generation"))
-            break;
-        if (l.tag == "UI" && l.text.startsWith("Preset applied: ")) {
-            const auto v = juce::JSON::parse(l.text.fromFirstOccurrenceOf("Preset applied: ", false, false));
-            if (v.isObject() && v.getDynamicObject()->getProperties().size() > 0)
-                preset = v;
-        }
+// The fallback preset for a log that applied none: the Hybrid default with `file`'s settings on top.
+auto fallbackPreset(const juce::File &file) -> juce::var {
+    auto preset = LogReplay::hybridV1W3Preset();
+    if (file == juce::File())
+        return preset;
+    const auto v = juce::JSON::parse(file);
+    if (! v.isObject()) {
+        std::printf("cannot read preset %s\n", file.getFullPathName().toRawUTF8());
+        std::_Exit(2);
     }
-    return preset.isObject() ? preset : LogReplay::hybridV1W3Preset();
+    for (const auto &p: v.getDynamicObject()->getProperties())
+        preset.getDynamicObject()->setProperty(p.name, p.value);
+    return preset;
 }
 
 } // namespace
@@ -40,11 +45,12 @@ auto presetFor(const std::vector<LogReplay::Line> &log) -> juce::var {
 int main(int argc, char **argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     juce::ScopedJuceInitialiser_GUI juce;
-    juce::File models, out;
+    juce::File models, out, presetFile;
     juce::String rtV1 = "rt_continuation_legacy.onnx", rtWait = "rt_simultaneous_legacy.onnx",
                  ot = "ot_legacy.onnx";
     bool zero = false, noOt = false, noRt = false;
     double untilMs = -1.0;
+    int layout = 0; // 0: from the log
     std::vector<juce::File> logs;
     for (int i = 1; i < argc; ++i) {
         const juce::String a(argv[i]);
@@ -59,6 +65,10 @@ int main(int argc, char **argv) {
             rtWait = next();
         else if (a == "--ot")
             ot = next();
+        else if (a == "--preset") // for logs that applied no preset: the one the app was using
+            presetFile = juce::File(next());
+        else if (a == "--layout") // the Launchpad layout, for logs that do not say (1 or 2)
+            layout = next().getIntValue();
         else if (a == "--zero")
             zero = true;
         else if (a == "--no-ot") // profiling: the OT without its model
@@ -71,10 +81,11 @@ int main(int argc, char **argv) {
             logs.emplace_back(juce::File(a));
     }
     if (out == juce::File() || logs.empty() || (! zero && models == juce::File())) {
-        std::printf("usage: oplog_replay --models DIR --out DIR [--zero] session_*.log[.gz] ...\n");
+        std::printf("usage: oplog_replay --models DIR --out DIR [--preset FILE] [--zero] session_*.log[.gz] ...\n");
         return 2;
     }
     out.createDirectory();
+    const auto fallback = fallbackPreset(presetFile);
     int failed = 0;
     for (const auto &file: logs) {
         auto stamp = file.getFileName().upToFirstOccurrenceOf(".log", false, false);
@@ -87,10 +98,12 @@ int main(int argc, char **argv) {
         const auto part = out.getChildFile("oplog_" + stamp + ".jsonl.gz.part");
         const auto log = LogReplay::readLog(file);
         LogReplay::Options o;
-        o.preset = presetFor(log);
+        o.preset = LogReplay::presetOf(log, fallback);
         o.oplog = part;
         o.sourceName = file.getFileName();
         o.untilMs = untilMs;
+        if (layout > 0)
+            o.layout1 = layout < 2;
         if (! zero && ! noRt) {
             o.rtSilentModel = models.getChildFile(rtV1);
             o.rtWaitModel = models.getChildFile(rtWait);

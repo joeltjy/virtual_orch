@@ -70,6 +70,31 @@ TEST(LogReplay, parsesTheSessionLogFormat) {
     EXPECT_TRUE(lines[2].text.startsWith("Reduction Transformer Hybrid | (0, Clear Queue)"));
 }
 
+TEST(LogReplay, presetOfTakesTheLoggedPresetElseTheFallbackWithTheLoggedStrength) {
+    const auto rt = juce::String("200.0 | clock 1 | RT | Reduction Transformer Hybrid | (1, 10, 0 - 60, vel 64) voice 0 "
+                                 "noteId 0 | TD 4 LogitTD on s 6.0\n");
+    // A logged preset wins, its own strength too.
+    const auto logged = LogReplay::parseLog(
+        "100.0 | clock 0 | UI | Preset applied: {\"directInputWindowLength\": 10, \"logitAdjustments\": "
+        "{\"logitTdStrength\": 3.0}}\n" + rt
+        + "300.0 | clock 2 | UI | Preset applied: {\"directInputWindowLength\": 20}\n");
+    const auto a = LogReplay::presetOf(logged);
+    EXPECT_EQ(static_cast<int>(a["directInputWindowLength"]), 10);
+    EXPECT_DOUBLE_EQ(static_cast<double>(a["logitAdjustments"]["logitTdStrength"]), 3.0);
+    // No preset line: the fallback, with the strength the RT lines show; the fallback is not changed.
+    auto fallback = juce::JSON::parse("{\"directInputWindowLength\": 10}");
+    const auto b = LogReplay::presetOf(LogReplay::parseLog(rt), fallback);
+    EXPECT_EQ(static_cast<int>(b["directInputWindowLength"]), 10);
+    EXPECT_DOUBLE_EQ(static_cast<double>(b["logitAdjustments"]["logitTdStrength"]), 6.0);
+    EXPECT_FALSE(fallback.hasProperty("logitAdjustments"));
+    // ... also when the fallback has a strength of its own (presets of Nov 2026 did not save it).
+    const auto d = LogReplay::presetOf(LogReplay::parseLog(rt), LogReplay::hybridV1W3Preset());
+    EXPECT_DOUBLE_EQ(static_cast<double>(d["logitAdjustments"]["logitTdStrength"]), 6.0);
+    // Nothing at all: the Hybrid default.
+    const auto c = LogReplay::presetOf({});
+    EXPECT_EQ(c["model"].toString(), "hybrid_v1_w3");
+}
+
 /**
  * One recorded session and what its replay must reach. A tag's match rate is matched lines /
  * max(recorded, replayed) (see LogReplay::TagResult). Tags not listed must match exactly.

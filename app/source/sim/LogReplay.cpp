@@ -380,6 +380,32 @@ auto hybridV1W3Preset() -> juce::var {
     return juce::JSON::parse(R"({"model": "hybrid_v1_w3", "reduction": "hybrid", "orchestrationModel": "IodPretrained", "orchestrationMode": "jam", "inputMode": "direct", "inputFilterType": "passthrough", "directInputWindowLength": 1, "directInputSendNoteOffs": true, "directInputStartOnInput": false, "directInputStartDelay": 0, "directInputHoldBass": false, "directInputBassLow": 24, "directInputBassHigh": 36, "directInputInitialBass": -1, "inputInstrument": 0, "inputLow": 36, "inputHigh": 120, "inputDuration": 400, "inputInitialData": "", "contextNotes": 40, "outputMinimumDuration": 10, "outputMaximumDuration": 999, "outputTemperatures": [0.5, 0.5, 0.5], "outputStartTime": 0, "outputForceStartTime": false, "outputMaxAheadSeconds": 5, "outputAheadThrottleSeconds": 2, "outputInstruments": [{"id": 0, "active": false, "monophony": false, "low": 36, "high": 120}, {"id": 1, "active": false, "monophony": false, "low": 36, "high": 120}, {"id": 2, "active": false, "monophony": false, "low": 36, "high": 120}, {"id": 3, "active": false, "monophony": false, "low": 36, "high": 120}, {"id": 4, "active": false, "monophony": false, "low": 36, "high": 120}], "logitAdjustments": {"biasesOn": true, "biasesOnlyWhenPianoSilent": false, "logitTdStrength": 5.5, "model": {"pitchBias": false, "durationBias": false, "onsetGapBias": false, "shortGapPenalty": false, "logitTd": false, "pitchTau": 0.2, "pitchTauPrime": 0.2, "durationTau": 0.5, "durationTauPrime": 0.0, "onsetGapTau": 0.5, "waitMinPlay": 0.3}, "hybridV1": {"pitchBias": true, "durationBias": true, "onsetGapBias": true, "shortGapPenalty": true, "logitTd": true}}})");
 }
 
+auto presetOf(const std::vector<Line> &log, const juce::var &fallback) -> juce::var {
+    juce::var preset;
+    for (const auto &l: log)
+        if (l.tag == "UI" && l.text.startsWith("Preset applied: ")) {
+            const auto v = juce::JSON::parse(l.text.fromFirstOccurrenceOf("Preset applied: ", false, false));
+            if (v.isObject() && v.getDynamicObject()->getProperties().size() > 0) {
+                preset = v;
+                break;
+            }
+        }
+    const bool logged = preset.isObject();
+    if (! logged)
+        preset = juce::JSON::parse(juce::JSON::toString(fallback.isObject() ? fallback : hybridV1W3Preset()));
+    if (! preset["logitAdjustments"].isObject())
+        preset.getDynamicObject()->setProperty("logitAdjustments", hybridV1W3Preset()["logitAdjustments"]);
+    else if (logged && preset["logitAdjustments"].hasProperty("logitTdStrength"))
+        return preset; // the run's own strength
+    for (const auto &l: log)
+        if (l.tag == "RT" && l.text.contains(" LogitTD ") && l.text.contains(" s ")) {
+            preset["logitAdjustments"].getDynamicObject()->setProperty(
+                "logitTdStrength", l.text.fromLastOccurrenceOf(" s ", false, false).getDoubleValue());
+            break;
+        }
+    return preset;
+}
+
 auto Report::summary() const -> juce::String {
     juce::String s;
     s << "generation runs: " << generationRuns << ", clock phase " << juce::String(clockPhaseMs, 1) << " ms\n";
@@ -564,6 +590,7 @@ auto replay(const std::vector<Line> &log, const Options &options) -> Report {
     // (the live thread started computing then) and its output is delivered at the recorded time
     // (when the live model finished); the thread is busy in between. The same for a WAIT.
     size_t nextAction = 0;
+    int skippedWaits = 0;         // logged WAITs passed over by a later draw
     double rtBusyUntil = -1.0;    // no RT pass before this
     double restampMs = -1.0;      // RT_IN / WAIT lines logged during a deferred draw get this time
     std::vector<Token> rtHeld;    // drawn notes waiting for their recorded time
@@ -592,6 +619,13 @@ auto replay(const std::vector<Line> &log, const Options &options) -> Report {
             return false;
         };
         sampler->forcedSample = [&](int field, const AnticipationSampler::Context &ctx) -> std::optional<int32_t> {
+            // A logged WAIT whose time has passed is one the replay never reached (a resume the log
+            // does not pin down); skip it rather than let every later draw go unforced.
+            while (field == 0 && nextAction < actions.size() && actions[nextAction].wait
+                   && actions[nextAction].ms < simMs) {
+                ++nextAction;
+                ++skippedWaits;
+            }
             if (nextAction >= actions.size() || actions[nextAction].wait) {
                 if (report.problems.size() < 50)
                     report.problems.push_back("t=" + juce::String(simMs, 0) + ": the RT drew a note where the log has "
@@ -1145,6 +1179,8 @@ auto replay(const std::vector<Line> &log, const Options &options) -> Report {
         report.problems.push_back(juce::String(static_cast<int>(actions.size() - nextAction))
                                   + " recorded RT draws / WAITs were never used (first at "
                                   + juce::String(actions[nextAction].ms, 1) + " ms)");
+    if (skippedWaits > 0)
+        report.problems.push_back(juce::String(skippedWaits) + " recorded WAITs skipped (the replay was past them)");
     int unusedOt = 0;
     for (const auto &l: replayModel->logged)
         unusedOt += l.used ? 0 : 1;

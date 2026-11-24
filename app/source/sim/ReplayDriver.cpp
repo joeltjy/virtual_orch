@@ -5,7 +5,7 @@
 ReplayDriver::ReplayDriver(std::vector<LogReplay::Line> sessionLog, LogReplay::Options options)
     : log(std::move(sessionLog)), baseOptions(std::move(options)) {
     if (baseOptions.preset.isVoid())
-        baseOptions.preset = LogReplay::hybridV1W3Preset();
+        baseOptions.preset = LogReplay::presetOf(log);
     current = firstMs();
     wanted = firstMs();
     thread = std::thread([this] { threadMain(); });

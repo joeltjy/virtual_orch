@@ -45,7 +45,7 @@
  *                        Same row, col 4 (kAccompRow): MONOPHONIC, max polyphony 1 (cols 5..7 are
  *                        free; caps 2-4 were dropped Nov 24 2026); works and is lit in Jam and
  *                        Accompaniment; pressing it again clears the cap (unconstrained).
- *                        Entering Accompaniment with no cap starts at 1; kept across modes.
+ *                        Entering Accompaniment leaves it as it is; kept across modes.
  *    kPresetRow (7)      mood presets (MoodPresets), cols 0..7: a press sets the controlled
  *                        side's instruments, TD and register. Active preset bright, changed
  *                        since dimmer, others dimmest; pressing it again re-applies it.
@@ -314,9 +314,7 @@ public:
     /** Mode shown on the Edit/Jam pads; does not change the orchestration mode itself. */
     auto setSelectedMode(OrchestrationMode mode) -> void {
         selectedMode.store(mode, std::memory_order_relaxed);
-        // Accompaniment starts at polyphony 1 unless a cap was already chosen (e.g. in Jam).
-        if (mode == OrchestrationMode::Accompaniment && getMaxPolyphony() == 0)
-            maxPolyphony.store(PolyphonyCap::kMinCap, std::memory_order_relaxed);
+        // Accompaniment no longer turns Mono on by itself (Nov 24 2026): the cap is only the Mono pad's.
         refreshPadLed(kModeRow, kEditCol);
         refreshPadLed(kModeRow, kJamCol);
         refreshPadLed(kModeRow, kAccompanimentCol);

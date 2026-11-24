@@ -570,8 +570,9 @@ TEST(LaunchpadGrid, Layout1PadsMapToTheirLayout2Meaning) {
     EXPECT_EQ(LaunchpadGrid::layout1Pad(3, 4), P({kPerc, user(0)}));     // your Timpani
     EXPECT_EQ(LaunchpadGrid::layout1Pad(4, 0), P({kStrings, model(0)})); // model Str Ens
     EXPECT_EQ(LaunchpadGrid::layout1Pad(5, 4), P({kPerc, model(0)}));    // model Timpani
-    // old row 7 polyphony -> row 6 cols 4-7; old empty pads do nothing
-    EXPECT_EQ(LaunchpadGrid::layout1Pad(7, 2), P({LaunchpadGrid::kAccompRow, LaunchpadGrid::kPolyphonyColFirst + 2}));
+    // old row 7 polyphony 1 -> row 6 col 4 (monophonic); caps 2-4 no longer exist; old empty pads do nothing
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(7, 0), P({LaunchpadGrid::kAccompRow, LaunchpadGrid::kPolyphonyColFirst}));
+    EXPECT_EQ(LaunchpadGrid::layout1Pad(7, 2), std::nullopt);
     EXPECT_EQ(LaunchpadGrid::layout1Pad(7, 5), std::nullopt);
     EXPECT_EQ(LaunchpadGrid::layout1Pad(2, 3), std::nullopt);
     EXPECT_EQ(LaunchpadGrid::layout1Pad(3, LaunchpadGrid::kSideCol), std::nullopt); // RESET did not exist

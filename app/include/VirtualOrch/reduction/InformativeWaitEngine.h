@@ -129,6 +129,8 @@ public:
         bool precompute = true;
         /** A fired WAIT whose piano pitch is not in the anticipated top 5 plays the rank-1 branch's notes. */
         bool outsideTopFiveAsRankOne = true;
+        /** At most this many notes per fired WAIT, whatever its COUNT (0 = COUNT notes): the polyphony cap. */
+        int32_t maxFireNotes = 0;
         /** A drawn orchestra onset is at most this far after now. */
         int32_t maxAheadCs = 300;
         /** Nothing new is drawn while the last written event is this far ahead of now. */

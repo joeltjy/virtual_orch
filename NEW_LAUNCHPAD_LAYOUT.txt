@@ -107,7 +107,7 @@ Computer keyboard as Launchpad (KeyboardLaunchpad.h), new bindings:
                 in Jam / Accompaniment, via KeyboardLaunchpad::resolve; Shift no longer used)
   Return        FLUSH            Backspace   RESET
   Y U I         mode Step-in / Jam / Accompaniment       (was Z X C)
-  N M , .       max polyphony 1-4                         (was V B N M)
+  N             monophonic on / off (max polyphony 1)     (was V; M , . were caps 2-4, dropped Nov 24 2026)
   F5 ... F12    mood presets 1-8 (new)
   F1 F2 F3 F4   force restart, RT pause, OT pause, block input   (unchanged)
 

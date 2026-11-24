@@ -673,10 +673,12 @@ auto InformativeWaitEngine::fire(const PianoNote &head) -> std::vector<OutNote> 
             substituted = true;
         }
     }
+    // a polyphony cap (monophonic: 1) limits the stack, whatever COUNT said
+    const int32_t k = cfg.maxFireNotes > 0 ? std::min(p.k, cfg.maxFireNotes) : p.k;
     int32_t ready = 0;
     if (branch != nullptr)
         for (const auto &n: branch->notes)
-            if (n[1] > 0 && n[2] > 0 && ready < p.k)
+            if (n[1] > 0 && n[2] > 0 && ready < k)
                 ++ready;
 
     cur.clockCs = cur.floorCs = head.onsetCs;
@@ -693,7 +695,7 @@ auto InformativeWaitEngine::fire(const PianoNote &head) -> std::vector<OutNote> 
         out.push_back({head.onsetCs, dur, pitch, vel, true});
         minPitch = std::min(pitch + 1, kPianoHigh);
     }
-    if (ready == p.k) {
+    if (ready == k) {
         ++st.precomputeHits;
         event("hit", head.onsetCs, head.pitch, p.k,
               substituted ? "not in the top 5: the rank-1 branch (" + std::to_string(branch->pitch) + ") played"
@@ -703,7 +705,7 @@ auto InformativeWaitEngine::fire(const PianoNote &head) -> std::vector<OutNote> 
             ++st.precomputePartial;
         // the remaining notes are decoded one per step (each is played as soon as it exists; input is
         // handled in between); the rest of the chord is written after the last of them
-        fireLeft = FireLeft{head.onsetCs, p.k - ready, minPitch};
+        fireLeft = FireLeft{head.onsetCs, k - ready, minPitch};
         ++st.fireDecoded;
         event("miss", head.onsetCs, head.pitch, p.k,
               branch == nullptr ? (pre.has_value() && ! pre->pianoProbs.empty() ? "not in the top 5" : "no anticipation yet")
@@ -713,7 +715,7 @@ auto InformativeWaitEngine::fire(const PianoNote &head) -> std::vector<OutNote> 
     event("fire", head.onsetCs, p.k, static_cast<int32_t>(out.size()));
     firePlaced = static_cast<int32_t>(out.size());
     if (! fireLeft.has_value())
-        firePlacedEvent(head.onsetCs, ready == p.k);
+        firePlacedEvent(head.onsetCs, ready == k);
     cur.exclHiCs = head.onsetCs + kMergeCs;
     cur.chordOnCs = INT32_MIN;
     cur.chordCount = 0;

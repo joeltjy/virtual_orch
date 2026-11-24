@@ -28,7 +28,7 @@
  *   Return               flush your instruments to the model (row 2, side; Edit only)
  *   Backspace            reset the model's instruments (row 3, side; Edit only)
  *   Y U I                mode Step-in (Edit) / Jam / Accompaniment (row 0, cols 0-2)
- *   N M , .              max polyphony 1-4             (row 6, cols 4-7)
+ *   N                    monophonic on / off           (row 6, col 4)
  *   F5 … F12             mood presets 1-8              (row 7, cols 0-7)
  *   F1 F2 F3 F4          top buttons: force restart, RT pause, OT pause, block input
  */
@@ -77,9 +77,7 @@ inline auto bindings() -> const std::vector<Binding> & {
         const char modes[] = {'Y', 'U', 'I'};
         for (int i = 0; i < 3; ++i)
             b.push_back({modes[i], pad(LaunchpadGrid::kModeRow, i)});
-        const char poly[] = {'N', 'M', ',', '.'};
-        for (int i = 0; i < 4; ++i)
-            b.push_back({poly[i], pad(LaunchpadGrid::kAccompRow, LaunchpadGrid::kPolyphonyColFirst + i)});
+        b.push_back({'N', pad(LaunchpadGrid::kAccompRow, LaunchpadGrid::kPolyphonyColFirst)}); // monophonic on / off
         const int presetKeys[] = {juce::KeyPress::F5Key,  juce::KeyPress::F6Key,  juce::KeyPress::F7Key,
                                   juce::KeyPress::F8Key,  juce::KeyPress::F9Key,  juce::KeyPress::F10Key,
                                   juce::KeyPress::F11Key, juce::KeyPress::F12Key};

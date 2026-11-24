@@ -148,13 +148,13 @@ auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid) -> void {
         autoReg.lit = true;
     }
 
-    // Row 6, cols 4..7: polyphony pads 1..4, lit in Jam and Accompaniment.
+    // Row 6, col 4: the monophonic pad (max polyphony 1), lit in Jam and Accompaniment while on.
     const bool polyActive = grid.isPolyphonyActive();
     for (int pad = 0; pad < LaunchpadGrid::kPolyphonyPadCount; ++pad) {
         const int col = LaunchpadGrid::kPolyphonyColFirst + pad;
         const int polyphony = *LaunchpadGrid::polyphonyForPad(LaunchpadGrid::kAccompRow, col);
         auto &cell = cellAt(LaunchpadGrid::kAccompRow, col);
-        cell.label = UiConstants::workspaceActiveInstrumentsPolyphonyPrefix + juce::String(polyphony);
+        cell.label = polyphony == 1 ? juce::String("Mono") : UiConstants::workspaceActiveInstrumentsPolyphonyPrefix + juce::String(polyphony);
         cell.onPalette = LaunchpadLighting::colourForPolyphonyPad(true, true);
         cell.lit = polyActive && polyphony == grid.getMaxPolyphony();
     }

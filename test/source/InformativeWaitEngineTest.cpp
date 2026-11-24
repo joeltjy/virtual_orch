@@ -1221,3 +1221,25 @@ TEST(HybridInformativeWait, TheOperationLogGetsAnRtDrawPerNoteAndLoggingChangesN
         }
     EXPECT_GE(draws, static_cast<int>(logged.size())) << "an RT_DRAW for every note (and for notes cut later)";
 }
+
+TEST(InformativeWaitEngine, AMonophonicCapFiresOneNoteWhateverTheCount) {
+    // The Launchpad's monophonic pad (max polyphony 1): a fired WAIT with COUNT 2 places one note,
+    // precomputed or decoded.
+    for (const int pianoPitch: {60, 50}) { // anticipated (precomputed) / not (decoded)
+        Rig rig(Engine::Mode::Unconstrained);
+        auto s = rig.engine.settings();
+        s.outsideTopFiveAsRankOne = false;
+        s.maxFireNotes = 1;
+        rig.engine.setSettings(s);
+        rig.engine.noteOn(0, 60, 80);
+        rig.run(0, 30); // [WAIT 30][COUNT 2]
+        rig.played.clear();
+        rig.engine.noteOn(31, pianoPitch, 80);
+        rig.run(31, 33);
+        const auto atFire = std::count_if(rig.played.begin(), rig.played.end(), [](const auto &n) { return n.onsetCs == 31; });
+        EXPECT_EQ(atFire, 1) << "piano " << pianoPitch;
+        const auto placed = std::find_if(rig.events.begin(), rig.events.end(), [](const auto &e) { return e.what == "placed"; });
+        ASSERT_NE(placed, rig.events.end());
+        EXPECT_EQ(placed->a, 1);
+    }
+}

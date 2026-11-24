@@ -25,7 +25,7 @@ TEST(KeyboardLaunchpad, mapsEveryButtonTheAppUsesToItsOwnKey) {
     wanted.insert({LaunchpadGrid::kResetRow, LaunchpadGrid::kSideCol});
     for (int c = 0; c < 3; ++c) wanted.insert({LaunchpadGrid::kRegisterRow, c});
     wanted.insert({LaunchpadGrid::kRegisterRow, LaunchpadGrid::kSideCol});
-    for (int c = 0; c < 4; ++c) wanted.insert({LaunchpadGrid::kAccompRow, LaunchpadGrid::kPolyphonyColFirst + c});
+    wanted.insert({LaunchpadGrid::kAccompRow, LaunchpadGrid::kPolyphonyColFirst}); // monophonic on / off
     for (int c = 0; c < LaunchpadGrid::kPresetCount; ++c) wanted.insert({LaunchpadGrid::kPresetRow, c});
 
     std::set<std::pair<int, int>> mapped;
@@ -59,7 +59,8 @@ TEST(KeyboardLaunchpad, groupedByFunctionLayout) {
     EXPECT_EQ(targetFor(juce::KeyPress::backspaceKey),
               (Target{LaunchpadGrid::kResetRow, LaunchpadGrid::kSideCol, -1}));
     EXPECT_EQ(targetFor('U'), (Target{LaunchpadGrid::kModeRow, LaunchpadGrid::kJamCol, -1}));
-    EXPECT_EQ(targetFor('.'), (Target{LaunchpadGrid::kAccompRow, LaunchpadGrid::kPolyphonyColFirst + 3, -1}));
+    EXPECT_EQ(targetFor('N'), (Target{LaunchpadGrid::kAccompRow, LaunchpadGrid::kPolyphonyColFirst, -1}));
+    EXPECT_FALSE(targetFor('.').has_value()); // caps 2-4 (M , .) were dropped
     EXPECT_EQ(targetFor(juce::KeyPress::F5Key), (Target{LaunchpadGrid::kPresetRow, 0, -1}));
     EXPECT_EQ(targetFor(juce::KeyPress::F12Key), (Target{LaunchpadGrid::kPresetRow, 7, -1}));
     EXPECT_EQ(targetFor(juce::KeyPress::F1Key), (Target{-1, -1, 0}));

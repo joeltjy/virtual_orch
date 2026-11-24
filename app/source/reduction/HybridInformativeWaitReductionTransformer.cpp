@@ -162,6 +162,7 @@ auto HybridInformativeWaitReductionTransformer::applySettings() -> void {
     // a pitch outside the anticipated top 5 is decoded for the note played (not the rank-1 branch's):
     // with the substitution, half the fires in a B-flat/D passage played chords made for other pitches
     w.outsideTopFiveAsRankOne = false;
+    w.maxFireNotes = getMaxPolyphony(); // monophonic (cap 1): a fire places one note, not COUNT
     w.ascendingChords = true; // W's rule: pitch >= the previous one at a shared onset
     w.maxAheadCs = 300;       // W: onsets at most 3 s ahead
     w.tdLevel = td;

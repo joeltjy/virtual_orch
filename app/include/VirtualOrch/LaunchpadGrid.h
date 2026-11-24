@@ -42,9 +42,10 @@
  *                        model instrument switches off.
  *    kRegisterRow (6)    register LOW / MEDIUM / HIGH (cols 0..2) + AUTO side pad; a register
  *                        other than AUTO switches TD to AUTO (TD 4 for the model).
- *                        Same row, cols 4..7 (kAccompRow): max polyphony 1..4; works and is lit
- *                        in Jam and Accompaniment; pressing the selected pad again clears the
- *                        cap. Entering Accompaniment with no cap starts at 1; kept across modes.
+ *                        Same row, col 4 (kAccompRow): MONOPHONIC, max polyphony 1 (cols 5..7 are
+ *                        free; caps 2-4 were dropped Nov 24 2026); works and is lit in Jam and
+ *                        Accompaniment; pressing it again clears the cap (unconstrained).
+ *                        Entering Accompaniment with no cap starts at 1; kept across modes.
  *    kPresetRow (7)      mood presets (MoodPresets), cols 0..7: a press sets the controlled
  *                        side's instruments, TD and register. Active preset bright, changed
  *                        since dimmer, others dimmest; pressing it again re-applies it.
@@ -91,10 +92,10 @@ public:
     /** Row 6: pads 0..2 = register LOW / MEDIUM / HIGH, the side pad = AUTO register. */
     static constexpr int kRegisterRow = 6;
     static constexpr int kRegisterPadCount = 3;
-    /** Row 6, cols 4..7: max polyphony 1..4 (Jam / Accompaniment). */
+    /** Row 6, col 4: monophonic (max polyphony 1) on / off (Jam / Accompaniment). */
     static constexpr int kAccompRow = kRegisterRow;
     static constexpr int kPolyphonyColFirst = 4;
-    static constexpr int kPolyphonyPadCount = PolyphonyCap::kMaxCap;
+    static constexpr int kPolyphonyPadCount = 1;
     /** Bottom row: the mood presets. */
     static constexpr int kPresetRow = 7;
     static constexpr int kPresetCount = MoodPresets::kCount;
@@ -345,7 +346,7 @@ public:
         return std::nullopt;
     }
 
-    /** Max polyphony 1..4 for cols 4..7 of row 6. */
+    /** Max polyphony 1 for col 4 of row 6 (the monophonic toggle). */
     [[nodiscard]] static auto polyphonyForPad(int rowIdx, int colIdx) -> std::optional<int> {
         if (rowIdx != kAccompRow || colIdx < kPolyphonyColFirst
             || colIdx >= kPolyphonyColFirst + kPolyphonyPadCount)

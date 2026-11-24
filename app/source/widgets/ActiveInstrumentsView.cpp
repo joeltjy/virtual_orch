@@ -50,12 +50,12 @@ auto ActiveInstrumentsView::shortNameForLocal(int32_t localId) -> juce::String {
     return "L" + juce::String(localId);
 }
 
-auto ActiveInstrumentsView::setFromLaunchpad(const LaunchpadGrid &grid) -> void {
-    rebuildCells(grid);
+auto ActiveInstrumentsView::setFromLaunchpad(const LaunchpadGrid &grid, uint32_t tangibleMask) -> void {
+    rebuildCells(grid, tangibleMask);
     repaint();
 }
 
-auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid) -> void {
+auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid, uint32_t tangibleMask) -> void {
     for (auto &row: cells)
         for (auto &cell: row)
             cell = {};
@@ -167,6 +167,11 @@ auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid) -> void {
             cell.label = shortNameForLocal(*mapped);
             cell.instrument = *mapped;
             cell.lit = grid.getEffectiveState(padRow, padCol) != 0;
+            if (tangibleMask != Sympathetic::kTangibleInactive) {
+                const auto target = LaunchpadGrid::targetForRow(padRow);
+                cell.lit = Sympathetic::isAllowed(tangibleMask, *mapped)
+                           && (target == InstrumentUpdateTarget::Model || cell.lit);
+            }
         }
     }
 }

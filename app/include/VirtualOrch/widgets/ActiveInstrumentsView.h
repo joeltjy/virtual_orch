@@ -7,6 +7,7 @@
 #include <optional>
 
 #include "VirtualOrch/LaunchpadGrid.h"
+#include "VirtualOrch/Sympathetic.h"
 
 /**
  * Launchpad view on UI: 9x9 (top CC row + 8x8 grid + side column), every button
@@ -16,7 +17,7 @@ class ActiveInstrumentsView : public juce::Component {
 public:
     ActiveInstrumentsView();
 
-    auto setFromLaunchpad(const LaunchpadGrid &grid) -> void;
+    auto setFromLaunchpad(const LaunchpadGrid &grid, uint32_t tangibleMask = Sympathetic::kTangibleInactive) -> void;
 
     auto paint(juce::Graphics &g) -> void override;
     auto resized() -> void override;
@@ -53,7 +54,7 @@ private:
 
     [[nodiscard]] static auto colourForPalette(uint8_t palette) -> juce::Colour;
 
-    auto rebuildCells(const LaunchpadGrid &grid) -> void;
+    auto rebuildCells(const LaunchpadGrid &grid, uint32_t tangibleMask) -> void;
     auto paintGroupBracket(juce::Graphics &g,
                            juce::Rectangle<float> labelArea,
                            const juce::String &text) const -> void;

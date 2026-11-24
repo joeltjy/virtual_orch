@@ -52,7 +52,7 @@ Summary of the move:
   AppSession kInstrumentPads: rowOffset from kInstrumentRowFirst, col within the side).
 - Max polyphony moved from row 7 cols 0-3 to row 6 cols 4-7 (kAccompRow == kRegisterRow,
   kPolyphonyColFirst = 4). Same behaviour: works and lit in Jam and Accompaniment, pressing
-  the selected pad again clears the cap, entering Accompaniment with no cap starts at 1.
+  the selected pad again clears the cap, entering Accompaniment with no cap started at 1 (no longer, Nov 24 2026: Mono is only the pad's).
 - Row 7 is new: eight mood presets.
 - Row 3's side button is new: RESET.
 - "Edit" is now called "Step-in" everywhere the user sees it (UI buttons, the MODE session-log

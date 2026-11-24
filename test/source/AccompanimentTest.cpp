@@ -127,18 +127,18 @@ TEST(AccompanimentGrid, polyphonyPadsDoNothingInEdit) {
     EXPECT_EQ(f.colourOf(kRow, kPoly + 0), LaunchpadLighting::kOff);
 }
 
-TEST(AccompanimentGrid, accompanimentStartsAtOneUnlessACapWasAlreadyChosen) {
+TEST(AccompanimentGrid, accompanimentDoesNotTurnMonoOnByItself) {
     {
         GridFixture f;
         f.grid.setSelectedMode(OrchestrationMode::Accompaniment);
         EXPECT_TRUE(f.grid.isAccompanimentActive());
-        EXPECT_EQ(f.grid.getMaxPolyphony(), 1);
-        EXPECT_EQ(f.grid.effectivePolyphonyCap(), 1);
-        EXPECT_EQ(f.colourOf(kRow, kPoly + 0), LaunchpadLighting::kYellow) << "pad (6,4) = monophonic lit";
+        EXPECT_EQ(f.grid.getMaxPolyphony(), 0) << "no automatic monophony";
+        EXPECT_EQ(f.grid.effectivePolyphonyCap(), 0);
+        EXPECT_EQ(f.colourOf(kRow, kPoly + 0), LaunchpadLighting::kOff);
     }
     {
         GridFixture f;
-        f.press(kRow, kPoly + 0); // monophonic chosen in Jam
+        f.press(kRow, kPoly + 0); // Mono chosen in Jam
         f.grid.setSelectedMode(OrchestrationMode::Accompaniment);
         EXPECT_EQ(f.grid.getMaxPolyphony(), 1) << "kept";
         f.grid.setSelectedMode(OrchestrationMode::Jam); // back to Jam: the cap stays
@@ -148,7 +148,8 @@ TEST(AccompanimentGrid, accompanimentStartsAtOneUnlessACapWasAlreadyChosen) {
 
 TEST(AccompanimentGrid, polyphonyIsKeptAcrossModes) {
     GridFixture f;
-    f.grid.setSelectedMode(OrchestrationMode::Accompaniment); // starts monophonic
+    f.grid.setSelectedMode(OrchestrationMode::Accompaniment);
+    f.press(kRow, kPoly + 0); // Mono on
     ASSERT_EQ(f.grid.getMaxPolyphony(), 1);
 
     f.grid.setSelectedMode(OrchestrationMode::Edit);

@@ -2,6 +2,32 @@
 
 An interactive web-based orchestra controlled by hand gestures, developed by Bob Tianqi Wei, Shm Garanganao Almeda, Ethan Tam, Dor Abrahamson and Bjoern Hartmann at UC Berkeley, 2024.
 
+## Virtual Orchestra desktop controls
+
+In Virtual Orchestra, open **Workspace → PerformanceView → Orchestra**.
+
+- **Orchestra** shows the existing seating plan.
+- **Conducting** launches the local gesture relay when the tab opens. It uses Node.js and loads the
+  original camera models from the web. **Open in Browser** provides the same controls in a regular
+  browser if the embedded view or camera is unavailable. On Linux the embedded view requires
+  WebKitGTK 4.0 and GTK 3 with X11 support.
+- **Tangible** lists cameras by name. Choose a camera and click **Start Camera**. A detected ArUco
+  marker enables its orchestra part. Removing it releases any notes still sounding for that part.
+  The camera remains active when you switch to the seating plan in the same panel. **Stop Camera**
+  restores manual instrument control. The PDF button prints IDs 1–14 with their assigned names.
+  Print at actual size and leave the white margin around each marker.
+
+Set up the Tangible Python environment once from the repository root:
+
+```sh
+python3 -m venv sympathetic/aruco/.venv
+sympathetic/aruco/.venv/bin/python -m pip install -r sympathetic/aruco/requirements.txt
+```
+
+For an installed app or a different Python environment, set `VIRTUAL_ORCH_ARUCO_PYTHON` to its
+Python executable before launching Virtual Orchestra. On macOS, grant camera access when prompted.
+On Linux, the camera selector uses available V4L2 video capture devices.
+
 ## Overview
 
 Sympathetic Orchestra is a gesture-controlled music application that allows users to conduct a virtual orchestra using hand gestures detected through their webcam. The application uses MediaPipe for hand recognition and gesture detection, p5.js for visualization and audio playback, and Node.js/Express for the web server.

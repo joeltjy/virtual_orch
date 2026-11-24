@@ -60,7 +60,7 @@ let lastEvent = "", lastEventMs = 0, linkOk = true;
 const beatTimes = [];
 
 function send(name, ...args) {
-  fetch("/sym", {
+  fetch("sym", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ address: "/sym/" + name, args }),

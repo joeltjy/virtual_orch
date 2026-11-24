@@ -59,6 +59,22 @@ inline constexpr std::array<Part, 16> kParts{{
     {"Bass", bit(3)},
 }};
 
+// Marker IDs are the one-based positions in this list.
+inline constexpr std::array<Part, 14> kMarkerParts{{
+    {"Violins I & II", bit(0)}, {"Violas", bit(1)}, {"Cellos", bit(2)},
+    {"Double Basses", bit(3)}, {"Flutes", bit(7)}, {"Oboes", bit(8)},
+    {"Clarinets", bit(9)}, {"Bassoons", bit(10)}, {"French Horns", bit(12)},
+    {"Trumpets", bit(11)}, {"Trombones", bit(13)}, {"Tuba", bit(14)},
+    {"Timpani", bit(16)}, {"Piano", bit(15)},
+}};
+
+inline constexpr uint32_t kTangibleInactive = uint32_t{1} << 31;
+
+[[nodiscard]] constexpr auto markerMask(int id) -> uint32_t {
+    return id > 0 && id <= static_cast<int>(kMarkerParts.size())
+        ? kMarkerParts[static_cast<size_t>(id - 1)].localIds : 0;
+}
+
 /** Solo strings (violin, viola, cello, contrabass). */
 inline constexpr uint32_t kSoloStringsMask = bit(0) | bit(1) | bit(2) | bit(3);
 /** Tremolo strings, pizzicato strings, string ensemble: articulations, not parts. */
@@ -212,6 +228,7 @@ inline constexpr int32_t kDefaultSelectBoost = 20;
 
 struct State {
     std::atomic<bool> enabled{false};
+    std::atomic<uint32_t> tangibleMask{kTangibleInactive};
     std::atomic<float> warp{1.0f};
     std::atomic<uint32_t> cuedMask{0};
     std::atomic<int32_t> selectedPart{-1};
@@ -253,12 +270,40 @@ struct State {
             warp.store(*w);
     }
 
+    [[nodiscard]] auto tangibleInstruments(const std::vector<int32_t> &fallback) const
+        -> std::vector<int32_t> {
+        const auto mask = tangibleMask.load(std::memory_order_relaxed);
+        if (mask == kTangibleInactive)
+            return filterAllowed(fallback);
+
+        std::vector<int32_t> instruments;
+        for (int32_t id = 0; id < static_cast<int32_t>(InstrumentConstants::kLocalInstrumentOutputChannels.size()); ++id)
+            if (isAllowed(mask, id))
+                instruments.push_back(id);
+        return instruments;
+    }
+
+    [[nodiscard]] static auto tangibleAllows(uint32_t mask, int32_t localId, int32_t pitch) -> bool {
+        if (mask == kTangibleInactive)
+            return true;
+        if (inMask(kStringArticulationsMask, localId)) {
+            for (const auto solo: InstrumentConstants::kSoloStringLocalIds)
+                if (InstrumentConstants::localInstrumentAllowsPitch(solo, pitch))
+                    return inMask(mask, solo);
+            return false;
+        }
+        return inMask(mask, localId);
+    }
+
     /** Filter an instrument list down to what may play (all of it while disabled). */
     [[nodiscard]] auto filterAllowed(const std::vector<int32_t> &instruments) const
         -> std::vector<int32_t> {
-        if (! enabled.load(std::memory_order_relaxed))
-            return instruments;
-        const auto mask = cuedMask.load(std::memory_order_relaxed);
+        auto mask = tangibleMask.load(std::memory_order_relaxed);
+        if (mask == kTangibleInactive) {
+            if (! enabled.load(std::memory_order_relaxed))
+                return instruments;
+            mask = cuedMask.load(std::memory_order_relaxed);
+        }
         std::vector<int32_t> out;
         out.reserve(instruments.size());
         for (const auto id: instruments)
@@ -270,7 +315,8 @@ struct State {
     /** Playback velocity for a note (unchanged while disabled). */
     [[nodiscard]] auto playbackVelocity(int32_t velocity, int32_t localId, int32_t pitch) const
         -> int32_t {
-        if (! enabled.load(std::memory_order_relaxed))
+        if (tangibleMask.load(std::memory_order_relaxed) != kTangibleInactive
+            || ! enabled.load(std::memory_order_relaxed))
             return velocity;
         return velocityFor(velocity, soundingLocalId(localId, pitch),
                            selectedPart.load(std::memory_order_relaxed),
@@ -279,15 +325,19 @@ struct State {
     }
 
     /** May a note on this instrument sound now (true while disabled)? */
-    [[nodiscard]] auto maySound(int32_t localId, int32_t pitch) const -> bool {
+    [[nodiscard]] auto maySound(int32_t localId, int32_t pitch, bool reductionMonitor = false) const -> bool {
+        const auto mask = tangibleMask.load(std::memory_order_relaxed);
+        if (mask != kTangibleInactive)
+            return reductionMonitor || tangibleAllows(mask, localId, pitch);
         if (! enabled.load(std::memory_order_relaxed))
             return true;
         return isAllowed(cuedMask.load(std::memory_order_relaxed), soundingLocalId(localId, pitch));
     }
 
     [[nodiscard]] auto currentWarp() const -> float {
-        return enabled.load(std::memory_order_relaxed) ? warp.load(std::memory_order_relaxed)
-                                                       : 1.0f;
+        return tangibleMask.load(std::memory_order_relaxed) == kTangibleInactive
+                   && enabled.load(std::memory_order_relaxed)
+            ? warp.load(std::memory_order_relaxed) : 1.0f;
     }
 };
 

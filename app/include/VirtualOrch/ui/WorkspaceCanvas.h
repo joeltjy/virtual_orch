@@ -91,6 +91,7 @@ public:
     /** Seed the labelled Launchpad grid for PerformanceView. */
     /** Text scale for every widget but the seating plan (the PerformanceView: large). */
     auto setTextScale(float scale) -> void;
+    void setPerformanceControlsEnabled(bool enabled);
     auto addPerformanceViewWidgets() -> void;
 
     auto getWidgetCount() const -> int { return (int) widgets.size(); }
@@ -102,6 +103,7 @@ public:
     std::function<void()> onLayoutChanged;
 
 private:
+    bool performanceControlsEnabled = false;
     float textScale = 1.0f;
     auto applyTextScale(WorkspaceWidget &widget) const -> void;
     auto removeWidget(WorkspaceWidget *widget) -> void;

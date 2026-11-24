@@ -1,4 +1,5 @@
 #include "VirtualOrch/widgets/InstrumentActiveLightWidget.h"
+#include "VirtualOrch/widgets/OrchestraControls.h"
 
 #include "VirtualOrch/AppSession.h"
 #include "VirtualOrch/ui/UiConstants.h"
@@ -278,10 +279,28 @@ InstrumentActiveLightWidget::~InstrumentActiveLightWidget() {
 
 auto InstrumentActiveLightWidget::resized() -> void {
     WorkspaceWidget::resized();
-    view.setBounds(getContentComponent().getLocalBounds());
+    auto &content = getContentComponent();
+    (controls != nullptr ? static_cast<juce::Component &>(*controls)
+                         : static_cast<juce::Component &>(view)).setBounds(content.getLocalBounds());
+}
+
+void InstrumentActiveLightWidget::setPerformanceControls(bool enabled) {
+    if (enabled == (controls != nullptr))
+        return;
+
+    if (enabled) {
+        controls = std::make_unique<OrchestraControls>(session, view);
+        getContentComponent().addAndMakeVisible(*controls);
+    } else {
+        controls.reset();
+        getContentComponent().addAndMakeVisible(view);
+    }
+    resized();
 }
 
 auto InstrumentActiveLightWidget::timerCallback() -> void {
+    if (controls != nullptr)
+        controls->updateVisibility();
     const auto nowMs = juce::Time::currentTimeMillis();
     view.setActive(session.activityLog.activeSectors(nowMs));
     view.setFrozen(PerformanceActivity::pedalShowsFrozen(

@@ -6,6 +6,7 @@ class OSCController : juce::OSCReceiver,
                       juce::OSCReceiver::ListenerWithOSCAddress<juce::OSCReceiver::MessageLoopCallback> {
 public:
     OSCController(const uint32_t &port);
+    explicit OSCController(juce::DatagramSocket &gestureSocket);
 
     ~OSCController() override;
 
@@ -24,6 +25,7 @@ public:
      * Sympathetic::state(); Stop/Play go through the pedal path: true = Stop (pedal down).
      */
     std::function<void(bool stop)> onSympatheticPedal;
+    std::function<void()> onSympatheticGesture;
 
 private:
     auto handleSympathetic(const juce::OSCMessage &message) -> void;

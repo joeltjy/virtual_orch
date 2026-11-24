@@ -9,6 +9,7 @@
 #include "VirtualOrch/widgets/WorkspaceWidget.h"
 
 class AppSession;
+class OrchestraControls;
 
 /**
  * Draws the orchestra seating plan; sections whose instrument is not sounding are dimmed.
@@ -68,12 +69,14 @@ public:
     ~InstrumentActiveLightWidget() override;
 
     auto resized() -> void override;
+    void setPerformanceControls(bool enabled);
 
 private:
     auto timerCallback() -> void override;
 
     AppSession &session;
     SeatingPlanView view;
+    std::unique_ptr<OrchestraControls> controls;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(InstrumentActiveLightWidget)
 };

@@ -82,10 +82,10 @@ OutputPlayback::OutputPlayback(Clock &clock,
       playbackSource(playbackSourceIn) {
 }
 
-void OutputPlayback::handleNoteForOutput(const OrchestrationNote &note, TokenNoteType tokenEventType) {
-    if (outputProcessor == nullptr) {
-        return;
-    }
+bool OutputPlayback::handleNoteForOutput(const OrchestrationNote &note, TokenNoteType tokenEventType,
+                                         bool reductionMonitor) {
+    if (outputProcessor == nullptr)
+        return false;
 
     const int32_t instrument = note.localInstrumentId;
     const int32_t pitch = note.token.getPitch();
@@ -95,8 +95,8 @@ void OutputPlayback::handleNoteForOutput(const OrchestrationNote &note, TokenNot
             // string-ensemble note routed to an uncued solo string); Select/Expression set the
             // velocity. Both are no-ops while the gesture layer is off.
             const auto &sym = Sympathetic::state();
-            if (! sym.maySound(instrument, pitch))
-                break;
+            if (! sym.maySound(instrument, pitch, reductionMonitor))
+                return false;
             auto played = note;
             played.velocity =
                 sym.playbackVelocity(note.velocity > 0 ? note.velocity : 100, instrument, pitch);
@@ -114,6 +114,7 @@ void OutputPlayback::handleNoteForOutput(const OrchestrationNote &note, TokenNot
             break;
         }
     }
+    return true;
 }
 
 auto OutputPlayback::recordNoteOn(const OrchestrationNote &note, int32_t channel) -> void {
@@ -362,10 +363,23 @@ void OutputPlayback::run() {
             }
         }
 
+        const bool reductionMonitor = lastSource == PlaybackSource::Reduction;
+        const auto tangibleMask = Sympathetic::state().tangibleMask.load(std::memory_order_relaxed);
+        if (! reductionMonitor && tangibleMask != Sympathetic::kTangibleInactive) {
+            for (auto it = currentlyPlaying.begin(); it != currentlyPlaying.end();) {
+                if (Sympathetic::State::tangibleAllows(tangibleMask, it->localInstrumentId, it->token.getPitch())) {
+                    ++it;
+                } else {
+                    handleNoteForOutput(*it, TokenNoteType::TokenNoteOff);
+                    it = currentlyPlaying.erase(it);
+                }
+            }
+        }
+
         for (auto it = nextTokens.begin(); it != nextTokens.end();) {
             if (it->token.time <= time) {
-                handleNoteForOutput(*it, TokenNoteType::TokenNoteOn);
-                currentlyPlaying.insert(*it);
+                if (handleNoteForOutput(*it, TokenNoteType::TokenNoteOn, reductionMonitor))
+                    currentlyPlaying.insert(*it);
                 it = nextTokens.erase(it);
             } else {
                 break;

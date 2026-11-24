@@ -60,7 +60,7 @@ let udp = null;
 
 function sendOsc(address, args) {
   if (udp === null) udp = dgram.createSocket("udp4");
-  udp.send(encodeOsc(address, args), OSC_PORT, OSC_HOST);
+  udp.send(encodeOsc(address, args), targetPort, embeddedSession ? "127.0.0.1" : OSC_HOST);
 }
 
 // ---- HTTP ---------------------------------------------------------------------------------
@@ -70,8 +70,7 @@ const TYPES = {
   ".jpg": "image/jpeg", ".mp3": "audio/mpeg", ".task": "application/octet-stream",
 };
 
-function serveStatic(req, res) {
-  const urlPath = decodeURIComponent(new URL(req.url, "http://localhost").pathname);
+function serveStatic(urlPath, res) {
   const rel = urlPath === "/" ? "conduct.html" : urlPath.replace(/^\/+/, "");
   const file = path.normalize(path.join(PUBLIC_DIR, rel));
   if (!file.startsWith(PUBLIC_DIR + path.sep)) {
@@ -99,7 +98,7 @@ function handleSym(req, res) {
       const { address, args = [] } = JSON.parse(body);
       if (!ALLOWED.has(address) || !Array.isArray(args)) throw new Error("bad address");
       sendOsc(address, args);
-      if (address !== "/sym/expression") console.log(address, ...args);
+      if (!embeddedSession && address !== "/sym/expression") console.log(address, ...args);
       res.writeHead(204).end();
     } catch (e) {
       res.writeHead(400).end(String(e.message || e));
@@ -107,16 +106,38 @@ function handleSym(req, res) {
   });
 }
 
+const embeddedSession = process.argv[2] === "--embedded";
+const sessionPrefix = embeddedSession ? "/" + process.argv[3] : "";
+const targetPort = embeddedSession ? Number(process.argv[4]) : OSC_PORT;
+
 function start() {
-  return http
-  .createServer((req, res) => {
-    if (req.method === "POST" && req.url === "/sym") handleSym(req, res);
-    else if (req.method === "GET") serveStatic(req, res);
+  const server = http.createServer((req, res) => {
+    let pathname;
+    try {
+      pathname = decodeURIComponent(new URL(req.url, "http://localhost").pathname);
+    } catch {
+      res.writeHead(400).end();
+      return;
+    }
+    if (sessionPrefix && !pathname.startsWith(sessionPrefix + "/")) {
+      res.writeHead(404).end();
+      return;
+    }
+    pathname = pathname.slice(sessionPrefix.length);
+    if (req.method === "POST" && pathname === "/sym") handleSym(req, res);
+    else if (req.method === "GET") serveStatic(pathname, res);
     else res.writeHead(405).end();
-  })
-  .listen(HTTP_PORT, "127.0.0.1", () => {
-    console.log(`Conducting page: http://localhost:${HTTP_PORT}/conduct.html`);
-    console.log(`Gestures -> OSC ${OSC_HOST}:${OSC_PORT}`);
+  });
+  return server.listen(embeddedSession ? 0 : HTTP_PORT, "127.0.0.1", () => {
+    const port = server.address().port;
+    if (embeddedSession) {
+      const readyFile = process.argv[5];
+      fs.writeFileSync(readyFile + ".tmp", String(port), { mode: 0o600 });
+      fs.renameSync(readyFile + ".tmp", readyFile);
+    } else {
+      console.log(`Conducting page: http://localhost:${port}/conduct.html`);
+      console.log(`Gestures -> OSC ${OSC_HOST}:${targetPort}`);
+    }
   });
 }
 

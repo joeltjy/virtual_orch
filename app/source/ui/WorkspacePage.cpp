@@ -339,6 +339,7 @@ auto WorkspacePage::loadSelectedView() -> void {
             if (oldDefault || previousDefault || widerControlsDefault) {
                 canvas.addPerformanceViewWidgets();
                 currentViewName = name;
+                canvas.setPerformanceControlsEnabled(true);
                 canvas.setTextScale(UiConstants::performanceTextScale);
                 saveButton.setEnabled(true);
                 clearDirty();
@@ -388,6 +389,7 @@ auto WorkspacePage::loadSelectedView() -> void {
     }
 
     currentViewName = name;
+    canvas.setPerformanceControlsEnabled(name == UiConstants::workspacePerformanceViewName);
     canvas.setTextScale(name == UiConstants::workspacePerformanceViewName ? UiConstants::performanceTextScale : 1.0f);
     saveButton.setEnabled(true);
     clearDirty();
@@ -401,6 +403,7 @@ auto WorkspacePage::performSave(const juce::String &viewName) -> void {
     }
 
     currentViewName = viewName;
+    canvas.setPerformanceControlsEnabled(viewName == UiConstants::workspacePerformanceViewName);
     canvas.setTextScale(viewName == UiConstants::workspacePerformanceViewName ? UiConstants::performanceTextScale
                                                                               : 1.0f);
     refreshViewCombo(viewName);

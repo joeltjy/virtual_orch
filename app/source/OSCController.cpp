@@ -35,12 +35,20 @@ OSCController::OSCController(const uint32_t &port) {
         addListener(this, address);
 }
 
+OSCController::OSCController(juce::DatagramSocket &gestureSocket) {
+    for (const auto *address: kSymAddresses)
+        addListener(this, address);
+    connectToSocket(gestureSocket);
+}
+
 OSCController::~OSCController() {
     disconnect();
 }
 
 void OSCController::oscMessageReceived(const OSCMessage &message) {
     if (message.getAddressPattern().toString().startsWith("/sym/")) {
+        if (onSympatheticGesture)
+            onSympatheticGesture();
         handleSympathetic(message);
         return;
     }

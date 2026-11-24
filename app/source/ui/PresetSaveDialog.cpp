@@ -47,11 +47,11 @@ PresetSaveDialog::~PresetSaveDialog() {
 }
 
 void PresetSaveDialog::paint(juce::Graphics &g) {
-    g.fillAll(juce::Colours::black);
+    g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
 }
 
 void PresetSaveDialog::resized() {
-    auto area = getLocalBounds().reduced(10);
+    auto area = getLocalBounds().reduced(12);
 
     presetName.setBounds(area.removeFromTop(60).withTrimmedTop(30));
 

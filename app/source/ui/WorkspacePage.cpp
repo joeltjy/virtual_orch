@@ -3,6 +3,9 @@
 #include "VirtualOrch/AppSession.h"
 #include "VirtualOrch/ui/UiConstants.h"
 
+#include <algorithm>
+#include <array>
+
 WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
     setOpaque(true);
 
@@ -13,6 +16,7 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
 
     toolbarLabel.setText("Workspace", juce::dontSendNotification);
     toolbarLabel.setJustificationType(juce::Justification::centredLeft);
+    toolbarLabel.setFont(juce::Font(UiConstants::chromeTitleFontSize, juce::Font::bold));
     toolbarLabel.setColour(juce::Label::textColourId, UiConstants::workspaceToolbarTitleColour);
     toolbar.addAndMakeVisible(toolbarLabel);
 
@@ -301,7 +305,83 @@ auto WorkspacePage::loadSelectedView() -> void {
         return;
 
     const auto loaded = viewStore.loadView(name);
-    if (loaded.isVoid() || ! canvas.fromVar(loaded)) {
+    if (name == UiConstants::workspacePerformanceViewName && loaded.isObject()) {
+        const auto widgets = loaded.getProperty("widgets", {});
+        if (const auto *items = widgets.getArray(); items != nullptr && items->size() == 6) {
+            const std::array<juce::Rectangle<int>, 6> oldBounds{{
+                {20, 20, 980, 980}, {20, 1020, 980, 300}, {20, 1340, 980, 460},
+                {20, 1820, 480, 160}, {520, 1820, 480, 160}, {20, 2000, 980, 160}
+            }};
+            const std::array<juce::Rectangle<int>, 6> previousBounds{{
+                {630, 20, 370, 705}, {20, 745, 980, 400}, {20, 20, 590, 705},
+                {20, 1165, 310, 255}, {350, 1165, 310, 255}, {680, 1165, 320, 255}
+            }};
+            const std::array<const char *, 6> oldTypes{{
+                UiConstants::workspaceWidgetTypeActiveInstruments, UiConstants::workspaceWidgetTypeScore,
+                UiConstants::workspaceWidgetTypeInstrumentActiveLight,
+                UiConstants::workspaceWidgetTypeInstrumentGroupActivity,
+                UiConstants::workspaceWidgetTypeTdViewer, UiConstants::workspaceWidgetTypeUserSelection
+            }};
+            bool oldDefault = true;
+            bool previousDefault = true;
+            bool widerControlsDefault = true;
+            for (int i = 0; i < items->size(); ++i) {
+                const auto &item = items->getReference(i);
+                const juce::Rectangle<int> bounds{int(item.getProperty("x", 0)), int(item.getProperty("y", 0)),
+                                                  int(item.getProperty("w", 0)), int(item.getProperty("h", 0))};
+                const auto typeMatches = item.getProperty("type", {}).toString() == oldTypes[i];
+                oldDefault &= typeMatches && bounds == oldBounds[i];
+                previousDefault &= typeMatches && bounds == previousBounds[i];
+                const auto widerControlsBounds = i == 0 ? juce::Rectangle<int>(600, 20, 400, 705)
+                    : (i == 2 ? juce::Rectangle<int>(20, 20, 560, 705) : previousBounds[i]);
+                widerControlsDefault &= typeMatches && bounds == widerControlsBounds;
+            }
+            if (oldDefault || previousDefault || widerControlsDefault) {
+                canvas.addPerformanceViewWidgets();
+                currentViewName = name;
+                canvas.setTextScale(UiConstants::performanceTextScale);
+                saveButton.setEnabled(true);
+                clearDirty();
+                return;
+            }
+        }
+    }
+    bool useUpdatedDebugLayout = false;
+    if (name == UiConstants::workspaceOrchestrationDebugViewName) {
+        struct Placement {
+            const char *type;
+            juce::Rectangle<int> bounds;
+        };
+        using namespace UiConstants;
+        const std::array<Placement, 14> legacyLayout{{
+            {workspaceWidgetTypeOrchestrationMidiPianoRoll, {20, 40, 480, 200}},
+            {workspaceWidgetTypeOrchestrationReductionPianoRoll, {20, 260, 480, 200}},
+            {workspaceWidgetTypeGeneration, {520, 40, 230, 180}},
+            {workspaceWidgetTypeReductionTemperature, {760, 40, 240, 280}},
+            {workspaceWidgetTypeMode, {520, 220, 480, 490}},
+            {workspaceWidgetTypeDurationLogits, {520, 720, 200, 200}},
+            {workspaceWidgetTypeOctaveDelta, {730, 720, 160, 200}},
+            {workspaceWidgetTypeReductionTau, {900, 720, 180, 200}},
+            {workspaceWidgetTypeActiveInstruments, {520, 930, 480, 490}},
+            {workspaceWidgetTypeOrchestrationOutputVisualizer, {20, 510, 480, 240}},
+            {workspaceWidgetTypePlaybackOutput, {20, 770, 480, 240}},
+            {workspaceWidgetTypeReductionTransformerOutput, {20, 1030, 480, 180}},
+            {workspaceWidgetTypeReductionModelInput, {520, 1030, 480, 180}},
+            {workspaceWidgetTypeVocsepOutput, {20, 1230, 480, 180}}
+        }};
+        const auto widgets = loaded.getProperty("widgets", {});
+        if (const auto *items = widgets.getArray(); items != nullptr && items->size() == int(legacyLayout.size())) {
+            useUpdatedDebugLayout = std::equal(legacyLayout.begin(), legacyLayout.end(), items->begin(),
+                [](const auto &placement, const auto &item) {
+                    const juce::Rectangle<int> bounds{int(item.getProperty("x", 0)), int(item.getProperty("y", 0)),
+                                                      int(item.getProperty("w", 0)), int(item.getProperty("h", 0))};
+                    return item.getProperty("type", {}).toString() == placement.type && bounds == placement.bounds;
+                });
+        }
+    }
+    if (useUpdatedDebugLayout) {
+        canvas.addOrchestrationDebugViewWidgets();
+    } else if (loaded.isVoid() || ! canvas.fromVar(loaded)) {
         juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon, "Load View",
                                                "Could not load view \"" + name + "\".");
         return;
@@ -477,24 +557,40 @@ auto WorkspacePage::paint(juce::Graphics &g) -> void {
 
 auto WorkspacePage::resized() -> void {
     auto bounds = getLocalBounds();
-    toolbar.setBounds(bounds.removeFromTop(UiConstants::workspaceToolbarHeight));
+    const int rowHeight = UiConstants::workspaceToolbarHeight;
+    const int gap = UiConstants::workspaceToolbarControlGap;
+    const int labelWidth = UiConstants::workspaceToolbarTitleWidth + 12;
+    const int labelGap = UiConstants::workspaceToolbarTitleTrailingGap;
+    const int buttonWidth = UiConstants::workspaceToolbarButtonWidth;
+    const int viewWidth = UiConstants::workspaceToolbarViewComboWidth;
+    const int newWidth = UiConstants::workspaceToolbarNewViewButtonWidth;
+    const int saveAsWidth = UiConstants::workspaceToolbarSaveAsButtonWidth;
+    const int defaultWidth = UiConstants::workspaceToolbarSetDefaultButtonWidth;
+    const int singleRowWidth = labelWidth + labelGap + buttonWidth * 2 + viewWidth + newWidth
+                             + saveAsWidth + defaultWidth + gap * 5
+                             + UiConstants::workspaceToolbarPaddingX * 2;
+    const bool wrap = bounds.getWidth() < singleRowWidth;
+    toolbar.setBounds(bounds.removeFromTop(rowHeight * (wrap ? 2 : 1)));
     canvas.setBounds(bounds);
 
-    auto bar = toolbar.getLocalBounds().reduced(
-        UiConstants::workspaceToolbarPaddingX,
-        UiConstants::workspaceToolbarPaddingY);
-    toolbarLabel.setBounds(bar.removeFromLeft(UiConstants::workspaceToolbarTitleWidth + 12));
-    bar.removeFromLeft(UiConstants::workspaceToolbarTitleTrailingGap);
-
-    addButton.setBounds(bar.removeFromLeft(UiConstants::workspaceToolbarButtonWidth));
-    bar.removeFromLeft(UiConstants::workspaceToolbarControlGap);
-    viewCombo.setBounds(bar.removeFromLeft(UiConstants::workspaceToolbarViewComboWidth));
-    bar.removeFromLeft(UiConstants::workspaceToolbarControlGap);
-    newViewButton.setBounds(bar.removeFromLeft(UiConstants::workspaceToolbarNewViewButtonWidth));
-    bar.removeFromLeft(UiConstants::workspaceToolbarControlGap);
-    saveButton.setBounds(bar.removeFromLeft(UiConstants::workspaceToolbarButtonWidth));
-    bar.removeFromLeft(UiConstants::workspaceToolbarControlGap);
-    saveAsButton.setBounds(bar.removeFromLeft(UiConstants::workspaceToolbarSaveAsButtonWidth));
-    bar.removeFromLeft(UiConstants::workspaceToolbarControlGap);
-    setDefaultButton.setBounds(bar.removeFromLeft(UiConstants::workspaceToolbarSetDefaultButtonWidth));
+    auto rows = toolbar.getLocalBounds();
+    const auto nextRow = [&rows, rowHeight] {
+        return rows.removeFromTop(rowHeight).reduced(UiConstants::workspaceToolbarPaddingX,
+                                                    UiConstants::workspaceToolbarPaddingY);
+    };
+    auto row = nextRow();
+    toolbarLabel.setBounds(row.removeFromLeft(labelWidth));
+    row.removeFromLeft(labelGap);
+    const auto place = [&row, gap](auto &control, int width) {
+        control.setBounds(row.removeFromLeft(width));
+        row.removeFromLeft(gap);
+    };
+    place(addButton, buttonWidth);
+    place(viewCombo, viewWidth);
+    if (wrap)
+        row = nextRow();
+    place(newViewButton, newWidth);
+    place(saveButton, buttonWidth);
+    place(saveAsButton, saveAsWidth);
+    setDefaultButton.setBounds(row.removeFromLeft(defaultWidth));
 }

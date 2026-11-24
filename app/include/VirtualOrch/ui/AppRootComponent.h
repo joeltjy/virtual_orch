@@ -27,6 +27,7 @@ private:
     AppSession session;
     juce::TabbedComponent tabs{juce::TabbedButtonBar::TabsAtTop};
     std::unique_ptr<MainComponent> settingsPage;
+    juce::Viewport settingsViewport;
     std::unique_ptr<WorkspacePage> workspacePage;
     /** The window the keyboard-Launchpad listener is also attached to. */
     juce::Component::SafePointer<juce::Component> listenedWindow;

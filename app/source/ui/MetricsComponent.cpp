@@ -1,4 +1,5 @@
 #include "VirtualOrch/ui/MetricsComponent.h"
+#include "VirtualOrch/ui/UiConstants.h"
 
 MetricsComponent::MetricsComponent(Metrics &metrics) : metrics(metrics), juce::Thread("Metrics") {
     Component::setName("Metrics");
@@ -21,14 +22,13 @@ MetricsComponent::~MetricsComponent() {
 
 
 void MetricsComponent::paint(Graphics &g) {
-    g.setColour(juce::Colours::grey);
-
-    g.drawRoundedRectangle(m_plot.getBounds().toFloat(), 5.0f, 5.0f);
+    g.fillAll(UiConstants::workspacePageBackground);
+    g.setColour(UiConstants::workspaceWidgetBorderColour);
+    g.drawRoundedRectangle(m_plot.getBounds().expanded(6).toFloat(), UiConstants::chromeCornerRadius, 1.0f);
 }
 
 void MetricsComponent::resized() {
-    auto rect = getLocalBounds();
-    m_plot.setBounds(rect);
+    m_plot.setBounds(getLocalBounds().reduced(12));
 }
 
 void MetricsComponent::userTriedToCloseWindow() {

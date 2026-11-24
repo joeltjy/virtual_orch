@@ -11,7 +11,8 @@ auto ConsoleView::setLines(std::vector<juce::String> next) -> void {
 }
 
 auto ConsoleView::paint(juce::Graphics &g) -> void {
-    g.fillAll(juce::Colours::black);
+    WorkspaceWidget::clipContent(g, getLocalBounds());
+    g.fillAll(UiConstants::workspaceWidgetContentBackground);
     const auto area = getLocalBounds().toFloat().reduced(10.0f, 6.0f);
     // Bigger text: as many lines as fit at that size (at least 2), the newest ones.
     const float wantedFont = 18.0f * textScale;
@@ -27,7 +28,7 @@ auto ConsoleView::paint(juce::Graphics &g) -> void {
     for (size_t i = first; i < lines.size(); ++i) {
         const size_t row = fit - (lines.size() - first) + (i - first);
         const float age = static_cast<float>(lines.size() - 1 - i);
-        g.setColour(juce::Colour(0xff9be59b).withAlpha(juce::jmax(0.35f, 1.0f - 0.15f * age)));
+        g.setColour(UiConstants::workspaceWidgetTitleTextColour.withAlpha(juce::jmax(0.35f, 1.0f - 0.15f * age)));
         // A long line is squeezed a little before it is cut off.
         g.drawFittedText(lines[i],
                          area.withY(area.getY() + lineH * static_cast<float>(row)).withHeight(lineH).toNearestInt(),

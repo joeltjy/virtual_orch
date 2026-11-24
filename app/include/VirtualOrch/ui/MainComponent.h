@@ -89,6 +89,7 @@ private:
     juce::TextButton leftPresetButton{"<"}, rightPresetButton{">"}, savePresetButton{"SAVE"};
     juce::ToggleButton autoConnect, mtcClock, inputThru, proportionBias, pianoReductionBias,
             vocsepEnsemble, logitTd;
+    juce::Label presetSection, midiSection, modelSection, outputSection;
     juce::Label presetListLabel, configLabel, mtcClockLabel, mtcClockOffsetLabel, controllerLabel,
             midiInputListLabel, additionalMidiListLabel, pedalMidiListLabel, launchpadMidiListLabel,
             reductionTypeListLabel,
@@ -152,7 +153,7 @@ private:
     void refreshScriptedInputStatus();
 
     juce::TextButton scriptLoadButton{"Load MIDI file..."}, scriptPlayButton{"Play file"};
-    juce::Label scriptFileLabel, scriptStatusLabel;
+    juce::Label scriptFileLabel, scriptStatusLabel, keyboardLaunchpadHint;
     juce::ComboBox scriptTrackList;
     juce::ToggleButton scriptLoop, scriptAutoStart, keyboardLaunchpadToggle;
     std::unique_ptr<juce::FileChooser> scriptChooser;

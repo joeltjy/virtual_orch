@@ -42,6 +42,7 @@ private:
     bool showKeys = false;
 
     struct CellState {
+        int instrument = -1;
         juce::String label;
         /** Palette colour the button shows when lit. */
         uint8_t onPalette = 0;

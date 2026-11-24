@@ -61,7 +61,7 @@ auto ActiveModelWidget::View::paint(juce::Graphics &g) -> void {
 
     auto badge = area.removeFromTop(juce::jmin(46.0f, area.getHeight() * 0.45f));
     g.setColour(colour);
-    g.fillRoundedRectangle(badge, 6.0f);
+    g.fillRoundedRectangle(badge, UiConstants::chromeCornerRadius);
     g.setColour(juce::Colours::black);
     g.setFont(juce::Font(20.0f, juce::Font::bold));
     g.drawFittedText(juce::String(v1 ? "T3'' v2 (v1)" : "WAIT model") + "   "
@@ -79,12 +79,12 @@ auto ActiveModelWidget::View::paint(juce::Graphics &g) -> void {
     area.removeFromTop(4.0f);
     auto bar = area.removeFromTop(12.0f);
     g.setColour(juce::Colours::white.withAlpha(0.1f));
-    g.fillRoundedRectangle(bar, 3.0f);
+    g.fillRoundedRectangle(bar, UiConstants::chromeCornerRadius);
     if (v1 && playingFor >= 0) {
         const float f = juce::jlimit(0.0f, 1.0f, static_cast<float>(playingFor)
                                                       / static_cast<float>(TwoInstrumentAnticipatedReductionTransformer::kHybridPlayToWaitMs));
         g.setColour(kWaitColour.withAlpha(0.8f));
-        g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * f), 3.0f);
+        g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * f), UiConstants::chromeCornerRadius);
     }
     g.setColour(text.withAlpha(0.8f));
     g.setFont(juce::Font(12.0f));

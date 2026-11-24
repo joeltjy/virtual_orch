@@ -11,10 +11,11 @@ auto GroupBarsView::setProportions(const std::array<float, 3> &next) -> void {
 }
 
 auto GroupBarsView::paint(juce::Graphics &g) -> void {
+    WorkspaceWidget::clipContent(g, getLocalBounds());
     g.fillAll(UiConstants::pianoRollBackground);
     static const std::array<juce::String, 3> names{"Strings", "Woodwinds", "Brass"};
-    static const std::array<juce::Colour, 3> colours{juce::Colour(0xff6cc070), juce::Colour(0xff6aaef0),
-                                                     juce::Colour(0xfff07a72)};
+    static const std::array<juce::Colour, 3> colours{UiConstants::stringsColour, UiConstants::woodwindsColour,
+                                                     UiConstants::brassColour};
     const auto area = getLocalBounds().toFloat().reduced(8.0f);
     const float rowH = area.getHeight() / 3.0f;
     const float ts = textScale;
@@ -28,9 +29,9 @@ auto GroupBarsView::paint(juce::Graphics &g) -> void {
 
         const auto track = row.withTrimmedLeft(labelW).withTrimmedRight(valueW);
         g.setColour(juce::Colours::white.withAlpha(0.08f));
-        g.fillRoundedRectangle(track, 3.0f);
+        g.fillRoundedRectangle(track, UiConstants::chromeCornerRadius);
         g.setColour(colours[i]);
-        g.fillRoundedRectangle(track.withWidth(track.getWidth() * proportions[i]), 3.0f);
+        g.fillRoundedRectangle(track.withWidth(track.getWidth() * proportions[i]), UiConstants::chromeCornerRadius);
 
         g.setColour(UiConstants::workspaceWidgetTitleTextColour);
         g.setFont(juce::Font(14.0f * ts, ts > 1.0f ? juce::Font::bold : juce::Font::plain));

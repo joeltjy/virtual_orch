@@ -101,7 +101,13 @@ ModeWidget::ModeWidget(AppSession &sessionIn)
       playbackRtButton(UiConstants::workspaceModePlaybackRtButtonText),
       reductionStatusButton(UiConstants::workspaceModeRunningText),
       orchestrationStatusButton(UiConstants::workspaceModeRunningText) {
-    auto &body = getContentComponent();
+    viewport.setViewedComponent(&body, false);
+    viewport.setScrollBarThickness(UiConstants::workspaceModeContentPadding);
+    viewport.getVerticalScrollBar().setColour(juce::ScrollBar::thumbColourId,
+                                               UiConstants::workspaceWidgetBorderColour);
+    viewport.getHorizontalScrollBar().setColour(juce::ScrollBar::thumbColourId,
+                                                 UiConstants::workspaceWidgetBorderColour);
+    getContentComponent().addAndMakeVisible(viewport);
     const auto labelFont = uiFont();
     const auto mono = profileFont();
 
@@ -234,68 +240,67 @@ ModeWidget::~ModeWidget() {
 auto ModeWidget::resized() -> void {
     WorkspaceWidget::resized();
 
-    auto area = getContentComponent().getLocalBounds().reduced(
-        UiConstants::workspaceModeContentPadding);
+    constexpr int padding = UiConstants::workspaceModeContentPadding;
+    constexpr int rowHeight = UiConstants::workspaceModeRowHeight;
+    constexpr int gap = UiConstants::workspaceModeRowGap;
+    constexpr int maxProfileLines = 13;
+    const auto labelBorder = orchestrationProfileLabel.getBorderSize();
+    const int profileHeight = static_cast<int>(std::ceil(profileFont().getHeight() * maxProfileLines))
+                              + labelBorder.getTopAndBottom();
+    const float timingWidth = UiConstants::measureTextWidth(
+        profileFont(), formatAlignedStep("sample", 0.0f, 0.0f));
+    const int profileWidth = static_cast<int>(std::ceil(timingWidth))
+                             + labelBorder.getLeftAndRight() + 1;
+    const int alertHeight = samplingAlertLabel.getText().isEmpty() ? 0
+        : UiConstants::workspaceModeAlertHeight + gap;
+    const int minHeight = 2 * padding + 5 * (rowHeight + gap) + profileHeight + alertHeight;
+    const int minWidth = 2 * padding + 3 * profileWidth + 2 * gap;
+    viewport.setBounds(getContentComponent().getLocalBounds());
+    const int scrollbar = viewport.getScrollBarThickness();
+    const bool needsHorizontalScroll = minWidth > viewport.getWidth()
+        - (minHeight > viewport.getHeight() ? scrollbar : 0);
+    const int visibleHeight = juce::jmax(0, viewport.getHeight() - (needsHorizontalScroll ? scrollbar : 0));
+    const int visibleWidth = juce::jmax(0, viewport.getWidth() - (minHeight > visibleHeight ? scrollbar : 0));
+    body.setSize(juce::jmax(minWidth, visibleWidth), juce::jmax(minHeight, visibleHeight));
+    auto area = body.getLocalBounds().reduced(padding);
 
-    auto modeRow = area.removeFromTop(UiConstants::workspaceModeRowHeight);
+    auto modeRow = area.removeFromTop(rowHeight);
     editButton.setBounds(modeRow.removeFromLeft(UiConstants::workspaceModeButtonWidth));
-    modeRow.removeFromLeft(UiConstants::workspaceModeRowGap);
+    modeRow.removeFromLeft(gap);
     jamButton.setBounds(modeRow.removeFromLeft(UiConstants::workspaceModeButtonWidth));
-    modeRow.removeFromLeft(UiConstants::workspaceModeRowGap);
+    modeRow.removeFromLeft(gap);
     accompanimentButton.setBounds(modeRow.removeFromLeft(UiConstants::workspaceModeButtonWidth));
-    modeRow.removeFromLeft(UiConstants::workspaceModeRowGap * 2);
-    playbackOtButton.setBounds(
-        modeRow.removeFromLeft(UiConstants::workspaceModePlaybackButtonWidth));
-    modeRow.removeFromLeft(UiConstants::workspaceModeRowGap);
-    playbackRtButton.setBounds(
-        modeRow.removeFromLeft(UiConstants::workspaceModePlaybackButtonWidth));
+    modeRow.removeFromLeft(gap * 2);
+    playbackOtButton.setBounds(modeRow.removeFromLeft(UiConstants::workspaceModePlaybackButtonWidth));
+    modeRow.removeFromLeft(gap);
+    playbackRtButton.setBounds(modeRow.removeFromLeft(UiConstants::workspaceModePlaybackButtonWidth));
 
-    area.removeFromTop(UiConstants::workspaceModeRowGap);
-    modeStatusLabel.setBounds(area.removeFromTop(UiConstants::workspaceModeRowHeight));
+    area.removeFromTop(gap);
+    modeStatusLabel.setBounds(area.removeFromTop(rowHeight));
+    area.removeFromTop(gap);
+    samplingAlertLabel.setBounds(area.removeFromBottom(alertHeight).withTrimmedTop(gap));
 
-    area.removeFromTop(UiConstants::workspaceModeRowGap);
-    samplingAlertLabel.setBounds(area.removeFromBottom(UiConstants::workspaceModeAlertHeight));
-    area.removeFromBottom(UiConstants::workspaceModeRowGap);
-
-    const int pauseBlockHeight =
-        UiConstants::workspaceModeRowHeight * 3 + UiConstants::workspaceModeRowGap * 2;
-    auto pauseArea = area.removeFromTop(pauseBlockHeight);
-    const int halfGap = UiConstants::workspaceModeRowGap / 2;
-    auto reductionCol = pauseArea.removeFromLeft(pauseArea.getWidth() / 2).withTrimmedRight(halfGap);
-    auto orchCol = pauseArea.withTrimmedLeft(halfGap);
-
-    reductionLabel.setBounds(reductionCol.removeFromTop(UiConstants::workspaceModeRowHeight));
-    reductionCol.removeFromTop(UiConstants::workspaceModeRowGap);
-    reductionStatusButton.setBounds(
-        reductionCol.removeFromTop(UiConstants::workspaceModeRowHeight)
-            .withWidth(UiConstants::workspaceModeStatusButtonWidth));
-    reductionCol.removeFromTop(UiConstants::workspaceModeRowGap);
-    reductionLoopMsLabel.setBounds(reductionCol.removeFromTop(UiConstants::workspaceModeRowHeight));
-
-    orchestrationLabel.setBounds(orchCol.removeFromTop(UiConstants::workspaceModeRowHeight));
-    orchCol.removeFromTop(UiConstants::workspaceModeRowGap);
-    orchestrationStatusButton.setBounds(
-        orchCol.removeFromTop(UiConstants::workspaceModeRowHeight)
-            .withWidth(UiConstants::workspaceModeStatusButtonWidth));
-    orchCol.removeFromTop(UiConstants::workspaceModeRowGap);
-    orchestrationLoopMsLabel.setBounds(orchCol.removeFromTop(UiConstants::workspaceModeRowHeight));
-
-    area.removeFromTop(UiConstants::workspaceModeRowGap);
-    const int colGap = UiConstants::workspaceModeRowGap / 2;
-    const int third = area.getWidth() / 3;
-    auto reductionProfileCol = area.removeFromLeft(third).withTrimmedRight(colGap);
-    auto orchProfileCol = area.removeFromLeft(third).withTrimmedRight(colGap);
-    auto vocsepProfileCol = area.withTrimmedLeft(colGap);
-
-    reductionProfileLabel.setBounds(reductionProfileCol);
-    orchestrationProfileLabel.setBounds(orchProfileCol);
-
-    vocsepLabel.setBounds(vocsepProfileCol.removeFromTop(UiConstants::workspaceModeRowHeight));
-    vocsepProfileCol.removeFromTop(UiConstants::workspaceModeRowGap);
-    vocsepLoopMsLabel.setBounds(
-        vocsepProfileCol.removeFromTop(UiConstants::workspaceModeRowHeight));
-    vocsepProfileCol.removeFromTop(UiConstants::workspaceModeRowGap);
-    vocsepProfileLabel.setBounds(vocsepProfileCol);
+    const int columnWidth = (area.getWidth() - 2 * gap) / 3;
+    const auto placeProfile = [rowHeight, gap](juce::Rectangle<int> column, juce::Label &title,
+                                               juce::TextButton *pause, juce::Label &total,
+                                               juce::Label &profile) {
+        title.setBounds(column.removeFromTop(rowHeight));
+        column.removeFromTop(gap);
+        auto pauseRow = column.removeFromTop(rowHeight);
+        if (pause != nullptr)
+            pause->setBounds(pauseRow.withWidth(UiConstants::workspaceModeStatusButtonWidth));
+        column.removeFromTop(gap);
+        total.setBounds(column.removeFromTop(rowHeight));
+        column.removeFromTop(gap);
+        profile.setBounds(column);
+    };
+    placeProfile(area.removeFromLeft(columnWidth), reductionLabel, &reductionStatusButton,
+                 reductionLoopMsLabel, reductionProfileLabel);
+    area.removeFromLeft(gap);
+    placeProfile(area.removeFromLeft(columnWidth), orchestrationLabel, &orchestrationStatusButton,
+                 orchestrationLoopMsLabel, orchestrationProfileLabel);
+    area.removeFromLeft(gap);
+    placeProfile(area, vocsepLabel, nullptr, vocsepLoopMsLabel, vocsepProfileLabel);
 }
 
 auto ModeWidget::mouseDown(const juce::MouseEvent &event) -> void {
@@ -304,6 +309,7 @@ auto ModeWidget::mouseDown(const juce::MouseEvent &event) -> void {
         session.modelSamplingAlert.clear();
         lastAlertSequence = session.modelSamplingAlert.getSequence();
         samplingAlertLabel.setText({}, juce::dontSendNotification);
+        resized();
         return;
     }
 
@@ -361,7 +367,10 @@ auto ModeWidget::refreshFromSession() -> void {
     const auto alertSeq = session.modelSamplingAlert.getSequence();
     if (alertSeq != lastAlertSequence) {
         lastAlertSequence = alertSeq;
-        samplingAlertLabel.setText(session.modelSamplingAlert.snapshot(),
-                                   juce::dontSendNotification);
+        const auto alert = session.modelSamplingAlert.snapshot();
+        const bool visibilityChanged = alert.isEmpty() != samplingAlertLabel.getText().isEmpty();
+        samplingAlertLabel.setText(alert, juce::dontSendNotification);
+        if (visibilityChanged)
+            resized();
     }
 }

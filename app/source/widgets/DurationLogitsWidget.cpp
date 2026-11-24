@@ -14,7 +14,8 @@ public:
     DurationLogitSnapshot snapshot;
 
     auto paint(juce::Graphics &g) -> void override {
-        g.fillAll(juce::Colour(0xff1a1a1a));
+        WorkspaceWidget::clipContent(g, getLocalBounds());
+        g.fillAll(UiConstants::workspaceWidgetContentBackground);
 
         auto area = getLocalBounds().toFloat().reduced(10.0f, 6.0f);
         if (area.getWidth() < 16.0f || area.getHeight() < 16.0f)
@@ -51,7 +52,7 @@ public:
         if (! any || snapshot.sequence == 0) {
             g.setColour(juce::Colours::grey);
             g.setFont(12.0f);
-            g.drawText("Waiting for RT duration step…",
+            g.drawText("Waiting for RT duration step...",
                        area.toNearestIntEdges(),
                        juce::Justification::centred);
             return;

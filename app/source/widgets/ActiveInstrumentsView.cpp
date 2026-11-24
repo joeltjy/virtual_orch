@@ -1,4 +1,5 @@
 #include "VirtualOrch/widgets/ActiveInstrumentsView.h"
+#include "VirtualOrch/widgets/WorkspaceWidget.h"
 
 #include "VirtualOrch/GeneralMidiInstruments.h"
 #include "VirtualOrch/InstrumentConstants.h"
@@ -8,7 +9,6 @@
 #include "VirtualOrch/ui/UiConstants.h"
 
 ActiveInstrumentsView::ActiveInstrumentsView() {
-    setOpaque(true);
 }
 
 auto ActiveInstrumentsView::colourForPalette(uint8_t palette) -> juce::Colour {
@@ -165,7 +165,7 @@ auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid) -> void {
                 continue;
             auto &cell = cellAt(padRow, padCol);
             cell.label = shortNameForLocal(*mapped);
-            cell.onPalette = LaunchpadLighting::colourForInstrumentPad(*mapped, true);
+            cell.instrument = *mapped;
             cell.lit = grid.getEffectiveState(padRow, padCol) != 0;
         }
     }
@@ -208,6 +208,7 @@ auto ActiveInstrumentsView::paintGroupBracket(juce::Graphics &g,
 }
 
 auto ActiveInstrumentsView::paint(juce::Graphics &g) -> void {
+    WorkspaceWidget::clipContent(g, getLocalBounds());
     g.fillAll(UiConstants::pianoRollBackground);
 
     paintGroupBracket(g, userLabelBounds, UiConstants::workspaceActiveInstrumentsInputGroupLabel);
@@ -233,24 +234,35 @@ auto ActiveInstrumentsView::paint(juce::Graphics &g) -> void {
             const bool isTopRight = row == 0 && col == 8;
             if (isTopRight) {
                 g.setColour(UiConstants::pianoRollBackground.brighter(0.04f));
-                g.fillRoundedRectangle(cellBounds, 3.0f);
+                g.fillRoundedRectangle(cellBounds, UiConstants::chromeCornerRadius);
                 continue;
             }
 
-            const auto onColour = colourForPalette(cell.onPalette);
+            auto onColour = colourForPalette(cell.onPalette);
+            if (cell.instrument >= 0) {
+                const auto id = cell.instrument;
+                if (id < InstrumentConstants::kWoodwindLocalIdFirst)
+                    onColour = UiConstants::stringsColour;
+                else if (id <= InstrumentConstants::kWoodwindLocalIdLast)
+                    onColour = UiConstants::woodwindsColour;
+                else if (id <= InstrumentConstants::kBrassLocalIdLast)
+                    onColour = UiConstants::brassColour;
+                else
+                    onColour = UiConstants::percussionColour;
+            }
             const auto offColour = colourForPalette(LaunchpadLighting::kOff);
             const bool labelled = cell.label.isNotEmpty();
             // Unlit buttons keep a faint tint of their lit colour so groups stay readable.
             g.setColour(cell.lit ? onColour
                                  : (labelled ? offColour.interpolatedWith(onColour, 0.22f)
                                              : offColour));
-            g.fillRoundedRectangle(cellBounds, 3.0f);
+            g.fillRoundedRectangle(cellBounds, UiConstants::chromeCornerRadius);
             g.setColour(juce::Colours::white.withAlpha(0.12f));
-            g.drawRoundedRectangle(cellBounds, 3.0f, 1.0f);
+            g.drawRoundedRectangle(cellBounds, UiConstants::chromeCornerRadius, 1.0f);
 
             if (labelled) {
-                g.setColour(cell.lit ? juce::Colours::black.withAlpha(0.85f)
-                                     : UiConstants::workspaceWidgetTitleTextColour.withAlpha(0.85f));
+                g.setColour(cell.lit ? onColour.contrasting()
+                                     : UiConstants::workspaceWidgetTitleTextColour);
                 // Larger text fills more of the cell (drawFittedText still keeps it inside).
                 const float fill = std::min(textScale, 1.7f);
                 const auto fontHeight = juce::jlimit(
@@ -268,11 +280,11 @@ auto ActiveInstrumentsView::paint(juce::Graphics &g) -> void {
                 // Key badge in the top-left corner, readable on lit and unlit buttons.
                 const float badgeH = juce::jlimit(11.0f, 20.0f, cellBounds.getHeight() * 0.32f);
                 g.setFont(juce::Font(badgeH * 0.82f, juce::Font::bold));
-                const float badgeW = g.getCurrentFont().getStringWidthFloat(cell.key) + badgeH * 0.5f;
+                const float badgeW = UiConstants::measureTextWidth(g.getCurrentFont(), cell.key) + badgeH * 0.5f;
                 const auto badge = juce::Rectangle<float>(cellBounds.getX() + 2.0f, cellBounds.getY() + 2.0f,
                                                           badgeW, badgeH);
                 g.setColour(juce::Colours::black.withAlpha(0.72f));
-                g.fillRoundedRectangle(badge, 3.0f);
+                g.fillRoundedRectangle(badge, UiConstants::chromeCornerRadius);
                 g.setColour(juce::Colour(0xff4fc3f7));
                 g.drawText(cell.key, badge, juce::Justification::centred, false);
             }

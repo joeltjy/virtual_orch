@@ -1,4 +1,7 @@
 #include <JuceHeader.h>
+
+#include <cstdio>
+#include <cstdlib>
 #include "VirtualOrch/SessionLog.h"
 #include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/LaunchpadGrid.h"
@@ -46,6 +49,12 @@ public:
         mainWindow = nullptr; // (deletes our window)
         OpLog::stop();
         SessionLog::stop();
+        // Everything is saved and every worker joined: end here, without the exit handlers. Run,
+        // they aborted about every other quit with "corrupted double-linked list", detected in
+        // libcuda's own teardown after the CUDA sessions (AddressSanitizer finds nothing in our
+        // code; with CUDA hidden it never happens).
+        std::fflush(nullptr);
+        std::_Exit(0);
     }
 
     //==============================================================================

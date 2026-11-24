@@ -2,6 +2,7 @@
 
 #include "VirtualOrch/InstrumentConstants.h"
 #include "VirtualOrch/ProjectPaths.h"
+#include "VirtualOrch/SessionLog.h"
 
 PresetStore::PresetStore(ModelConfig &modelConfig)
     : modelConfig(modelConfig),
@@ -14,16 +15,55 @@ PresetStore::PresetStore(ModelConfig &modelConfig)
 }
 
 auto PresetStore::installBundledPresets() -> void {
-    const auto bundled = projectModelsDir().getChildFile("presets");
+    installBundledPresets(projectModelsDir().getChildFile("presets"), presetsDir);
+}
+
+auto PresetStore::installBundledPresets(const juce::File &bundled, const juce::File &presetsDir) -> void {
     if (! bundled.isDirectory())
         return;
+    const auto records = presetsDir.getChildFile(".bundled");
+    records.createDirectory();
+    const auto note = [](const juce::String &text) {
+        DBG("[presets] " + text);
+        if (SessionLog::isRunning())
+            SessionLog::add("UI", "Presets: " + text);
+    };
 
     juce::Array<juce::File> files;
     bundled.findChildFiles(files, juce::File::findFiles, false, "*.json");
     for (const auto &src: files) {
         const auto dest = presetsDir.getChildFile(src.getFileName());
-        if (! dest.existsAsFile())
+        const auto record = records.getChildFile(src.getFileName());
+        const auto srcText = src.loadFileAsString();
+        if (! dest.existsAsFile()) {
             src.copyFileTo(dest);
+            record.replaceWithText(srcText);
+            continue;
+        }
+        const auto destText = dest.loadFileAsString();
+        if (destText == srcText) {
+            if (! record.existsAsFile() || record.loadFileAsString() != srcText)
+                record.replaceWithText(srcText);
+            continue;
+        }
+        if (record.existsAsFile()) {
+            const auto recordText = record.loadFileAsString();
+            if (destText != recordText) {
+                if (recordText != srcText)
+                    note(src.getFileNameWithoutExtension() + " changed in the app, kept your edited copy");
+                continue; // edited here: theirs
+            }
+        } else {
+            // Installed before the records: whether it was edited is unknown, so keep it.
+            const auto backup = records.getChildFile(src.getFileNameWithoutExtension() + "."
+                                                     + juce::Time::getCurrentTime().formatted("%Y-%m-%d_%H-%M-%S")
+                                                     + ".bak");
+            dest.copyFileTo(backup);
+            note(src.getFileNameWithoutExtension() + ": the old copy is in " + backup.getFullPathName());
+        }
+        src.copyFileTo(dest);
+        record.replaceWithText(srcText);
+        note(src.getFileNameWithoutExtension() + " updated to the app's version");
     }
 }
 

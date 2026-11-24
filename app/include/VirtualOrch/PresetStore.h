@@ -20,8 +20,16 @@ public:
 
     auto saveSettings() -> void;
 
-    /** Copy checked-in app/presets/*.json into Documents if missing. */
+    /**
+     * Install the checked-in app/presets/*.json into Presets/ and keep them current. What was
+     * installed is recorded in Presets/.bundled/: an installed preset still equal to its record
+     * (not edited here) follows the checked-in one when that changes; an edited one is left. A
+     * preset installed before the records were kept and different from the checked-in one is
+     * updated, the old file kept as Presets/.bundled/<name>.<stamp>.bak.
+     */
     auto installBundledPresets() -> void;
+    /** installBundledPresets from `bundledDir` into `presetsDir` (tests use temporary folders). */
+    static auto installBundledPresets(const juce::File &bundledDir, const juce::File &presetsDir) -> void;
 
     [[nodiscard]] auto getPresetsDir() const -> const juce::File & { return presetsDir; }
 

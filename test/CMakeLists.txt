@@ -26,7 +26,7 @@ target_link_libraries(${PROJECT_NAME}
     PRIVATE
         juce::juce_audio_utils
         juce::juce_osc
-        GTest::gtest_main
+        GTest::gtest
         onnxruntime
         VirtualOrchLibrary
     PUBLIC

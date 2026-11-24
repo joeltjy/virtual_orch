@@ -722,6 +722,20 @@ auto AppSession::stopGeneration() -> void {
         stopThreadOrReport(reductionTransformerMelodyFirst, modelSamplingAlert);
         stopThreadOrReport(orchestrationTransformer, modelSamplingAlert);
         stopThreadOrReport(outputPlayback, modelSamplingAlert);
+        // Again now that every worker has exited: a reduction that was mid-draw when Stop
+        // cleared its history above added that last note afterwards (a Force restart then
+        // showed one note of the old run in the new one).
+        for (ReductionTransformer *reduction:
+             {static_cast<ReductionTransformer *>(&musicTransformer), static_cast<ReductionTransformer *>(&reductionTransformerV1),
+              static_cast<ReductionTransformer *>(&reductionTransformerV2),
+              static_cast<ReductionTransformer *>(&reductionTransformerPianoReduction),
+              static_cast<ReductionTransformer *>(&reductionTransformerAnticipated),
+              static_cast<ReductionTransformer *>(&reductionTransformerWait),
+              static_cast<ReductionTransformer *>(&reductionTransformerHybrid),
+              static_cast<ReductionTransformer *>(&reductionTransformerInformativeWait),
+              static_cast<ReductionTransformer *>(&reductionTransformerHybridIW),
+              static_cast<ReductionTransformer *>(&reductionTransformerMelodyFirst)})
+            reduction->clearOutputHistory();
         stopJoinInFlight.store(false, std::memory_order_release);
     }).detach();
 }

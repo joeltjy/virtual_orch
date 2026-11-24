@@ -18,12 +18,16 @@ namespace virtual_orch_test {
 
     TEST(MusicTransformer, CanInitializeModel) {
         MusicTransformer musicTransformer{modelConfig};
+        if (! juce::File(modelPath).existsAsFile())
+            GTEST_SKIP() << "bassAndChords.onnx (the old MusicTransformer model) is not in " << modelsDir().getFullPathName();
         musicTransformer.init(modelPath.c_str(), modelType);
         ASSERT_TRUE(true);
     }
 
     TEST(MusicTransformer, CanGenerateTokens) {
         MusicTransformer musicTransformer{modelConfig};
+        if (! juce::File(modelPath).existsAsFile())
+            GTEST_SKIP() << "bassAndChords.onnx (the old MusicTransformer model) is not in " << modelsDir().getFullPathName();
         musicTransformer.init(modelPath.c_str(), modelType);
         musicTransformer.startThread();
         std::this_thread::sleep_for(std::chrono::seconds(2));
@@ -38,6 +42,8 @@ namespace virtual_orch_test {
     TEST(MusicTransformer, CanComplyWithMinimumDuration) {
         MusicTransformer musicTransformer{modelConfig};
         modelConfig.outputMinimumDuration = 999;
+        if (! juce::File(modelPath).existsAsFile())
+            GTEST_SKIP() << "bassAndChords.onnx (the old MusicTransformer model) is not in " << modelsDir().getFullPathName();
         musicTransformer.init(modelPath.c_str(), modelType);
         musicTransformer.startThread();
         std::this_thread::sleep_for(std::chrono::seconds(2));
@@ -49,6 +55,8 @@ namespace virtual_orch_test {
 
     TEST(MusicTransformer, DoesntClearPastEventsOnInput) {
         MusicTransformer musicTransformer{modelConfig};
+        if (! juce::File(modelPath).existsAsFile())
+            GTEST_SKIP() << "bassAndChords.onnx (the old MusicTransformer model) is not in " << modelsDir().getFullPathName();
         musicTransformer.init(modelPath.c_str(), modelType);
         musicTransformer.startThread();
         std::this_thread::sleep_for(std::chrono::seconds(2));
@@ -64,6 +72,8 @@ namespace virtual_orch_test {
 
     TEST(MusicTransformer, ClearsFutureEventsOnInput) {
         MusicTransformer musicTransformer{modelConfig};
+        if (! juce::File(modelPath).existsAsFile())
+            GTEST_SKIP() << "bassAndChords.onnx (the old MusicTransformer model) is not in " << modelsDir().getFullPathName();
         musicTransformer.init(modelPath.c_str(), modelType);
         musicTransformer.startThread();
         std::this_thread::sleep_for(std::chrono::seconds(2));
@@ -83,6 +93,8 @@ namespace virtual_orch_test {
         constexpr OutputInstrumentConfig outputInstrument = {true, true, 30, 31};
         modelConfig.outputInstruments[1] = outputInstrument;
         modelConfig.sortedActiveOutputInstruments.emplace(1);
+        if (! juce::File(modelPath).existsAsFile())
+            GTEST_SKIP() << "bassAndChords.onnx (the old MusicTransformer model) is not in " << modelsDir().getFullPathName();
         musicTransformer.init(modelPath.c_str(), modelType);
         musicTransformer.startThread();
         std::this_thread::sleep_for(std::chrono::seconds(2));
@@ -94,6 +106,8 @@ namespace virtual_orch_test {
 
     TEST(MusicTransformer, CanGoOverMaxTime) {
         MusicTransformer musicTransformer{modelConfig};
+        if (! juce::File(modelPath).existsAsFile())
+            GTEST_SKIP() << "bassAndChords.onnx (the old MusicTransformer model) is not in " << modelsDir().getFullPathName();
         musicTransformer.init(modelPath.c_str(), modelType);
         musicTransformer.inputTokenQueue.push({Config::MaxTime + 100, Vocab::DurOffset + 10, Vocab::NoteOffset + 5});
         musicTransformer.startThread();

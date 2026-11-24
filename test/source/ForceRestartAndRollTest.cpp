@@ -76,20 +76,25 @@ TEST(PianoRollProvisional, heldNotesAreOutlinesAndLockedInNotesAreSolid) {
     roll.setPitchRange(50, 80);
     roll.setNoteColours(juce::Colours::white, juce::Colours::white);
 
+    // What the roll draws without notes (background, grid, now bar): subtracted, so only the notes count.
+    const auto empty = roll.createComponentSnapshot(roll.getLocalBounds(), false);
+    const float lockedBase = bandBrightness(empty, 60, 50, 80);
+    const float heldBase = bandBrightness(empty, 70, 50, 80);
+
     // pitch 60: finished note (locked in); pitch 70: still held (provisional duration 400 cs)
     roll.setNotes({note(-100, 300, 60), note(-100, 400, 70)});
 
     roll.setProvisionalDurationCs(0); // baseline: everything solid
     const auto plain = roll.createComponentSnapshot(roll.getLocalBounds(), false);
-    const float lockedPlain = bandBrightness(plain, 60, 50, 80);
-    const float heldPlain = bandBrightness(plain, 70, 50, 80);
+    const float lockedPlain = bandBrightness(plain, 60, 50, 80) - lockedBase;
+    const float heldPlain = bandBrightness(plain, 70, 50, 80) - heldBase;
     ASSERT_GT(lockedPlain, 0.02f);
     ASSERT_GT(heldPlain, 0.02f);
 
     roll.setProvisionalDurationCs(400);
     const auto marked = roll.createComponentSnapshot(roll.getLocalBounds(), false);
-    const float lockedMarked = bandBrightness(marked, 60, 50, 80);
-    const float heldMarked = bandBrightness(marked, 70, 50, 80);
+    const float lockedMarked = bandBrightness(marked, 60, 50, 80) - lockedBase;
+    const float heldMarked = bandBrightness(marked, 70, 50, 80) - heldBase;
     EXPECT_NEAR(lockedMarked, lockedPlain, lockedPlain * 0.02f) << "a locked-in note is unchanged";
     EXPECT_LT(heldMarked, heldPlain * 0.5f) << "the held note's body is mostly transparent";
     EXPECT_GT(heldMarked, 0.0f) << "but its outline is drawn";

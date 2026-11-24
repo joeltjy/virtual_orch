@@ -62,6 +62,7 @@ private:
 
     juce::Font musicFont;
     juce::Path sharpSign, flatSign, naturalSign, doubleSharpSign, doubleFlatSign; // at height 1
+    juce::Path trebleClef, bassClef; // the clef outlines as the font draws them (scaled to the staff per frame)
     int32_t nowCs = 0;
     float textScale = 1.0f;
     bool showKeySignature = false;

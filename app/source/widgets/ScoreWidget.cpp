@@ -53,6 +53,8 @@ ScoreView::ScoreView() : musicFont(musicTypeface()) {
     naturalSign = outline(kNatural);
     doubleSharpSign = outline(kDoubleSharp);
     doubleFlatSign = outline(kDoubleFlat);
+    trebleClef = outline(kGClef);
+    bassClef = outline(kFClef);
 }
 
 auto ScoreView::setFrame(int32_t now, std::vector<DrawNote> nextNotes, std::vector<DrawName> nextNames, DrawKey nextKey)
@@ -101,7 +103,7 @@ auto ScoreView::paint(juce::Graphics &g) -> void {
     const float trebleTop = s * (3.7f + nameRows); // F5 line
     const float bassTop = trebleTop + s * 8.0f; // A3 line
     const int sigCount = showKeySignature ? std::clamp(key.signature, -7, 7) : 0;
-    const float clefGutter = s * 3.2f;
+    const float clefGutter = s * 3.7f;
     const float gutter = clefGutter + (sigCount != 0 ? s * (0.4f + 0.9f * static_cast<float>(std::abs(sigCount))) : 0.0f);
     const float nowX = gutter + (w - gutter) * 0.5f;
     const float pxPerCs = (w - gutter) * 0.5f / static_cast<float>(kWindowCs);
@@ -117,15 +119,21 @@ auto ScoreView::paint(juce::Graphics &g) -> void {
         g.drawHorizontalLine(juce::roundToInt(trebleTop + s * static_cast<float>(i)), 2.0f, w);
         g.drawHorizontalLine(juce::roundToInt(bassTop + s * static_cast<float>(i)), 2.0f, w);
     }
+    // Clefs sized from their own outlines in staff spaces (engraving proportions, as SMuFL's
+    // Bravura): the G clef 7 s tall with its top 4.4 s above the G line, the F clef 3.65 s
+    // tall with its top 1 s above the F line (dots either side of it). A font size alone
+    // leaves how much of the em the glyph fills to the font, and the F clef came out small.
     g.setColour(kInk);
-    g.setFont(musicFont.withHeight(s * 6.6f));
-    g.drawText(juce::String::charToString(kGClef),
-               juce::Rectangle<float>(2.0f, trebleTop - s * 2.4f, clefGutter, s * 8.0f),
-               juce::Justification::centred, false);
-    g.setFont(musicFont.withHeight(s * 3.6f));
-    g.drawText(juce::String::charToString(kFClef),
-               juce::Rectangle<float>(2.0f, bassTop - s * 0.9f, clefGutter, s * 4.4f),
-               juce::Justification::centred, false);
+    const auto drawClef = [&](const juce::Path &clef, float topY, float inkHeight) {
+        const auto b = clef.getBounds();
+        if (b.getHeight() <= 0.0f)
+            return;
+        const float k = inkHeight / b.getHeight();
+        const float x = s * 0.3f + std::max(0.0f, (clefGutter - s * 0.6f - b.getWidth() * k) * 0.5f);
+        g.fillPath(clef, juce::AffineTransform::translation(-b.getX(), -b.getY()).scaled(k).translated(x, topY));
+    };
+    drawClef(trebleClef, trebleTop + s * 3.0f - s * 4.4f, s * 7.0f); // G line: 2nd from the bottom
+    drawClef(bassClef, bassTop + s * 1.0f - s * 1.02f, s * 3.65f);    // F line: 2nd from the top
 
     // Key signature after the clefs.
     for (int i = 0; i < std::abs(sigCount); ++i) {

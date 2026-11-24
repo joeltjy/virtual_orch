@@ -64,7 +64,7 @@ auto InformativeWaitReductionTransformer::init(const char *modelPath) -> bool {
         return false;
     }
     if (onnx->keepsKvOnDevice())
-        SessionLog::add("IWAIT", "CUDA session: the batched precompute needs host KV, so fires are decoded on the spot");
+        SessionLog::add("IWAIT", "CUDA session: the KV and the batched precompute stay on the GPU");
     initWithBackend(std::move(onnx));
     return true;
 }

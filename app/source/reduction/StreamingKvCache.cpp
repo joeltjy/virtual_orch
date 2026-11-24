@@ -1,6 +1,8 @@
 #include <cstdio>
 #include "VirtualOrch/reduction/StreamingKvCache.h"
 
+#include <cstdlib>
+
 #include "VirtualOrch/OrtEnv.h"
 
 #include <algorithm>
@@ -67,7 +69,17 @@ auto evictForIncoming(State &state, const Dims &dims, int incoming) -> void {
 }
 
 auto tileState(const State &one, const Dims &dims, int batch, BatchState &out) -> bool {
-    if (batch <= 0 || one.device != nullptr || (one.rows > 0 && one.key.empty()))
+    if (batch <= 0)
+        return false;
+    if (one.device != nullptr) {
+        out.key.clear();
+        out.value.clear();
+        out.device = one.device->tile(batch);
+        out.rows = one.rows;
+        out.batch = batch;
+        return out.device != nullptr;
+    }
+    if (one.rows > 0 && one.key.empty())
         return false;
     const size_t layerBlock = static_cast<size_t>(dims.heads) * static_cast<size_t>(one.rows)
                               * static_cast<size_t>(dims.headDim);
@@ -80,6 +92,7 @@ auto tileState(const State &one, const Dims &dims, int batch, BatchState &out) -
     };
     tile(one.key, out.key);
     tile(one.value, out.value);
+    out.device = nullptr;
     out.rows = one.rows;
     out.batch = batch;
     return true;
@@ -91,6 +104,12 @@ auto evictBatchForIncoming(BatchState &state, const Dims &dims, int incoming) ->
     const int keepRecent = std::max(0, dims.maxRows - dims.sinkRows - incoming);
     const int head = std::min(dims.sinkRows, state.rows);
     const int tailFrom = std::max(head, state.rows - keepRecent);
+    if (state.device != nullptr) {
+        // null on failure: the next runBatched() sees rows without data and fails
+        state.device = state.device->keepRows(head, tailFrom);
+        state.rows = head + (state.rows - tailFrom);
+        return;
+    }
     const int blocks = dims.layers * state.batch * dims.heads;
     state.key = sliceRows(state.key, blocks, state.rows, dims.headDim, head, tailFrom);
     state.value = sliceRows(state.value, blocks, state.rows, dims.headDim, head, tailFrom);
@@ -242,21 +261,21 @@ struct OnnxBackend::CudaContext {
 
 namespace {
 
-/** present_key / present_value of one run, left in GPU memory. */
+/** present_key / present_value of one run, left in GPU memory: [layers, batch, heads, rows, dim]. */
 class CudaKv final : public DeviceKv {
 public:
     CudaKv(std::shared_ptr<OnnxBackend::CudaContext> contextIn, Ort::Value keyIn,
-           Ort::Value valueIn, int rowsIn)
+           Ort::Value valueIn, int rowsIn, int batchIn = 1)
         : context(std::move(contextIn)), key(std::move(keyIn)), value(std::move(valueIn)),
-          rows(rowsIn) {}
+          rows(rowsIn), batch(batchIn) {}
 
     [[nodiscard]] auto keepRows(int head, int tailFrom) const
         -> std::shared_ptr<const DeviceKv> override {
         const auto &d = context->dims;
         const int tail = rows - tailFrom;
         const int newRows = head + tail;
-        const std::array<int64_t, 5> shape{d.layers, 1, d.heads, newRows, d.headDim};
-        const auto blocks = static_cast<size_t>(d.layers) * static_cast<size_t>(d.heads);
+        const std::array<int64_t, 5> shape{d.layers, batch, d.heads, newRows, d.headDim};
+        const auto blocks = static_cast<size_t>(d.layers) * static_cast<size_t>(batch) * static_cast<size_t>(d.heads);
         const size_t rowBytes = static_cast<size_t>(d.headDim) * sizeof(float);
         try {
             auto newKey = Ort::Value::CreateTensor<float>(context->allocator, shape.data(), shape.size());
@@ -281,7 +300,38 @@ public:
             };
             if (! copy(key, newKey) || ! copy(value, newValue))
                 return nullptr;
-            return std::make_shared<CudaKv>(context, std::move(newKey), std::move(newValue), newRows);
+            return std::make_shared<CudaKv>(context, std::move(newKey), std::move(newValue), newRows, batch);
+        } catch (const Ort::Exception &) {
+            return nullptr;
+        }
+    }
+
+    [[nodiscard]] auto tile(int n) const -> std::shared_ptr<const DeviceKv> override {
+        if (batch != 1 || n <= 0)
+            return nullptr;
+        const auto &d = context->dims;
+        const std::array<int64_t, 5> shape{d.layers, n, d.heads, rows, d.headDim};
+        // one layer's [heads][rows][dim] block, copied to branch b of every layer in one strided copy
+        const size_t blockBytes = static_cast<size_t>(d.heads) * static_cast<size_t>(rows)
+                                  * static_cast<size_t>(d.headDim) * sizeof(float);
+        try {
+            auto newKey = Ort::Value::CreateTensor<float>(context->allocator, shape.data(), shape.size());
+            auto newValue = Ort::Value::CreateTensor<float>(context->allocator, shape.data(), shape.size());
+            const auto copy = [&](const Ort::Value &src, Ort::Value &dst) {
+                if (blockBytes == 0)
+                    return true;
+                const auto *from = static_cast<const char *>(src.GetTensorRawData());
+                auto *to = static_cast<char *>(dst.GetTensorMutableRawData());
+                for (int b = 0; b < n; ++b)
+                    if (context->memcpy2D(to + static_cast<size_t>(b) * blockBytes, static_cast<size_t>(n) * blockBytes,
+                                          from, blockBytes, blockBytes, static_cast<size_t>(d.layers),
+                                          OnnxBackend::CudaContext::kDeviceToDevice) != 0)
+                        return false;
+                return true;
+            };
+            if (! copy(key, newKey) || ! copy(value, newValue))
+                return nullptr;
+            return std::make_shared<CudaKv>(context, std::move(newKey), std::move(newValue), rows, n);
         } catch (const Ort::Exception &) {
             return nullptr;
         }
@@ -292,6 +342,7 @@ public:
     Ort::Value key;
     Ort::Value value;
     int rows;
+    int batch;
 };
 
 /** cudaMemcpy2D from the cudart the CUDA provider already loaded (no link-time CUDA dependency). */
@@ -403,6 +454,22 @@ auto OnnxBackend::init(const char *modelPath, std::string &error) -> bool {
     return true;
 }
 
+/**
+ * Run options for the GPU runs: unless VIRTUAL_ORCH_KV_ARENA_KEEP is set, the CUDA arena hands its unused
+ * memory back after each run. Its KV states are a few rows longer every call, so a freed block is just too
+ * small for the next request; the arena kept growing (Hybrid v1.1's batched precompute: ~1 GB a minute,
+ * 15 of 16 GB) instead of reusing it.
+ */
+static auto deviceRunOptions() -> Ort::RunOptions & {
+    static Ort::RunOptions options = [] {
+        Ort::RunOptions o;
+        if (std::getenv("VIRTUAL_ORCH_KV_ARENA_KEEP") == nullptr)
+            o.AddConfigEntry("memory.enable_memory_arena_shrinkage", "gpu:0");
+        return o;
+    }();
+    return options;
+}
+
 auto OnnxBackend::run(const State &past, const std::vector<int64_t> &ids, State &present,
                       std::vector<float> &lastLogits) -> bool {
     if (session == nullptr || ids.empty())
@@ -467,7 +534,7 @@ auto OnnxBackend::runOnDevice(const State &past, const std::vector<int64_t> &ids
         binding.BindOutput(bound[2], cuda->memory);
 
         binding.SynchronizeInputs();
-        session->Run(Ort::RunOptions{nullptr}, binding);
+        session->Run(deviceRunOptions(), binding);
         binding.SynchronizeOutputs();
         auto outputs = binding.GetOutputValues();
         if (outputs.size() != bound.size())
@@ -566,10 +633,23 @@ auto OnnxBackend::runOnHost(const State &past, const std::vector<int64_t> &ids, 
 
 auto OnnxBackend::runBatched(const BatchState &past, const std::vector<int64_t> &ids, BatchState &present,
                              std::vector<float> &logits) -> bool {
-    if (session == nullptr || cuda != nullptr || ids.empty() || past.batch <= 0
-        || ids.size() % static_cast<size_t>(past.batch) != 0)
+    if (session == nullptr || ids.empty() || past.batch <= 0 || ids.size() % static_cast<size_t>(past.batch) != 0)
         return false;
+    const auto expected = static_cast<size_t>(dimsValue.layers) * static_cast<size_t>(past.batch)
+                          * static_cast<size_t>(dimsValue.heads) * static_cast<size_t>(past.rows)
+                          * static_cast<size_t>(dimsValue.headDim);
+    if (past.device == nullptr && (past.key.size() != expected || past.value.size() != expected)) {
+        lastError = "past batch KV has rows but no data";
+        return false;
+    }
+    if (cuda != nullptr)
+        return runBatchedOnDevice(past, ids, present, logits);
+    if (past.device != nullptr) {
+        lastError = "past batch KV is on a device this session cannot read";
+        return false;
+    }
     try {
+        present.device = nullptr;
         std::vector<int64_t> idsCopy = ids;
         const auto batch = static_cast<int64_t>(past.batch);
         const auto perBranch = static_cast<int64_t>(ids.size()) / batch;
@@ -633,6 +713,94 @@ auto OnnxBackend::runBatched(const BatchState &past, const std::vector<int64_t> 
                 present.value.assign(data, data + info.GetElementCount());
             }
         }
+        return true;
+    } catch (const Ort::Exception &ex) {
+        lastError = ex.what();
+        return false;
+    }
+}
+
+/**
+ * runBatched with the KV on the GPU (as runOnDevice): past_* bound from a tiled device state (or a
+ * host one, copied in by ORT), present_* left on the GPU, only each branch's last logits come out.
+ */
+auto OnnxBackend::runBatchedOnDevice(const BatchState &past, const std::vector<int64_t> &ids, BatchState &present,
+                                     std::vector<float> &logits) -> bool {
+    const auto *pastDevice = dynamic_cast<const CudaKv *>(past.device.get());
+    if (past.device != nullptr && (pastDevice == nullptr || pastDevice->batch != past.batch || pastDevice->rows != past.rows)) {
+        lastError = "past batch KV belongs to another backend or batch";
+        return false;
+    }
+    try {
+        std::vector<int64_t> idsCopy = ids;
+        const auto batch = static_cast<int64_t>(past.batch);
+        const auto perBranch = static_cast<int64_t>(ids.size()) / batch;
+        const std::array<int64_t, 2> idsShape{batch, perBranch};
+        std::vector<int64_t> positions(ids.size());
+        for (size_t i = 0; i < positions.size(); ++i)
+            positions[i] = static_cast<int64_t>(past.rows) + static_cast<int64_t>(i % static_cast<size_t>(perBranch));
+        const std::array<int64_t, 5> pastShape{dimsValue.layers, batch, dimsValue.heads, past.rows,
+                                               dimsValue.headDim};
+        static float emptyData = 0.0f;
+
+        std::vector<Ort::Value> hostInputs;
+        hostInputs.reserve(inputNames.size());
+        Ort::IoBinding binding(*session);
+        for (const auto &name: inputNames) {
+            if (name == "input_ids" || name == "position_ids") {
+                auto &data = name == "input_ids" ? idsCopy : positions;
+                hostInputs.push_back(Ort::Value::CreateTensor<int64_t>(
+                    memoryInfo, data.data(), data.size(), idsShape.data(), idsShape.size()));
+                binding.BindInput(name.c_str(), hostInputs.back());
+            } else if (name == "past_key" || name == "past_value") {
+                const bool isKey = name == "past_key";
+                if (pastDevice != nullptr) {
+                    binding.BindInput(name.c_str(), isKey ? pastDevice->key : pastDevice->value);
+                } else {
+                    const auto &host = isKey ? past.key : past.value;
+                    auto *ptr = const_cast<float *>(host.empty() ? &emptyData : host.data());
+                    hostInputs.push_back(Ort::Value::CreateTensor<float>(
+                        memoryInfo, ptr, host.size(), pastShape.data(), pastShape.size()));
+                    binding.BindInput(name.c_str(), hostInputs.back());
+                }
+            } else {
+                lastError = "unexpected input " + name;
+                return false;
+            }
+        }
+        const std::array<const char *, 3> bound{"logits", "present_key", "present_value"};
+        binding.BindOutput(bound[0], memoryInfo);
+        binding.BindOutput(bound[1], cuda->memory);
+        binding.BindOutput(bound[2], cuda->memory);
+
+        binding.SynchronizeInputs();
+        session->Run(deviceRunOptions(), binding);
+        binding.SynchronizeOutputs();
+        auto outputs = binding.GetOutputValues();
+        if (outputs.size() != bound.size())
+            return false;
+
+        const auto logitShape = outputs[0].GetTensorTypeAndShapeInfo().GetShape();
+        if (logitShape.size() != 3 || logitShape[0] != batch || logitShape[1] <= 0 || logitShape[2] <= 0)
+            return false;
+        const auto v = static_cast<size_t>(logitShape[2]);
+        const auto n = static_cast<size_t>(logitShape[1]);
+        const float *data = outputs[0].GetTensorData<float>();
+        logits.resize(static_cast<size_t>(batch) * v);
+        for (size_t b = 0; b < static_cast<size_t>(batch); ++b) {
+            const float *row = data + (b * n + (n - 1)) * v;
+            std::copy(row, row + v, logits.begin() + static_cast<std::ptrdiff_t>(b * v));
+        }
+
+        const auto kvShape = outputs[1].GetTensorTypeAndShapeInfo().GetShape();
+        if (kvShape.size() != 5 || kvShape[1] != batch)
+            return false;
+        present.key.clear();
+        present.value.clear();
+        present.rows = static_cast<int>(kvShape[3]);
+        present.batch = static_cast<int>(batch);
+        present.device = std::make_shared<CudaKv>(cuda, std::move(outputs[1]), std::move(outputs[2]),
+                                                  present.rows, present.batch);
         return true;
     } catch (const Ort::Exception &ex) {
         lastError = ex.what();

@@ -38,9 +38,11 @@ struct Dims {
 class DeviceKv {
 public:
     virtual ~DeviceKv() = default;
-    /** Rows [0, head) and [tailFrom, rows) of every (layer, head) block; nullptr on failure. */
+    /** Rows [0, head) and [tailFrom, rows) of every (layer, branch, head) block; nullptr on failure. */
     [[nodiscard]] virtual auto keepRows(int head, int tailFrom) const
         -> std::shared_ptr<const DeviceKv> = 0;
+    /** `batch` copies of a batch-1 state, in the same memory (BatchState::device); nullptr if unsupported. */
+    [[nodiscard]] virtual auto tile(int /*batch*/) const -> std::shared_ptr<const DeviceKv> { return nullptr; }
 };
 
 /**
@@ -62,16 +64,21 @@ auto evictForIncoming(State &state, const Dims &dims, int incoming) -> void;
 
 /**
  * Several branches of one context (informative-WAIT anticipation): keys / values laid out
- * [layer][batch][head][row][dim] in host memory, every branch with the same number of rows.
+ * [layer][batch][head][row][dim], every branch with the same number of rows; in `key` / `value`, or,
+ * when `device` is set, in the backend's memory (as State).
  */
 struct BatchState {
     std::vector<float> key;
     std::vector<float> value;
     int rows = 0;
     int batch = 0;
+    std::shared_ptr<const DeviceKv> device;
 };
 
-/** `batch` copies of a batch-1 host State (false for a device State: the caller decodes one by one). */
+/**
+ * `batch` copies of a batch-1 State: a host State on the host, a device State in device memory
+ * (DeviceKv::tile). False when that is not possible.
+ */
 auto tileState(const State &one, const Dims &dims, int batch, BatchState &out) -> bool;
 
 /** Make room for `incoming` rows in every branch (sink rows + newest rows, as evictForIncoming). */
@@ -180,7 +187,7 @@ public:
     [[nodiscard]] auto dims() const -> Dims override { return dimsValue; }
     [[nodiscard]] auto run(const State &past, const std::vector<int64_t> &ids, State &present,
                            std::vector<float> &lastLogits) -> bool override;
-    /** Host sessions only (the CUDA session keeps batch-1 device states: returns false). */
+    /** On the host, or with the KV kept on the GPU (CUDA session: `past` / `present` device states). */
     [[nodiscard]] auto runBatched(const BatchState &past, const std::vector<int64_t> &ids, BatchState &present,
                                   std::vector<float> &logits) -> bool override;
 
@@ -193,6 +200,8 @@ private:
                    std::vector<float> &lastLogits) -> bool;
     auto runOnDevice(const State &past, const std::vector<int64_t> &ids, State &present,
                      std::vector<float> &lastLogits) -> bool;
+    auto runBatchedOnDevice(const BatchState &past, const std::vector<int64_t> &ids, BatchState &present,
+                            std::vector<float> &logits) -> bool;
 
     // Shared with the device states, which must not outlive the session that allocated them.
     std::shared_ptr<Ort::Session> session;

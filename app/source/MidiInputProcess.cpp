@@ -228,11 +228,9 @@ auto MidiInputProcess::hasUnflushedDirectNotes() const -> bool {
 
 void MidiInputProcess::sendTokensToMusicTransformer(const std::optional<int32_t> atTime) {
     for (auto &token: tokensToSend) {
-        std::cout << "considering token: " << token.note << std::endl;
         if (atTime.has_value()) {
             token.time = atTime.value();
         }
-        std::cout << "input token: " << token.toUnderstandableString() << std::endl;
         if (inputFilter != nullptr)
             inputFilter->filter(token);
     }
@@ -249,7 +247,11 @@ void MidiInputProcess::timerCallback() {
         || time - lastTokenAddedTime <= modelConfig.directInputWindowLength) {
         return;
     }
+    flushDirectNotes();
+    stopTimer();
+}
 
+void MidiInputProcess::flushDirectNotes() {
     std::optional<int32_t> atTime;
     if (modelConfig.directInputStartOnInput && musicDirectInputBlock().get()) {
         atTime = static_cast<int32_t>(lastTokenAddedTime + modelConfig.directInputStartDelay);
@@ -299,7 +301,6 @@ void MidiInputProcess::timerCallback() {
                     {{"keys", OpLog::Raw{flushed + "]"}}, {"window_cs", static_cast<int64_t>(modelConfig.directInputWindowLength)},
                      {"start_on_input", atTime.has_value() ? OpLog::Value(static_cast<int64_t>(*atTime)) : OpLog::Value()}});
     sendTokensToMusicTransformer(std::nullopt);
-    stopTimer();
 }
 
 void MidiInputProcess::logIncomingMidiMessage(const juce::String &sourceId, const juce::String &sourceName,
@@ -620,6 +621,15 @@ void MidiInputProcess::handleNoteOn(int midiNoteNumber, float velocity, int pian
                                                            {"vel", inputToken.velocity}, {"piano", piano}});
         }
         lastTokenAddedTime = time;
+        // A window of 0 cs: each key goes to the reduction now, on this (MIDI) thread. Through the 10 ms
+        // message-thread timer and the "more than the window since the last key" test on the cs clock,
+        // a key reached the model ~20 ms late even with a 1 cs window (Nov 24 2026). A chord's keys are
+        // grouped by the reduction itself (InformativeWaitEngine::kMergeCs).
+        if (modelConfig.directInputWindowLength <= 0 && ! modelConfig.directInputStartOnInput
+            && ! modelConfig.directInputHoldBass) {
+            flushDirectNotes();
+            return;
+        }
         if (!isTimerRunning()) {
             std::cout << "starting timer: 10ms" << std::endl;
             startTimer(10);

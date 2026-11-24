@@ -310,6 +310,8 @@ public:
     /** The anticipated top-5 piano pitches of the pending WAIT (empty when none yet). */
     [[nodiscard]] auto anticipatedPitches() const -> std::vector<int32_t>;
     [[nodiscard]] auto precomputeComplete() const -> bool;
+    /** A precompute is under way: the next step() runs its next model call (the RT should not sleep). */
+    [[nodiscard]] auto precomputing() const -> bool { return pending.has_value() && pre.has_value() && ! pre->complete && ! pre->failed; }
     std::string lastError;
     /** Record every draw (p, p_model, top 10) for the operation log: OutNote::draws, lastWaitDraws(). */
     bool logDraws = false;

@@ -427,8 +427,12 @@ auto HybridInformativeWaitReductionTransformer::generate(int32_t now) -> bool {
         const int32_t dur = std::clamp(n.durationCs, 1, 995);
         const auto quad = denseQuad(n.onsetCs, dur, 1, n.pitch, n.velocity);
         inputData.insert(inputData.end(), quad.begin(), quad.end());
+        // Model 2 plays while the pianist does: its notes go out louder so the orchestra is heard over
+        // the piano (the context keeps the model's own velocity). Both models give 120 almost always,
+        // so this is at most +7, to 127.
+        const int32_t outVelocity = &active == &waitEngine ? std::min(127, n.velocity + kSimultaneousVelocityBoost) : n.velocity;
         Token token{n.onsetCs, static_cast<int32_t>(DenseVocab::DurOffset) + dur,
-                    static_cast<int32_t>(DenseVocab::NoteOffset) + n.pitch, n.velocity};
+                    static_cast<int32_t>(DenseVocab::NoteOffset) + n.pitch, outVelocity};
         token.noteId = nextNoteId.fetch_add(1, std::memory_order_relaxed);
         if (logging)
             logDraw(active, &active == &silentEngine ? "m1" : "m2", n, token.noteId, now);
@@ -549,7 +553,9 @@ void HybridInformativeWaitReductionTransformer::threadRun() {
             continue;
         }
         wasGenerationPaused = false;
-        if (! generate(now))
+        // no note this step: nap 2 ms (a key or update wakes the thread at once, InputFilter::onReductionInput),
+        // but not between the precompute's model calls: the naps added ~2 ms a call (Nov 24 2026)
+        if (! generate(now) && ! (! silentActive.load() && waitEngine.precomputing()))
             wait(2);
         recordThreadLoopMs(loopStartMs);
     }

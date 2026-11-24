@@ -5,7 +5,7 @@
   "orchestrationMode": "jam",
   "inputMode": "direct",
   "inputFilterType": "passthrough",
-  "directInputWindowLength": 1,
+  "directInputWindowLength": 0,
   "directInputSendNoteOffs": true,
   "directInputStartOnInput": false,
   "directInputStartDelay": 0,

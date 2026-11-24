@@ -420,6 +420,7 @@ auto AppSession::rebuildInputFilter() -> void {
     inputFilter->orchestrationMidiOutgoing = &orchestrationTransformer.midiInputIncoming;
     inputFilter->orchestrationConditioningOutgoing =
         &orchestrationTransformer.conditioningIncoming;
+    inputFilter->onReductionInput = [&reduction] { reduction.notify(); }; // a key wakes the RT at once
 }
 
 auto AppSession::bindActiveMusicBackend() -> void {

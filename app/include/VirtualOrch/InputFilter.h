@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include <memory>
 #include <vector>
 
@@ -37,6 +39,8 @@ public:
 
     /** Optional: live keyboard tokens for OT (retagged as piano). */
     CircularFifo<Token> *orchestrationMidiOutgoing = nullptr;
+    /** Called after a token or update reaches the reduction's queues: wakes its thread (no 2 ms nap). */
+    std::function<void()> onReductionInput;
 
     /** Optional: conditioning tokens for OT. */
     CircularFifo<Token> *orchestrationConditioningOutgoing = nullptr;

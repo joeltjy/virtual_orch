@@ -28,6 +28,8 @@ auto InputFilter::processUpdates() -> int {
         const bool updatedConditioning = applyTokenUpdateToHistory(pastConditioning, update);
         if (updatedInput || updatedConditioning) {
             updatesFromFilter.push(update);
+            if (onReductionInput)
+                onReductionInput();
             if (OpLog::on())
                 OpLog::emit(OpLog::Src::Input, "Q_PUSH", {{"queue", "updates→rt"}, {"item", OpLog::id('k', update.newNote.keyId)}});
             ++applied;
@@ -38,8 +40,11 @@ auto InputFilter::processUpdates() -> int {
 
 void InputFilter::pushToken(const Token &token) {
     const bool toRt = ! ReductionInputGate::isBlocked(); // CC107: the reduction does not hear the user
-    if (toRt)
+    if (toRt) {
         inputTokenQueue.push(token);
+        if (onReductionInput)
+            onReductionInput();
+    }
     pastInput.push_back(token);
     if (orchestrationMidiOutgoing != nullptr)
         orchestrationMidiOutgoing->push(

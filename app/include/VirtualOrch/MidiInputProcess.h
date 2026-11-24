@@ -55,6 +55,8 @@ public:
                         const juce::MidiMessage &message);
 
     void timerCallback() override;
+    /** Send every key not yet sent to the reduction (the direct-input flush). */
+    void flushDirectNotes();
 
     /** Clear pending tokens / bass hold when generation starts. */
     void resetForStart();

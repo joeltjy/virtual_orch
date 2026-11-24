@@ -43,6 +43,9 @@ public:
     static constexpr int64_t kPlayToWaitMs = 1000;
     static constexpr int64_t kStopMs = 500;
     static constexpr int32_t kPredictedSilenceCs = 200;
+    /** Added to model 2's output velocities (capped at 127): heard over the pianist. */
+    static constexpr int32_t kSimultaneousVelocityBoost = 16;
+
     enum class Reason { Start, PedalReleased, Playing, Stopped, PredictedSilence, Accompaniment };
 
     explicit HybridInformativeWaitReductionTransformer(ModelConfig &modelConfig);

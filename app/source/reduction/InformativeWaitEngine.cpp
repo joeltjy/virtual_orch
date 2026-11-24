@@ -315,12 +315,56 @@ auto InformativeWaitEngine::truncateTo(size_t index) -> void {
     }
 }
 
+auto InformativeWaitEngine::reappend(std::vector<Item> tail) -> void {
+    std::stable_sort(tail.begin(), tail.end(), [](const Item &a, const Item &b) {
+        if (a.onsetCs != b.onsetCs)
+            return a.onsetCs < b.onsetCs;
+        return a.kind == Kind::Piano && b.kind != Kind::Piano;
+    });
+    for (const auto &it: tail) {
+        if (it.kind == Kind::Piano) {
+            append(it);
+            cur.clockCs = std::max(cur.clockCs, it.onsetCs);
+            cur.floorCs = std::max(cur.floorCs, it.onsetCs);
+            cur.exclHiCs = cfg.continuation ? it.onsetCs - 1 : it.onsetCs + kMergeCs;
+            cur.chordOnCs = INT32_MIN;
+            cur.chordCount = 0;
+            cur.lastPianoCs = std::max(cur.lastPianoCs, it.onsetCs);
+        } else if (it.kind == Kind::Orch) {
+            append(it);
+            const bool same = cur.chordOnCs == it.onsetCs;
+            cur.chordCount = same ? cur.chordCount + 1 : 1;
+            cur.lastOrchPitch = it.pitch;
+            cur.clockCs = std::max(cur.clockCs, it.onsetCs);
+            cur.floorCs = std::max(cur.floorCs, it.onsetCs);
+            cur.chordOnCs = it.onsetCs;
+            cur.exclHiCs = it.onsetCs + gap();
+        }
+    }
+}
+
+auto InformativeWaitEngine::takeAfter(int32_t onsetCs) -> std::vector<Item> {
+    for (size_t i = 0; i < items.size(); ++i)
+        if ((items[i].kind == Kind::Piano || items[i].kind == Kind::Orch) && items[i].onsetCs > onsetCs) {
+            std::vector<Item> tail(items.begin() + static_cast<std::ptrdiff_t>(i), items.end());
+            truncateTo(i);
+            return tail;
+        }
+    return {};
+}
+
 auto InformativeWaitEngine::cutFuture(int32_t pianoOnsetCs) -> void {
-    // A generated note that has not started and lies at or after (piano onset - 5) goes, with
-    // everything written after it (the sampler's "the piano goes first, redraw" rule).
+    // Jam: a generated note that has not started and lies at or after (piano onset - 5) goes, with
+    // everything written after it (the sampler's "the piano goes first, redraw" rule). Edit: only those
+    // editKeepCs or more after the onset. Accompaniment: none.
+    if (cfg.inputCut == Settings::InputCut::Accompaniment)
+        return;
+    const int32_t from = cfg.inputCut == Settings::InputCut::Edit ? pianoOnsetCs + cfg.editKeepCs : pianoOnsetCs - gap();
+    mirrored.erase(std::remove_if(mirrored.begin(), mirrored.end(), [&](const auto &n) { return n.onsetCs > nowCs && n.onsetCs >= from; }),
+                   mirrored.end());
     for (size_t i = 0; i < items.size(); ++i) {
         const auto &it = items[i];
-        if (it.kind == Kind::Orch && it.onsetCs > nowCs && it.onsetCs >= pianoOnsetCs - gap()) {
+        if (it.kind == Kind::Orch && it.onsetCs > nowCs && it.onsetCs >= from) {
             int cut = 0;
             for (size_t j = i; j < items.size(); ++j)
                 cut += items[j].kind == Kind::Orch ? 1 : 0;
@@ -499,13 +543,17 @@ auto InformativeWaitEngine::closeGroup() -> std::vector<OutNote> {
             n.durationCs = n.onsetCs + n.durationCs - g.headCs; // end time kept
         n.onsetCs = g.headCs;
     }
+    // Notes kept after this onset (Edit / Accompaniment, or the other model's) are written after it.
+    const auto later = takeAfter(g.headCs);
     writePianoNotes(notes);
-    cur.clockCs = cur.floorCs = g.headCs;
+    cur.clockCs = std::max(cur.clockCs, g.headCs);
+    cur.floorCs = std::max(cur.floorCs, g.headCs);
     // model 2: nothing within 5 cs after a piano onset; model 1: the orchestra may share it
     cur.exclHiCs = cfg.continuation ? g.headCs - 1 : g.headCs + kMergeCs;
     cur.chordOnCs = INT32_MIN;
     cur.chordCount = 0;
     cur.lastPianoCs = g.headCs;
+    reappend(later);
     event("piano", g.headCs, static_cast<int32_t>(notes.size()));
     // A pending WAIT's anticipation is NOT restarted by this (early) piano group: live, restarting on every
     // group of a dense passage never lets it finish; branches from a slightly older context still serve.
@@ -683,7 +731,7 @@ auto InformativeWaitEngine::drawBody(int32_t onsetCs, int32_t minPitch) -> std::
         DenseDurationBias::applyDurationLogitsBias(biased, window, taus.tau, taus.tauPrime);
         l1 = &biased;
     }
-    const int32_t dur = pick(*l1, {{kDur0 + 5, kDur0 + 996}}, cfg.otherTemperature, cfg.minP, 5);
+    const int32_t dur = pick(*l1, {{kDur0 + cfg.minDurationCs, kDur0 + cfg.maxDurationCs + 1}}, cfg.otherTemperature, cfg.minP, 5);
     if (dur < 0)
         return std::nullopt;
     desired.push_back(dur);
@@ -749,13 +797,18 @@ auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
         lo = std::max({cur.clockCs, cur.freeFloorCs, cur.lastPianoCs == INT32_MIN ? INT32_MIN : cur.lastPianoCs + kMergeCs + 1, nowCs});
     else
         lo = std::max({cur.floorCs, cur.exclHiCs == INT32_MIN ? INT32_MIN : cur.exclHiCs + 1, nowCs});
+    lo = std::max(lo, cfg.minOnsetCs); // the polyphony cap
+    if (lo - baseCs > kOnsetMax)
+        return out; // past the end of the onset window: wait until the base moves on (maybeShrinkContext);
+                    // clamped, every further note was stacked on onset 9999
     const int32_t hi = std::max(lo, nowCs + cfg.maxAheadCs);
     const int32_t loRel = rel(lo);
     const int32_t hiRel = std::min(kOnsetMax, std::max(loRel, hi - baseCs));
     std::vector<std::pair<int32_t, int32_t>> ranges{{loRel, hiRel + 1}};
     const bool chordOk = ! line && cur.chordOnCs != INT32_MIN && cur.chordOnCs >= nowCs - cfg.chordLateCs
-                         && cur.chordOnCs < lo && cur.lastOrchPitch < std::min(kPianoHigh, cfg.pitchHigh)
-                         && cur.chordCount < (cfg.logitTd ? TdOnsetBias::kMaxChordNotes : kMaxChord);
+                         && cur.chordOnCs >= cfg.minOnsetCs && cur.chordOnCs < lo
+                         && (! cfg.ascendingChords || cur.lastOrchPitch <= std::min(kPianoHigh, cfg.pitchHigh))
+                         && cur.chordCount < std::min(cfg.maxChordNotes, kMaxChord);
     if (chordOk)
         ranges.push_back({rel(cur.chordOnCs), rel(cur.chordOnCs) + 1});
     const bool waitOk = cfg.mode != Mode::LineLegato && ! cfg.continuation;
@@ -836,7 +889,7 @@ auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
     if (line)
         return noteAt(onset);
     const bool same = chordOk && onset == cur.chordOnCs;
-    const auto note = drawBody(onset, same ? cur.lastOrchPitch + 1 : kPianoLow);
+    const auto note = drawBody(onset, same && cfg.ascendingChords ? cur.lastOrchPitch : kPianoLow);
     if (! note.has_value())
         return out;
     Item it;
@@ -969,7 +1022,7 @@ auto InformativeWaitEngine::precomputeStep() -> void {
             const std::vector<float> lg(pc.logits.begin() + static_cast<std::ptrdiff_t>(row * V),
                                         pc.logits.begin() + static_cast<std::ptrdiff_t>((row + 1) * V));
             if (r == 0) {
-                const int32_t tok = pick(lg, {{kDur0 + 5, kDur0 + 996}}, cfg.otherTemperature, cfg.minP, 5);
+                const int32_t tok = pick(lg, {{kDur0 + cfg.minDurationCs, kDur0 + cfg.maxDurationCs + 1}}, cfg.otherTemperature, cfg.minP, 5);
                 br.notes.push_back({tok - kDur0, 0, 0});
                 feed.push_back(tok);
             } else if (r == 1) {
@@ -1007,6 +1060,38 @@ auto InformativeWaitEngine::precomputeStep() -> void {
 // ---------------------------------------------------------------- context window
 
 auto InformativeWaitEngine::maybeShrinkContext() -> void {
+    // Onsets are written relative to baseCs and must stay below kOnsetMax: when the clock nears that
+    // (a sparse context, a long pause), the base moves on and events older than 60 s go, as the legacy
+    // stream rebases. Without it, onsets were clamped to 9999 about 100 s after the base.
+    if (! items.empty() && nowCs + std::min(cfg.maxAheadCs, 1000) - baseCs > kOnsetMax - 200) {
+        size_t cut = items.size();
+        for (size_t i = 0; i < items.size(); ++i)
+            if ((items[i].kind == Kind::Piano || items[i].kind == Kind::Orch) && items[i].onsetCs >= nowCs - 6000) {
+                cut = i;
+                break;
+            }
+        if (pending.has_value() && cut > pending->waitItem) {
+            pending.reset();
+            pre.reset();
+        }
+        if (cut >= items.size()) {
+            items.clear();
+            before.clear();
+            baseCs = nowCs;
+        } else if (cut > 0) {
+            baseCs = items[cut].onsetCs;
+            items.erase(items.begin(), items.begin() + static_cast<std::ptrdiff_t>(cut));
+            before.erase(before.begin(), before.begin() + static_cast<std::ptrdiff_t>(cut));
+            if (pending.has_value())
+                pending->waitItem -= cut;
+        } else {
+            baseCs = items.front().onsetCs; // everything is recent: the base is the oldest event
+        }
+        if (cache != nullptr)
+            cache->reset();
+        ++st.contextRebuilds;
+        return;
+    }
     size_t total = 0;
     for (const auto &it: items)
         total += (it.kind == Kind::Piano || it.kind == Kind::Orch) ? 4 : 1;
@@ -1057,7 +1142,9 @@ auto InformativeWaitEngine::mirrorNote(const OutNote &note) -> void { mirrored.p
 auto InformativeWaitEngine::applyMirrored() -> void {
     if (mirrored.empty() || items.empty())
         return;
-    std::stable_sort(mirrored.begin(), mirrored.end(), [](const auto &a, const auto &b) { return a.onsetCs < b.onsetCs; });
+    // the other model's notes go in at their onsets, among what is written (the legacy Hybrid's order)
+    int32_t first = INT32_MAX;
+    std::vector<Item> add;
     for (const auto &n: mirrored) {
         Item it;
         it.kind = Kind::Orch;
@@ -1065,16 +1152,13 @@ auto InformativeWaitEngine::applyMirrored() -> void {
         it.durationCs = q5(n.durationCs);
         it.pitch = std::clamp(n.pitch, kPianoLow, kPianoHigh);
         it.velocity = std::clamp(8 * ((n.velocity + 4) / 8), 8, 120);
-        append(it);
-        const bool same = cur.chordOnCs == n.onsetCs;
-        cur.chordCount = same ? cur.chordCount + 1 : 1;
-        cur.lastOrchPitch = it.pitch;
-        cur.clockCs = std::max(cur.clockCs, n.onsetCs);
-        cur.floorCs = std::max(cur.floorCs, n.onsetCs);
-        cur.chordOnCs = n.onsetCs;
-        cur.exclHiCs = n.onsetCs + gap();
+        add.push_back(it);
+        first = std::min(first, n.onsetCs);
     }
     mirrored.clear();
+    auto tail = takeAfter(first);
+    tail.insert(tail.end(), add.begin(), add.end());
+    reappend(std::move(tail));
 }
 
 auto InformativeWaitEngine::interrupt() -> void {
@@ -1088,9 +1172,15 @@ auto InformativeWaitEngine::interrupt() -> void {
 auto InformativeWaitEngine::dropGeneratedFrom(int32_t cutCs) -> void {
     mirrored.erase(std::remove_if(mirrored.begin(), mirrored.end(), [cutCs](const auto &n) { return n.onsetCs >= cutCs; }),
                    mirrored.end());
+    // Only the orchestra notes from the cut on go; piano notes after it are written back (the legacy rewind).
     for (size_t i = 0; i < items.size(); ++i)
         if (items[i].kind == Kind::Orch && items[i].onsetCs >= cutCs) {
+            std::vector<Item> tail(items.begin() + static_cast<std::ptrdiff_t>(i), items.end());
             truncateTo(i);
+            tail.erase(std::remove_if(tail.begin(), tail.end(),
+                                      [cutCs](const Item &it) { return it.kind == Kind::Orch && it.onsetCs >= cutCs; }),
+                       tail.end());
+            reappend(std::move(tail));
             return;
         }
 }

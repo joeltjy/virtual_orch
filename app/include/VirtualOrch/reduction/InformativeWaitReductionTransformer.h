@@ -82,6 +82,8 @@ private:
     auto nowCs() const -> int32_t;
     auto applySettings() -> void;
     auto resetStream(int32_t now) -> void;
+    /** A mode cut: the generated notes from `cut` on leave the context (the rest stays). */
+    auto rewindFrom(int32_t cut) -> void;
     auto drainInput() -> bool;
     auto emit(const std::vector<InformativeWaitEngine::OutNote> &notes) -> void;
 

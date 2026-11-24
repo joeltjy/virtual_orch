@@ -146,6 +146,29 @@ TEST(KeyDetector, needsEnoughNotesAndKeepsItsKeyThroughAFewOthers) {
     EXPECT_EQ(KeyDetector::name(*detector.current().key), "G major");
 }
 
+TEST(KeyDetector, leavesAWrongKeyWhenTheMusicIsInARelativePairsKey) {
+    // Stuck at C# minor (Nov 2026): F major music ranks F major and D minor (the same notes) in turn.
+    KeyDetector detector;
+    auto notes = line({61, 64, 68, 73, 72, 68, 64, 61, 49, 56}, 0, 25, 25); // C# minor
+    notes[8].bass = notes[9].bass = true;
+    detector.update(notes, 250);
+    ASSERT_EQ(KeyDetector::name(*detector.current().key), "C# minor");
+    // F major: scale runs over an F / D / Bb / C bass, so F major and D minor take turns at the top
+    const std::vector<int> fMajor{53, 65, 67, 69, 70, 72, 74, 76, 77, 50, 62, 65, 69, 74, 46, 70, 74, 77, 48, 64, 67, 72, 53, 69};
+    int32_t t = 260;
+    int32_t now = t;
+    for (int rep = 0; rep < 3; ++rep)
+        for (const int p: fMajor) {
+            notes.push_back({t, 25, p, p < 56});
+            now = t + 5;
+            detector.update(notes, now);
+            t += 25;
+        }
+    const auto shown = KeyDetector::name(*detector.current().key);
+    EXPECT_TRUE(shown == "F major" || shown == "D minor") << shown;
+    EXPECT_EQ(Spelling::signature(*detector.current().key), -1) << "one flat: Bb, not A#";
+}
+
 TEST(KeyDetector, tiedKeysFollowThePreviousKey) {
     EXPECT_EQ(KeyDetector::lofForTonic(6, false, std::nullopt), 6) << "F# major by default";
     EXPECT_EQ(KeyDetector::lofForTonic(6, false, kDb), -6) << "Gb major after Db";

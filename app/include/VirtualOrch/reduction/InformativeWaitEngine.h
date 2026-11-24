@@ -98,7 +98,26 @@ public:
         /** Nothing new is drawn while the last written event is this far ahead of now. */
         int32_t drawAheadCs = 50;
         /** A further chord note may join an orchestra onset at most this far in the past. */
-        int32_t chordLateCs = 5;
+        int32_t chordLateCs = 0;
+        /**
+         * What a piano onset does to the generated notes not yet started (the legacy Hybrid's modes):
+         *   Jam: those at or after (onset - 5) go (the piano goes first);
+         *   Edit: those editKeepCs or more after the onset go, the rest stay;
+         *   Accompaniment: all stay.
+         * Kept notes after the piano's onset stay in the context with the piano notes written among
+         * them in onset order.
+         */
+        enum class InputCut { Jam, Edit, Accompaniment };
+        InputCut inputCut = InputCut::Jam;
+        int32_t editKeepCs = 200;
+        /** Earliest onset of a new orchestra note (the polyphony cap's lower bound, absolute cs). */
+        int32_t minOnsetCs = INT32_MIN;
+        /** Orchestra durations drawn (cs, on the 5 cs grid). */
+        int32_t minDurationCs = 10;
+        int32_t maxDurationCs = 500;
+        /** A chord's next note: at least the previous pitch (true), or any (false). At most maxChordNotes. */
+        bool ascendingChords = true;
+        int32_t maxChordNotes = 10;
         /** Line A: a legato fill whose start is more than this in the past is skipped (the engine is behind). */
         int32_t lagGuardCs = 10;
         /** Context window: past `maxTokens` the oldest events go (re-based to onset 0), down to `keepTokens`. */
@@ -343,6 +362,13 @@ private:
     auto writePianoNotes(std::vector<PianoNote> notes) -> void;
     auto cutFuture(int32_t pianoOnsetCs) -> void;
     auto truncateTo(size_t index) -> void;
+    /**
+     * Write piano / orchestra items back after a truncation, in onset order (piano first at a shared onset),
+     * moving the cursor as when they were first written. WAIT / COUNT / EXPIRED items are not rewritten.
+     */
+    auto reappend(std::vector<Item> tail) -> void;
+    /** Truncate at the first piano / orchestra item after `onsetCs`; returns what was removed. */
+    auto takeAfter(int32_t onsetCs) -> std::vector<Item>;
     auto drawEvent() -> std::vector<OutNote>;
     auto drawBody(int32_t onsetCs, int32_t minPitch) -> std::optional<OutNote>;
     auto fire(const PianoNote &head) -> std::vector<OutNote>;

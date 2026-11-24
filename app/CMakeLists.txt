@@ -108,9 +108,10 @@ target_link_libraries(VirtualOrchLibrary
         VirtualOrchData
         chordnamer
         juce::juce_recommended_config_flags
-        juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags
 )
+# No link-time optimisation here: this library is only for the tests and tools (the app compiles its
+# own sources with it), and LTO's serial link made every test build take minutes.
 
 # Prevent GTK and curl dependencies
 target_compile_definitions(${PROJECT_NAME} PRIVATE

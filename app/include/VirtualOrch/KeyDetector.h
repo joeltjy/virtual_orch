@@ -21,8 +21,10 @@
  *    fit = weight inside the scale / all weight; score = fit + 0.1 x tonic evidence, where the
  *    tonic evidence is the weight on the tonic triad (bass notes doubled) / all weight, + 0.25
  *    for a minor key whose raised 7th is heard.
- *  - Hysteresis: the shown key changes when another one scores at least kSwitchMargin more for
- *    kSwitchNotes new notes in a row. With fewer than kMinNotes notes, or a fit below kSureFit,
+ *  - Hysteresis: the shown key changes when it has been beaten by at least kSwitchMargin (by any
+ *    key) for kSwitchNotes new notes in a row; it becomes the best key at that moment. Counting
+ *    one challenger only got stuck: F major music ranks F major and D minor (the same notes) in
+ *    turn, every change of leader reset the count, and the first key heard stayed (Nov 2026). With fewer than kMinNotes notes, or a fit below kSureFit,
  *    the last key stays and is marked uncertain.
  *  - Naming: the spelling with fewer accidentals (Db major, G# minor); F# / Gb major and
  *    D# / Eb minor take the one nearer the previous key on the line of fifths (default F# major,
@@ -163,24 +165,19 @@ public:
         };
         if (! result.key.has_value()) {
             result.key = Spelling::Key{lofForTonic(best.tonicPc, best.minor, std::nullopt), best.minor};
-            challenger.reset();
+            beatenNotes = 0;
         } else {
             const int curPc = Spelling::tonicPc(*result.key);
             const auto *cur = scoreOf(curPc, result.key->minor);
             const bool other = best.tonicPc != curPc || best.minor != result.key->minor;
-            if (other && cur != nullptr && best.score >= cur->score + kSwitchMargin) {
-                if (challenger.has_value() && challenger->first == best.tonicPc && challenger->second == best.minor)
-                    challengerNotes += fresh;
-                else {
-                    challenger = std::pair{best.tonicPc, best.minor};
-                    challengerNotes = fresh;
-                }
-                if (challengerNotes >= kSwitchNotes) {
+            if (other && (cur == nullptr || best.score >= cur->score + kSwitchMargin)) {
+                beatenNotes += fresh; // beaten, by whichever key leads now
+                if (beatenNotes >= kSwitchNotes) {
                     result.key = Spelling::Key{lofForTonic(best.tonicPc, best.minor, result.key), best.minor};
-                    challenger.reset();
+                    beatenNotes = 0;
                 }
             } else {
-                challenger.reset();
+                beatenNotes = 0;
             }
         }
         const int curPc = Spelling::tonicPc(*result.key);
@@ -201,7 +198,6 @@ public:
 
 private:
     Result result;
-    std::optional<std::pair<int, bool>> challenger;
-    int challengerNotes = 0;
+    int beatenNotes = 0; // new notes in a row with the shown key beaten by kSwitchMargin
     int32_t lastOnset = INT32_MIN;
 };

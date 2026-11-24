@@ -43,7 +43,11 @@ public:
         const auto set = [&](int32_t id, float v) { l[static_cast<size_t>(id)] = v; };
         const bool afterVelocity = last >= Engine::kVel0 && last < Engine::kWait0;
         if (afterVelocity || last == Engine::kExpired || (last >= Engine::kCount0 && last < Engine::kExpired)) {
-            // onset step: a WAIT of `waitD` cs (or an onset at `onsetRel` when waitD == 0)
+            // onset step: a WAIT of `waitD` cs (or an onset at `onsetRel` when waitD == 0); with onsetSlope the
+            // nearer onsets are likelier (logit -slope x onset), as a real model's
+            if (*onsetSlope > 0.0f)
+                for (int32_t o = 0; o <= Engine::kOnsetMax; ++o)
+                    set(o, -*onsetSlope * static_cast<float>(o));
             if (*waitD > 0)
                 set(Engine::waitToken(*waitD), 20.0f);
             set(*onsetRel, 15.0f);
@@ -107,6 +111,7 @@ public:
     std::shared_ptr<int32_t> waitD = std::make_shared<int32_t>(30);
     std::shared_ptr<int32_t> count = std::make_shared<int32_t>(2);
     std::shared_ptr<int32_t> onsetRel = std::make_shared<int32_t>(10);
+    std::shared_ptr<float> onsetSlope = std::make_shared<float>(0.0f);
     bool batching = true;
     int calls = 0;
     int batchedCalls = 0;
@@ -565,6 +570,8 @@ TEST(HybridInformativeWait, TicksOneTdControllerPerModelAndResetsOnPedalRelease)
     auto silent = std::make_unique<ScriptBackend>();
     *silent->waitD = 0;
     *silent->onsetRel = 0;
+    *silent->onsetSlope = 1.0f; // the next onset, as a dense real model: model 1 has no per-draw limit (as v1), and
+    // without a clock the ahead throttle (outputMaxAheadSeconds) never stops it running ahead
     hy.initWithBackends(std::move(silent), std::make_unique<ScriptBackend>());
     int32_t now = 0;
     int64_t wall = 0;
@@ -591,17 +598,18 @@ TEST(HybridInformativeWait, TicksOneTdControllerPerModelAndResetsOnPedalRelease)
     EXPECT_EQ(views[0].state.why, "TD AUTO");
     EXPECT_FALSE(hy.tdGamma(true).has_value());
 
-    // TD 64: far denser than model 1's flat onsets give, so its gamma goes up; model 2 is not drawing.
+    // TD 64: model 1 draws an onset every cs (far denser than TD 64), so its gamma moves (down); model 2 is
+    // not drawing and stays frozen.
     td = 64;
     runFor(6500);
     views = hy.getTdControlStates();
     ASSERT_EQ(views.size(), 2u);
     EXPECT_FALSE(views[0].state.frozen) << views[0].state.why;
-    EXPECT_GT(views[0].state.gamma, 0.0);
-    EXPECT_LE(views[0].state.gamma, 3 * TdController::kMaxStep + 1e-9);
+    EXPECT_NE(views[0].state.gamma, 0.0);
+    EXPECT_LE(std::abs(views[0].state.gamma), 3 * TdController::kMaxStep + 1e-9); // at most 0.25 per 2 s update
     EXPECT_TRUE(views[1].state.frozen);
     ASSERT_TRUE(hy.tdGamma(true).has_value());
-    EXPECT_GT(*hy.tdGamma(true), 0.0f);
+    EXPECT_FLOAT_EQ(*hy.tdGamma(true), static_cast<float>(views[0].state.gamma));
 
     // a pedal release puts both back to gamma 0
     hy.setGenerationPause(true, "test");
@@ -609,6 +617,45 @@ TEST(HybridInformativeWait, TicksOneTdControllerPerModelAndResetsOnPedalRelease)
     hy.stepOnce();
     EXPECT_EQ(*hy.tdGamma(true), 0.0f);
     EXPECT_EQ(*hy.tdGamma(false), 0.0f);
+}
+
+TEST(HybridInformativeWait, AModeCutKeepsTheContextAndGenerationContinuesWithoutNewInput) {
+    // A TD press or pedal-up (a mode cut) used to restart both streams: nothing was generated
+    // until the pianist played again (Nov 24 2026). Now only the notes from the cut on go.
+    ModelConfig config;
+    HybridInformativeWaitReductionTransformer hy(config);
+    auto silent = std::make_unique<ScriptBackend>();
+    *silent->waitD = 0;
+    *silent->onsetRel = 0;
+    *silent->onsetSlope = 1.0f; // the next onset, as a dense real model: model 1 has no per-draw limit (as v1), and
+    // without a clock the ahead throttle (outputMaxAheadSeconds) never stops it running ahead
+    hy.initWithBackends(std::move(silent), std::make_unique<ScriptBackend>());
+    int32_t now = 0;
+    int64_t wall = 0;
+    hy.nowCsProvider = [&] { return now; };
+    hy.wallMsProvider = [&] { return wall; };
+    hy.pianoSilentForMs = [] { return INT64_MAX; };
+    hy.tdValueProvider = [] { return TemporalDensity::kAuto; };
+    Token t{0, static_cast<int32_t>(DenseVocab::DurOffset) + 20, static_cast<int32_t>(DenseVocab::NoteOffset) + 60};
+    t.velocity = 80;
+    hy.inputTokenQueue.push(t);
+    const auto runFor = [&](int cs) {
+        for (int i = 0; i < cs; ++i) {
+            hy.stepOnce();
+            now += 1;
+            wall += 10;
+        }
+    };
+    runFor(300);
+    ASSERT_FALSE(hy.getOutputHistory().empty()) << "model 1 continues the piano";
+    const int32_t cut = now;
+    hy.requestModeCut(cut, "TD press (test)");
+    runFor(300); // no new piano note: a wiped context would draw nothing (an empty engine waits for the piano)
+    const auto history = hy.getOutputHistory();
+    const auto drawnAfterCut = std::count_if(history.begin(), history.end(), [cut](const Token &t) {
+        return t.time >= cut && t.note >= static_cast<int32_t>(Vocab::NoteOffset) && t.note < static_cast<int32_t>(Vocab::Rest);
+    });
+    EXPECT_GT(drawnAfterCut, 0) << "generation continues from the kept context";
 }
 
 // ---- the real export (skipped unless the files are on this machine) ----

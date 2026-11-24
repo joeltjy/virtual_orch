@@ -98,6 +98,17 @@ auto InformativeWaitReductionTransformer::applySettings() -> void {
     }
 }
 
+auto InformativeWaitReductionTransformer::rewindFrom(int32_t cut) -> void {
+    // A mode cut keeps the context (see HybridInformativeWaitReductionTransformer::rewindFrom).
+    engine.interrupt();
+    engine.dropGeneratedFrom(cut);
+    waitTracker.cancel();
+    eraseStridedFrom(inputData, kEventWidth, cut);
+    currentTime = std::min(currentTime, cut);
+    notifyInputDataChanged();
+    resetAheadThrottle();
+}
+
 auto InformativeWaitReductionTransformer::resetStream(int32_t now) -> void {
     engine.reset(now);
     waitTracker.clear();
@@ -189,7 +200,7 @@ auto InformativeWaitReductionTransformer::stepOnce() -> bool {
         resetStream(now);
     }
     if (const auto cut = consumeModeCut())
-        resetStream(*cut);
+        rewindFrom(*cut);
     drainInput();
     if (isGenerationStopped())
         return false;
@@ -218,8 +229,8 @@ void InformativeWaitReductionTransformer::threadRun() {
         const double loopStartMs = juce::Time::getMillisecondCounterHiRes();
         applySettings();
         if (const auto cut = consumeModeCut()) {
-            SessionLog::add("IWAIT", "mode cut at " + juce::String(*cut) + ": stream restarted (no rewind in this model)");
-            resetStream(*cut);
+            SessionLog::add("IWAIT", "mode cut at " + juce::String(*cut) + ": generated notes from it removed, context kept");
+            rewindFrom(*cut);
         }
         const int32_t now = nowCs();
         if (clockJumpedBack(now)) {

@@ -31,8 +31,8 @@ target_link_libraries(${PROJECT_NAME}
         VirtualOrchLibrary
     PUBLIC
         juce::juce_recommended_config_flags
-        juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags
+        # no juce_recommended_lto_flags: link-time optimisation made each test link take minutes
 )
 
 # Prevent GTK and curl dependencies

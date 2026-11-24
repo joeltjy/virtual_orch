@@ -47,6 +47,10 @@ auto ActiveModelWidget::View::paint(juce::Graphics &g) -> void {
     auto area = getLocalBounds().toFloat().reduced(10.0f);
     const auto text = UiConstants::workspaceWidgetTitleTextColour;
 
+    if (session.musicModelArch == MusicModelArch::DenseHybridInformativeWait) {
+        paintHybridV11(g, area);
+        return;
+    }
     if (session.musicModelArch != MusicModelArch::DenseHybrid) {
         g.setColour(text);
         g.setFont(juce::Font(18.0f, juce::Font::bold));
@@ -89,8 +93,58 @@ auto ActiveModelWidget::View::paint(juce::Graphics &g) -> void {
     g.setColour(text.withAlpha(0.8f));
     g.setFont(juce::Font(12.0f));
     const juce::String status = session.activeReduction().generationPause.get()
-                                    ? "pedal down: paused"
+                                    ? "paused (orchestra waits for the pedal)"
                                     : playingFor >= 0 ? "playing " + juce::String(playingFor / 1000.0, 1) + " s"
                                                       : juce::String("not playing");
+    g.drawText(status, area.removeFromTop(16.0f), juce::Justification::centredLeft);
+}
+
+auto ActiveModelWidget::View::paintHybridV11(juce::Graphics &g, juce::Rectangle<float> area) -> void {
+    // Hybrid v1.1: model 1 (continuation) while the pianist is silent, model 2 (informative WAIT) while they play.
+    using Reason = HybridInformativeWaitReductionTransformer::Reason;
+    const auto &hybrid = session.reductionTransformerHybridIW;
+    const bool m1 = hybrid.usesSilentModel();
+    const auto colour = m1 ? kV1Colour : kWaitColour;
+    const auto text = UiConstants::workspaceWidgetTitleTextColour;
+
+    auto badge = area.removeFromTop(juce::jmin(46.0f, area.getHeight() * 0.45f));
+    g.setColour(colour);
+    g.fillRoundedRectangle(badge, 6.0f);
+    g.setColour(juce::Colours::black);
+    g.setFont(juce::Font(20.0f, juce::Font::bold));
+    g.drawFittedText(juce::String(m1 ? "m1  continuation" : "m2  informative WAIT") + "   "
+                         + juce::String(m1 ? hybrid.silentName : hybrid.waitName),
+                     badge.reduced(8.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft, 1, 0.7f);
+
+    juce::String why = "start";
+    switch (hybrid.reason()) {
+        case Reason::PedalReleased: why = "pedal released"; break;
+        case Reason::Playing: why = "you have been playing for 1 s"; break;
+        case Reason::Stopped: why = "you stopped for 0.5 s (its future notes were deleted)"; break;
+        case Reason::PredictedSilence: why = "m2 predicted 2 s of silence (its future was deleted)"; break;
+        case Reason::Start: break;
+    }
+    area.removeFromTop(6.0f);
+    g.setColour(text);
+    g.setFont(juce::Font(13.0f));
+    g.drawFittedText("why: " + why, area.removeFromTop(18.0f).toNearestInt(), juce::Justification::centredLeft, 1);
+
+    // Progress towards the 1 s switch to m2 (only while m1 draws and you are playing).
+    const auto playingFor = hybrid.playingForMs();
+    area.removeFromTop(4.0f);
+    auto bar = area.removeFromTop(12.0f);
+    g.setColour(juce::Colours::white.withAlpha(0.1f));
+    g.fillRoundedRectangle(bar, 3.0f);
+    if (m1 && playingFor >= 0) {
+        const float f = juce::jlimit(0.0f, 1.0f, static_cast<float>(playingFor)
+                                                      / static_cast<float>(HybridInformativeWaitReductionTransformer::kPlayToWaitMs));
+        g.setColour(kWaitColour.withAlpha(0.8f));
+        g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * f), 3.0f);
+    }
+    g.setColour(text.withAlpha(0.8f));
+    g.setFont(juce::Font(12.0f));
+    const juce::String status = hybrid.generationPause.get() ? "paused (orchestra waits for the pedal)"
+                                : playingFor >= 0         ? "playing " + juce::String(playingFor / 1000.0, 1) + " s"
+                                                          : juce::String("not playing");
     g.drawText(status, area.removeFromTop(16.0f), juce::Justification::centredLeft);
 }

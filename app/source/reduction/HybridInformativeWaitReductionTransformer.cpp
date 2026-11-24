@@ -4,10 +4,12 @@
 #include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/RegisterRange.h"
 #include "VirtualOrch/SessionLog.h"
+#include "VirtualOrch/vocsep/VoiceSeparation.h"
 #include "VirtualOrch/TemporalDensity.h"
 #include "VirtualOrch/reduction/DenseTypes.h"
 
 #include <algorithm>
+#include <random>
 #include <set>
 
 namespace {
@@ -92,6 +94,29 @@ auto HybridInformativeWaitReductionTransformer::applySettings() -> void {
     s.continuation = true;
     s.mode = InformativeWaitEngine::Mode::Unconstrained;
     s.precompute = false;
+    // As the legacy Hybrid (Nov 24 2026): its input modes, polyphony cap, held keys rewritten at their
+    // release (committed after 10 s), 10-500 cs durations, at most 10 notes a chord, no chord note in the
+    // past, the global ahead throttle instead of a per-engine limit; a random seed per run. Sampling
+    // (temperatures, min-p, top-p) stays the Python sampler's, as the models were evaluated with.
+    const auto inputCut = isEditMode()         ? InformativeWaitEngine::Settings::InputCut::Edit
+                          : keepsQueueOnInput() ? InformativeWaitEngine::Settings::InputCut::Accompaniment
+                                                : InformativeWaitEngine::Settings::InputCut::Jam;
+    const int32_t minOnset = onsetLowerBoundCs();
+    for (auto *x: {&s}) {
+        x->inputCut = inputCut;
+        x->editKeepCs = kEditCutAheadCs;
+        x->minOnsetCs = minOnset;
+        x->rewriteHeldDurations = true;
+        x->holdCommitCs = 1000;
+        x->minDurationCs = 10;
+        x->maxDurationCs = 500;
+        x->maxChordNotes = 10;
+        x->chordLateCs = 0;
+        x->drawAheadCs = 1 << 20; // no per-engine limit: the ahead throttle (outputMaxAheadSeconds)
+    }
+    s.ascendingChords = false; // v1's T3'' rules: no order at a shared onset
+    s.maxAheadCs = InformativeWaitEngine::kOnsetMax; // v1: no per-draw limit
+    s.seed = silentSeed;
     const int32_t td = tdValueProvider ? tdValueProvider() : TemporalDensity::kAuto;
     s.tdLevel = td;
     s.tdGamma = tdGamma(true);
@@ -116,7 +141,19 @@ auto HybridInformativeWaitReductionTransformer::applySettings() -> void {
     w.continuation = false;
     w.mode = static_cast<InformativeWaitEngine::Mode>(waitMode.load());
     w.precompute = precompute.load();
-    w.seed = 1;
+    w.seed = waitSeed;
+    w.inputCut = inputCut;
+    w.editKeepCs = kEditCutAheadCs;
+    w.minOnsetCs = minOnset;
+    w.rewriteHeldDurations = true;
+    w.holdCommitCs = 1000;
+    w.minDurationCs = 10;
+    w.maxDurationCs = 500;
+    w.maxChordNotes = 10;
+    w.chordLateCs = 0;
+    w.drawAheadCs = 1 << 20;
+    w.ascendingChords = true; // W's rule: pitch >= the previous one at a shared onset
+    w.maxAheadCs = 300;       // W: onsets at most 3 s ahead
     w.tdLevel = td;
     w.tdGamma = tdGamma(false);
     // model 2: the main adjustments (all OFF by default) with the widget's taus
@@ -315,6 +352,7 @@ auto HybridInformativeWaitReductionTransformer::updateHybrid(int32_t now) -> voi
         setSilent(true, Reason::PedalReleased, now);
         playingSinceMs = playing ? wallMs : -1;
     }
+    playingForValue.store(playingSinceMs >= 0 ? wallMs - playingSinceMs : -1);
     if (silentActive.load()) {
         if (! generationPause.get() && playingSinceMs >= 0 && wallMs - playingSinceMs >= kPlayToWaitMs)
             setSilent(false, Reason::Playing, now);
@@ -339,6 +377,7 @@ auto HybridInformativeWaitReductionTransformer::generate(int32_t now) -> bool {
         pushOutputToken(Token{cancel, static_cast<int32_t>(DenseVocab::DurOffset), static_cast<int32_t>(Vocab::ClearQueue)});
         other.dropGeneratedFrom(cancel);
         eraseStridedFrom(inputData, kEventWidth, cancel);
+        resetAheadThrottle(); // as the legacy cut on input
         notifyInputDataChanged();
     }
     for (const auto &n: out) {
@@ -346,8 +385,10 @@ auto HybridInformativeWaitReductionTransformer::generate(int32_t now) -> bool {
         const int32_t dur = std::clamp(n.durationCs, 1, 995);
         const auto quad = denseQuad(n.onsetCs, dur, 1, n.pitch, n.velocity);
         inputData.insert(inputData.end(), quad.begin(), quad.end());
-        pushOutputToken(Token{n.onsetCs, static_cast<int32_t>(DenseVocab::DurOffset) + dur,
-                              static_cast<int32_t>(DenseVocab::NoteOffset) + n.pitch, n.velocity});
+        const Token token{n.onsetCs, static_cast<int32_t>(DenseVocab::DurOffset) + dur,
+                          static_cast<int32_t>(DenseVocab::NoteOffset) + n.pitch, n.velocity};
+        pushOutputToken(token);
+        afterOutputDelivered(token); // more than outputMaxAheadSeconds ahead: generation pauses (the legacy throttle)
         currentTime = std::max(currentTime, n.onsetCs);
         logGeneratedTokenIfResumed(n.onsetCs);
     }
@@ -358,6 +399,22 @@ auto HybridInformativeWaitReductionTransformer::generate(int32_t now) -> bool {
         active.lastError.clear();
     }
     return ! out.empty();
+}
+
+auto HybridInformativeWaitReductionTransformer::rewindFrom(int32_t cut) -> void {
+    // A mode cut (pedal up, TD / register press, preset, leaving Accompaniment): as the legacy Hybrid's
+    // rewind, only the generated notes from the cut on go (consumeModeCut already cleared them
+    // downstream); the context stays, so the next pedal press or TD change continues from it. It used
+    // to restart both streams, and an empty stream waits for the pianist.
+    for (auto *e: {&silentEngine, &waitEngine}) {
+        e->interrupt(); // a pending WAIT, its anticipation and any stack being decoded
+        e->dropGeneratedFrom(cut);
+    }
+    waitTracker.cancel();
+    eraseStridedFrom(inputData, kEventWidth, cut);
+    currentTime = std::min(currentTime, cut);
+    notifyInputDataChanged();
+    resetAheadThrottle();
 }
 
 auto HybridInformativeWaitReductionTransformer::absorbWhileStopped(int32_t now) -> void {
@@ -371,11 +428,12 @@ auto HybridInformativeWaitReductionTransformer::absorbWhileStopped(int32_t now) 
 
 auto HybridInformativeWaitReductionTransformer::stepOnce() -> bool {
     const int32_t now = nowCs();
+    finishAheadThrottleIfDue();
     applySettings();
     if (! streamsStarted)
         resetStreams(now);
     if (const auto cut = consumeModeCut())
-        resetStreams(*cut);
+        rewindFrom(*cut);
     drainInput();
     updateHybrid(now);
     tickTdControl();
@@ -389,6 +447,13 @@ auto HybridInformativeWaitReductionTransformer::stepOnce() -> bool {
 void HybridInformativeWaitReductionTransformer::threadRun() {
     if (! isModelLoaded())
         return;
+    if (voiceSeparation != nullptr)
+        voiceSeparation->reset();
+    {
+        std::random_device rd; // a different sequence every run, as the legacy samplers
+        silentSeed = (static_cast<uint64_t>(rd()) << 32) | rd();
+        waitSeed = (static_cast<uint64_t>(rd()) << 32) | rd();
+    }
     inputData.clear();
     clearInputTokenQueue();
     clearInputConditioningQueue();
@@ -403,13 +468,16 @@ void HybridInformativeWaitReductionTransformer::threadRun() {
     resetLoopTiming();
     while (! threadShouldExit()) {
         const double loopStartMs = juce::Time::getMillisecondCounterHiRes();
+        finishAheadThrottleIfDue();
         applySettings();
         if (const auto cut = consumeModeCut()) {
-            SessionLog::add("HYBRID", "mode cut at " + juce::String(*cut) + ": streams restarted");
-            resetStreams(*cut);
+            SessionLog::add("HYBRID", "mode cut at " + juce::String(*cut) + ": generated notes from it removed, context kept");
+            rewindFrom(*cut);
         }
         const int32_t now = nowCs();
         if (clockJumpedBack(now)) {
+            SessionLog::add("CLOCK", "jumped back to " + juce::String(now) + ": streams restarted");
+            resetAheadThrottle();
             clearOutputHistory();
             pushOutputToken(Token{now, static_cast<int32_t>(DenseVocab::DurOffset), static_cast<int32_t>(Vocab::ClearQueue)});
             inputData.clear();

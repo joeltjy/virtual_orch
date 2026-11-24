@@ -6,6 +6,7 @@
 #include "VirtualOrch/ui/UiConstants.h"
 
 #include <algorithm>
+#include <vector>
 
 namespace {
 
@@ -55,161 +56,262 @@ auto WaitVisualizerView::setState(WaitTracker::Snapshot next, int32_t nowCs, std
     repaint();
 }
 
+namespace {
+
+/**
+ * One row of a panel: its height, and how dispensable it is (0 = always shown; higher numbers
+ * are dropped first when the panel is too short). `flex`: takes the space left over.
+ */
+struct Row {
+    int id;
+    float height;
+    int drop;
+    bool flex = false;
+};
+
+/** Drops rows (highest `drop` first) until they fit `available`; returns the kept ones, in order. */
+auto fitRows(std::vector<Row> rows, float available) -> std::vector<Row> {
+    const auto total = [&] {
+        float t = 0.0f;
+        for (const auto &r: rows)
+            t += r.height;
+        return t;
+    };
+    while (total() > available) {
+        auto worst = std::max_element(rows.begin(), rows.end(), [](const Row &a, const Row &b) { return a.drop < b.drop; });
+        if (worst == rows.end() || worst->drop == 0)
+            break;
+        rows.erase(worst);
+    }
+    float spare = available - total();
+    for (auto &r: rows)
+        if (r.flex && spare > 0.0f) {
+            r.height += spare;
+            spare = 0.0f;
+        }
+    return rows;
+}
+
+/** One line of text in `box`: squeezed horizontally (down to 70%) or ellipsised, never spilling out. */
+auto textLine(juce::Graphics &g, const juce::String &text, juce::Rectangle<float> box, juce::Justification j) -> void {
+    g.drawFittedText(text, box.toNearestInt(), j, 1, 0.7f);
+}
+
+} // namespace
+
 auto WaitVisualizerView::paint(juce::Graphics &g) -> void {
     g.fillAll(UiConstants::pianoRollBackground);
-    const auto bounds = getLocalBounds().toFloat().reduced(8.0f);
-    if (bounds.getWidth() < 80.0f || bounds.getHeight() < 60.0f)
+    const auto bounds = getLocalBounds().toFloat().reduced(6.0f);
+    if (bounds.getWidth() < 60.0f || bounds.getHeight() < 40.0f)
         return;
-    const float ts = textScale;
+    // The text grows with the widget's text scale (PerformanceView: 2.2) only as far as the widget
+    // is tall enough for it: about 150 px of height per unit of scale.
+    const float ts = std::clamp(std::min(textScale, bounds.getHeight() / 150.0f), 0.75f, std::max(0.75f, textScale));
     const float small = 11.0f * ts;
     const float body = 12.5f * ts;
 
     if (sourceName.empty()) {
         g.setColour(kDim);
         g.setFont(juce::Font(body));
-        g.drawText("No WAIT model: choose Hybrid v1.1 or Informative WAIT", bounds,
-                   juce::Justification::centred, true);
+        g.drawFittedText("No WAIT model: choose Hybrid v1.1 or Informative WAIT", bounds.toNearestInt(),
+                         juce::Justification::centred, 3);
         return;
     }
 
-    auto left = bounds.withWidth(bounds.getWidth() * 0.58f);
-    auto right = bounds.withLeft(left.getRight() + 10.0f);
+    auto left = bounds.withWidth(bounds.getWidth() * 0.56f);
+    auto right = bounds.withLeft(left.getRight() + 8.0f);
     g.setColour(kDivider);
-    g.drawVerticalLine(juce::roundToInt(left.getRight() + 5.0f), bounds.getY(), bounds.getBottom());
+    g.drawVerticalLine(juce::roundToInt(left.getRight() + 4.0f), bounds.getY(), bounds.getBottom());
 
     // ---- left: the pending WAIT, NOW -> PREDICTED
-    g.setColour(kDim);
-    g.setFont(juce::Font(small));
-    g.drawText("Pending WAIT  (" + juce::String(sourceName) + ")", left.removeFromTop(small + 6.0f),
-               juce::Justification::centredLeft, true);
+    {
+        enum { Header, Countdown, Line, Labels, Info, Times, Spacer };
+        const float radius = std::clamp(9.0f * ts, 7.0f, std::max(7.0f, left.getHeight() * 0.18f));
+        const bool pending = state.pending.has_value();
+        const auto rows = fitRows({{Header, small + 4.0f, 5},
+                                   {Spacer, 0.0f, 0, true}, // spare room above the countdown: the labels stay under the line
+                                   {Countdown, pending ? small + 4.0f : 0.0f, 3},
+                                   {Line, radius * 2.0f + 6.0f, 0},
+                                   {Labels, small + 4.0f, 2},
+                                   {Info, body + 4.0f, 4},
+                                   {Times, small + 4.0f, 6}},
+                                  left.getHeight());
+        auto area = left;
+        const auto has = [&](int id) {
+            return std::any_of(rows.begin(), rows.end(), [id](const Row &r) { return r.id == id; });
+        };
+        juce::Rectangle<float> rowBox[7];
+        for (const auto &r: rows)
+            rowBox[r.id] = area.removeFromTop(r.height);
 
-    const float radius = std::clamp(left.getHeight() * 0.11f, 9.0f, 22.0f) * std::sqrt(ts);
-    const float x0 = left.getX() + radius + 4.0f;
-    const float x1 = left.getRight() - std::max(radius, 40.0f * ts);
-    const float y = left.getY() + left.getHeight() * 0.42f;
+        if (has(Header)) {
+            g.setColour(kDim);
+            g.setFont(juce::Font(small));
+            textLine(g, "Pending WAIT  (" + juce::String(sourceName) + ")", rowBox[Header], juce::Justification::centredLeft);
+        }
+        const auto lineBox = rowBox[Line];
+        const float x0 = lineBox.getX() + radius + 2.0f;
+        const float x1 = lineBox.getRight() - radius - 2.0f;
+        const float y = lineBox.getCentreY();
+        const float windowW = std::max(6.0f, (x1 - x0) * 0.06f);
+        g.setColour(kPredicted.withAlpha(0.15f));
+        g.fillRect(x1 - windowW * 0.5f, y - radius * 1.3f, windowW, radius * 2.6f);
+        g.setColour(kLine);
+        g.drawLine(x0, y, x1, y, 2.0f);
+        g.setColour(kInk);
+        g.drawLine(x0, y - radius, x0, y + radius, 2.0f);
+        g.setColour(kPredicted);
+        g.drawLine(x1, y - radius * 1.2f, x1, y + radius * 1.2f, 2.0f);
+        if (has(Labels)) {
+            // NOW at the left end, PREDICTED (or PRED) ending at the right end: never on top of each other
+            const auto font = juce::Font(small);
+            g.setFont(font);
+            const auto box = rowBox[Labels];
+            const juce::String predicted =
+                font.getStringWidthFloat("NOW  PREDICTED") <= box.getWidth() ? "PREDICTED" : "PRED";
+            g.setColour(kInk);
+            textLine(g, "NOW", box.withWidth(box.getWidth() * 0.4f), juce::Justification::centredLeft);
+            g.setColour(kPredicted);
+            textLine(g, predicted, box.withLeft(box.getX() + box.getWidth() * 0.4f), juce::Justification::centredRight);
+        }
 
-    g.setColour(kPredicted.withAlpha(0.15f));
-    const float windowW = std::max(8.0f, (x1 - x0) * 0.06f);
-    g.fillRect(x1 - windowW * 0.5f, y - radius * 1.5f, windowW, radius * 3.0f);
-    g.setColour(kLine);
-    g.drawLine(x0, y, x1, y, 2.0f);
-    g.setColour(kInk);
-    g.drawLine(x0, y - radius, x0, y + radius, 2.0f);
-    g.setColour(kPredicted);
-    g.drawLine(x1, y - radius * 1.3f, x1, y + radius * 1.3f, 2.0f);
-    g.setFont(juce::Font(body));
-    g.setColour(kInk);
-    g.drawText("NOW", juce::Rectangle<float>(x0 - 40.0f, y + radius * 1.4f, 80.0f, body + 4.0f),
-               juce::Justification::centred, false);
-    g.setColour(kPredicted);
-    g.drawText("PREDICTED", juce::Rectangle<float>(x1 - 60.0f, y + radius * 1.4f, 120.0f, body + 4.0f),
-               juce::Justification::centred, false);
-
-    const float infoY = y + radius * 1.4f + body + 14.0f;
-    if (state.pending.has_value()) {
-        const auto &p = *state.pending;
-        const int32_t span = std::max(1, p.predictedCs - p.drawnAtCs);
-        const float f = std::clamp(static_cast<float>(now - p.drawnAtCs) / static_cast<float>(span), 0.0f, 1.0f);
-        const float cx = x0 + (x1 - x0) * f;
-        g.setColour(kCount.withAlpha(0.5f));
-        g.drawLine(x0, y, cx, y, 3.0f);
-        g.setColour(kCount);
-        g.fillEllipse(cx - radius, y - radius, radius * 2.0f, radius * 2.0f);
-        g.setColour(juce::Colour(0xff2a1a00));
-        g.setFont(juce::Font(radius * 1.15f, juce::Font::bold));
-        g.drawText(juce::String(p.k), juce::Rectangle<float>(cx - radius, y - radius, radius * 2.0f, radius * 2.0f),
-                   juce::Justification::centred, false);
-        const int32_t toGo = p.predictedCs - now;
-        g.setColour(kCount);
-        g.setFont(juce::Font(small));
-        g.drawText(toGo > 0 ? seconds(toGo) + " to go" : juce::String("in the window"),
-                   juce::Rectangle<float>(cx - 60.0f, y - radius - small - 8.0f, 120.0f, small + 4.0f),
-                   juce::Justification::centred, false);
-
-        g.setColour(juce::Colour(0xffbdbdbd));
-        g.setFont(juce::Font(body));
-        g.drawText((p.provisional ? "provisional WAIT " : "WAIT ") + juce::String(p.d) + " cs    COUNT "
-                       + juce::String(p.k),
-                   juce::Rectangle<float>(left.getX(), infoY, left.getWidth(), body + 4.0f),
-                   juce::Justification::centredLeft, true);
-        g.setColour(kDim);
-        g.setFont(juce::Font(small));
-        g.drawText("drawn at " + seconds(p.drawnAtCs) + " " + kDot + " predicted " + seconds(p.predictedCs),
-                   juce::Rectangle<float>(left.getX(), infoY + body + 6.0f, left.getWidth(), small + 4.0f),
-                   juce::Justification::centredLeft, true);
-    } else {
-        g.setColour(kDim);
-        g.setFont(juce::Font(small));
-        g.drawText("no WAIT pending", juce::Rectangle<float>(left.getX(), infoY, left.getWidth(), small + 4.0f),
-                   juce::Justification::centredLeft, true);
+        if (pending) {
+            const auto &p = *state.pending;
+            const int32_t span = std::max(1, p.predictedCs - p.drawnAtCs);
+            const float f = std::clamp(static_cast<float>(now - p.drawnAtCs) / static_cast<float>(span), 0.0f, 1.0f);
+            const float cx = x0 + (x1 - x0) * f;
+            g.setColour(kCount.withAlpha(0.5f));
+            g.drawLine(x0, y, cx, y, 3.0f);
+            g.setColour(kCount);
+            g.fillEllipse(cx - radius, y - radius, radius * 2.0f, radius * 2.0f);
+            g.setColour(juce::Colour(0xff2a1a00));
+            g.setFont(juce::Font(radius * 1.2f, juce::Font::bold));
+            g.drawText(juce::String(p.k), juce::Rectangle<float>(cx - radius, y - radius, radius * 2.0f, radius * 2.0f),
+                       juce::Justification::centred, false);
+            if (has(Countdown)) {
+                const int32_t toGo = p.predictedCs - now;
+                g.setColour(kCount);
+                g.setFont(juce::Font(small));
+                const auto box = rowBox[Countdown];
+                const float w = std::min(box.getWidth(), juce::Font(small).getStringWidthFloat("0.00 s to go") + 8.0f);
+                textLine(g, toGo > 0 ? seconds(toGo) + " to go" : juce::String("in the window"),
+                         juce::Rectangle<float>(std::clamp(cx - w * 0.5f, box.getX(), box.getRight() - w), box.getY(), w,
+                                                box.getHeight()),
+                         juce::Justification::centred);
+            }
+            if (has(Info)) {
+                g.setColour(juce::Colour(0xffbdbdbd));
+                g.setFont(juce::Font(body));
+                textLine(g, (p.provisional ? "provisional WAIT " : "WAIT ") + juce::String(p.d) + " cs   COUNT " + juce::String(p.k),
+                         rowBox[Info], juce::Justification::centredLeft);
+            }
+            if (has(Times)) {
+                g.setColour(kDim);
+                g.setFont(juce::Font(small));
+                textLine(g, "drawn at " + seconds(p.drawnAtCs) + kDot + "predicted " + seconds(p.predictedCs),
+                         rowBox[Times], juce::Justification::centredLeft);
+            }
+        } else if (has(Info)) {
+            g.setColour(kDim);
+            g.setFont(juce::Font(small));
+            textLine(g, "no WAIT pending", rowBox[Info], juce::Justification::centredLeft);
+        }
     }
 
     // ---- right: the last window's result, then the recent ones
-    g.setColour(kDim);
-    g.setFont(juce::Font(small));
-    g.drawText("Last window", right.removeFromTop(small + 6.0f), juce::Justification::centredLeft, true);
-    const float chipH = std::max(18.0f, 22.0f * ts);
-    auto chips = right.removeFromBottom(chipH);
-    right.removeFromBottom(small + 10.0f);
-    if (state.recent.empty()) {
-        g.drawText("no window closed yet", right, juce::Justification::centred, true);
-        return;
-    }
-    const auto &last = state.recent.back();
-    const juce::String text = resultText(last);
-    auto big = right.removeFromTop(right.getHeight() * 0.62f);
-    float bigSize = std::min(big.getHeight() * 0.95f, 64.0f * ts);
-    if (text.length() > 3)
-        bigSize = std::min(bigSize, big.getWidth() / (0.62f * static_cast<float>(text.length())));
-    g.setColour(resultColour(last));
-    g.setFont(juce::Font(bigSize, juce::Font::bold));
-    g.drawText(text, big, juce::Justification::centredBottom, false);
-    juce::String detail;
-    if (last.kind == WaitTracker::Result::Kind::Expired)
-        detail = "nothing played in the window";
-    else if (last.rank <= 0)
-        detail = "hit" + kDot + "no anticipation was ready";
-    else if (last.rank > 5)
-        detail = "hit" + kDot + "your note was not in the top 5";
-    else
-        detail = "hit" + kDot + "your note ranked " + juce::String(last.rank) + " in the top 5";
-    g.setColour(juce::Colour(0xffbdbdbd));
-    g.setFont(juce::Font(body));
-    g.drawText(detail, right.removeFromTop(body + 6.0f), juce::Justification::centred, true);
-    if (last.kind == WaitTracker::Result::Kind::Hit) {
-        // the time to place the COUNT orchestra notes on the onset, from the fire
-        juce::String placed;
-        if (last.placeUs < 0)
-            placed = "placing " + juce::String(last.k) + " notes...";
-        else
-            placed = juce::String(last.placed) + " of " + juce::String(last.k) + " notes in " + msText(last.placeUs)
-                     + (last.fromKey ? "" : " (from the fire)") + (last.precomputed ? " " + kDot + " precomputed" : " " + kDot + " decoded");
-        g.setColour(last.precomputed ? kHit : kCount);
-        g.setFont(juce::Font(body, juce::Font::bold));
-        g.drawText(placed, right.removeFromTop(body + 6.0f), juce::Justification::centred, true);
-    }
-    g.setColour(kDim);
-    g.setFont(juce::Font(small));
-    g.drawText("COUNT " + juce::String(last.k) + kDot + "at " + seconds(last.atCs), right.removeFromTop(small + 6.0f),
-               juce::Justification::centred, true);
+    {
+        enum { Header, Big, Placed, Detail, CountAt, Chips };
+        if (state.recent.empty()) {
+            g.setColour(kDim);
+            g.setFont(juce::Font(small));
+            g.drawFittedText("no window closed yet", right.toNearestInt(), juce::Justification::centred, 2);
+            return;
+        }
+        const auto &last = state.recent.back();
+        const bool hit = last.kind == WaitTracker::Result::Kind::Hit;
+        const float chipH = std::max(14.0f, small + 8.0f);
+        const auto rows = fitRows({{Header, small + 4.0f, 5},
+                                   {Big, body * 1.8f, 0, true},
+                                   {Placed, hit ? body + 4.0f : 0.0f, 1},
+                                   {Detail, body + 4.0f, 4},
+                                   {CountAt, small + 4.0f, 6},
+                                   {Chips, chipH + 4.0f, 3}},
+                                  right.getHeight());
+        auto area = right;
+        const auto has = [&](int id) {
+            return std::any_of(rows.begin(), rows.end(), [id](const Row &r) { return r.id == id; });
+        };
+        juce::Rectangle<float> rowBox[6];
+        for (const auto &r: rows)
+            rowBox[r.id] = area.removeFromTop(r.height);
 
-    g.drawText("Recent", chips.translated(0.0f, -(small + 6.0f)).withHeight(small + 4.0f),
-               juce::Justification::centredLeft, false);
-    float cxs = chips.getX();
-    const juce::Font chipFont(small * 1.05f);
-    for (auto it = state.recent.rbegin(); it != state.recent.rend(); ++it) {
-        const auto t = resultText(*it);
-        const float w = chipFont.getStringWidthFloat(t) + 14.0f;
-        if (cxs + w > chips.getRight())
-            break;
-        const auto c = resultColour(*it);
-        g.setColour(c.withAlpha(0.18f));
-        g.fillRoundedRectangle(cxs, chips.getY(), w, chips.getHeight(), 4.0f);
-        g.setColour(c);
-        g.setFont(chipFont);
-        g.drawText(t, juce::Rectangle<float>(cxs, chips.getY(), w, chips.getHeight()), juce::Justification::centred,
-                   false);
-        cxs += w + 6.0f;
+        if (has(Header)) {
+            g.setColour(kDim);
+            g.setFont(juce::Font(small));
+            textLine(g, "Last window", rowBox[Header], juce::Justification::centredLeft);
+        }
+        {
+            const juce::String text = resultText(last);
+            const auto big = rowBox[Big];
+            float size = std::min(big.getHeight() * 0.9f, 64.0f * ts);
+            const juce::Font probe(size, juce::Font::bold);
+            const float w = probe.getStringWidthFloat(text);
+            if (w > big.getWidth() * 0.95f)
+                size *= big.getWidth() * 0.95f / w; // EXPIRED in a narrow panel
+            g.setColour(resultColour(last));
+            g.setFont(juce::Font(size, juce::Font::bold));
+            g.drawText(text, big, juce::Justification::centred, false);
+        }
+        if (has(Placed)) {
+            // the time to place the COUNT orchestra notes on the onset, from the pianist's key
+            juce::String placed;
+            if (last.placeUs < 0)
+                placed = "placing " + juce::String(last.k) + " notes...";
+            else
+                placed = juce::String(last.placed) + "/" + juce::String(last.k) + " notes in " + msText(last.placeUs)
+                         + (last.fromKey ? "" : " (from the fire)") + kDot + (last.precomputed ? "precomputed" : "decoded");
+            g.setColour(last.precomputed ? kHit : kCount);
+            g.setFont(juce::Font(body, juce::Font::bold));
+            textLine(g, placed, rowBox[Placed], juce::Justification::centred);
+        }
+        if (has(Detail)) {
+            juce::String detail;
+            if (! hit)
+                detail = "nothing played in the window";
+            else if (last.rank <= 0)
+                detail = "no anticipation was ready";
+            else if (last.rank > 5)
+                detail = "your note was not in the top 5";
+            else
+                detail = "your note ranked " + juce::String(last.rank) + " in the top 5";
+            g.setColour(juce::Colour(0xffbdbdbd));
+            g.setFont(juce::Font(body));
+            textLine(g, detail, rowBox[Detail], juce::Justification::centred);
+        }
+        if (has(CountAt)) {
+            g.setColour(kDim);
+            g.setFont(juce::Font(small));
+            textLine(g, "COUNT " + juce::String(last.k) + kDot + "at " + seconds(last.atCs), rowBox[CountAt],
+                     juce::Justification::centred);
+        }
+        if (has(Chips)) {
+            const auto box = rowBox[Chips].withTrimmedTop(4.0f);
+            float cxs = box.getX();
+            const juce::Font chipFont(small);
+            for (auto it = state.recent.rbegin(); it != state.recent.rend(); ++it) {
+                const auto t = resultText(*it);
+                const float w = chipFont.getStringWidthFloat(t) + 10.0f;
+                if (cxs + w > box.getRight())
+                    break;
+                const auto c = resultColour(*it);
+                g.setColour(c.withAlpha(0.18f));
+                g.fillRoundedRectangle(cxs, box.getY(), w, box.getHeight(), 4.0f);
+                g.setColour(c);
+                g.setFont(chipFont);
+                g.drawText(t, juce::Rectangle<float>(cxs, box.getY(), w, box.getHeight()), juce::Justification::centred, false);
+                cxs += w + 4.0f;
+            }
+        }
     }
 }
 

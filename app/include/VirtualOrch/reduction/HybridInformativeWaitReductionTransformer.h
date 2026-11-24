@@ -74,6 +74,8 @@ public:
     auto setPrecompute(bool on) -> void { precompute.store(on); }
     [[nodiscard]] auto usesSilentModel() const -> bool { return silentActive.load(); }
     [[nodiscard]] auto reason() const -> Reason { return reasonValue.load(); }
+    /** ms the pianist has been playing (-1 = not playing): the Active Model widget's progress to model 2. */
+    [[nodiscard]] auto playingForMs() const -> int64_t { return playingForValue.load(); }
 
     /** Clock / wall clock (tests replace them). */
     std::function<int32_t()> nowCsProvider;
@@ -114,6 +116,8 @@ private:
     auto cutGeneratedFrom(int32_t now) -> void;
     [[nodiscard]] auto predictsSilenceFrom(int32_t now) const -> bool;
     auto generate(int32_t now) -> bool;
+    /** A mode cut: the generated notes from `cut` on leave both contexts (the rest stays). */
+    auto rewindFrom(int32_t cut) -> void;
     /** Paused or stopped: both engines take in the input (nothing is drawn). */
     auto absorbWhileStopped(int32_t now) -> void;
     auto tickTdControl() -> void;
@@ -130,6 +134,9 @@ private:
     std::atomic<int> waitMode{0};
     std::atomic<bool> precompute{true};
     int64_t playingSinceMs = -1;
+    std::atomic<int64_t> playingForValue{-1};
+    uint64_t silentSeed = 0; // random per run (threadRun); fixed in tests
+    uint64_t waitSeed = 1;
     int32_t waitSinceCs = INT32_MIN;
     bool streamsStarted = false;
 

@@ -1411,6 +1411,8 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
                 hy.setWaitMode(InformativeWaitReductionTransformer::modeFromName(
                     parsedJson.getProperty("iwMode", "unconstrained").toString()));
                 hy.setPrecompute(static_cast<bool>(parsedJson.getProperty("precompute", true)));
+                hy.setMinWaitCs(static_cast<int32_t>(parsedJson.getProperty("minWaitCs", 0)));
+                hy.setShortWaitRedraw(static_cast<bool>(parsedJson.getProperty("shortWaitRedraw", false)));
                 if (! silentFile.existsAsFile()
                     || ! hy.init(silentFile.getFullPathName().toRawUTF8(), modelPathStr.toRawUTF8())) {
                     juce::AlertWindow::showMessageBoxAsync(

@@ -43,7 +43,7 @@ public:
     static constexpr int64_t kPlayToWaitMs = 1000;
     static constexpr int64_t kStopMs = 500;
     static constexpr int32_t kPredictedSilenceCs = 200;
-    enum class Reason { Start, PedalReleased, Playing, Stopped, PredictedSilence };
+    enum class Reason { Start, PedalReleased, Playing, Stopped, PredictedSilence, Accompaniment };
 
     explicit HybridInformativeWaitReductionTransformer(ModelConfig &modelConfig);
 
@@ -72,6 +72,10 @@ public:
     /** Model 2's mode (unconstrained by default). */
     auto setWaitMode(InformativeWaitEngine::Mode mode) -> void { waitMode.store(static_cast<int>(mode)); }
     auto setPrecompute(bool on) -> void { precompute.store(on); }
+    /** Model 2's shortest allowed WAIT (cs; 0 = any): InformativeWaitEngine::Settings::minWaitCs. */
+    auto setMinWaitCs(int32_t cs) -> void { minWaitCs.store(cs); }
+    /** A short WAIT's orchestra note: at its predicted onset (false) or at a redrawn onset (true). */
+    auto setShortWaitRedraw(bool on) -> void { shortWaitRedraw.store(on); }
     [[nodiscard]] auto usesSilentModel() const -> bool { return silentActive.load(); }
     [[nodiscard]] auto reason() const -> Reason { return reasonValue.load(); }
     /** ms the pianist has been playing (-1 = not playing): the Active Model widget's progress to model 2. */
@@ -139,6 +143,8 @@ private:
     std::atomic<bool> pedalReleased{false};
     std::atomic<int> waitMode{0};
     std::atomic<bool> precompute{true};
+    std::atomic<int32_t> minWaitCs{0};
+    std::atomic<bool> shortWaitRedraw{false};
     int64_t playingSinceMs = -1;
     std::atomic<int64_t> playingForValue{-1};
     uint64_t silentSeed = 0; // random per run (threadRun); fixed in tests

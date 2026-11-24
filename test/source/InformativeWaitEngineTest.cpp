@@ -275,6 +275,62 @@ TEST(InformativeWaitEngine, NoPianoWritesExpired) {
     EXPECT_EQ(rig.engine.stats().waitsDrawn, 2);
 }
 
+TEST(InformativeWaitEngine, AWiderWindowExpiresLater) {
+    Rig rig(Engine::Mode::Unconstrained);
+    auto s = rig.engine.settings();
+    s.fireWindowCs = 10;
+    rig.engine.setSettings(s);
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 40);
+    EXPECT_TRUE(rig.engine.hasPendingWait()); // expires after 30 + 10
+    rig.run(41, 41);
+    EXPECT_EQ(rig.engine.stats().expired, 1);
+}
+
+TEST(InformativeWaitEngine, AKeyThatLandedInTheWindowButArrivesLateStillFires) {
+    Rig rig(Engine::Mode::Unconstrained);
+    auto s = rig.engine.settings();
+    s.expiryGraceCs = 20;
+    rig.engine.setSettings(s);
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 45); // the window [24, 36] closed at 36: within the grace, the WAIT is still pending
+    EXPECT_TRUE(rig.engine.hasPendingWait());
+    EXPECT_EQ(rig.engine.stats().expired, 0);
+    rig.engine.noteOn(33, 62, 80); // the key landed at 33 (in the window), reported at 46
+    rig.run(46, 50);
+    EXPECT_EQ(rig.engine.stats().fires, 1);
+    EXPECT_EQ(rig.engine.stats().expired, 0);
+}
+
+TEST(InformativeWaitEngine, AfterTheGraceTheWaitExpiresAtTheWindowsEnd) {
+    Rig rig(Engine::Mode::Unconstrained);
+    auto s = rig.engine.settings();
+    s.expiryGraceCs = 20;
+    rig.engine.setSettings(s);
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 57);
+    EXPECT_EQ(rig.engine.stats().expired, 1);
+    const auto ex = std::find_if(rig.events.begin(), rig.events.end(), [](const auto &e) { return e.what == "expired"; });
+    ASSERT_NE(ex, rig.events.end());
+    EXPECT_EQ(ex->atCs, 36); // written at the window's end, not when it was decided
+}
+
+TEST(InformativeWaitEngine, NoWaitAfterExpiryUntilTheNextPianoNote) {
+    Rig rig(Engine::Mode::Unconstrained);
+    auto s = rig.engine.settings();
+    s.noWaitAfterExpiry = true;
+    rig.engine.setSettings(s);
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 41);
+    EXPECT_EQ(rig.engine.stats().expired, 1);
+    rig.run(42, 80); // the model would WAIT again: no WAIT is legal until a piano note
+    EXPECT_EQ(rig.engine.stats().waitsDrawn, 1);
+    EXPECT_FALSE(rig.engine.hasPendingWait());
+    rig.engine.noteOn(81, 62, 80);
+    rig.run(81, 90);
+    EXPECT_EQ(rig.engine.stats().waitsDrawn, 2);
+}
+
 TEST(InformativeWaitEngine, EarlyPianoIsInputAndTheWaitStays) {
     Rig rig(Engine::Mode::Unconstrained);
     rig.engine.noteOn(0, 60, 80);
@@ -332,7 +388,7 @@ TEST(InformativeWaitEngine, RewriteModeRewritesTheHeldDuration) {
     rig.engine.setSettings(s);
     rig.engine.noteOn(0, 60, 80);
     rig.run(0, 6);
-    EXPECT_EQ(rig.engine.tokens()[1], Engine::kDur0 + 5); // held: the time it was down when written
+    EXPECT_EQ(rig.engine.tokens()[1], Engine::kDur0 + 30); // held: the estimate (30 cs before any release)
     rig.engine.noteOff(0, 60, 120);
     rig.run(7, 7);
     EXPECT_EQ(rig.engine.tokens()[1], Engine::kDur0 + 120);
@@ -906,3 +962,214 @@ TEST(InformativeWaitOnnx, MatchesPythonSampler) {
 }
 
 } // namespace
+
+// ---------------------------------------------------------------- rewind / cut
+
+namespace {
+/** A continuation engine (Hybrid's model 1): no WAITs, the next onset the likeliest, so it plays densely. */
+auto denseRig() -> std::unique_ptr<Rig> {
+    auto rig = std::make_unique<Rig>(Engine::Mode::Unconstrained);
+    auto s = rig->engine.settings();
+    s.continuation = true;
+    rig->engine.setSettings(s);
+    *rig->model.waitD = 0;
+    *rig->model.onsetSlope = 1.0f;
+    return rig;
+}
+
+/** Index (in tokens()) of the first orchestra note with an onset at or after `cut`; size() if none. */
+auto firstOrchFrom(const std::vector<int32_t> &toks, int32_t base, int32_t cut) -> size_t {
+    for (size_t i = 2; i < toks.size(); ++i)
+        if (toks[i] >= Engine::kOrch0 && toks[i] < Engine::kOrch0 + 128 && toks[i - 2] + base >= cut)
+            return i - 2;
+    return toks.size();
+}
+} // namespace
+
+TEST(InformativeWaitRewind, DropGeneratedFromLeavesExactlyWhatWasThereBeforeTheCut) {
+    auto rig = denseRig();
+    rig->engine.noteOn(0, 60, 80);
+    rig->run(0, 100);
+    rig->engine.noteOn(110, 64, 80);
+    rig->run(101, 200);
+    const auto before = rig->engine.tokens();
+    const int32_t cut = 150;
+    const size_t keep = firstOrchFrom(before, rig->engine.base(), cut);
+    ASSERT_LT(keep, before.size()) << "the model drew past the cut";
+
+    rig->engine.dropGeneratedFrom(cut);
+    // as if nothing had been generated from the cut on: the same tokens up to it, nothing after
+    EXPECT_EQ(rig->engine.tokens(), std::vector<int32_t>(before.begin(), before.begin() + static_cast<std::ptrdiff_t>(keep)));
+}
+
+TEST(InformativeWaitRewind, PianoNotesAfterTheCutAreWrittenBackInOrder) {
+    auto rig = denseRig();
+    rig->engine.noteOn(0, 60, 80);
+    rig->run(0, 160);
+    rig->engine.noteOn(170, 64, 80); // after the cut: the pianist's note stays
+    rig->run(161, 200);
+    rig->engine.dropGeneratedFrom(150);
+    const auto toks = rig->engine.tokens();
+    EXPECT_EQ(firstOrchFrom(toks, rig->engine.base(), 150), toks.size()) << "no generated note from the cut on";
+    const auto piano64 = std::find(toks.begin(), toks.end(), Engine::kPiano0 + 64);
+    ASSERT_NE(piano64, toks.end());
+    EXPECT_EQ(*(piano64 - 2) + rig->engine.base(), 170);
+    EXPECT_EQ(piano64 + 2, toks.end()) << "the piano note is now the last event";
+}
+
+TEST(InformativeWaitRewind, GenerationResumesFromNowAfterARewind) {
+    auto rig = denseRig();
+    rig->engine.noteOn(0, 60, 80);
+    rig->run(0, 200);
+    rig->engine.dropGeneratedFrom(150);
+    rig->played.clear();
+    rig->run(201, 260);
+    ASSERT_FALSE(rig->played.empty()) << "the context is kept: the model goes on without new input";
+    for (const auto &n: rig->played)
+        EXPECT_GE(n.onsetCs, 201) << "no note in the past";
+}
+
+TEST(InformativeWaitRewind, AnInterruptedWaitLeavesNoUnansweredWaitInTheContext) {
+    // A mode cut or a model switch interrupts a pending WAIT: training lines never hold a WAIT / COUNT
+    // that neither fired nor EXPIRED, so the context must not either.
+    Rig rig(Engine::Mode::Unconstrained);
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 6);
+    ASSERT_TRUE(rig.engine.hasPendingWait());
+    rig.engine.interrupt();
+    rig.engine.dropGeneratedFrom(6);
+    EXPECT_FALSE(rig.engine.hasPendingWait());
+    const auto toks = rig.engine.tokens();
+    ASSERT_FALSE(toks.empty());
+    const bool endsWithWaitOrCount = toks.back() >= Engine::kWait0 && toks.back() < Engine::kExpired;
+    EXPECT_FALSE(endsWithWaitOrCount) << "a WAIT / COUNT left dangling";
+}
+
+TEST(InformativeWaitRewind, AccompanimentKeepsTheGeneratedNoteAPianoNoteWouldCut) {
+    Rig rig(Engine::Mode::Unconstrained);
+    auto s = rig.engine.settings();
+    s.inputCut = Engine::Settings::InputCut::Accompaniment;
+    rig.engine.setSettings(s);
+    *rig.model.waitD = 0;
+    *rig.model.onsetRel = 40;
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 5);
+    ASSERT_EQ(rig.played.size(), 1u);
+    rig.engine.noteOn(20, 62, 80); // in Jam this cuts the note at 40
+    rig.engine.step(20);
+    EXPECT_EQ(rig.engine.takeCancelFrom(), INT32_MAX);
+    EXPECT_EQ(rig.engine.stats().cutNotes, 0);
+}
+
+TEST(InformativeWaitRewind, EditCutsOnlyNotesFromTheKeptStretchOn) {
+    for (const int32_t keepCs: {10, 30}) {
+        Rig rig(Engine::Mode::Unconstrained);
+        auto s = rig.engine.settings();
+        s.inputCut = Engine::Settings::InputCut::Edit;
+        s.editKeepCs = keepCs;
+        rig.engine.setSettings(s);
+        *rig.model.waitD = 0;
+        *rig.model.onsetRel = 40;
+        rig.engine.noteOn(0, 60, 80);
+        rig.run(0, 5);
+        ASSERT_EQ(rig.played.size(), 1u);
+        rig.engine.noteOn(20, 62, 80); // the note at 40: cut when 40 >= 20 + keepCs
+        rig.engine.step(20);
+        if (keepCs == 10)
+            EXPECT_EQ(rig.engine.takeCancelFrom(), 40) << "keep 10: 40 is past 30, cut";
+        else
+            EXPECT_EQ(rig.engine.takeCancelFrom(), INT32_MAX) << "keep 30: 40 is within 50, kept";
+    }
+}
+
+TEST(HybridInformativeWait, AModeCutRemovesExactlyTheGeneratedNotesFromTheCut) {
+    ModelConfig config;
+    HybridInformativeWaitReductionTransformer hy(config);
+    auto silent = std::make_unique<ScriptBackend>();
+    *silent->waitD = 0;
+    *silent->onsetRel = 0;
+    *silent->onsetSlope = 1.0f;
+    hy.initWithBackends(std::move(silent), std::make_unique<ScriptBackend>());
+    int32_t now = 0;
+    int64_t wall = 0;
+    hy.nowCsProvider = [&] { return now; };
+    hy.wallMsProvider = [&] { return wall; };
+    hy.pianoSilentForMs = [] { return INT64_MAX; };
+    hy.tdValueProvider = [] { return TemporalDensity::kAuto; };
+    Token t{0, static_cast<int32_t>(DenseVocab::DurOffset) + 20, static_cast<int32_t>(DenseVocab::NoteOffset) + 60};
+    t.velocity = 80;
+    hy.inputTokenQueue.push(t);
+    for (int i = 0; i < 300; ++i, ++now, wall += 10)
+        hy.stepOnce();
+    const auto isNote = [](const Token &x) {
+        return x.note >= static_cast<int32_t>(Vocab::NoteOffset) && x.note < static_cast<int32_t>(Vocab::Rest);
+    };
+    const auto before = hy.getOutputHistory();
+    const int32_t cut = now - 50;
+    ASSERT_TRUE(std::any_of(before.begin(), before.end(), [&](const Token &x) { return isNote(x) && x.time >= cut; }))
+        << "notes were generated after the cut";
+
+    hy.setGenerationPause(true, "test: look right after the cut");
+    hy.requestModeCut(cut, "TD press (test)");
+    hy.stepOnce();
+    const auto after = hy.getOutputHistory();
+    std::vector<Token> expected;
+    for (const auto &x: before)
+        if (isNote(x) && x.time < cut)
+            expected.push_back(x);
+    std::vector<Token> kept;
+    for (const auto &x: after)
+        if (isNote(x))
+            kept.push_back(x);
+    ASSERT_EQ(kept.size(), expected.size()) << "the notes before the cut stay, the ones from it go";
+    for (size_t i = 0; i < kept.size(); ++i) {
+        EXPECT_EQ(kept[i].time, expected[i].time);
+        EXPECT_EQ(kept[i].note, expected[i].note);
+    }
+}
+
+TEST(HybridInformativeWait, InAccompanimentThePianistIsIgnored) {
+    // Accompaniment: model 1 keeps continuing its own music. The pianist's notes reach neither model,
+    // and playing does not bring in model 2.
+    ModelConfig config;
+    HybridInformativeWaitReductionTransformer hy(config);
+    auto silent = std::make_unique<ScriptBackend>();
+    *silent->waitD = 0;
+    *silent->onsetRel = 0;
+    *silent->onsetSlope = 1.0f; // the next onset, as a dense real model
+    hy.initWithBackends(std::move(silent), std::make_unique<ScriptBackend>());
+    int32_t now = 0;
+    int64_t wall = 0;
+    int64_t silentFor = INT64_MAX;
+    hy.nowCsProvider = [&] { return now; };
+    hy.wallMsProvider = [&] { return wall; };
+    hy.pianoSilentForMs = [&] { return silentFor; };
+    hy.tdValueProvider = [] { return TemporalDensity::kAuto; };
+    const auto pianoNotesInContext = [&] {
+        const auto data = hy.getInputData();
+        int n = 0;
+        for (size_t i = 0; i + 3 < data.size(); i += 4)
+            n += DenseQuantize::instrumentOfNoteToken(data[i + 2]) == DenseConfig::PianoReductionInputInstrument ? 1 : 0;
+        return n;
+    };
+    const auto play = [&](int pitch) {
+        Token t{now, static_cast<int32_t>(DenseVocab::DurOffset) + 20, static_cast<int32_t>(DenseVocab::NoteOffset) + pitch};
+        t.velocity = 80;
+        hy.inputTokenQueue.push(t);
+        silentFor = 0;
+        for (int k = 0; k < 10; ++k, ++now, wall += 10)
+            hy.stepOnce();
+    };
+    play(60); // one note in Jam: it goes in
+    ASSERT_EQ(pianoNotesInContext(), 1);
+    hy.setKeepQueueOnInput(true); // Accompaniment
+    for (int i = 0; i < 20; ++i) // 2 s of playing
+        play(62 + i % 5);
+    EXPECT_EQ(pianoNotesInContext(), 1) << "no note played in Accompaniment reaches the models";
+    EXPECT_TRUE(hy.usesSilentModel()) << "model 2 never takes over";
+    EXPECT_EQ(hy.reason(), HybridInformativeWaitReductionTransformer::Reason::Accompaniment);
+    const auto before = hy.getOutputHistory().size();
+    for (int i = 0; i < 300; ++i, ++now, wall += 10)
+        hy.stepOnce();
+    EXPECT_GT(hy.getOutputHistory().size(), before) << "model 1 keeps going";
+}

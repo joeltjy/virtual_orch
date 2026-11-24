@@ -1,0 +1,16 @@
+{
+  "arch": "dense",
+  "contextNotes": 40,
+  "outputInstruments": [
+    1
+  ],
+  "defaultPreset": {},
+  "onnx": "rt_simultaneous_latest",
+  "silentOnnx": "rt_continuation_latest",
+  "reductionType": 10,
+  "iwMode": "unconstrained",
+  "precompute": true,
+  "notes": "Hybrid v1.1 with model 2's WAITs of 250 ms and more only (minWaitCs 25): a shorter WAIT drawn is replaced by an orchestra note at the onset it predicted for the pianist (shortWaitRedraw false), so a WAIT leaves the anticipation precompute time to finish. Otherwise as hybrid_v11: Hybrid v1.1: overnight model 1 round 6 (ovn_m1_r6 best_eval_loss, eval 0.8852; rt_continuation_latest.onnx) while the piano is silent, the informative-WAIT model p30_q03 (rt_simultaneous_latest.onnx) while it plays; W3's HybridTransformer switching rules. See orchestration/112326_decisions.txt.",
+  "minWaitCs": 25,
+  "shortWaitRedraw": false
+}

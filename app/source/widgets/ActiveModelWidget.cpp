@@ -122,6 +122,7 @@ auto ActiveModelWidget::View::paintHybridV11(juce::Graphics &g, juce::Rectangle<
         case Reason::Playing: why = "you have been playing for 1 s"; break;
         case Reason::Stopped: why = "you stopped for 0.5 s (its future notes were deleted)"; break;
         case Reason::PredictedSilence: why = "m2 predicted 2 s of silence (its future was deleted)"; break;
+        case Reason::Accompaniment: why = "Accompaniment: the pianist is ignored"; break;
         case Reason::Start: break;
     }
     area.removeFromTop(6.0f);

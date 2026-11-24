@@ -152,6 +152,12 @@ auto HybridInformativeWaitReductionTransformer::applySettings() -> void {
     w.maxChordNotes = 10;
     w.chordLateCs = 0;
     w.drawAheadCs = 1 << 20;
+    w.noWaitAfterExpiry = true; // no retry WAITs after an expiry: m2 plays on until the next piano note
+    w.fireWindowCs = 6;         // +-6 cs, as in training
+    w.waitTopK = 3;
+    w.minWaitCs = minWaitCs.load(); // the checkpoint JSON's "minWaitCs" (0 = any length)
+    w.shortWaitRedraw = shortWaitRedraw.load(); // ... and "shortWaitRedraw"
+    w.expiryGraceCs = 20;       // live input arrives ~12 cs late (p90 ~15): wait for it before expiring             // a piano onset at any of the model's 3 most likely WAIT lengths fires
     w.ascendingChords = true; // W's rule: pitch >= the previous one at a shared onset
     w.maxAheadCs = 300;       // W: onsets at most 3 s ahead
     w.tdLevel = td;
@@ -191,6 +197,12 @@ auto HybridInformativeWaitReductionTransformer::drainInput() -> bool {
     }
     bool applied = false;
     Token in{-1, -1, -1};
+    // Accompaniment: the pianist is ignored. Their notes never reach either model's context (model 1
+    // keeps continuing its own music; see updateHybrid); releases of keys pressed before still apply.
+    if (keepsQueueOnInput()) {
+        while (inputTokenQueue.pull(in)) {
+        }
+    }
     while (inputTokenQueue.pull(in)) {
         const int32_t pitch = DenseQuantize::snapPianoPitch(in.getPitch());
         const int32_t velocity = std::clamp(in.velocity > 0 ? in.velocity : DenseConfig::DefaultVelocity, 1, 127);
@@ -237,7 +249,7 @@ auto HybridInformativeWaitReductionTransformer::setSilent(bool silent, Reason wh
     if (! silent)
         waitSinceCs = now;
     static constexpr const char *kWhy[] = {"start", "pedal released", "playing 1 s", "silent 0.5 s",
-                                           "2 s of predicted silence"};
+                                           "2 s of predicted silence", "Accompaniment: the pianist is ignored"};
     SessionLog::add("HYBRID", juce::String(silent ? silentName : waitName) + " from " + juce::String(now) + " ("
                                   + kWhy[static_cast<int>(why)] + ")");
 }
@@ -356,6 +368,15 @@ auto HybridInformativeWaitReductionTransformer::updateHybrid(int32_t now) -> voi
         playingSinceMs = playing ? wallMs : -1;
     }
     playingForValue.store(playingSinceMs >= 0 ? wallMs - playingSinceMs : -1);
+    if (keepsQueueOnInput()) {
+        // Accompaniment: model 1 only, whatever the pianist does (model 2 follows the pianist). Its
+        // notes so far stay (Accompaniment keeps the future); model 2's pending WAIT is dropped.
+        if (! silentActive.load() || reasonValue.load() != Reason::Accompaniment)
+            setSilent(true, Reason::Accompaniment, now);
+        playingSinceMs = -1;
+        playingForValue.store(-1);
+        return;
+    }
     if (silentActive.load()) {
         if (! generationPause.get() && playingSinceMs >= 0 && wallMs - playingSinceMs >= kPlayToWaitMs)
             setSilent(false, Reason::Playing, now);

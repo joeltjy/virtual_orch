@@ -1,0 +1,14 @@
+{
+  "arch": "dense",
+  "contextNotes": 40,
+  "outputInstruments": [
+    1
+  ],
+  "defaultPreset": {},
+  "onnx": "rt_simultaneous_latest_fp16",
+  "silentOnnx": "rt_continuation_latest",
+  "reductionType": 10,
+  "iwMode": "unconstrained",
+  "precompute": true,
+  "notes": "Hybrid v1.1 fast: as hybrid_v11, but model 2 is the fp16 re-export of rt_simultaneous_latest (rt_simultaneous_latest_fp16.onnx: same weights, leaner graph; batch-5 precompute step ~14 ms vs ~20 ms; logits within 0.3 of the original). Model 1 unchanged. Otherwise: Hybrid v1.1: overnight model 1 round 6 (ovn_m1_r6 best_eval_loss, eval 0.8852; rt_continuation_latest.onnx) while the piano is silent, the informative-WAIT model p30_q03 (rt_simultaneous_latest.onnx) while it plays; W3's HybridTransformer switching rules. See orchestration/112326_decisions.txt."
+}

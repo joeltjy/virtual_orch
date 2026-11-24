@@ -63,7 +63,7 @@ public:
     static constexpr int32_t kExpired = 11878;
     static constexpr int32_t kVocab = 11879;
     static constexpr int32_t kGrid = 3;
-    static constexpr int32_t kWinLo = 6;
+    // The default fire window around a WAIT's predicted onset (Settings::fireWindowCs): +-kEps.
     static constexpr int32_t kEps = 6;
     static constexpr int32_t kMaxWait = 300;
     static constexpr int32_t kMaxCount = 10;
@@ -89,6 +89,39 @@ public:
         int32_t bandLow = 55;   // line modes: orchestra pitch band (inclusive)
         int32_t bandHigh = 84;
         float onsetTemperature = 1.0f; // onset / WAIT / COUNT
+        /**
+         * After an EXPIRED, no new WAIT until the next piano onset (the orchestra goes on). The model's
+         * favourite move after an expiry is the shortest WAIT, which live (a pause, a held chord) expires
+         * again and again: those retries hit ~25% against ~55% for a WAIT drawn after a note.
+         */
+        bool noWaitAfterExpiry = false;
+        /**
+         * A piano onset within the fire window of any of the model's waitTopK most likely WAIT lengths (not
+         * only the drawn one) fires; the WAIT token is rewritten to that length (the pending WAIT stays in the
+         * KV scratch tail, so the rewrite costs nothing). 1 = the drawn length only.
+         */
+        int32_t waitTopK = 1;
+        /**
+         * No WAIT shorter than this (cs), so a drawn WAIT leaves the precompute time to finish: when the onset
+         * step draws a shorter [WAIT d], an orchestra note goes in its place (see shortWaitRedraw); the longer
+         * WAITs keep their probability, and shorter lengths are not among the waitTopK alternatives.
+         * 0 = the model's full range.
+         */
+        int32_t minWaitCs = 0;
+        /** A WAIT under minWaitCs: false = the orchestra note at the WAIT's predicted onset, true = an onset redrawn. */
+        bool shortWaitRedraw = false;
+        /**
+         * The fire window: a piano onset within +-fireWindowCs of a WAIT's length fires. Training used +-6 cs
+         * (Hybrid v1.1 too, with waitTopK 3); +-10 fires more on live playing (replay: 58% -> 80%).
+         */
+        int32_t fireWindowCs = kEps;
+        /**
+         * Live input reaches the engine late (the input stage, a slow step): a WAIT whose window has closed
+         * is expired only expiryGraceCs later, so a key that landed in the window but has not arrived yet
+         * still fires. The EXPIRED is written at the window's end all the same. A later piano onset decides
+         * at once (it shows the window closed empty).
+         */
+        int32_t expiryGraceCs = 0;
         float otherTemperature = 0.5f; // duration / pitch / velocity
         float minP = 0.25f;            // duration / pitch / velocity (0 = off)
         float topP = 0.98f;
@@ -126,10 +159,9 @@ public:
         size_t maxTokens = 500;
         size_t keepTokens = 300;
         /**
-         * Held keys: false (default) = written with an estimated duration (the median of the pianist's last 16
-         * released notes, at least the time it has been down) and never rewritten, so the KV cache never re-feeds;
-         * true = W3's way: the time it has been down, rewritten at its note-off (scratch tail), committed after
-         * holdCommitCs.
+         * Held keys are written with an estimated duration (the median of the pianist's last 16 released notes,
+         * at least the time it has been down). false (default) = never rewritten, so the KV cache never re-feeds;
+         * true = rewritten at its note-off (scratch tail), committed after holdCommitCs.
          */
         bool rewriteHeldDurations = false;
         int32_t holdCommitCs = 100;
@@ -191,6 +223,7 @@ public:
         int expired = 0;          // EXPIRED written (model-drawn WAITs)
         int removed = 0;          // provisional WAITs removed (line modes)
         int earlyPiano = 0;
+        int waitSnaps = 0; // fired on another of the top-K WAIT lengths (the WAIT rewritten)
         int cutNotes = 0;         // generated notes cut by an earlier piano onset
         int anticipated = 0;      // fires scored against an anticipation
         int antTop1 = 0;
@@ -204,6 +237,7 @@ public:
         double fireDecodeMsTotal = 0;
         int contextRebuilds = 0;
         int lagSkips = 0;         // line A fills skipped because the engine was behind
+        int shortWaitsReplaced = 0; // WAITs under minWaitCs drawn, replaced by an orchestra onset
     };
 
     /**
@@ -295,6 +329,7 @@ private:
         int32_t lastOrchPitch = -1;
         int32_t lastPianoCs = INT32_MIN;
         int32_t freeFloorCs = INT32_MIN; // line B: next free onset >= this
+        bool afterExpired = false;       // an EXPIRED since the last piano onset
     };
     struct Pending {
         int32_t refCs = 0;
@@ -302,8 +337,34 @@ private:
         int32_t k = 1;
         bool provisional = false; // line mode: removed (not EXPIRED) at expiry
         size_t waitItem = 0;      // index of the WAIT item
-        [[nodiscard]] auto lo() const -> int32_t { return refCs + d - kWinLo; }
-        [[nodiscard]] auto hi(bool line) const -> int32_t { return refCs + d + (line ? 0 : kEps); }
+        std::vector<int32_t> alts; // other WAIT lengths that also count (the model's most likely ones)
+        int32_t win = kEps;        // the fire window: +-win cs around each length
+        [[nodiscard]] auto lowest() const -> int32_t {
+            int32_t m = d;
+            for (const int32_t a: alts)
+                m = std::min(m, a);
+            return m;
+        }
+        [[nodiscard]] auto highest() const -> int32_t {
+            int32_t m = d;
+            for (const int32_t a: alts)
+                m = std::max(m, a);
+            return m;
+        }
+        /** Before this, a piano onset is early; after hi, the WAIT has expired (over all the lengths). */
+        [[nodiscard]] auto lo() const -> int32_t { return refCs + lowest() - win; }
+        [[nodiscard]] auto hi(bool line) const -> int32_t { return line ? refCs + d : refCs + highest() + win; }
+        /** The length whose window holds this onset (the drawn one first, then the nearest), if any. */
+        [[nodiscard]] auto match(int32_t onsetCs) const -> std::optional<int32_t> {
+            const auto in = [&](int32_t x) { return onsetCs >= refCs + x - win && onsetCs <= refCs + x + win; };
+            if (in(d))
+                return d;
+            std::optional<int32_t> best;
+            for (const int32_t a: alts)
+                if (in(a) && (! best || std::abs(onsetCs - refCs - a) < std::abs(onsetCs - refCs - *best)))
+                    best = a;
+            return best;
+        }
     };
     struct PianoNote {
         int32_t onsetCs = 0; // arrival onset
@@ -334,7 +395,9 @@ private:
         std::vector<float> logits; // batch x vocab of the last batched call
         bool complete = false;
         bool failed = false;
-        double ms = 0;
+        double ms = 0; // inference time
+        int calls = 0;
+        std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
     };
 
     auto rel(int32_t absCs) const -> int32_t;

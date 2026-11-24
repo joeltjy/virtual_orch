@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 #include <numeric>
 
@@ -142,9 +143,11 @@ auto InformativeWaitEngine::committedLen() const -> size_t {
     // a provisional WAIT (removed at expiry) or a generated note that has not started (a piano onset
     // may cut it).
     size_t len = 0;
-    for (const auto &it: items) {
+    for (size_t i = 0; i < items.size(); ++i) {
+        const auto &it = items[i];
         const bool mutableItem = (it.kind == Kind::Piano && it.held) || it.provisional
-                                 || (it.kind == Kind::Orch && it.onsetCs > nowCs);
+                                 || (it.kind == Kind::Orch && it.onsetCs > nowCs)
+                                 || (cfg.waitTopK > 1 && pending.has_value() && i >= pending->waitItem);
         if (mutableItem)
             return len;
         len += (it.kind == Kind::Piano || it.kind == Kind::Orch) ? 4 : 1;
@@ -330,6 +333,7 @@ auto InformativeWaitEngine::reappend(std::vector<Item> tail) -> void {
             cur.chordOnCs = INT32_MIN;
             cur.chordCount = 0;
             cur.lastPianoCs = std::max(cur.lastPianoCs, it.onsetCs);
+            cur.afterExpired = false;
         } else if (it.kind == Kind::Orch) {
             append(it);
             const bool same = cur.chordOnCs == it.onsetCs;
@@ -398,7 +402,7 @@ auto InformativeWaitEngine::writePianoNotes(std::vector<PianoNote> notes) -> voi
         if (! down)
             it.durationCs = std::max(5, n.onsetCs + n.durationCs - head);
         else if (cfg.rewriteHeldDurations)
-            it.durationCs = std::max(5, nowCs - n.onsetCs); // frozen until its note-off
+            it.durationCs = estimatedDuration(nowCs - n.onsetCs); // a typical length until its note-off
         else
             it.durationCs = estimatedDuration(nowCs - n.onsetCs);
         it.held = down && cfg.rewriteHeldDurations;
@@ -502,10 +506,20 @@ auto InformativeWaitEngine::onGroupHead(const PianoNote &head) -> std::vector<Ou
     }
     group = OpenGroup{head.onsetCs, {head}, false};
     if (pending.has_value()) {
-        if (head.onsetCs < pending->lo()) {
+        const auto length = pending->provisional ? std::optional<int32_t>(pending->d) : pending->match(head.onsetCs);
+        if (head.onsetCs < pending->lo() || ! length.has_value()) {
             ++st.earlyPiano;
-            event("early", head.onsetCs, head.pitch, pending->lo(), "piano before the WAIT window: ordinary input");
+            event("early", head.onsetCs, head.pitch, pending->lo(),
+                  head.onsetCs < pending->lo() ? "piano before the WAIT window: ordinary input"
+                                               : "piano between the likely WAIT lengths: ordinary input");
         } else {
+            if (*length != pending->d) {
+                // one of the model's most likely lengths: the WAIT is rewritten to it, then fires
+                event("snap", head.onsetCs, pending->d, *length, "WAIT rewritten to a top-" + std::to_string(cfg.waitTopK) + " length");
+                items[pending->waitItem].token = waitToken(*length);
+                pending->d = *length;
+                ++st.waitSnaps;
+            }
             group->fired = true;
             auto f = fire(head);
             out.insert(out.end(), f.begin(), f.end());
@@ -556,6 +570,7 @@ auto InformativeWaitEngine::closeGroup() -> std::vector<OutNote> {
     cur.chordOnCs = INT32_MIN;
     cur.chordCount = 0;
     cur.lastPianoCs = g.headCs;
+    cur.afterExpired = false;
     reappend(later);
     event("piano", g.headCs, static_cast<int32_t>(notes.size()));
     // A pending WAIT's anticipation is NOT restarted by this (early) piano group: live, restarting on every
@@ -643,6 +658,7 @@ auto InformativeWaitEngine::fire(const PianoNote &head) -> std::vector<OutNote> 
     cur.chordCount = 0;
     cur.lastOrchPitch = out.empty() ? -1 : out.back().pitch;
     cur.lastPianoCs = head.onsetCs;
+    cur.afterExpired = false;
     pending.reset();
     pre.reset();
     return out;
@@ -692,6 +708,7 @@ auto InformativeWaitEngine::expire() -> std::vector<OutNote> {
     cur.exclHiCs = cur.floorCs - 1;
     cur.chordOnCs = INT32_MIN;
     cur.freeFloorCs = at;
+    cur.afterExpired = true;
     event("expired", at, p.d, p.k);
     return out;
 }
@@ -824,10 +841,11 @@ auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
                          && cur.chordCount < std::min(cfg.maxChordNotes, kMaxChord);
     if (chordOk)
         ranges.push_back({rel(cur.chordOnCs), rel(cur.chordOnCs) + 1});
-    const bool waitOk = cfg.mode != Mode::LineLegato && ! cfg.continuation;
+    const bool waitOk = cfg.mode != Mode::LineLegato && ! cfg.continuation
+                        && ! (cfg.noWaitAfterExpiry && cur.afterExpired);
     if (waitOk) {
         // only WAITs whose window has not already passed: ref + d + 6 > now
-        const int32_t dMin = std::max(kGrid, nowCs + 1 - cur.clockCs - kEps);
+        const int32_t dMin = std::max(kGrid, nowCs + 1 - cur.clockCs - cfg.fireWindowCs);
         if (dMin <= kMaxWait)
             ranges.push_back({waitToken(((dMin + kGrid - 1) / kGrid) * kGrid), kCount0});
     }
@@ -857,13 +875,57 @@ auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
         }
         logits = &shifted;
     }
-    const int32_t t = pick(*logits, ranges, cfg.onsetTemperature, 0.0f);
+    int32_t t = pick(*logits, ranges, cfg.onsetTemperature, 0.0f);
+    if (cfg.minWaitCs > 0 && waitOk && t >= kWait0 && t < kCount0 && waitValue(t) < cfg.minWaitCs) {
+        // A WAIT under the minimum: the orchestra plays instead. The longer WAITs keep the probability the
+        // model gave them. The note goes at the onset the WAIT predicted for the pianist (the event before it
+        // + d, within the onsets allowed now; only duration, pitch and velocity are drawn), or, with
+        // shortWaitRedraw, at an onset redrawn from the orchestra onsets (ranges.back() is the WAIT range).
+        const int32_t d = waitValue(t);
+        ++st.shortWaitsReplaced;
+        if (cfg.shortWaitRedraw) {
+            auto onsets = ranges;
+            onsets.pop_back();
+            t = onsets.empty() ? -1 : pick(*logits, onsets, cfg.onsetTemperature, 0.0f);
+        } else {
+            t = std::clamp(rel(cur.clockCs + d), loRel, hiRel);
+        }
+        event("short", cur.clockCs, d, t < 0 ? -1 : t + baseCs,
+              cfg.shortWaitRedraw ? "WAIT under the minimum: an orchestra onset redrawn instead"
+                                  : "WAIT under the minimum: an orchestra note at its predicted onset instead");
+    }
     if (t < 0) {
         lastError = "nothing to draw at the onset step";
         return out;
     }
     if (t >= kWait0 && t < kCount0) {
         const int32_t d = waitValue(t);
+        // the model's most likely WAIT lengths (of those still possible), read before the COUNT step
+        // reuses the logits buffer: the top K (the drawn one aside) are also accepted, and the top 3
+        // with their probabilities go to the log
+        std::vector<int32_t> alts;
+        std::string topText;
+        {
+            const auto [wLo, wHi] = ranges.back();
+            std::vector<std::pair<float, int32_t>> byP;
+            for (int32_t x = wLo; x < wHi && x < static_cast<int32_t>(logits->size()); ++x)
+                if (std::isfinite((*logits)[static_cast<size_t>(x)]) && waitValue(x) >= cfg.minWaitCs)
+                    byP.push_back({(*logits)[static_cast<size_t>(x)], x});
+            std::sort(byP.begin(), byP.end(), [](const auto &a, const auto &b) { return a.first > b.first; });
+            if (cfg.waitTopK > 1)
+                for (size_t r = 0; r < byP.size() && r < static_cast<size_t>(cfg.waitTopK); ++r)
+                    if (waitValue(byP[r].second) != d)
+                        alts.push_back(waitValue(byP[r].second));
+            double total = 0;
+            for (const auto &[lg, x]: byP)
+                total += std::exp(static_cast<double>(lg - byP.front().first));
+            topText = "top 3:";
+            for (size_t r = 0; r < byP.size() && r < 3; ++r) {
+                const double pr = std::exp(static_cast<double>(byP[r].first - byP.front().first)) / total;
+                topText += " " + std::to_string(waitValue(byP[r].second)) + " ("
+                           + std::to_string(static_cast<int>(std::lround(pr * 100))) + "%)";
+            }
+        }
         const size_t at = items.size();
         Item w;
         w.kind = Kind::Wait;
@@ -891,10 +953,12 @@ auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
             append(ci);
         }
         pending = Pending{cur.clockCs, d, k, false, at};
+        pending->alts = std::move(alts);
+        pending->win = cfg.fireWindowCs;
         ++st.waitsDrawn;
         if (d >= 10)
             ++st.waitsGe10;
-        event("wait", cur.clockCs, d, k);
+        event("wait", cur.clockCs, d, k, topText);
         startPrecompute();
         return out;
     }
@@ -968,6 +1032,11 @@ auto InformativeWaitEngine::precomputeStep() -> void {
             ++st.precomputeCompleted;
             st.precomputeMsTotal += pc.ms;
         }
+        char text[96];
+        std::snprintf(text, sizeof text, "%s: %d notes x 5 branches, %d calls, %.1f ms inference, %.1f ms wall",
+                      ok ? "precompute done" : "precompute failed", pc.k, pc.calls, pc.ms,
+                      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - pc.started).count());
+        event("precomputed", pc.targetCs, pc.k, ok ? 1 : 0, text);
     };
     const auto dims = backend->dims();
     if (pc.phase == 0) {
@@ -981,6 +1050,7 @@ auto InformativeWaitEngine::precomputeStep() -> void {
         pc.durationCs = estimatedDuration(0);
         StreamingKv::evictForIncoming(s, dims, 2);
         std::vector<float> lv;
+        ++pc.calls;
         if (! backend->run(s, {T, kDur0 + q5(pc.durationCs)}, pc.state, lv) || lv.size() < static_cast<size_t>(kVocab))
             return finish(false);
         float peak = kNegInf;
@@ -1063,6 +1133,7 @@ auto InformativeWaitEngine::precomputeStep() -> void {
     const int perBranch = static_cast<int>(feed.size()) / kBranches;
     StreamingKv::evictBatchForIncoming(pc.kv, dims, perBranch);
     StreamingKv::BatchState next;
+    ++pc.calls;
     if (! backend->runBatched(pc.kv, feed, next, pc.logits))
         return finish(false);
     pc.kv = std::move(next);
@@ -1175,8 +1246,15 @@ auto InformativeWaitEngine::applyMirrored() -> void {
 }
 
 auto InformativeWaitEngine::interrupt() -> void {
-    if (pending.has_value() && pending->provisional)
-        removeProvisionalWait(pending->waitItem);
+    // The pending WAIT / COUNT leave the context: neither fired nor EXPIRED, they would stay unanswered,
+    // which no training line has (a model-drawn one too, not only a line mode's provisional one).
+    if (pending.has_value()) {
+        const size_t i = pending->waitItem;
+        if (i + 1 < items.size() && items[i].kind == Kind::Wait && items[i + 1].kind == Kind::Count) {
+            items.erase(items.begin() + static_cast<std::ptrdiff_t>(i), items.begin() + static_cast<std::ptrdiff_t>(i + 2));
+            before.erase(before.begin() + static_cast<std::ptrdiff_t>(i), before.begin() + static_cast<std::ptrdiff_t>(i + 2));
+        }
+    }
     pending.reset();
     pre.reset();
     fireLeft.reset();
@@ -1251,7 +1329,8 @@ auto InformativeWaitEngine::step(int32_t stepNowCs) -> std::vector<OutNote> {
         auto c = closeGroup();
         out.insert(out.end(), c.begin(), c.end());
     }
-    if (pending.has_value() && ! group.has_value() && nowCs > pending->hi(pending->provisional)) {
+    if (pending.has_value() && ! group.has_value()
+        && nowCs > pending->hi(pending->provisional) + (pending->provisional ? 0 : cfg.expiryGraceCs)) {
         auto e = expire();
         out.insert(out.end(), e.begin(), e.end());
     }

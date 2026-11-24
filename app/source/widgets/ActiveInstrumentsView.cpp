@@ -148,7 +148,7 @@ auto ActiveInstrumentsView::rebuildCells(const LaunchpadGrid &grid) -> void {
         autoReg.lit = true;
     }
 
-    // Row 6, col 4: the monophonic pad (max polyphony 1), lit in Jam and Accompaniment while on.
+    // Row 6, col 4: the monophonic pad (max polyphony 1), lit while on, in every mode.
     const bool polyActive = grid.isPolyphonyActive();
     for (int pad = 0; pad < LaunchpadGrid::kPolyphonyPadCount; ++pad) {
         const int col = LaunchpadGrid::kPolyphonyColFirst + pad;

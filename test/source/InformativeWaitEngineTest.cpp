@@ -186,6 +186,36 @@ TEST(InformativeWaitEngine, FireServedFromPrecomputedBranch) {
     EXPECT_GE(toks[12], Engine::kOrch0);
 }
 
+TEST(InformativeWaitEngine, AFireIsTimedFromTheKeyLandingToTheLastOrchestraNote) {
+    Rig rig(Engine::Mode::Unconstrained);
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 22); // [WAIT 30][COUNT 2], precomputed
+    ASSERT_TRUE(rig.engine.precomputeComplete());
+    // the key landed 3 ms before the engine applies it
+    const auto landed = std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::steady_clock::now().time_since_epoch()).count() - 3000;
+    rig.engine.noteOn(30, 60, 80, landed);
+    rig.engine.step(30);
+    const auto placed = std::find_if(rig.events.begin(), rig.events.end(), [](const auto &e) { return e.what == "placed"; });
+    ASSERT_NE(placed, rig.events.end());
+    EXPECT_EQ(placed->a, 2);         // both COUNT notes, at the fire
+    EXPECT_GE(placed->b, 3000);      // from the key, not from the fire
+    EXPECT_LT(placed->b, 3000000);
+    EXPECT_EQ(placed->text, "precomputed|key");
+}
+
+TEST(InformativeWaitEngine, ADecodedFireIsPlacedAfterItsLastNote) {
+    Rig rig(Engine::Mode::Unconstrained);
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 30);
+    rig.engine.noteOn(31, 50, 80); // not anticipated: decoded one note per step; landing unknown
+    rig.run(31, 33);
+    const auto placed = std::find_if(rig.events.begin(), rig.events.end(), [](const auto &e) { return e.what == "placed"; });
+    ASSERT_NE(placed, rig.events.end());
+    EXPECT_EQ(placed->a, 2);
+    EXPECT_EQ(placed->text, "decoded|fire");
+}
+
 TEST(InformativeWaitEngine, MissDecodesOnTheSpot) {
     Rig rig(Engine::Mode::Unconstrained);
     rig.engine.noteOn(0, 60, 80);

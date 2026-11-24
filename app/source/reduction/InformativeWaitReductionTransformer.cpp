@@ -1,4 +1,5 @@
 #include "VirtualOrch/reduction/InformativeWaitReductionTransformer.h"
+#include "VirtualOrch/KeyLanding.h"
 
 #include "VirtualOrch/SessionLog.h"
 #include "VirtualOrch/reduction/DenseTypes.h"
@@ -21,6 +22,7 @@ auto denseQuad(int32_t time, int32_t durCs, int32_t instrument, int32_t pitch, i
 InformativeWaitReductionTransformer::InformativeWaitReductionTransformer(ModelConfig &modelConfigIn)
     : ReductionTransformer("Reduction Transformer Informative WAIT", modelConfigIn) {
     engine.onEvent = [this](const InformativeWaitEngine::Event &e) {
+        waitTracker.onEvent(e, nowCs());
         if (! SessionLog::isRunning())
             return;
         SessionLog::add("IWAIT", getThreadName() + " | " + juce::String(e.what) + " @" + juce::String(e.atCs) + " "
@@ -98,6 +100,7 @@ auto InformativeWaitReductionTransformer::applySettings() -> void {
 
 auto InformativeWaitReductionTransformer::resetStream(int32_t now) -> void {
     engine.reset(now);
+    waitTracker.clear();
     streamStarted = true;
     currentTime = now;
     SessionLog::add("IWAIT", getThreadName() + " | stream reset at " + juce::String(now) + ", mode "
@@ -114,7 +117,7 @@ auto InformativeWaitReductionTransformer::drainInput() -> bool {
         const int32_t pitch = DenseQuantize::snapPianoPitch(in.getPitch());
         const int32_t velocity = std::clamp(in.velocity > 0 ? in.velocity : DenseConfig::DefaultVelocity, 1, 127);
         const bool held = DenseSampling::isProvisionalDurationToken(in.duration, modelConfig.inputDuration);
-        engine.noteOn(in.time, pitch, velocity);
+        engine.noteOn(in.time, pitch, velocity, KeyLanding::get(in.keyId));
         if (! held)
             engine.noteOff(in.time, pitch, std::max(1, in.getRealDuration()));
         const auto quad = denseQuad(in.time, DenseQuantize::snapDurationCs(in.getRealDuration()),

@@ -87,9 +87,9 @@ auto InformativeWaitEngine::reset(int32_t startCs) -> void {
         cache->reset();
 }
 
-auto InformativeWaitEngine::noteOn(int32_t onsetCs, int32_t pitch, int32_t velocity) -> void {
+auto InformativeWaitEngine::noteOn(int32_t onsetCs, int32_t pitch, int32_t velocity, int64_t landedUs) -> void {
     lastPianoVelocity = std::clamp(velocity, 1, 127);
-    inbox.push_back({onsetCs, std::clamp(pitch, kPianoLow, kPianoHigh), std::clamp(velocity, 1, 127), -1});
+    inbox.push_back({onsetCs, std::clamp(pitch, kPianoLow, kPianoHigh), std::clamp(velocity, 1, 127), -1, landedUs});
 }
 
 auto InformativeWaitEngine::noteOff(int32_t onsetCs, int32_t pitch, int32_t durationCs) -> void {
@@ -499,6 +499,9 @@ auto InformativeWaitEngine::fire(const PianoNote &head) -> std::vector<OutNote> 
     ++st.fires;
     scoreAnticipation(head.pitch);
     const auto t0 = std::chrono::steady_clock::now();
+    fireFromKey = head.landedUs >= 0;
+    fireFromUs = fireFromKey ? head.landedUs
+                             : std::chrono::duration_cast<std::chrono::microseconds>(t0.time_since_epoch()).count();
 
     PianoNote first = head;
     writePianoNotes({first});
@@ -550,6 +553,9 @@ auto InformativeWaitEngine::fire(const PianoNote &head) -> std::vector<OutNote> 
     }
     st.orchestraNotes += static_cast<int>(out.size());
     event("fire", head.onsetCs, p.k, static_cast<int32_t>(out.size()));
+    firePlaced = static_cast<int32_t>(out.size());
+    if (! fireLeft.has_value())
+        firePlacedEvent(head.onsetCs, ready == p.k);
     cur.exclHiCs = head.onsetCs + kMergeCs;
     cur.chordOnCs = INT32_MIN;
     cur.chordCount = 0;
@@ -558,6 +564,14 @@ auto InformativeWaitEngine::fire(const PianoNote &head) -> std::vector<OutNote> 
     pending.reset();
     pre.reset();
     return out;
+}
+
+auto InformativeWaitEngine::firePlacedEvent(int32_t onsetCs, bool precomputed) -> void {
+    const int64_t nowUs =
+        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    const int64_t us = std::max<int64_t>(0, nowUs - fireFromUs);
+    event("placed", onsetCs, firePlaced, static_cast<int32_t>(std::min<int64_t>(us, INT32_MAX)),
+          std::string(precomputed ? "precomputed" : "decoded") + (fireFromKey ? "|key" : "|fire"));
 }
 
 auto InformativeWaitEngine::expire() -> std::vector<OutNote> {
@@ -1062,8 +1076,12 @@ auto InformativeWaitEngine::step(int32_t stepNowCs) -> std::vector<OutNote> {
             fireLeft->minPitch = std::min(note->pitch + 1, kPianoHigh);
             out.push_back(*note);
         }
-        if (! note.has_value() || --fireLeft->left <= 0)
+        if (note.has_value())
+            ++firePlaced;
+        if (! note.has_value() || --fireLeft->left <= 0) {
+            firePlacedEvent(fireLeft->onsetCs, false);
             fireLeft.reset();
+        }
         return out;
     }
     if (group.has_value() && ! fireLeft.has_value() && nowCs >= group->headCs + kMergeCs) {

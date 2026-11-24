@@ -1,5 +1,6 @@
 #include "VirtualOrch/reduction/HybridInformativeWaitReductionTransformer.h"
 
+#include "VirtualOrch/KeyLanding.h"
 #include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/SessionLog.h"
 #include "VirtualOrch/TemporalDensity.h"
@@ -43,7 +44,10 @@ HybridInformativeWaitReductionTransformer::HybridInformativeWaitReductionTransfo
         };
     };
     silentEngine.onEvent = logger("m1");
-    waitEngine.onEvent = logger("m2");
+    waitEngine.onEvent = [this, log = logger("m2")](const InformativeWaitEngine::Event &e) {
+        log(e);
+        waitTracker.onEvent(e, nowCs());
+    };
     tdValueProvider = [] { return TemporalDensity::get(); };
 }
 
@@ -104,6 +108,7 @@ auto HybridInformativeWaitReductionTransformer::applySettings() -> void {
 auto HybridInformativeWaitReductionTransformer::resetStreams(int32_t now) -> void {
     silentEngine.reset(now);
     waitEngine.reset(now);
+    waitTracker.clear();
     streamsStarted = true;
     tdResetRequested.store(true); // a restart starts from gamma 0, not the last stream's
     currentTime = now;
@@ -124,7 +129,7 @@ auto HybridInformativeWaitReductionTransformer::drainInput() -> bool {
         const int32_t velocity = std::clamp(in.velocity > 0 ? in.velocity : DenseConfig::DefaultVelocity, 1, 127);
         const bool held = DenseSampling::isProvisionalDurationToken(in.duration, modelConfig.inputDuration);
         for (auto *e: {&silentEngine, &waitEngine}) {
-            e->noteOn(in.time, pitch, velocity);
+            e->noteOn(in.time, pitch, velocity, KeyLanding::get(in.keyId));
             if (! held)
                 e->noteOff(in.time, pitch, std::max(1, in.getRealDuration()));
         }
@@ -160,6 +165,8 @@ auto HybridInformativeWaitReductionTransformer::setSilent(bool silent, Reason wh
     if (silentActive.exchange(silent) == silent)
         return;
     (silent ? waitEngine : silentEngine).interrupt(); // the model that stops drawing forgets its pending WAIT
+    if (silent)
+        waitTracker.cancel();
     if (! silent)
         waitSinceCs = now;
     static constexpr const char *kWhy[] = {"start", "pedal released", "playing 1 s", "silent 0.5 s",

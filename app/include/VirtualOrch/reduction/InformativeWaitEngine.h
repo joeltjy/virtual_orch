@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <chrono>
 #include <climits>
 #include <cstdint>
 #include <functional>
@@ -159,7 +160,12 @@ public:
         int lagSkips = 0;         // line A fills skipped because the engine was behind
     };
 
-    /** One record per decision (the transformer logs them; tests read them). */
+    /**
+     * One record per decision (the transformer logs them; tests read them). "placed" (at the fire's
+     * onset): a = the fire's orchestra notes placed, b = microseconds from the firing key landing
+     * (noteOn's landedUs; the fire itself when unknown) to the last of them placed; text
+     * "precomputed" / "decoded", then "|key" / "|fire" for where the time is counted from.
+     */
     struct Event {
         std::string what; // piano, orch, wait, count, fire, expired, removed, provisional, early, cut, anticipate, hit, miss
         int32_t atCs = 0;
@@ -182,8 +188,11 @@ public:
     /** Start again at `nowCs` (nothing written; the first piano group starts the context). */
     auto reset(int32_t startCs) -> void;
 
-    /** A key went down (velocity 1..127). */
-    auto noteOn(int32_t onsetCs, int32_t pitch, int32_t velocity) -> void;
+    /**
+     * A key went down (velocity 1..127). `landedUs`: when the key landed (KeyLanding, steady-clock
+     * microseconds; -1 = unknown): a WAIT it fires is timed from it to the last orchestra note.
+     */
+    auto noteOn(int32_t onsetCs, int32_t pitch, int32_t velocity, int64_t landedUs = -1) -> void;
     /** That key went up: its final duration. */
     auto noteOff(int32_t onsetCs, int32_t pitch, int32_t durationCs) -> void;
 
@@ -255,6 +264,7 @@ private:
         int32_t pitch = 0;
         int32_t velocity = 0;
         int32_t durationCs = -1; // -1 = held
+        int64_t landedUs = -1;   // when the key landed (steady-clock us), -1 = unknown
     };
     struct OpenGroup {
         int32_t headCs = 0;
@@ -344,6 +354,11 @@ private:
         int32_t minPitch = 21;
     };
     std::optional<FireLeft> fireLeft; // stacked notes of a fire still to decode (one per step)
+    /** When the firing key landed (else when the fire began), and how many notes are placed ("placed"). */
+    int64_t fireFromUs = 0;
+    bool fireFromKey = false;
+    int32_t firePlaced = 0;
+    auto firePlacedEvent(int32_t onsetCs, bool precomputed) -> void;
     int32_t cancelFrom = INT32_MAX;
     std::vector<int32_t> emittedFuture;                 // onsets of generated notes not yet started (for cuts)
     Stats st;

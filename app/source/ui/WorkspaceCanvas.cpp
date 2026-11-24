@@ -11,6 +11,7 @@
 #include "VirtualOrch/widgets/InstrumentGroupActivityWidget.h"
 #include "VirtualOrch/widgets/ScoreWidget.h"
 #include "VirtualOrch/widgets/TdControlWidget.h"
+#include "VirtualOrch/widgets/WaitVisualizerWidget.h"
 #include "VirtualOrch/widgets/ActiveModelWidget.h"
 #include "VirtualOrch/widgets/OnsetGapsWidget.h"
 #include "VirtualOrch/widgets/TdViewerWidget.h"
@@ -240,6 +241,12 @@ auto WorkspaceCanvas::createWidgetForType(const juce::String &type) const
         if (session == nullptr)
             return nullptr;
         return std::make_unique<TdControlWidget>(*session);
+    }
+
+    if (type == UiConstants::workspaceWidgetTypeWaitVisualizer) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<WaitVisualizerWidget>(*session);
     }
 
     if (type == UiConstants::workspaceWidgetTypeUserSelection) {

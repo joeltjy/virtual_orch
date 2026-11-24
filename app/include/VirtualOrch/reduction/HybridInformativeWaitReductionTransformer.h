@@ -14,6 +14,7 @@
 #include "VirtualOrch/reduction/ReductionTransformer.h"
 #include "VirtualOrch/reduction/StreamingKvCache.h"
 #include "VirtualOrch/reduction/TdController.h"
+#include "VirtualOrch/reduction/WaitTracker.h"
 
 /**
  * Hybrid v1.1: overnight model 1 (continuation, vocab 11768) while the pianist is silent, the informative-WAIT
@@ -83,6 +84,8 @@ public:
         const std::lock_guard<std::mutex> lock(tdViewMutex);
         return tdViews;
     }
+    /** The playing side's WAITs (WAIT Visualizer); nothing pending while model 1 draws. */
+    [[nodiscard]] auto waitState() const -> WaitTracker::Snapshot { return waitTracker.snapshot(); }
     /** The gamma a model draws with now (empty at TD AUTO). */
     [[nodiscard]] auto tdGamma(bool silentModel) const -> std::optional<float>;
     std::string waitName = "informative WAIT";
@@ -122,6 +125,7 @@ private:
     int32_t waitSinceCs = INT32_MIN;
     bool streamsStarted = false;
 
+    WaitTracker waitTracker;
     TdController tdControlSilent, tdControlWait;
     std::atomic<bool> tdResetRequested{false};
     int64_t lastTdTickMs = -1;

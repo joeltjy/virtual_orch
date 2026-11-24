@@ -82,6 +82,8 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
                      UiConstants::workspaceAddMenuScoreItem);
         menu.addItem(UiConstants::workspaceAddMenuTdControlItemId,
                      UiConstants::workspaceAddMenuTdControlItem);
+        menu.addItem(UiConstants::workspaceAddMenuWaitVisualizerItemId,
+                     UiConstants::workspaceAddMenuWaitVisualizerItem);
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addButton),
                            [this](int result) {
                                if (result == UiConstants::workspaceAddMenuPromptItemId)
@@ -156,6 +158,8 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
                                    canvas.addWidgetByType(UiConstants::workspaceWidgetTypeScore);
                                else if (result == UiConstants::workspaceAddMenuTdControlItemId)
                                    canvas.addWidgetByType(UiConstants::workspaceWidgetTypeTdControl);
+                               else if (result == UiConstants::workspaceAddMenuWaitVisualizerItemId)
+                                   canvas.addWidgetByType(UiConstants::workspaceWidgetTypeWaitVisualizer);
                            });
     };
     newViewButton.onClick = [this] { promptNewView(); };

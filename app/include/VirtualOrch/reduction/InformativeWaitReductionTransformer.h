@@ -12,6 +12,7 @@
 #include "VirtualOrch/reduction/InformativeWaitEngine.h"
 #include "VirtualOrch/reduction/ReductionTransformer.h"
 #include "VirtualOrch/reduction/StreamingKvCache.h"
+#include "VirtualOrch/reduction/WaitTracker.h"
 
 /**
  * Piano -> orchestra reduction with the informative-WAIT model (overnight model 2, 2026-11-23,
@@ -65,6 +66,8 @@ public:
     [[nodiscard]] auto getOtherTemperature() const -> float { return otherTemperature.load(); }
     [[nodiscard]] auto getMinP() const -> float { return minP.load(); }
 
+    /** Its WAITs (WAIT Visualizer). */
+    [[nodiscard]] auto waitState() const -> WaitTracker::Snapshot { return waitTracker.snapshot(); }
     /** The engine's counters (copied under a lock; any thread). */
     [[nodiscard]] auto statsSnapshot() const -> InformativeWaitEngine::Stats;
     [[nodiscard]] static auto modeName(InformativeWaitEngine::Mode mode) -> const char *;
@@ -84,6 +87,7 @@ private:
 
     std::unique_ptr<StreamingKv::Backend> backend;
     InformativeWaitEngine engine;
+    WaitTracker waitTracker;
     mutable std::mutex statsMutex;
     InformativeWaitEngine::Stats lastStats;
 

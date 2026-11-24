@@ -1,4 +1,5 @@
 #include "VirtualOrch/MidiInputProcess.h"
+#include "VirtualOrch/KeyLanding.h"
 #include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/AppTime.h"
 #include "VirtualOrch/PerformanceActivity.h"
@@ -609,6 +610,7 @@ void MidiInputProcess::handleNoteOn(int midiNoteNumber, float velocity, int pian
             DBG("Setting bass to " + std::to_string(bassHeld.value()));
         } else {
             const int32_t keyId = nextKeyId++;
+            KeyLanding::record(keyId); // the WAIT Visualizer times a fire from here
             notesOnToSend[heldKeyOf(piano, midiNoteNumber)] = HeldDirectNote{.onset = time,
                                                            .flushedTime = std::nullopt,
                                                            .velocity = inputToken.velocity,

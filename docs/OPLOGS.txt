@@ -182,7 +182,7 @@ Output and control:
                   ahead of the clock and waits.
   TD_CTRL         dynamic LogitTD, every 2 s per model while TD is not AUTO (250 ms in files
                   before Nov 23 2026): model ("W" |
-                  "T3" | "v1"), td (target level), measured (the orchestra's density: distinct
+                  "T3" | "v1"; Hybrid v1.1: "m1" silent side, "m2" playing side), td (target level), measured (the orchestra's density: distinct
                   onsets in the 3 s ending at its newest note, in onsets per 2 s), error
                   (log2(td / measured), clamped to +-2), gamma (the strength the model draws
                   with: onset logits get gamma x -(1/4) ln(1 + (c k / 200)^4)), k (the step

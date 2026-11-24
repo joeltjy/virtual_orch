@@ -8,6 +8,7 @@
 #include <optional>
 #include <random>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "VirtualOrch/reduction/StreamingKvCache.h"
@@ -114,6 +115,15 @@ public:
          * onset (the T3'' / v1 rules of sample_overnight.generate for m1). Unconstrained mode only.
          */
         bool continuation = false;
+        /**
+         * Dynamic LogitTD (TdController, set by the transformer): the Launchpad TD level (0 = AUTO) and the
+         * strength gamma. At an onset draw the onsets lo..hi (c = t - (lo - 1) cs, c >= 1) get
+         * gamma x TdOnsetBias::kernelFor(gamma, tdLevel, c), and then a constant so their total probability
+         * at the onset temperature is unchanged: gamma never changes P(chord note) or P(WAIT). Empty or AUTO:
+         * the model's own onsets.
+         */
+        int32_t tdLevel = 0;
+        std::optional<float> tdGamma;
     };
 
     struct OutNote {
@@ -195,6 +205,11 @@ public:
     auto takeCancelFrom() -> int32_t;
 
     [[nodiscard]] auto stats() const -> const Stats & { return st; }
+    /**
+     * Dynamic LogitTD: the mean sensitivity (TdOnsetBias::sensitivity, d log2 density / d gamma) of the onset
+     * draws made with a gamma since the last call, and how many there were; resets.
+     */
+    auto takeSensitivity() -> std::pair<std::optional<double>, int>;
     [[nodiscard]] auto tokens() const -> std::vector<int32_t>;
     [[nodiscard]] auto base() const -> int32_t { return baseCs; }
     [[nodiscard]] auto hasPendingWait() const -> bool { return pending.has_value(); }
@@ -276,6 +291,10 @@ private:
     auto pick(const std::vector<float> &logits, const std::vector<std::pair<int32_t, int32_t>> &ranges,
               float temperature, float minP, int32_t step = 1) -> int32_t;
     auto pickFrom(std::vector<float> scores, float temperature) -> int32_t;
+    /** Dynamic LogitTD on the onsets loRel..hiRel of `logits` (cfg.tdGamma), and their sensitivity. */
+    auto applyTdGamma(std::vector<float> &logits, int32_t loRel, int32_t hiRel) -> void;
+    double sensitivitySum = 0.0;
+    int sensitivityDraws = 0;
 
     auto applyInput() -> std::vector<OutNote>;
     auto onGroupHead(const PianoNote &head) -> std::vector<OutNote>;

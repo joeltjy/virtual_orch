@@ -7,11 +7,13 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "VirtualOrch/MusicToken.h"
 #include "VirtualOrch/reduction/InformativeWaitEngine.h"
 #include "VirtualOrch/reduction/ReductionTransformer.h"
 #include "VirtualOrch/reduction/StreamingKvCache.h"
+#include "VirtualOrch/reduction/TdController.h"
 
 /**
  * Hybrid v1.1: overnight model 1 (continuation, vocab 11768) while the pianist is silent, the informative-WAIT
@@ -24,6 +26,11 @@
  *     queued for 2 s): the same cut, model 1 takes over and the 1 s playing timer starts again.
  * Each model has its own engine and token stream (their vocabularies differ); both get every piano note, and each
  * generated note is mirrored into the other model's context, so both always see the same music.
+ *
+ * Dynamic LogitTD as in W3's Hybrid: one TdController per model ("m1", "m2"), ticked every TdController::kTickMs
+ * from the orchestra's measured density, each updated only while its model draws (m2 frozen while it waits on a
+ * WAIT); the gamma goes to that model's onset draws (InformativeWaitEngine::Settings::tdGamma). Both go back to
+ * gamma 0 on a stream restart and a pedal release. TD AUTO: no shift.
  */
 class HybridInformativeWaitReductionTransformer : public ReductionTransformer {
 public:
@@ -65,12 +72,27 @@ public:
     /** One loop iteration without waiting (tests). True when notes were produced. */
     auto stepOnce() -> bool;
     std::string silentName = "model 1";
+    /** Launchpad TD value (TemporalDensity::kAuto or a level); tests replace it. */
+    std::function<int32_t()> tdValueProvider;
+    /** Dynamic LogitTD, per model ("m1" silent side, "m2" playing side): what the TD widget shows. */
+    struct TdControlView {
+        std::string model;
+        TdController::State state;
+    };
+    [[nodiscard]] auto getTdControlStates() const -> std::vector<TdControlView> {
+        const std::lock_guard<std::mutex> lock(tdViewMutex);
+        return tdViews;
+    }
+    /** The gamma a model draws with now (empty at TD AUTO). */
+    [[nodiscard]] auto tdGamma(bool silentModel) const -> std::optional<float>;
     std::string waitName = "informative WAIT";
 
 private:
     auto onGenerationPauseChanged(bool paused) -> void override {
-        if (! paused)
+        if (! paused) {
             pedalReleased.store(true);
+            tdResetRequested.store(true);
+        }
     }
     auto nowCs() const -> int32_t;
     auto applySettings() -> void;
@@ -81,6 +103,8 @@ private:
     auto cutGeneratedFrom(int32_t now) -> void;
     [[nodiscard]] auto predictsSilenceFrom(int32_t now) const -> bool;
     auto generate(int32_t now) -> bool;
+    auto tickTdControl() -> void;
+    [[nodiscard]] auto wallMs() const -> int64_t;
 
     std::unique_ptr<StreamingKv::Backend> silentBackend;
     std::unique_ptr<StreamingKv::Backend> waitBackend;
@@ -95,4 +119,10 @@ private:
     int64_t playingSinceMs = -1;
     int32_t waitSinceCs = INT32_MIN;
     bool streamsStarted = false;
+
+    TdController tdControlSilent, tdControlWait;
+    std::atomic<bool> tdResetRequested{false};
+    int64_t lastTdTickMs = -1;
+    mutable std::mutex tdViewMutex;
+    std::vector<TdControlView> tdViews;
 };

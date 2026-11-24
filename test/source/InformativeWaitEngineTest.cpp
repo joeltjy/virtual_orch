@@ -13,6 +13,8 @@
 #include <VirtualOrch/reduction/HybridInformativeWaitReductionTransformer.h>
 #include <VirtualOrch/reduction/InformativeWaitEngine.h>
 #include <VirtualOrch/reduction/StreamingKvCache.h>
+#include <VirtualOrch/TemporalDensity.h>
+#include <VirtualOrch/reduction/TdController.h>
 
 /**
  * Informative WAIT (overnight model 2): the WAIT / COUNT / EXPIRED state machine in the three modes,
@@ -422,6 +424,100 @@ TEST(HybridInformativeWait, SwitchesToTheWaitModelAfterOneSecondOfPlayingAndBack
     hy.stepOnce();
     EXPECT_TRUE(hy.usesSilentModel());
     EXPECT_EQ(hy.reason(), HybridInformativeWaitReductionTransformer::Reason::Stopped);
+}
+
+namespace TdTest {
+
+/** Model 1 with flat onset logits: the mean gap between its onsets, drawn with `gamma` at TD 8. */
+auto meanGap(std::optional<float> gamma, std::pair<std::optional<double>, int> *sensitivity = nullptr) -> double {
+    Rig rig(Engine::Mode::Unconstrained);
+    auto s = rig.engine.settings();
+    s.continuation = true;
+    s.tdLevel = 8;
+    s.tdGamma = gamma;
+    rig.engine.setSettings(s);
+    *rig.model.waitD = 0;
+    *rig.model.onsetRel = 0; // only onset 0 (in the past) stands out: every legal onset is equally likely
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 3000);
+    if (sensitivity != nullptr)
+        *sensitivity = rig.engine.takeSensitivity();
+    std::vector<int32_t> onsets;
+    for (const auto &n: rig.played)
+        onsets.push_back(n.onsetCs);
+    std::sort(onsets.begin(), onsets.end());
+    onsets.erase(std::unique(onsets.begin(), onsets.end()), onsets.end());
+    EXPECT_GE(onsets.size(), 3u);
+    return onsets.size() < 2 ? 0.0
+                             : static_cast<double>(onsets.back() - onsets.front()) / static_cast<double>(onsets.size() - 1);
+}
+
+} // namespace TdTest
+
+TEST(InformativeWaitEngine, TdGammaShortensOrLengthensTheOnsetGaps) {
+    std::pair<std::optional<double>, int> none, plus;
+    const double flat = TdTest::meanGap(std::nullopt, &none);
+    const double denser = TdTest::meanGap(3.0f, &plus);
+    const double sparser = TdTest::meanGap(-2.0f);
+    EXPECT_LT(denser, 0.7 * flat);
+    EXPECT_GT(sparser, flat);
+    // sensitivity is recorded only for draws made with a gamma, and is positive (more gamma, more density)
+    EXPECT_EQ(none.second, 0);
+    ASSERT_TRUE(plus.first.has_value());
+    EXPECT_GT(plus.second, 0);
+    EXPECT_GT(*plus.first, 0.0);
+}
+
+TEST(HybridInformativeWait, TicksOneTdControllerPerModelAndResetsOnPedalRelease) {
+    ModelConfig config;
+    HybridInformativeWaitReductionTransformer hy(config);
+    auto silent = std::make_unique<ScriptBackend>();
+    *silent->waitD = 0;
+    *silent->onsetRel = 0;
+    hy.initWithBackends(std::move(silent), std::make_unique<ScriptBackend>());
+    int32_t now = 0;
+    int64_t wall = 0;
+    int32_t td = TemporalDensity::kAuto;
+    hy.nowCsProvider = [&] { return now; };
+    hy.wallMsProvider = [&] { return wall; };
+    hy.pianoSilentForMs = [] { return INT64_MAX; };
+    hy.tdValueProvider = [&] { return td; };
+    Token t{0, static_cast<int32_t>(DenseVocab::DurOffset) + 20, static_cast<int32_t>(DenseVocab::NoteOffset) + 60};
+    t.velocity = 80;
+    hy.inputTokenQueue.push(t);
+    const auto runFor = [&](int ms) {
+        for (int i = 0; i < ms / 10; ++i) {
+            hy.stepOnce();
+            now += 1;
+            wall += 10;
+        }
+    };
+    runFor(2500);
+    auto views = hy.getTdControlStates();
+    ASSERT_EQ(views.size(), 2u);
+    EXPECT_EQ(views[0].model, "m1");
+    EXPECT_EQ(views[1].model, "m2");
+    EXPECT_EQ(views[0].state.why, "TD AUTO");
+    EXPECT_FALSE(hy.tdGamma(true).has_value());
+
+    // TD 64: far denser than model 1's flat onsets give, so its gamma goes up; model 2 is not drawing.
+    td = 64;
+    runFor(6500);
+    views = hy.getTdControlStates();
+    ASSERT_EQ(views.size(), 2u);
+    EXPECT_FALSE(views[0].state.frozen) << views[0].state.why;
+    EXPECT_GT(views[0].state.gamma, 0.0);
+    EXPECT_LE(views[0].state.gamma, 3 * TdController::kMaxStep + 1e-9);
+    EXPECT_TRUE(views[1].state.frozen);
+    ASSERT_TRUE(hy.tdGamma(true).has_value());
+    EXPECT_GT(*hy.tdGamma(true), 0.0f);
+
+    // a pedal release puts both back to gamma 0
+    hy.setGenerationPause(true, "test");
+    hy.setGenerationPause(false, "test");
+    hy.stepOnce();
+    EXPECT_EQ(*hy.tdGamma(true), 0.0f);
+    EXPECT_EQ(*hy.tdGamma(false), 0.0f);
 }
 
 // ---- the real export (skipped unless the files are on this machine) ----

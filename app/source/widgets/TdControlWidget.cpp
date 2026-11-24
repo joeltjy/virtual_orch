@@ -2,6 +2,7 @@
 
 #include "VirtualOrch/AppSession.h"
 #include "VirtualOrch/AppTime.h"
+#include "VirtualOrch/reduction/HybridInformativeWaitReductionTransformer.h"
 #include "VirtualOrch/reduction/TwoInstrumentAnticipatedReductionTransformer.h"
 #include "VirtualOrch/ui/UiConstants.h"
 
@@ -186,6 +187,9 @@ auto TdControlWidget::timerCallback() -> void {
     std::vector<TdControlView::Row> rows;
     if (auto *rt = dynamic_cast<TwoInstrumentAnticipatedReductionTransformer *>(&session.activeReduction()))
         for (auto &v: rt->getTdControlStates())
+            rows.push_back({v.model, v.state});
+    else if (auto *hy = dynamic_cast<HybridInformativeWaitReductionTransformer *>(&session.activeReduction()))
+        for (auto &v: hy->getTdControlStates())
             rows.push_back({v.model, v.state});
     view.setRows(std::move(rows), AppTime::hiResMs() / 1000.0);
 }

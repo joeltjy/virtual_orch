@@ -1,9 +1,12 @@
 #include "VirtualOrch/reduction/HybridInformativeWaitReductionTransformer.h"
 
+#include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/SessionLog.h"
+#include "VirtualOrch/TemporalDensity.h"
 #include "VirtualOrch/reduction/DenseTypes.h"
 
 #include <algorithm>
+#include <set>
 
 namespace {
 
@@ -41,6 +44,7 @@ HybridInformativeWaitReductionTransformer::HybridInformativeWaitReductionTransfo
     };
     silentEngine.onEvent = logger("m1");
     waitEngine.onEvent = logger("m2");
+    tdValueProvider = [] { return TemporalDensity::get(); };
 }
 
 auto HybridInformativeWaitReductionTransformer::init(const char *silentModelPath, const char *waitModelPath) -> bool {
@@ -83,12 +87,17 @@ auto HybridInformativeWaitReductionTransformer::applySettings() -> void {
     s.continuation = true;
     s.mode = InformativeWaitEngine::Mode::Unconstrained;
     s.precompute = false;
+    const int32_t td = tdValueProvider ? tdValueProvider() : TemporalDensity::kAuto;
+    s.tdLevel = td;
+    s.tdGamma = tdGamma(true);
     silentEngine.setSettings(s);
     auto w = waitEngine.settings();
     w.continuation = false;
     w.mode = static_cast<InformativeWaitEngine::Mode>(waitMode.load());
     w.precompute = precompute.load();
     w.seed = 1;
+    w.tdLevel = td;
+    w.tdGamma = tdGamma(false);
     waitEngine.setSettings(w);
 }
 
@@ -96,6 +105,7 @@ auto HybridInformativeWaitReductionTransformer::resetStreams(int32_t now) -> voi
     silentEngine.reset(now);
     waitEngine.reset(now);
     streamsStarted = true;
+    tdResetRequested.store(true); // a restart starts from gamma 0, not the last stream's
     currentTime = now;
     playingSinceMs = -1;
     silentActive.store(true);
@@ -189,8 +199,75 @@ auto HybridInformativeWaitReductionTransformer::predictsSilenceFrom(int32_t now)
     return lastEnd != INT32_MIN && now - lastEnd >= kPredictedSilenceCs;
 }
 
+auto HybridInformativeWaitReductionTransformer::wallMs() const -> int64_t {
+    return wallMsProvider ? wallMsProvider() : juce::Time::currentTimeMillis();
+}
+
+auto HybridInformativeWaitReductionTransformer::tdGamma(bool silentModel) const -> std::optional<float> {
+    const int32_t td = tdValueProvider ? tdValueProvider() : TemporalDensity::kAuto;
+    if (td == TemporalDensity::kAuto)
+        return std::nullopt;
+    return static_cast<float>((silentModel ? tdControlSilent : tdControlWait).current().gamma);
+}
+
+auto HybridInformativeWaitReductionTransformer::tickTdControl() -> void {
+    // Before the rate limit, so the next draw already uses gamma 0.
+    if (tdResetRequested.exchange(false)) {
+        tdControlSilent.reset();
+        tdControlWait.reset();
+        lastTdTickMs = wallMs(); // the first update after a full tick of new notes
+        if (OpLog::on())
+            OpLog::emit(OpLog::Src::Rt, "TD_CTRL_RESET", {});
+    }
+    const int64_t nowMs = wallMs();
+    if (lastTdTickMs >= 0 && static_cast<double>(nowMs - lastTdTickMs) < TdController::kTickMs)
+        return;
+    lastTdTickMs = nowMs;
+
+    // The orchestra's density: distinct onsets of the generated notes in the 3 s ending at the newest one.
+    std::optional<double> measured;
+    {
+        const auto history = getOutputHistorySince(INT32_MIN);
+        const auto isNote = [](const Token &t) {
+            return t.note >= static_cast<int32_t>(Vocab::NoteOffset) && t.note < static_cast<int32_t>(Vocab::Rest);
+        };
+        int32_t frontier = INT32_MIN;
+        for (const auto &t: history)
+            if (isNote(t))
+                frontier = std::max(frontier, t.time);
+        if (frontier != INT32_MIN) {
+            std::set<int32_t> onsets;
+            for (const auto &t: history)
+                if (isNote(t) && t.time > frontier - TdController::kWindowCs && t.time <= frontier)
+                    onsets.insert(t.time);
+            measured = TdController::measure(static_cast<int>(onsets.size()));
+        }
+    }
+    const int32_t td = tdValueProvider ? tdValueProvider() : TemporalDensity::kAuto;
+    const bool clockRunning = clock == nullptr || clock->isRunning();
+    std::vector<TdControlView> views;
+    const auto tickOne = [&](TdController &controller, InformativeWaitEngine &engine, const char *model) {
+        const auto [sensitivity, draws] = engine.takeSensitivity();
+        juce::ignoreUnused(draws);
+        // waiting: drew nothing this tick because a WAIT is pending (not "not drawing")
+        const bool waiting = ! sensitivity.has_value() && engine.hasPendingWait();
+        const auto &state = controller.tick({td, measured, sensitivity, clockRunning, waiting});
+        views.push_back({model, state});
+        if (OpLog::on() && td != TemporalDensity::kAuto)
+            OpLog::emit(OpLog::Src::Rt, "TD_CTRL",
+                        {{"model", model}, {"td", td}, {"measured", state.measured}, {"error", state.error},
+                         {"gamma", state.gamma}, {"k", state.k}, {"s_hat", state.sensitivity}, {"m", state.m},
+                         {"frozen", state.frozen},
+                         {"why", state.why.empty() ? OpLog::Value() : OpLog::Value(state.why)}});
+    };
+    tickOne(tdControlSilent, silentEngine, "m1");
+    tickOne(tdControlWait, waitEngine, "m2");
+    const std::lock_guard<std::mutex> lock(tdViewMutex);
+    tdViews = std::move(views);
+}
+
 auto HybridInformativeWaitReductionTransformer::updateHybrid(int32_t now) -> void {
-    const int64_t wallMs = wallMsProvider ? wallMsProvider() : juce::Time::currentTimeMillis();
+    const int64_t wallMs = this->wallMs();
     const int64_t silentFor = pianoSilentForMs ? pianoSilentForMs() : INT64_MAX;
     const bool playing = silentFor <= kStopMs;
     if (! playing)
@@ -255,6 +332,7 @@ auto HybridInformativeWaitReductionTransformer::stepOnce() -> bool {
         resetStreams(*cut);
     drainInput();
     updateHybrid(now);
+    tickTdControl();
     if (isGenerationStopped())
         return false;
     return generate(now);
@@ -292,6 +370,7 @@ void HybridInformativeWaitReductionTransformer::threadRun() {
         }
         drainInput();
         updateHybrid(now);
+        tickTdControl();
         if (isGenerationStopped()) {
             maybeEmitGenerationPauseSoftStopClear();
             wait(5);

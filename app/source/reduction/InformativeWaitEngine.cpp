@@ -1,5 +1,7 @@
 #include "VirtualOrch/reduction/InformativeWaitEngine.h"
 
+#include "VirtualOrch/reduction/TdOnsetBias.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -216,6 +218,61 @@ auto InformativeWaitEngine::pick(const std::vector<float> &logits,
                 s = kNegInf;
     }
     return pickFrom(std::move(scores), temperature);
+}
+
+auto InformativeWaitEngine::applyTdGamma(std::vector<float> &logits, int32_t loRel, int32_t hiRel) -> void {
+    const float gamma = *cfg.tdGamma;
+    const float temp = std::max(cfg.onsetTemperature, 1e-4f);
+    const int32_t first = std::max(loRel, 0);
+    const int32_t last = std::min(hiRel, static_cast<int32_t>(logits.size()) - 1);
+    if (first > last)
+        return;
+    const int32_t ref = loRel - 1; // c = t - ref >= 1: the earliest legal new onset is one step on
+    const auto lse = [&] {
+        float peak = kNegInf;
+        for (int32_t t = first; t <= last; ++t)
+            peak = std::max(peak, logits[static_cast<size_t>(t)]);
+        if (! std::isfinite(peak))
+            return kNegInf;
+        double sum = 0.0;
+        for (int32_t t = first; t <= last; ++t)
+            if (std::isfinite(logits[static_cast<size_t>(t)]))
+                sum += std::exp(static_cast<double>((logits[static_cast<size_t>(t)] - peak) / temp));
+        return peak / temp + static_cast<float>(std::log(sum));
+    };
+    const float before = lse();
+    if (! std::isfinite(before))
+        return;
+    for (int32_t t = first; t <= last; ++t)
+        logits[static_cast<size_t>(t)] += gamma * TdOnsetBias::kernelFor(gamma, cfg.tdLevel, t - ref);
+    const float after = lse();
+    if (std::isfinite(after)) {
+        const float restore = temp * (before - after);
+        for (int32_t t = first; t <= last; ++t)
+            logits[static_cast<size_t>(t)] += restore;
+    }
+
+    // Sensitivity over these onsets, gaps measured from the last orchestra onset before them.
+    int32_t lastOrch = INT32_MIN;
+    for (const auto &it: items)
+        if (it.kind == Kind::Orch && it.onsetCs < loRel + baseCs)
+            lastOrch = std::max(lastOrch, it.onsetCs);
+    const int32_t offset = lastOrch == INT32_MIN ? 0 : std::max(0, ref + baseCs - lastOrch);
+    std::vector<float> scores(static_cast<size_t>(last - ref + 1), kNegInf); // index c; c = 0 left out
+    for (int32_t t = first; t <= last; ++t)
+        scores[static_cast<size_t>(t - ref)] = logits[static_cast<size_t>(t)];
+    if (const auto s = TdOnsetBias::sensitivity(scores, 0, offset, cfg.tdLevel, temp, gamma)) {
+        sensitivitySum += *s;
+        ++sensitivityDraws;
+    }
+}
+
+auto InformativeWaitEngine::takeSensitivity() -> std::pair<std::optional<double>, int> {
+    const int draws = sensitivityDraws;
+    const std::optional<double> mean = draws > 0 ? std::optional<double>(sensitivitySum / draws) : std::nullopt;
+    sensitivitySum = 0.0;
+    sensitivityDraws = 0;
+    return {mean, draws};
 }
 
 // ---------------------------------------------------------------- stream
@@ -637,6 +694,12 @@ auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
     const auto *logits = logitsFor(toks);
     if (logits == nullptr)
         return out;
+    std::vector<float> shifted;
+    if (cfg.tdGamma.has_value() && cfg.tdLevel >= 1) {
+        shifted = *logits;
+        applyTdGamma(shifted, loRel, hiRel);
+        logits = &shifted;
+    }
     const int32_t t = pick(*logits, ranges, cfg.onsetTemperature, 0.0f);
     if (t < 0) {
         lastError = "nothing to draw at the onset step";

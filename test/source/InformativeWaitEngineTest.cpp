@@ -211,6 +211,9 @@ TEST(InformativeWaitEngine, AFireIsTimedFromTheKeyLandingToTheLastOrchestraNote)
 
 TEST(InformativeWaitEngine, ADecodedFireIsPlacedAfterItsLastNote) {
     Rig rig(Engine::Mode::Unconstrained);
+    auto s = rig.engine.settings();
+    s.outsideTopFiveAsRankOne = false;
+    rig.engine.setSettings(s);
     rig.engine.noteOn(0, 60, 80);
     rig.run(0, 30);
     rig.engine.noteOn(31, 50, 80); // not anticipated: decoded one note per step; landing unknown
@@ -221,8 +224,29 @@ TEST(InformativeWaitEngine, ADecodedFireIsPlacedAfterItsLastNote) {
     EXPECT_EQ(placed->text, "decoded|fire");
 }
 
+TEST(InformativeWaitEngine, APitchOutsideTheTopFivePlaysTheRankOneBranch) {
+    Rig rig(Engine::Mode::Unconstrained);
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 30); // [WAIT 30][COUNT 2], precomputed for the top 5 (60 first)
+    ASSERT_TRUE(rig.engine.precomputeComplete());
+    rig.played.clear();
+    rig.engine.noteOn(31, 50, 80); // 50 is not in the top 5
+    const auto out = rig.engine.step(31);
+    ASSERT_EQ(out.size(), 2u) << "all COUNT notes at once, from the rank-1 branch";
+    for (const auto &n: out) {
+        EXPECT_TRUE(n.precomputed);
+        EXPECT_EQ(n.onsetCs, 31);
+    }
+    EXPECT_EQ(rig.engine.stats().fireDecoded, 0);
+    EXPECT_EQ(rig.engine.stats().precomputeHits, 1);
+    EXPECT_EQ(rig.engine.stats().antTop5, 0) << "still scored as outside the top 5";
+}
+
 TEST(InformativeWaitEngine, MissDecodesOnTheSpot) {
     Rig rig(Engine::Mode::Unconstrained);
+    auto s = rig.engine.settings();
+    s.outsideTopFiveAsRankOne = false; // decode for the pitch actually played
+    rig.engine.setSettings(s);
     rig.engine.noteOn(0, 60, 80);
     rig.run(0, 30);
     rig.engine.noteOn(31, 50, 80); // not anticipated
@@ -656,6 +680,58 @@ TEST(HybridInformativeWait, AModeCutKeepsTheContextAndGenerationContinuesWithout
         return t.time >= cut && t.note >= static_cast<int32_t>(Vocab::NoteOffset) && t.note < static_cast<int32_t>(Vocab::Rest);
     });
     EXPECT_GT(drawnAfterCut, 0) << "generation continues from the kept context";
+}
+
+TEST(HybridInformativeWait, ACutBringsModelOneBackFromFarAhead) {
+    // Nov 24 2026: after the piano cut model 1's far notes, its lower bound stayed at the furthest onset
+    // ever drawn, so it kept drawing tens of seconds ahead and model 2 was switched out at once.
+    ModelConfig config;
+    HybridInformativeWaitReductionTransformer hy(config);
+    auto silent = std::make_unique<ScriptBackend>();
+    auto *model1 = silent.get();
+    *silent->waitD = 0;
+    *silent->onsetRel = 3000; // first, model 1 likes an onset 30 s in
+    hy.initWithBackends(std::move(silent), std::make_unique<ScriptBackend>());
+    int32_t now = 0;
+    int64_t wall = 0;
+    hy.nowCsProvider = [&] { return now; };
+    hy.wallMsProvider = [&] { return wall; };
+    hy.pianoSilentForMs = [] { return INT64_MAX; };
+    hy.tdValueProvider = [] { return TemporalDensity::kAuto; };
+    const auto piano = [&](int32_t at, int pitch) {
+        Token t{at, static_cast<int32_t>(DenseVocab::DurOffset) + 20, static_cast<int32_t>(DenseVocab::NoteOffset) + pitch};
+        t.velocity = 80;
+        hy.inputTokenQueue.push(t);
+    };
+    const auto runFor = [&](int cs) {
+        for (int i = 0; i < cs; ++i) {
+            hy.stepOnce();
+            now += 1;
+            wall += 10;
+        }
+    };
+    piano(0, 60);
+    runFor(50);
+    const auto far = hy.getOutputHistory();
+    ASSERT_TRUE(std::any_of(far.begin(), far.end(), [](const Token &t) { return t.time >= 2900; }))
+        << "model 1 drew far ahead";
+    // the pianist plays: the far notes are cut (Jam); model 1 now prefers the nearest onset
+    *model1->onsetRel = 0;
+    *model1->onsetSlope = 1.0f;
+    piano(now, 62);
+    runFor(1); // the cut (the first draw may still use logits cached before the fake model changed)
+    const auto farAt = [](const std::vector<Token> &h) {
+        return std::count_if(h.begin(), h.end(), [](const Token &t) { return t.time >= 2900; });
+    };
+    const auto farAfterCut = farAt(hy.getOutputHistory());
+    EXPECT_LE(farAfterCut, 1) << "the far notes were cut";
+    runFor(99);
+    const auto after = hy.getOutputHistory();
+    EXPECT_TRUE(std::any_of(after.begin(), after.end(), [&](const Token &t) {
+        return t.time > 50 && t.time < now + 100 && t.note >= static_cast<int32_t>(Vocab::NoteOffset)
+               && t.note < static_cast<int32_t>(Vocab::Rest);
+    })) << "model 1 draws near the present again";
+    EXPECT_EQ(farAt(after), farAfterCut) << "and none is drawn far ahead after it";
 }
 
 // ---- the real export (skipped unless the files are on this machine) ----

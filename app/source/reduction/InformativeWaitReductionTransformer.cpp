@@ -164,6 +164,7 @@ auto InformativeWaitReductionTransformer::emit(const std::vector<InformativeWait
         dropOutputHistoryFrom(cancel);
         pushOutputToken(Token{cancel, static_cast<int32_t>(DenseVocab::DurOffset), static_cast<int32_t>(Vocab::ClearQueue)});
         eraseStridedFrom(inputData, kEventWidth, cancel);
+        currentTime = std::min(currentTime, cancel); // the generation clock goes back with the cut
         notifyInputDataChanged();
     }
     if (notes.empty())

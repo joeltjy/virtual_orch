@@ -244,14 +244,17 @@ auto HybridInformativeWaitReductionTransformer::setSilent(bool silent, Reason wh
 
 auto HybridInformativeWaitReductionTransformer::cutGeneratedFrom(int32_t now) -> void {
     resetAheadThrottle();
-    if (! hasGeneratedFrom(now))
+    if (! hasGeneratedFrom(now)) {
+        resetGenerationClock(now); // also with nothing to cut: the bound may still be far ahead
         return;
+    }
     dropOutputHistoryFrom(now);
     pushOutputToken(Token{now, static_cast<int32_t>(DenseVocab::DurOffset), static_cast<int32_t>(Vocab::ClearQueue)});
     silentEngine.dropGeneratedFrom(now);
     waitEngine.dropGeneratedFrom(now);
     eraseStridedFrom(inputData, kEventWidth, now);
     notifyInputDataChanged();
+    resetGenerationClock(now); // the generation clock goes back with the cut (see generate)
 }
 
 auto HybridInformativeWaitReductionTransformer::predictsSilenceFrom(int32_t now) const -> bool {
@@ -367,6 +370,11 @@ auto HybridInformativeWaitReductionTransformer::updateHybrid(int32_t now) -> voi
 }
 
 auto HybridInformativeWaitReductionTransformer::generate(int32_t now) -> bool {
+    // The settings again, after the mode cut and the hybrid switch of this iteration: the lower bound
+    // (onsetLowerBoundCs) must be the one after their cuts, as the legacy Hybrid computes its draw
+    // params right before drawing. With the one from the top of the loop, model 1 drew past the notes
+    // just cut, seconds ahead, and model 2 was switched out at once (Nov 24 2026).
+    applySettings();
     auto &active = silentActive.load() ? silentEngine : waitEngine;
     auto &other = silentActive.load() ? waitEngine : silentEngine;
     const auto out = active.step(now);
@@ -378,6 +386,10 @@ auto HybridInformativeWaitReductionTransformer::generate(int32_t now) -> bool {
         other.dropGeneratedFrom(cancel);
         eraseStridedFrom(inputData, kEventWidth, cancel);
         resetAheadThrottle(); // as the legacy cut on input
+        // the generation clock (and so the polyphony lower bound, onsetLowerBoundCs) goes back with the cut:
+        // left at the furthest onset ever drawn, every later note of model 1 was forced past it, tens of
+        // seconds ahead, and model 2 was switched out at once for "2 s of predicted silence" (Nov 24 2026)
+        resetGenerationClock(nowCs());
         notifyInputDataChanged();
     }
     for (const auto &n: out) {
@@ -401,6 +413,15 @@ auto HybridInformativeWaitReductionTransformer::generate(int32_t now) -> bool {
     return ! out.empty();
 }
 
+auto HybridInformativeWaitReductionTransformer::resetGenerationClock(int32_t now) -> void {
+    // After a cut: the newest generated note left, or now (the legacy stream clock after a rewind).
+    int32_t latest = INT32_MIN;
+    for (const auto &t: getOutputHistory())
+        if (t.note >= static_cast<int32_t>(Vocab::NoteOffset) && t.note < static_cast<int32_t>(Vocab::Rest))
+            latest = std::max(latest, t.time);
+    currentTime = std::max(latest, now);
+}
+
 auto HybridInformativeWaitReductionTransformer::rewindFrom(int32_t cut) -> void {
     // A mode cut (pedal up, TD / register press, preset, leaving Accompaniment): as the legacy Hybrid's
     // rewind, only the generated notes from the cut on go (consumeModeCut already cleared them
@@ -412,7 +433,7 @@ auto HybridInformativeWaitReductionTransformer::rewindFrom(int32_t cut) -> void 
     }
     waitTracker.cancel();
     eraseStridedFrom(inputData, kEventWidth, cut);
-    currentTime = std::min(currentTime, cut);
+    resetGenerationClock(std::min(nowCs(), cut));
     notifyInputDataChanged();
     resetAheadThrottle();
 }

@@ -373,6 +373,9 @@ auto InformativeWaitEngine::cutFuture(int32_t pianoOnsetCs) -> void {
             st.orchestraNotes -= cut;
             event("cut", nowCs, it.onsetCs, cut, "piano at " + std::to_string(pianoOnsetCs) + " came first");
             truncateTo(i);
+            // the transformer's lower bound (the newest generated onset) was set before this cut: until it
+            // is recomputed, no later than now, or the next draw lands where the cut notes were
+            cfg.minOnsetCs = std::min(cfg.minOnsetCs, nowCs);
             return;
         }
     }
@@ -581,11 +584,19 @@ auto InformativeWaitEngine::fire(const PianoNote &head) -> std::vector<OutNote> 
 
     // A branch for this pitch serves the notes it has finished (all k when the precompute is complete);
     // the rest are decoded now, after them.
+    // A pitch outside the top 5 takes the rank-1 branch (branches are in rank order), as if the
+    // pianist had played the most likely note: its notes are ready, nothing is decoded on the spot.
     const Branch *branch = nullptr;
-    if (pre.has_value() && ! pre->failed)
+    bool substituted = false;
+    if (pre.has_value() && ! pre->failed) {
         for (const auto &b: pre->branches)
             if (b.pitch == head.pitch)
                 branch = &b;
+        if (branch == nullptr && cfg.outsideTopFiveAsRankOne && ! pre->branches.empty()) {
+            branch = &pre->branches.front();
+            substituted = true;
+        }
+    }
     int32_t ready = 0;
     if (branch != nullptr)
         for (const auto &n: branch->notes)
@@ -608,7 +619,9 @@ auto InformativeWaitEngine::fire(const PianoNote &head) -> std::vector<OutNote> 
     }
     if (ready == p.k) {
         ++st.precomputeHits;
-        event("hit", head.onsetCs, head.pitch, p.k, "precomputed branch played");
+        event("hit", head.onsetCs, head.pitch, p.k,
+              substituted ? "not in the top 5: the rank-1 branch (" + std::to_string(branch->pitch) + ") played"
+                          : "precomputed branch played");
     } else {
         if (ready > 0)
             ++st.precomputePartial;

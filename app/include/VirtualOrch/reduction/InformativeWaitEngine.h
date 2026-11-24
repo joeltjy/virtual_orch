@@ -93,6 +93,8 @@ public:
         float minP = 0.25f;            // duration / pitch / velocity (0 = off)
         float topP = 0.98f;
         bool precompute = true;
+        /** A fired WAIT whose piano pitch is not in the anticipated top 5 plays the rank-1 branch's notes. */
+        bool outsideTopFiveAsRankOne = true;
         /** A drawn orchestra onset is at most this far after now. */
         int32_t maxAheadCs = 300;
         /** Nothing new is drawn while the last written event is this far ahead of now. */

@@ -116,6 +116,12 @@ private:
     auto cutGeneratedFrom(int32_t now) -> void;
     [[nodiscard]] auto predictsSilenceFrom(int32_t now) const -> bool;
     auto generate(int32_t now) -> bool;
+    /**
+     * After a cut: the generation clock (currentTime, and with it the polyphony lower bound) goes to the
+     * newest generated note left, or `now`. Left at the furthest onset ever drawn, model 1 was forced
+     * tens of seconds ahead and model 2 was switched out at once (Nov 24 2026).
+     */
+    auto resetGenerationClock(int32_t now) -> void;
     /** A mode cut: the generated notes from `cut` on leave both contexts (the rest stays). */
     auto rewindFrom(int32_t cut) -> void;
     /** Paused or stopped: both engines take in the input (nothing is drawn). */

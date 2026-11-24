@@ -2,6 +2,7 @@
 
 #include "VirtualOrch/KeyLanding.h"
 #include "VirtualOrch/OpLog.h"
+#include "VirtualOrch/PolyphonyCap.h"
 #include "VirtualOrch/RegisterRange.h"
 #include "VirtualOrch/SessionLog.h"
 #include "VirtualOrch/vocsep/VoiceSeparation.h"
@@ -122,8 +123,8 @@ auto HybridInformativeWaitReductionTransformer::applySettings() -> void {
     s.tdLevel = td;
     s.tdGamma = tdGamma(true);
     const bool biases = biasesActiveNow(); // BiasSettings: the switch and the piano-silence gate
-    const int32_t low = RegisterRange::lowPitch();
     const int32_t high = RegisterRange::highPitch();
+    const int32_t low = PolyphonyCap::lowestPitch(getMaxPolyphony(), RegisterRange::lowPitch(), high); // Mono: above C4
     // model 1: the silent side's adjustments, with the base taus (the legacy Hybrid's v1)
     s.pitchBias = biases && hybridV1PitchBias.load();
     s.durationBias = biases && hybridV1DurationBias.load();

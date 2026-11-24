@@ -18,6 +18,19 @@ namespace PolyphonyCap {
 inline constexpr int32_t kMinCap = 1;
 inline constexpr int32_t kMaxCap = 4;
 
+/** Monophonic (cap 1, the Launchpad's Mono pad): the line stays above C4, from C#4 (MIDI 61). */
+inline constexpr int32_t kMonoLowestPitch = 61;
+
+/**
+ * The lowest pitch the generated notes may have: the register's, raised above C4 while monophonic.
+ * A register entirely below that (LOW) keeps its own range.
+ */
+[[nodiscard]] inline auto lowestPitch(int32_t cap, int32_t registerLow, int32_t registerHigh) -> int32_t {
+    if (cap != 1 || registerHigh < kMonoLowestPitch)
+        return registerLow;
+    return std::max(registerLow, kMonoLowestPitch);
+}
+
 [[nodiscard]] inline auto isSoundingNote(const Token &token) -> bool {
     return token.note >= static_cast<int32_t>(Vocab::NoteOffset)
            && token.note < static_cast<int32_t>(Vocab::Rest);

@@ -5,6 +5,7 @@
 
 #include "VirtualOrch/NoteWindow.h"
 #include "VirtualOrch/OpLog.h"
+#include "VirtualOrch/PolyphonyCap.h"
 #include "VirtualOrch/RegisterRange.h"
 #include "VirtualOrch/SessionLog.h"
 #include "VirtualOrch/vocsep/VoiceSeparation.h"
@@ -417,8 +418,8 @@ auto TwoInstrumentAnticipatedReductionTransformer::generateOne(int32_t now) -> s
     params.reorderEveryCs = isEditMode() ? 0 : AnticipationStage::kReorderEveryCs;
     params.waitMinPlay = getWaitMinPlay();
     params.biases = biasesActiveNow();
-    params.pitchLow = RegisterRange::lowPitch();
     params.pitchHigh = RegisterRange::highPitch();
+    params.pitchLow = PolyphonyCap::lowestPitch(getMaxPolyphony(), RegisterRange::lowPitch(), params.pitchHigh); // Mono: above C4
 
     // Hybrid: v1 with the T3'' rules (T 0.5) and its own adjustments (all on by default).
     const bool silent = useSilentStage();

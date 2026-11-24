@@ -10,6 +10,7 @@
 #include <sstream>
 
 #include <VirtualOrch/OpLog.h>
+#include <VirtualOrch/PolyphonyCap.h>
 #include <VirtualOrch/reduction/DenseTypes.h>
 #include <VirtualOrch/reduction/HybridInformativeWaitReductionTransformer.h>
 #include <VirtualOrch/reduction/InformativeWaitEngine.h>
@@ -1242,4 +1243,12 @@ TEST(InformativeWaitEngine, AMonophonicCapFiresOneNoteWhateverTheCount) {
         ASSERT_NE(placed, rig.events.end());
         EXPECT_EQ(placed->a, 1);
     }
+}
+
+TEST(PolyphonyCapMono, MonophonicStaysAboveC4) {
+    // The Mono pad: the line from C#4 up; other caps and no cap leave the register alone.
+    EXPECT_EQ(PolyphonyCap::lowestPitch(1, 21, 108), 61);
+    EXPECT_EQ(PolyphonyCap::lowestPitch(1, 77, 108), 77) << "register HIGH is above already";
+    EXPECT_EQ(PolyphonyCap::lowestPitch(1, 21, 52), 21) << "register LOW keeps its range";
+    EXPECT_EQ(PolyphonyCap::lowestPitch(0, 21, 108), 21);
 }

@@ -14,6 +14,7 @@
 
 #include "VirtualOrch/reduction/DenseDurationBias.h"
 #include "VirtualOrch/reduction/DenseOnsetGapBias.h"
+#include "VirtualOrch/OpLogDraw.h"
 #include "VirtualOrch/reduction/DensePitchBias.h"
 #include "VirtualOrch/reduction/StreamingKvCache.h"
 
@@ -211,6 +212,8 @@ public:
         int32_t pitch = 60;
         int32_t velocity = 64;
         bool precomputed = false; // a fire served from the anticipation branches
+        /** The draws that made this note (onset, dur, pitch, vel), when draw logging is on (logDraws). */
+        std::vector<OpLogDraw::Draw> draws;
     };
 
     struct Stats {
@@ -306,6 +309,10 @@ public:
     [[nodiscard]] auto anticipatedPitches() const -> std::vector<int32_t>;
     [[nodiscard]] auto precomputeComplete() const -> bool;
     std::string lastError;
+    /** Record every draw (p, p_model, top 10) for the operation log: OutNote::draws, lastWaitDraws(). */
+    bool logDraws = false;
+    /** The onset-step and COUNT draws of the last WAIT drawn (logDraws). */
+    [[nodiscard]] auto lastWaitDraws() const -> const std::vector<OpLogDraw::Draw> & { return waitDraws; }
 
 private:
     enum class Kind { Piano, Orch, Wait, Count, Expired };
@@ -410,6 +417,8 @@ private:
     auto pick(const std::vector<float> &logits, const std::vector<std::pair<int32_t, int32_t>> &ranges,
               float temperature, float minP, int32_t step = 1) -> int32_t;
     auto pickFrom(std::vector<float> scores, float temperature) -> int32_t;
+    /** pickFrom's distribution (temperature, then top-p), for the draw log. */
+    auto samplingProbs(const std::vector<float> &scores, float temperature) const -> std::vector<float>;
     /** Dynamic LogitTD on the onsets loRel..hiRel of `logits` (cfg.tdGamma), and their sensitivity. */
     auto applyTdGamma(std::vector<float> &logits, int32_t loRel, int32_t hiRel) -> void;
     /** The orchestra notes in the context as dense quads (absolute onsets), for the biases. */
@@ -451,6 +460,9 @@ private:
     StreamingKv::Backend *backend = nullptr;
     std::unique_ptr<StreamingKv::CommittedScratchCache> cache;
     std::mt19937_64 rng;
+    std::vector<OpLogDraw::Draw> drawLog; // the draws since the last note (logDraws)
+    bool recordDraws = true;              // off while the precompute samples its branches
+    std::vector<OpLogDraw::Draw> waitDraws;
 
     std::vector<Item> items;
     std::vector<Cursor> before; // cursor before items[i]

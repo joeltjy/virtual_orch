@@ -105,6 +105,11 @@ public:
     std::string waitName = "informative WAIT";
 
 private:
+    /** The operation log: an RT_DRAW per generated note, an RT_WAIT per WAIT event of model 2. */
+    auto logDraw(const InformativeWaitEngine &engine, const char *model, const InformativeWaitEngine::OutNote &n,
+                 int32_t noteId, int32_t now) -> void;
+    auto logWaitEvent(const InformativeWaitEngine::Event &e) -> void;
+
     auto onGenerationPauseChanged(bool paused) -> void override {
         if (! paused) {
             pedalReleased.store(true);

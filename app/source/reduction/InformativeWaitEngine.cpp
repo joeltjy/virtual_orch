@@ -205,6 +205,41 @@ auto InformativeWaitEngine::pickFrom(std::vector<float> scores, float temperatur
     return probs[keep - 1].second;
 }
 
+auto InformativeWaitEngine::samplingProbs(const std::vector<float> &scores, float temperature) const
+    -> std::vector<float> {
+    // as pickFrom: softmax at the temperature, then the smallest top set whose mass exceeds top-p
+    std::vector<float> out(scores.size(), 0.0f);
+    const float t = std::max(temperature, 1e-4f);
+    float peak = kNegInf;
+    for (const float x: scores)
+        peak = std::max(peak, x);
+    if (! std::isfinite(peak))
+        return out;
+    std::vector<std::pair<double, int32_t>> probs;
+    double total = 0;
+    for (size_t i = 0; i < scores.size(); ++i)
+        if (std::isfinite(scores[i])) {
+            const double p = std::exp(static_cast<double>((scores[i] - peak) / t));
+            probs.emplace_back(p, static_cast<int32_t>(i));
+            total += p;
+        }
+    std::sort(probs.begin(), probs.end(), [](const auto &a, const auto &b) { return a.first > b.first; });
+    double cum = 0;
+    size_t keep = 0;
+    for (; keep < probs.size(); ++keep) {
+        if (cum > static_cast<double>(cfg.topP))
+            break;
+        cum += probs[keep].first / total;
+    }
+    keep = std::max<size_t>(keep, 1);
+    double kept = 0;
+    for (size_t i = 0; i < keep; ++i)
+        kept += probs[i].first;
+    for (size_t i = 0; i < keep; ++i)
+        out[static_cast<size_t>(probs[i].second)] = static_cast<float>(probs[i].first / kept);
+    return out;
+}
+
 auto InformativeWaitEngine::pick(const std::vector<float> &logits,
                                  const std::vector<std::pair<int32_t, int32_t>> &ranges, float temperature,
                                  float minP, int32_t step) -> int32_t {
@@ -222,7 +257,33 @@ auto InformativeWaitEngine::pick(const std::vector<float> &logits,
             if (s < cut)
                 s = kNegInf;
     }
-    return pickFrom(std::move(scores), temperature);
+    if (! logDraws || ! recordDraws)
+        return pickFrom(std::move(scores), temperature);
+    const auto ps = samplingProbs(scores, temperature);
+    const int32_t token = pickFrom(scores, temperature);
+    const int32_t first = ranges.empty() ? 0 : ranges.front().first;
+    const char *name = first >= kCount0 && first < kExpired ? "count"
+                       : first >= kVel0 && first < kWait0   ? "vel"
+                       : first >= kOrch0 && first < kVel0   ? "pitch"
+                       : first >= kDur0 && first < kPiano0  ? "dur"
+                                                            : "onset";
+    const auto pm = OpLogDraw::softmax(logits.data(), logits.size());
+    OpLogDraw::Draw d;
+    d.name = name;
+    d.chosen = token;
+    d.p = token >= 0 ? ps[static_cast<size_t>(token)] : 0.0f;
+    d.pModel = token >= 0 ? pm[static_cast<size_t>(token)] : 0.0f;
+    std::vector<int32_t> idx;
+    for (size_t i = 0; i < ps.size(); ++i)
+        if (ps[i] > 0.0f)
+            idx.push_back(static_cast<int32_t>(i));
+    const size_t k = std::min<size_t>(10, idx.size());
+    std::partial_sort(idx.begin(), idx.begin() + static_cast<std::ptrdiff_t>(k), idx.end(),
+                      [&](int32_t a, int32_t b) { return ps[static_cast<size_t>(a)] > ps[static_cast<size_t>(b)]; });
+    for (size_t j = 0; j < k; ++j)
+        d.top.push_back({idx[j], ps[static_cast<size_t>(idx[j])], pm[static_cast<size_t>(idx[j])]});
+    drawLog.push_back(std::move(d));
+    return token;
 }
 
 auto InformativeWaitEngine::applyTdGamma(std::vector<float> &logits, int32_t loRel, int32_t hiRel) -> void {
@@ -800,9 +861,11 @@ auto InformativeWaitEngine::drawBody(int32_t onsetCs, int32_t minPitch) -> std::
 
 auto InformativeWaitEngine::noteAt(int32_t onsetCs) -> std::vector<OutNote> {
     std::vector<OutNote> out;
-    const auto note = drawBody(onsetCs, cfg.bandLow);
+    auto note = drawBody(onsetCs, cfg.bandLow);
     if (! note.has_value())
         return out;
+    note->draws = std::move(drawLog);
+    drawLog.clear();
     Item it;
     it.kind = Kind::Orch;
     it.onsetCs = onsetCs;
@@ -821,6 +884,7 @@ auto InformativeWaitEngine::noteAt(int32_t onsetCs) -> std::vector<OutNote> {
 
 auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
     std::vector<OutNote> out;
+    drawLog.clear();
     const bool line = isLine();
     int32_t lo = 0;
     if (line)
@@ -958,6 +1022,8 @@ auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
         ++st.waitsDrawn;
         if (d >= 10)
             ++st.waitsGe10;
+        waitDraws = std::move(drawLog);
+        drawLog.clear();
         event("wait", cur.clockCs, d, k, topText);
         startPrecompute();
         return out;
@@ -966,9 +1032,11 @@ auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
     if (line)
         return noteAt(onset);
     const bool same = chordOk && onset == cur.chordOnCs;
-    const auto note = drawBody(onset, same && cfg.ascendingChords ? cur.lastOrchPitch : kPianoLow);
+    auto note = drawBody(onset, same && cfg.ascendingChords ? cur.lastOrchPitch : kPianoLow);
     if (! note.has_value())
         return out;
+    note->draws = std::move(drawLog);
+    drawLog.clear();
     Item it;
     it.kind = Kind::Orch;
     it.onsetCs = onset;
@@ -1021,6 +1089,12 @@ auto InformativeWaitEngine::scoreAnticipation(int32_t pitch) -> void {
 }
 
 auto InformativeWaitEngine::precomputeStep() -> void {
+    // the branches' draws are not the notes that will play (a fire places one branch): not logged
+    struct NoDrawLog {
+        bool &flag;
+        explicit NoDrawLog(bool &f) : flag(f) { flag = false; }
+        ~NoDrawLog() { flag = true; }
+    } noDrawLog(recordDraws);
     auto &pc = *pre;
     const auto t0 = std::chrono::steady_clock::now();
     const int32_t T = rel(pc.targetCs);
@@ -1302,9 +1376,12 @@ auto InformativeWaitEngine::step(int32_t stepNowCs) -> std::vector<OutNote> {
     if (fireLeft.has_value() && out.empty()) {
         // the next stacked note of a fire
         const auto t0 = std::chrono::steady_clock::now();
-        const auto note = drawBody(fireLeft->onsetCs, fireLeft->minPitch);
+        drawLog.clear();
+        auto note = drawBody(fireLeft->onsetCs, fireLeft->minPitch);
         st.fireDecodeMsTotal += msSince(t0);
         if (note.has_value()) {
+            note->draws = std::move(drawLog);
+            drawLog.clear();
             Item it;
             it.kind = Kind::Orch;
             it.onsetCs = fireLeft->onsetCs;

@@ -50,6 +50,7 @@ HybridInformativeWaitReductionTransformer::HybridInformativeWaitReductionTransfo
     waitEngine.onEvent = [this, log = logger("m2")](const InformativeWaitEngine::Event &e) {
         log(e);
         waitTracker.onEvent(e, nowCs());
+        logWaitEvent(e);
     };
     tdValueProvider = [] { return TemporalDensity::get(); };
 }
@@ -398,6 +399,9 @@ auto HybridInformativeWaitReductionTransformer::generate(int32_t now) -> bool {
     applySettings();
     auto &active = silentActive.load() ? silentEngine : waitEngine;
     auto &other = silentActive.load() ? waitEngine : silentEngine;
+    const bool logging = OpLog::on();
+    silentEngine.logDraws = logging;
+    waitEngine.logDraws = logging;
     const auto out = active.step(now);
     other.absorb(now);
     const int32_t cancel = active.takeCancelFrom();
@@ -418,8 +422,11 @@ auto HybridInformativeWaitReductionTransformer::generate(int32_t now) -> bool {
         const int32_t dur = std::clamp(n.durationCs, 1, 995);
         const auto quad = denseQuad(n.onsetCs, dur, 1, n.pitch, n.velocity);
         inputData.insert(inputData.end(), quad.begin(), quad.end());
-        const Token token{n.onsetCs, static_cast<int32_t>(DenseVocab::DurOffset) + dur,
-                          static_cast<int32_t>(DenseVocab::NoteOffset) + n.pitch, n.velocity};
+        Token token{n.onsetCs, static_cast<int32_t>(DenseVocab::DurOffset) + dur,
+                    static_cast<int32_t>(DenseVocab::NoteOffset) + n.pitch, n.velocity};
+        token.noteId = nextNoteId.fetch_add(1, std::memory_order_relaxed);
+        if (logging)
+            logDraw(active, &active == &silentEngine ? "m1" : "m2", n, token.noteId, now);
         pushOutputToken(token);
         afterOutputDelivered(token); // more than outputMaxAheadSeconds ahead: generation pauses (the legacy throttle)
         currentTime = std::max(currentTime, n.onsetCs);
@@ -541,4 +548,45 @@ void HybridInformativeWaitReductionTransformer::threadRun() {
             wait(2);
         recordThreadLoopMs(loopStartMs);
     }
+}
+
+auto HybridInformativeWaitReductionTransformer::logDraw(const InformativeWaitEngine &engine, const char *model,
+                                                        const InformativeWaitEngine::OutNote &n, int32_t noteId,
+                                                        int32_t now) -> void {
+    // As the legacy RT_DRAW: the note's draws (onset, dur, pitch, vel; tokens in model 2's vocab, onsets
+    // relative to `base`). A note from a precomputed branch was sampled in the batched precompute and a
+    // stacked note of a fire has no onset draw (the pianist's onset); "source" says which.
+    std::string fields = "[";
+    for (size_t i = 0; i < n.draws.size(); ++i)
+        fields += (i ? "," : "") + n.draws[i].json();
+    fields += "]";
+    const char *source = n.precomputed ? "precomputed" : n.draws.empty() ? "unlogged" : "sampled";
+    OpLog::emit(OpLog::Src::Rt, "RT_DRAW",
+                {{"model", model}, {"r", OpLog::id('r', noteId)}, {"now", now}, {"floor", onsetLowerBoundCs()},
+                 {"base", engine.base()}, {"context_len", engine.tokens().size()}, {"source", source},
+                 {"onset", n.onsetCs}, {"fields", OpLog::Raw{fields}}});
+}
+
+auto HybridInformativeWaitReductionTransformer::logWaitEvent(const InformativeWaitEngine::Event &e) -> void {
+    // Model 2's WAITs, as RT_WAIT records: "wait" (drawn: d, COUNT k, the onset-step and COUNT draws),
+    // then what became of it: "fire", "snap" (a top-3 length), "early" (a piano onset before / between
+    // the windows: ordinary input), "expired", "hit" / "miss" (the precomputed branch or not), "short".
+    static const std::set<std::string> kinds{"wait", "fire", "snap", "early", "expired", "hit", "miss", "short"};
+    if (! OpLog::on() || kinds.count(e.what) == 0)
+        return;
+    std::vector<OpLog::Field> f{{"model", "m2"}, {"decision", e.what}, {"at", e.atCs}, {"a", e.a}, {"b", e.b}};
+    if (! e.text.empty())
+        f.push_back({"text", e.text});
+    if (std::string(e.what) == "wait") {
+        f.push_back({"d", e.a});
+        f.push_back({"k", e.b});
+        f.push_back({"target", e.atCs + e.a});
+        std::string fields = "[";
+        const auto &draws = waitEngine.lastWaitDraws();
+        for (size_t i = 0; i < draws.size(); ++i)
+            fields += (i ? "," : "") + draws[i].json();
+        fields += "]";
+        f.push_back({"fields", OpLog::Raw{fields}});
+    }
+    OpLog::emit(OpLog::Src::Rt, "RT_WAIT", f);
 }

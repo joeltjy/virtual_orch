@@ -161,10 +161,19 @@ Draws:
   RT_DRAW         model, r (the note drawn), now, floor (earliest allowed onset), base,
                   context_len, fields: one entry per field, in the order
                   "onset", "dur", "pitch", "vel". Each entry is a DRAW (see 4.8).
+                  Hybrid v1.1: model "m1" | "m2"; also source ("sampled" | "precomputed": a
+                  fire's note from the batched precompute, no fields | "unlogged") and onset
+                  (cs). Tokens are model 2's vocab (11879): the onset field may be a [WAIT d]
+                  (11768 + d/3 - 1); COUNT draws have field "count". Not rerunnable.
   RT_WAIT         model ("W"), decision ("wait" | "wait-given" | "resume" | "timeout" |
                   "reorder"), at, p_wait (the model's P(wait), on "wait" / "wait-given"
                   decisions), p_wait_recorded (when
                   a replay forced a different recorded value)
+                  Hybrid v1.1 (model "m2"): decision "wait" (drawn: at = the event it counts
+                  from, d, k, target = at + d, text = the top-3 lengths, fields = the onset-step
+                  and COUNT draws), then "fire", "snap" (a top-3 length), "early", "expired",
+                  "hit" / "miss" (precomputed branch or not), "short" (under minWaitCs); a, b and
+                  text are the engine event's values.
 
 Output and control:
 

@@ -16,6 +16,11 @@ auto noteName(int midi) -> juce::String { return juce::MidiMessage::getMidiNoteN
 
 /** A dense-vocab RT token in words (onset ids are relative to `base`). */
 auto rtTokenText(const juce::String &field, int token, int base) -> juce::String {
+    // Hybrid v1.1's model 2 (vocab 11879): the onset step may draw a WAIT; COUNT is its own field
+    if (field == "onset" && token >= 11768 && token < 11868)
+        return "WAIT " + juce::String((token - 11768 + 1) * 3) + " cs";
+    if (field == "count")
+        return "COUNT " + juce::String(token - 11868 + 1);
     if (field == "onset")
         return base != 0 ? "onset " + juce::String(token + base) + " cs" : "+" + juce::String(token) + " (model time)";
     if (field == "dur")
@@ -288,7 +293,10 @@ auto ReplayPage::showRecord(size_t index) -> void {
     inputsView.setText(inputsText(index), false);
     drawView.setText(drawText(index), false);
     const auto &op = log->records()[index].op;
-    rerunButton.setEnabled((op == "RT_DRAW" || op == "OT_DRAW") && ! rerunning.load());
+    // Hybrid v1.1's draws (models m1 / m2) cannot be rerun: Rerun rebuilds the legacy models' contexts only
+    const auto drawModel = op == "RT_DRAW" ? log->fields(index)["model"].toString() : juce::String();
+    rerunButton.setEnabled(((op == "RT_DRAW" && drawModel != "m1" && drawModel != "m2") || op == "OT_DRAW")
+                           && ! rerunning.load());
     if (op == "RT_DRAW" || op == "OT_DRAW" || op == "RT_WAIT" || op == "VOCSEP" || op == "TD_CTRL")
         rightTabs.setCurrentTabIndex(2, false);
 }
@@ -464,6 +472,10 @@ auto ReplayPage::drawText(size_t index) const -> juce::String {
         out << "RT draw " << f["r"].toString() << " by " << f["model"].toString() << "   now " << f["now"].toString()
             << "   floor " << f["floor"].toString() << "   base " << f["base"].toString() << "   context "
             << f["context_len"].toString() << " tokens\n";
+        if (f.hasProperty("source"))
+            out << "source: " << f["source"].toString()
+                << (f["source"].toString() == "precomputed" ? " (sampled in the batched precompute before the key: no draws logged)" : "")
+                << "   onset " << f["onset"].toString() << " cs\n";
         out << "p = as sampled (masks, biases, temperature, top-p); p_model = the model's own softmax.\n"
             << "The top 10 are ranked by p.\n\n";
         if (const auto *fields = f["fields"].getArray())
@@ -479,6 +491,18 @@ auto ReplayPage::drawText(size_t index) const -> juce::String {
     } else if (r.op == "RT_WAIT") {
         out << "WAIT decision by " << f["model"].toString() << ": " << f["decision"].toString() << " at "
             << f["at"].toString() << "\n";
+        if (f.hasProperty("d"))
+            out << "WAIT " << f["d"].toString() << " cs after the event at " << f["at"].toString() << " -> the pianist expected at "
+                << f["target"].toString() << ", COUNT " << f["k"].toString() << "\n";
+        else if (f.hasProperty("a"))
+            out << "values " << f["a"].toString() << " " << f["b"].toString() << "\n";
+        if (f.hasProperty("text"))
+            out << f["text"].toString() << "\n";
+        if (const auto *fields = f["fields"].getArray()) {
+            out << "\n";
+            for (const auto &d: *fields)
+                table(d, true, 0);
+        }
         if (f.hasProperty("p_wait"))
             out << "P(wait) " << juce::String(static_cast<double>(f["p_wait"]), 4) << "  (plays when P(play) >= 0.30)\n";
     } else if (r.op == "VOCSEP") {

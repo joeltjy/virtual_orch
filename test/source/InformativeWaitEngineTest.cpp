@@ -9,6 +9,7 @@
 #include <fstream>
 #include <sstream>
 
+#include <VirtualOrch/OpLog.h>
 #include <VirtualOrch/reduction/DenseTypes.h>
 #include <VirtualOrch/reduction/HybridInformativeWaitReductionTransformer.h>
 #include <VirtualOrch/reduction/InformativeWaitEngine.h>
@@ -1172,4 +1173,51 @@ TEST(HybridInformativeWait, InAccompanimentThePianistIsIgnored) {
     for (int i = 0; i < 300; ++i, ++now, wall += 10)
         hy.stepOnce();
     EXPECT_GT(hy.getOutputHistory().size(), before) << "model 1 keeps going";
+}
+
+TEST(HybridInformativeWait, TheOperationLogGetsAnRtDrawPerNoteAndLoggingChangesNothing) {
+    // Hybrid v1.1 wrote no RT_DRAW / RT_WAIT, so the Replay page had none (Nov 24 2026).
+    const auto run = [](bool logging) {
+        ModelConfig config;
+        HybridInformativeWaitReductionTransformer hy(config);
+        auto silent = std::make_unique<ScriptBackend>();
+        *silent->waitD = 0;
+        *silent->onsetRel = 0;
+        *silent->onsetSlope = 1.0f;
+        hy.initWithBackends(std::move(silent), std::make_unique<ScriptBackend>());
+        int32_t now = 0;
+        int64_t wall = 0;
+        hy.nowCsProvider = [&] { return now; };
+        hy.wallMsProvider = [&] { return wall; };
+        hy.pianoSilentForMs = [] { return INT64_MAX; };
+        hy.tdValueProvider = [] { return TemporalDensity::kAuto; };
+        std::vector<std::string> lines;
+        if (logging)
+            OpLog::setCapture([&](const std::string &line) { lines.push_back(line); });
+        Token t{0, static_cast<int32_t>(DenseVocab::DurOffset) + 20, static_cast<int32_t>(DenseVocab::NoteOffset) + 60};
+        t.velocity = 80;
+        hy.inputTokenQueue.push(t);
+        for (int i = 0; i < 300; ++i, ++now, wall += 10)
+            hy.stepOnce();
+        OpLog::setCapture(nullptr);
+        std::vector<std::array<int32_t, 3>> notes;
+        for (const auto &tok: hy.getOutputHistory())
+            if (tok.note >= static_cast<int32_t>(Vocab::NoteOffset) && tok.note < static_cast<int32_t>(Vocab::Rest))
+                notes.push_back({tok.time, tok.duration, tok.note});
+        return std::make_pair(notes, lines);
+    };
+    const auto [plain, none] = run(false);
+    const auto [logged, lines] = run(true);
+    ASSERT_FALSE(plain.empty());
+    // the seed differs per run object only through threadRun (not used here): the same draws either way
+    EXPECT_EQ(plain, logged) << "recording the draws must not change them";
+    int draws = 0;
+    for (const auto &l: lines)
+        if (l.find("\"op\":\"RT_DRAW\"") != std::string::npos) {
+            ++draws;
+            EXPECT_NE(l.find("\"model\":\"m1\""), std::string::npos) << l;
+            for (const char *field: {"\"field\":\"onset\"", "\"field\":\"dur\"", "\"field\":\"pitch\"", "\"field\":\"vel\""})
+                EXPECT_NE(l.find(field), std::string::npos) << field << " in " << l;
+        }
+    EXPECT_GE(draws, static_cast<int>(logged.size())) << "an RT_DRAW for every note (and for notes cut later)";
 }

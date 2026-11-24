@@ -323,6 +323,15 @@ auto HybridInformativeWaitReductionTransformer::generate(int32_t now) -> bool {
     return ! out.empty();
 }
 
+auto HybridInformativeWaitReductionTransformer::absorbWhileStopped(int32_t now) -> void {
+    // Paused (pedal up) or stopped: the pianist's notes still go into both contexts as they
+    // arrive, as the legacy Hybrid writes its input at once. Left queued, they were applied in
+    // one go at the pedal press, possibly many seconds later, and model 1 then drew 5 cs
+    // velocity-120 runs from that context (Nov 23 2026).
+    silentEngine.absorb(now);
+    waitEngine.absorb(now);
+}
+
 auto HybridInformativeWaitReductionTransformer::stepOnce() -> bool {
     const int32_t now = nowCs();
     applySettings();
@@ -333,8 +342,10 @@ auto HybridInformativeWaitReductionTransformer::stepOnce() -> bool {
     drainInput();
     updateHybrid(now);
     tickTdControl();
-    if (isGenerationStopped())
+    if (isGenerationStopped()) {
+        absorbWhileStopped(now);
         return false;
+    }
     return generate(now);
 }
 
@@ -372,6 +383,7 @@ void HybridInformativeWaitReductionTransformer::threadRun() {
         updateHybrid(now);
         tickTdControl();
         if (isGenerationStopped()) {
+            absorbWhileStopped(now);
             maybeEmitGenerationPauseSoftStopClear();
             wait(5);
             recordThreadLoopMs(loopStartMs);

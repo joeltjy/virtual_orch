@@ -103,6 +103,8 @@ private:
     auto cutGeneratedFrom(int32_t now) -> void;
     [[nodiscard]] auto predictsSilenceFrom(int32_t now) const -> bool;
     auto generate(int32_t now) -> bool;
+    /** Paused or stopped: both engines take in the input (nothing is drawn). */
+    auto absorbWhileStopped(int32_t now) -> void;
     auto tickTdControl() -> void;
     [[nodiscard]] auto wallMs() const -> int64_t;
 

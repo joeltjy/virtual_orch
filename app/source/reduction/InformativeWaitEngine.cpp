@@ -362,6 +362,24 @@ auto InformativeWaitEngine::commitLongHolds() -> void {
 
 auto InformativeWaitEngine::applyInput() -> std::vector<OutNote> {
     std::vector<OutNote> out;
+    // A key released before its note was applied (the input came in a backlog): the release
+    // goes onto the waiting note itself. Otherwise it found nothing below and was dropped, and
+    // the note was written as held for as long as it had been waiting (up to 995 cs).
+    for (auto off = offs.begin(); off != offs.end();) {
+        const auto &[onset, pitch, dur] = *off;
+        auto waiting = std::find_if(inbox.begin(), inbox.end(), [&](const PianoNote &n) {
+            return n.durationCs < 0 && n.pitch == pitch && n.onsetCs == onset;
+        });
+        if (waiting == inbox.end()) {
+            ++off;
+            continue;
+        }
+        waiting->durationCs = dur;
+        releasedDurations.push_back(dur);
+        if (releasedDurations.size() > 16)
+            releasedDurations.erase(releasedDurations.begin());
+        off = offs.erase(off);
+    }
     for (const auto &[onset, pitch, dur]: offs) {
         releasedDurations.push_back(dur);
         if (releasedDurations.size() > 16)

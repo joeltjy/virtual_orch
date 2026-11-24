@@ -426,6 +426,23 @@ TEST(HybridInformativeWait, SwitchesToTheWaitModelAfterOneSecondOfPlayingAndBack
     EXPECT_EQ(hy.reason(), HybridInformativeWaitReductionTransformer::Reason::Stopped);
 }
 
+TEST(InformativeWaitEngine, AKeyReleasedBeforeItsNoteIsAppliedKeepsItsDuration) {
+    // Input that waited (Hybrid v1.1 paused under the pedal, Nov 23 2026): the key went down and up
+    // before the engine applied either. The release must reach the note, not be dropped and leave
+    // it "held" for as long as it waited (995 cs).
+    Rig rig(Engine::Mode::Unconstrained);
+    auto s = rig.engine.settings();
+    s.continuation = true;
+    rig.engine.setSettings(s);
+    rig.engine.noteOn(10, 60, 80);
+    rig.engine.noteOff(10, 60, 20);
+    rig.engine.absorb(1600); // applied 16 s late
+    const auto toks = rig.engine.tokens();
+    ASSERT_GE(toks.size(), 4u);
+    EXPECT_EQ(toks[1], Engine::kDur0 + 20);
+    EXPECT_EQ(toks[2], Engine::kPiano0 + 60);
+}
+
 namespace TdTest {
 
 /** Model 1 with flat onset logits: the mean gap between its onsets, drawn with `gamma` at TD 8. */

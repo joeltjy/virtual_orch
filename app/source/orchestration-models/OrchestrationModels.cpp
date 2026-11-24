@@ -1,4 +1,5 @@
 #include "VirtualOrch/orchestration-models/OrchestrationModels.h"
+#include "VirtualOrch/SessionLog.h"
 
 #include "VirtualOrch/ProjectPaths.h"
 #include "VirtualOrch/orchestration-models/InstrumentCombinations.h"
@@ -38,11 +39,13 @@ auto createOrchestrationModel(const std::string &name) -> std::unique_ptr<Orches
             const auto path = onnx.getFullPathName();
             if (! onnx.existsAsFile()) {
                 DBG("IodPretrained model missing at " + path);
+                SessionLog::add("OT", "ERROR: " + juce::String("IodPretrained model missing at " + path) + " (no orchestration output)");
                 return nullptr;
             }
             model->init(path.toRawUTF8());
             if (! model->isModelLoaded()) {
                 DBG("IodPretrained init failed for " + path);
+                SessionLog::add("OT", "ERROR: " + juce::String("IodPretrained init failed for " + path) + " (no orchestration output)");
                 return nullptr;
             }
             return model;

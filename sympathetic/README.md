@@ -13,14 +13,16 @@ In Virtual Orchestra, open **Workspace → PerformanceView → Orchestra**.
   WebKitGTK 4.0 and GTK 3 with X11 support.
 - **Tangible** lists cameras by name. Choose a camera and click **Start Camera**. A detected ArUco
   marker enables its orchestra part. Removing it releases any notes still sounding for that part.
+  The list beside the preview shows each visible marker's angle and whether a hand appears to
+  point at it or hold it. Keep the marker pattern visible. MediaPipe processes the same camera feed locally.
   The camera remains active when you switch to the seating plan in the same panel. **Stop Camera**
   restores manual instrument control. The PDF button prints IDs 1–14 with their assigned names.
   Print at actual size and leave the white margin around each marker.
 
-Set up the Tangible Python environment once from the repository root:
+Set up the Tangible environment with Python 3.12 from the repository root:
 
 ```sh
-python3 -m venv sympathetic/aruco/.venv
+python3.12 -m venv sympathetic/aruco/.venv
 sympathetic/aruco/.venv/bin/python -m pip install -r sympathetic/aruco/requirements.txt
 ```
 

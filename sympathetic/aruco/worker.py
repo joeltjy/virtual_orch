@@ -69,12 +69,15 @@ def open_camera(cv2, camera_id):
 
 
 def track(cv2, dictionary, parts, camera_id, output):
+    from hand_markers import HandTracker
+
     detector = cv2.aruco.ArucoDetector(dictionary)
     camera = open_camera(cv2, camera_id)
     last_seen = {}
     frame_number = 0
     last_frame_time = time.monotonic()
     restarted = False
+    hands = HandTracker()
     try:
         if not camera.isOpened():
             raise RuntimeError("Could not open the camera. Check camera access or choose another device.")
@@ -107,16 +110,33 @@ def track(cv2, dictionary, parts, camera_id, output):
             corners, ids, _ = detector.detectMarkers(frame)
             now = time.monotonic()
             detected = []
+            marker_corners = {}
+            marker_ids = {}
             if ids is not None:
                 for i, outline in enumerate(corners):
                     marker_id = int(ids[i, 0])
                     if marker_id in parts:
                         last_seen[marker_id] = now
-                        top_left, top_right = outline.reshape(4, 2)[:2]
+                        marker_corners[marker_id] = outline.reshape(4, 2)
+                        marker_ids[marker_id] = ids[i:i + 1]
+                        top_left, top_right = marker_corners[marker_id][:2]
                         dx, dy = top_right - top_left
                         angle = round(math.degrees(math.atan2(dy, dx))) % 360
                         detected.append({"id": marker_id, "angle": angle})
-                        cv2.aruco.drawDetectedMarkers(frame, [outline], ids=ids[i:i + 1])
+
+            associations = hands.matches(cv2, frame, marker_corners)
+            actions = {}
+            for marker_id, action, origin in associations:
+                actions.setdefault(marker_id, set()).add(action)
+                if action == "Pointing":
+                    cv2.line(frame, tuple(origin.astype(int)), tuple(marker_corners[marker_id].mean(axis=0).astype(int)),
+                             (255, 200, 100), 2, cv2.LINE_AA)
+            for marker in detected:
+                marker_id = marker["id"]
+                marker["hand"] = ", ".join(sorted(actions.get(marker_id, ())))
+                color = (255, 200, 100) if marker["hand"] else (60, 255, 60)
+                cv2.aruco.drawDetectedMarkers(frame, [marker_corners[marker_id].reshape(1, 4, 2)],
+                                              ids=marker_ids[marker_id], borderColor=color)
 
             # Tolerate a brief detection miss without repeatedly muting a visible section.
             visible = [marker_id for marker_id, seen in last_seen.items() if now - seen < 0.16]
@@ -126,10 +146,12 @@ def track(cv2, dictionary, parts, camera_id, output):
                 "frame": frame_number,
                 "ids": visible,
                 "markers": sorted(detected, key=lambda marker: marker["id"]),
+                "hand_status": hands.status,
                 "preview": base64.b64encode(jpeg).decode("ascii") if ok else "",
             })
             time.sleep(0.045)
     finally:
+        hands.close()
         if camera is not None:
             camera.release()
 

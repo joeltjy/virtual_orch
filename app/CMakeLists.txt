@@ -154,7 +154,7 @@ add_custom_target(VirtualOrchControllerResources
             "${controller_resources}/sym_server.js"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${controller_source}/aruco/worker.py"
             "${controller_source}/aruco/marker_pdf.py" "${controller_source}/aruco/macos_camera.py"
-            "${controller_source}/aruco/requirements.txt"
+            "${controller_source}/aruco/requirements.txt" "${controller_source}/aruco/hand_markers.py"
             "${controller_resources}/aruco"
     VERBATIM)
 add_dependencies(${PROJECT_NAME} VirtualOrchControllerResources)

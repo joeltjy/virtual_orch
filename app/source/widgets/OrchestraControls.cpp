@@ -332,8 +332,11 @@ public:
         sizeLabel.setBounds(sizeField);
         printButton.setBounds(take(116));
 
-        status.setBounds(area.removeFromTop(38));
-        markerList.setBounds(area.removeFromBottom(juce::jlimit(22, 92, area.getHeight() / 3)));
+        area.removeFromTop(gap);
+        auto details = area.removeFromRight(juce::jmin(228, area.getWidth() * 2 / 5));
+        area.removeFromRight(gap);
+        status.setBounds(details.removeFromTop(46));
+        markerList.setBounds(details);
         resizeMarkerList();
         preview.setBounds(area);
     }
@@ -529,6 +532,9 @@ private:
         }
         Sympathetic::state().tangibleMask.store(mask);
         juce::StringArray markerLines;
+        const auto handStatus = frame.getProperty("hand_status", {}).toString();
+        if (handStatus.isNotEmpty())
+            markerLines.add(handStatus);
         const auto markers = frame.getProperty("markers", {});
         if (const auto *array = markers.getArray()) {
             for (const auto &marker: *array) {
@@ -537,8 +543,10 @@ private:
                     continue;
                 const auto &part = Sympathetic::kMarkerParts[static_cast<size_t>(id - 1)];
                 const int angle = marker.getProperty("angle", 0);
-                markerLines.add(String(id) + "  " + String(part.name.data()) + "  "
-                                + String(angle) + String::charToString(0x00b0));
+                const auto hand = marker.getProperty("hand", {}).toString();
+                markerLines.add(String(id) + "  " + String(part.name.data()));
+                markerLines.add(String(angle) + String::charToString(0x00b0)
+                                + (hand.isEmpty() ? String() : "  |  " + hand));
             }
         }
         showMarkers(markerLines);

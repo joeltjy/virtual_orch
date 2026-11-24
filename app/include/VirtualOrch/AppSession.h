@@ -175,7 +175,8 @@ public:
     [[nodiscard]] auto logitAdjustmentsToVar() -> juce::var;
     auto applyLogitAdjustments(const juce::var &adjustments) -> void;
     /** The active T3'' / W2-W3 / Hybrid transformer, else nullptr. */
-    [[nodiscard]] auto activeAnticipated() -> TwoInstrumentAnticipatedReductionTransformer *;
+    /** The active reduction's own logit adjustments (T3'' / W2-W3 / Hybrid / Hybrid v1.1), else null. */
+    [[nodiscard]] auto activeAnticipated() -> RtLogitAdjustments *;
 
     /** Accompaniment mode (Jam only): push the Launchpad's polyphony cap to every reduction. */
     auto applyAccompanimentCap() -> void;

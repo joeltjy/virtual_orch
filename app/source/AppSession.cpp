@@ -740,11 +740,12 @@ auto AppSession::stopGeneration() -> void {
     }).detach();
 }
 
-auto AppSession::activeAnticipated() -> TwoInstrumentAnticipatedReductionTransformer * {
+auto AppSession::activeAnticipated() -> RtLogitAdjustments * {
     switch (musicModelArch) {
         case MusicModelArch::DenseAnticipatedPiano: return &reductionTransformerAnticipated;
         case MusicModelArch::DenseAnticipatedWait: return &reductionTransformerWait;
         case MusicModelArch::DenseHybrid: return &reductionTransformerHybrid;
+        case MusicModelArch::DenseHybridInformativeWait: return &reductionTransformerHybridIW;
         default: return nullptr;
     }
 }
@@ -768,7 +769,7 @@ auto AppSession::logitAdjustmentsToVar() -> juce::var {
         model->setProperty("onsetGapTau", m->getOnsetGapTauBase());
         model->setProperty("waitMinPlay", m->getWaitMinPlay());
         root->setProperty("model", juce::var(model));
-        if (musicModelArch == MusicModelArch::DenseHybrid) {
+        if (m->hasSilentSide()) {
             auto *v1 = new juce::DynamicObject();
             v1->setProperty("pitchBias", m->hybridV1PitchBias.load());
             v1->setProperty("durationBias", m->hybridV1DurationBias.load());
@@ -814,7 +815,7 @@ auto AppSession::applyLogitAdjustments(const juce::var &a) -> void {
         value(model, "onsetGapTau", [m](float t) { m->setOnsetGapTauBase(t); });
         value(model, "waitMinPlay", [m](float p) { m->setWaitMinPlay(p); });
     }
-    if (const auto &v1 = a["hybridV1"]; v1.isObject() && musicModelArch == MusicModelArch::DenseHybrid) {
+    if (const auto &v1 = a["hybridV1"]; v1.isObject() && m->hasSilentSide()) {
         flag(v1, "pitchBias", [m](bool on) { m->hybridV1PitchBias.store(on); });
         flag(v1, "durationBias", [m](bool on) { m->hybridV1DurationBias.store(on); });
         flag(v1, "onsetGapBias", [m](bool on) { m->hybridV1OnsetGapBias.store(on); });

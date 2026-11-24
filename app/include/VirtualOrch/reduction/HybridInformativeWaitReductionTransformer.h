@@ -12,6 +12,7 @@
 #include "VirtualOrch/MusicToken.h"
 #include "VirtualOrch/reduction/InformativeWaitEngine.h"
 #include "VirtualOrch/reduction/ReductionTransformer.h"
+#include "VirtualOrch/reduction/RtLogitAdjustments.h"
 #include "VirtualOrch/reduction/StreamingKvCache.h"
 #include "VirtualOrch/reduction/TdController.h"
 #include "VirtualOrch/reduction/WaitTracker.h"
@@ -32,8 +33,12 @@
  * from the orchestra's measured density, each updated only while its model draws (m2 frozen while it waits on a
  * WAIT); the gamma goes to that model's onset draws (InformativeWaitEngine::Settings::tdGamma). Both go back to
  * gamma 0 on a stream restart and a pedal release. TD AUTO: no shift.
+ *
+ * Logit adjustments as the legacy Hybrid (RtLogitAdjustments): model 1 takes the silent side's (hybridV1*, all ON,
+ * base taus), model 2 the main ones (all OFF, the widget's taus); the BiasSettings switch and silence gate apply to
+ * the three biases; both draw within the Launchpad register range.
  */
-class HybridInformativeWaitReductionTransformer : public ReductionTransformer {
+class HybridInformativeWaitReductionTransformer : public ReductionTransformer, public RtLogitAdjustments {
 public:
     static constexpr int64_t kPlayToWaitMs = 1000;
     static constexpr int64_t kStopMs = 500;
@@ -41,6 +46,9 @@ public:
     enum class Reason { Start, PedalReleased, Playing, Stopped, PredictedSilence };
 
     explicit HybridInformativeWaitReductionTransformer(ModelConfig &modelConfig);
+
+    [[nodiscard]] auto hasSilentSide() const -> bool override { return true; }
+    [[nodiscard]] auto usesWaitMinPlay() const -> bool override { return false; }
 
     void run() override {
         threadInit();

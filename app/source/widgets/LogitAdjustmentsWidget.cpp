@@ -255,8 +255,7 @@ auto LogitAdjustmentsWidget::syncRtBiasTogglesFromModels() -> void {
     biasGateToggle.setEnabled(BiasSettings::enabled());
     auto *model = anticipatedModel();
     const bool v1 = showsHybridV1();
-    hybridSideToggle.setVisible(model != nullptr
-                                && model->getVariant() == TwoInstrumentAnticipatedReductionTransformer::Variant::Hybrid);
+    hybridSideToggle.setVisible(model != nullptr && model->hasSilentSide());
     const bool logitTdOn = model == nullptr ? TdOnsetBias::enabled()
                            : v1             ? model->hybridV1LogitTd.load()
                                             : model->isLogitTdEnabled();
@@ -266,8 +265,7 @@ auto LogitAdjustmentsWidget::syncRtBiasTogglesFromModels() -> void {
                                   juce::dontSendNotification);
     shortGapToggle.setEnabled(model != nullptr);
     {
-        const bool waits = model != nullptr
-                           && model->getVariant() != TwoInstrumentAnticipatedReductionTransformer::Variant::T3;
+        const bool waits = model != nullptr && model->usesWaitMinPlay();
         waitMinPlaySlider.setEnabled(waits);
         if (model != nullptr && ! waitMinPlaySlider.isMouseButtonDown())
             waitMinPlaySlider.setValue(model->getWaitMinPlay(), juce::dontSendNotification);
@@ -367,8 +365,7 @@ auto LogitAdjustmentsWidget::syncBaseSlidersFromModels() -> void {
     ignoreSliderCallbacks = false;
 }
 
-auto LogitAdjustmentsWidget::anticipatedModel() const
-    -> TwoInstrumentAnticipatedReductionTransformer * {
+auto LogitAdjustmentsWidget::anticipatedModel() const -> RtLogitAdjustments * {
     switch (session.musicModelArch) {
         case MusicModelArch::DenseAnticipatedPiano:
             return &session.reductionTransformerAnticipated;
@@ -376,18 +373,21 @@ auto LogitAdjustmentsWidget::anticipatedModel() const
             return &session.reductionTransformerWait;
         case MusicModelArch::DenseHybrid:
             return &session.reductionTransformerHybrid;
+        case MusicModelArch::DenseHybridInformativeWait:
+            return &session.reductionTransformerHybridIW;
         default:
             return nullptr;
     }
 }
 
 auto LogitAdjustmentsWidget::showsHybridV1() const -> bool {
-    return session.musicModelArch == MusicModelArch::DenseHybrid && hybridSideToggle.getToggleState();
+    const auto *model = anticipatedModel();
+    return model != nullptr && model->hasSilentSide() && hybridSideToggle.getToggleState();
 }
 
 auto LogitAdjustmentsWidget::applyPitchBiasEnabled(bool enabled) -> void {
     if (showsHybridV1()) {
-        session.reductionTransformerHybrid.hybridV1PitchBias.store(enabled);
+        anticipatedModel()->hybridV1PitchBias.store(enabled);
         return;
     }
     if (auto *model = anticipatedModel())
@@ -398,7 +398,7 @@ auto LogitAdjustmentsWidget::applyPitchBiasEnabled(bool enabled) -> void {
 
 auto LogitAdjustmentsWidget::applyDurationBiasEnabled(bool enabled) -> void {
     if (showsHybridV1()) {
-        session.reductionTransformerHybrid.hybridV1DurationBias.store(enabled);
+        anticipatedModel()->hybridV1DurationBias.store(enabled);
         return;
     }
     if (auto *model = anticipatedModel())
@@ -409,7 +409,7 @@ auto LogitAdjustmentsWidget::applyDurationBiasEnabled(bool enabled) -> void {
 
 auto LogitAdjustmentsWidget::applyOnsetGapBiasEnabled(bool enabled) -> void {
     if (showsHybridV1()) {
-        session.reductionTransformerHybrid.hybridV1OnsetGapBias.store(enabled);
+        anticipatedModel()->hybridV1OnsetGapBias.store(enabled);
         return;
     }
     if (auto *model = anticipatedModel())

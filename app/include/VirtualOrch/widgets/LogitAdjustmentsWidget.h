@@ -5,7 +5,7 @@
 #include "VirtualOrch/widgets/WorkspaceWidget.h"
 
 class AppSession;
-class TwoInstrumentAnticipatedReductionTransformer;
+class RtLogitAdjustments;
 
 /**
  * Live τ readouts + base-τ sliders for RT pitch / duration / onset-gap and IOD
@@ -36,7 +36,8 @@ private:
     auto applyBaseTausFromSliders() -> void;
 
     /** The active T3'' / W2-W3 / Hybrid transformer (their own adjustment settings), else nullptr. */
-    [[nodiscard]] auto anticipatedModel() const -> TwoInstrumentAnticipatedReductionTransformer *;
+    /** The active reduction's own logit adjustments (T3'' / W2-W3 / Hybrid / Hybrid v1.1), else null. */
+    [[nodiscard]] auto anticipatedModel() const -> RtLogitAdjustments *;
     /** Hybrid with "v1" chosen: the switches show and set the v1 side (hybridV1*). */
     [[nodiscard]] auto showsHybridV1() const -> bool;
 

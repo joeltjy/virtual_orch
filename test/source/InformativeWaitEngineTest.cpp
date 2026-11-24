@@ -473,6 +473,50 @@ TEST(InformativeWaitEngine, AKeyReleasedBeforeItsNoteIsAppliedKeepsItsDuration) 
     EXPECT_EQ(toks[2], Engine::kPiano0 + 60);
 }
 
+TEST(InformativeWaitEngine, OrchestraPitchesStayInTheRegisterRange) {
+    Rig rig(Engine::Mode::Unconstrained);
+    auto s = rig.engine.settings();
+    s.continuation = true;
+    s.pitchLow = 70; // the model prefers 60 / 64 / 67: none of them is allowed
+    s.pitchHigh = 80;
+    rig.engine.setSettings(s);
+    *rig.model.waitD = 0;
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 400);
+    ASSERT_FALSE(rig.played.empty());
+    for (const auto &n: rig.played) {
+        EXPECT_GE(n.pitch, 70);
+        EXPECT_LE(n.pitch, 80);
+    }
+}
+
+TEST(InformativeWaitEngine, TheLegacyLogitAdjustmentsLeaveTheWaitDecisionAlone) {
+    // model 2 with every adjustment on still draws its WAITs (only onsets, durations and pitches change)
+    Rig rig(Engine::Mode::Unconstrained);
+    auto s = rig.engine.settings();
+    s.pitchBias = s.durationBias = s.onsetGapBias = s.shortGap = s.logitTd = true;
+    s.tdLevel = 8;
+    rig.engine.setSettings(s);
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 6);
+    EXPECT_TRUE(rig.engine.hasPendingWait());
+    EXPECT_EQ(rig.engine.stats().waitsDrawn, 1);
+}
+
+TEST(InformativeWaitEngine, ModelOneDrawsWithTheLegacyBiasesOn) {
+    Rig rig(Engine::Mode::Unconstrained);
+    auto s = rig.engine.settings();
+    s.continuation = true;
+    s.pitchBias = s.durationBias = s.onsetGapBias = s.shortGap = s.logitTd = true;
+    s.tdLevel = 8;
+    rig.engine.setSettings(s);
+    *rig.model.waitD = 0;
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 600);
+    EXPECT_GE(rig.played.size(), 3u);
+    EXPECT_TRUE(rig.engine.lastError.empty()) << rig.engine.lastError;
+}
+
 namespace TdTest {
 
 /** Model 1 with flat onset logits: the mean gap between its onsets, drawn with `gamma` at TD 8. */

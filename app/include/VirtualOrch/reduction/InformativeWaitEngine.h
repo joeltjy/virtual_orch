@@ -12,6 +12,9 @@
 #include <utility>
 #include <vector>
 
+#include "VirtualOrch/reduction/DenseDurationBias.h"
+#include "VirtualOrch/reduction/DenseOnsetGapBias.h"
+#include "VirtualOrch/reduction/DensePitchBias.h"
 #include "VirtualOrch/reduction/StreamingKvCache.h"
 
 /**
@@ -125,6 +128,28 @@ public:
          */
         int32_t tdLevel = 0;
         std::optional<float> tdGamma;
+        /**
+         * The legacy Hybrid's logit adjustments (AnticipationSampler / TdOnsetBias), on the same dense
+         * token layout. History: every orchestra note in the context (own and mirrored).
+         *   pitch / duration / onsetGap: the dense biases with their tau (the scheduler ramps them);
+         *     the transformer folds in the BiasSettings switch and silence gate;
+         *   shortGap: p(c) = -ln(1 + (6 / c)^4) on new onsets, c = t - (lo - 1);
+         *   logitTd: the chord shift h(k, n) on the chord slot (TD > 1) and at most 10 notes a chord.
+         * WAIT / COUNT logits are never touched.
+         */
+        bool pitchBias = false;
+        bool durationBias = false;
+        bool onsetGapBias = false;
+        bool shortGap = false;
+        bool logitTd = false;
+        float pitchTau = DensePitchBias::TauBase;
+        float pitchTauPrime = DensePitchBias::TauBase;
+        float durationTau = DenseDurationBias::TauBase;
+        float durationTauPrime = DenseDurationBias::TauPrimeBase;
+        float onsetGapTau = DenseOnsetGapBias::TauBase;
+        /** The Launchpad register range: orchestra pitches drawn in [pitchLow, pitchHigh]. */
+        int32_t pitchLow = 21;
+        int32_t pitchHigh = 108;
     };
 
     struct OutNote {
@@ -303,6 +328,12 @@ private:
     auto pickFrom(std::vector<float> scores, float temperature) -> int32_t;
     /** Dynamic LogitTD on the onsets loRel..hiRel of `logits` (cfg.tdGamma), and their sensitivity. */
     auto applyTdGamma(std::vector<float> &logits, int32_t loRel, int32_t hiRel) -> void;
+    /** The orchestra notes in the context as dense quads (absolute onsets), for the biases. */
+    [[nodiscard]] auto orchestraHistory() const -> std::vector<int32_t>;
+    /** The register range applied to [lo, hi]; false if no pitch is left (a chord stacked past its top). */
+    auto clampToRegister(int32_t &lo, int32_t &hi) const -> bool;
+    DensePitchBias::PitchTauScheduler pitchScheduler;
+    DenseDurationBias::DurationTauScheduler durationScheduler;
     double sensitivitySum = 0.0;
     int sensitivityDraws = 0;
 

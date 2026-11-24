@@ -17,6 +17,7 @@
 #include "VirtualOrch/reduction/AnticipationSampler.h"
 #include "VirtualOrch/reduction/AnticipationStage.h"
 #include "VirtualOrch/reduction/DensePitchBias.h"
+#include "VirtualOrch/reduction/RtLogitAdjustments.h"
 #include "VirtualOrch/reduction/DenseTypes.h"
 #include "VirtualOrch/reduction/ReductionTransformer.h"
 #include "VirtualOrch/reduction/StreamingKvCache.h"
@@ -69,7 +70,7 @@
  * 0.5 and every logit adjustment ON by default (pitch / duration / onset-gap biases at their base
  * tau, under the global BiasSettings switch and silence gate; the short-gap penalty; LogitTD).
  */
-class TwoInstrumentAnticipatedReductionTransformer : public ReductionTransformer {
+class TwoInstrumentAnticipatedReductionTransformer : public ReductionTransformer, public RtLogitAdjustments {
 public:
     enum class Variant { T3, Wait, Hybrid };
     static constexpr int64_t kHybridPlayToWaitMs = 1000;
@@ -78,11 +79,12 @@ public:
     /** Why the hybrid uses its current model (the Active Model widget). */
     enum class HybridReason { Start, PedalReleased, Playing, Stopped, PredictedSilence };
     static constexpr int32_t kWaitToken = 11776;
-    static constexpr float kDefaultWaitMinPlay = 0.30f;
 
     explicit TwoInstrumentAnticipatedReductionTransformer(ModelConfig &modelConfig,
                                                           Variant variant = Variant::T3);
     [[nodiscard]] auto getVariant() const -> Variant { return variant; }
+    [[nodiscard]] auto hasSilentSide() const -> bool override { return variant == Variant::Hybrid; }
+    [[nodiscard]] auto usesWaitMinPlay() const -> bool override { return variant != Variant::T3; }
 
     void run() override {
         threadInit();
@@ -125,12 +127,7 @@ public:
         const std::lock_guard<std::mutex> lock(tdViewMutex);
         return tdViews;
     }
-    /** Hybrid, v1 side: its own logit adjustments, all ON by default. */
-    std::atomic<bool> hybridV1PitchBias{true};
-    std::atomic<bool> hybridV1DurationBias{true};
-    std::atomic<bool> hybridV1OnsetGapBias{true};
-    std::atomic<bool> hybridV1ShortGapPenalty{true};
-    std::atomic<bool> hybridV1LogitTd{true};
+    // Hybrid, v1 side: its own logit adjustments (RtLogitAdjustments::hybridV1*), all ON by default.
     /** Hybrid: the two model files (stems), set by initHybrid. */
     std::string hybridV1Name = "v1";
     std::string hybridWaitName = "W2/W3";
@@ -157,32 +154,7 @@ public:
     auto setNoteTemperature(float t) -> void { noteTemperature.store(t); }
     auto setVelocityTemperature(float t) -> void { velocityTemperature.store(t); }
 
-    // Logit adjustments (all OFF by default; the BiasSettings gate applies to the three biases).
-    [[nodiscard]] auto isPitchBiasEnabled() const -> bool { return pitchBiasEnabled.load(); }
-    auto setPitchBiasEnabled(bool on) -> void { pitchBiasEnabled.store(on); }
-    [[nodiscard]] auto isDurationBiasEnabled() const -> bool { return durationBiasEnabled.load(); }
-    auto setDurationBiasEnabled(bool on) -> void { durationBiasEnabled.store(on); }
-    [[nodiscard]] auto isOnsetGapBiasEnabled() const -> bool { return onsetGapBiasEnabled.load(); }
-    auto setOnsetGapBiasEnabled(bool on) -> void { onsetGapBiasEnabled.store(on); }
-    [[nodiscard]] auto getPitchTauBase() const -> float { return pitchTau.load(); }
-    [[nodiscard]] auto getPitchTauPrimeBase() const -> float { return pitchTauPrime.load(); }
-    [[nodiscard]] auto getDurationTauBase() const -> float { return durationTau.load(); }
-    [[nodiscard]] auto getDurationTauPrimeBase() const -> float { return durationTauPrime.load(); }
-    [[nodiscard]] auto getOnsetGapTauBase() const -> float { return onsetGapTau.load(); }
-    auto setPitchTauBase(float t) -> void { pitchTau.store(t); }
-    auto setPitchTauPrimeBase(float t) -> void { pitchTauPrime.store(t); }
-    auto setDurationTauBase(float t) -> void { durationTau.store(t); }
-    auto setDurationTauPrimeBase(float t) -> void { durationTauPrime.store(t); }
-    auto setOnsetGapTauBase(float t) -> void { onsetGapTau.store(t); }
-    /** The 1..8 cs short-gap penalty (TdOnsetBias::shortGapPenalty). */
-    [[nodiscard]] auto isShortGapPenaltyEnabled() const -> bool { return shortGapPenalty.load(); }
-    auto setShortGapPenaltyEnabled(bool on) -> void { shortGapPenalty.store(on); }
-    /** LogitTD for this model (its own switch, not the global one). */
-    [[nodiscard]] auto isLogitTdEnabled() const -> bool { return logitTd.load(); }
-    auto setLogitTdEnabled(bool on) -> void { logitTd.store(on); }
-    /** W2/W3 threshold rule: play when P(play) >= this (0.30 recommended). */
-    [[nodiscard]] auto getWaitMinPlay() const -> float { return waitMinPlay.load(); }
-    auto setWaitMinPlay(float p) -> void { waitMinPlay.store(p); }
+    // Logit adjustments: RtLogitAdjustments (all OFF by default; the BiasSettings gate applies to the three biases).
 
     /**
      * T3'' training order at a shared onset: the first generated note before the given notes.
@@ -334,15 +306,4 @@ private:
     std::atomic<float> noteTemperature{DenseSampling::NoteTemperature};
     std::atomic<float> velocityTemperature{DenseSampling::OnsetTemperature}; // 0.5: same as the other fields
     Variant variant;
-    std::atomic<bool> pitchBiasEnabled{false};
-    std::atomic<bool> durationBiasEnabled{false};
-    std::atomic<bool> onsetGapBiasEnabled{false};
-    std::atomic<float> pitchTau{DensePitchBias::TauBase};
-    std::atomic<float> pitchTauPrime{DensePitchBias::TauBase};
-    std::atomic<float> durationTau{DenseDurationBias::TauBase};
-    std::atomic<float> durationTauPrime{DenseDurationBias::TauPrimeBase};
-    std::atomic<float> onsetGapTau{DenseOnsetGapBias::TauBase};
-    std::atomic<bool> shortGapPenalty{false};
-    std::atomic<bool> logitTd{false};
-    std::atomic<float> waitMinPlay{kDefaultWaitMinPlay};
 };

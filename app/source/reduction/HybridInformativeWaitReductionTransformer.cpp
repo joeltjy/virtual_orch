@@ -2,6 +2,7 @@
 
 #include "VirtualOrch/KeyLanding.h"
 #include "VirtualOrch/OpLog.h"
+#include "VirtualOrch/RegisterRange.h"
 #include "VirtualOrch/SessionLog.h"
 #include "VirtualOrch/TemporalDensity.h"
 #include "VirtualOrch/reduction/DenseTypes.h"
@@ -94,6 +95,22 @@ auto HybridInformativeWaitReductionTransformer::applySettings() -> void {
     const int32_t td = tdValueProvider ? tdValueProvider() : TemporalDensity::kAuto;
     s.tdLevel = td;
     s.tdGamma = tdGamma(true);
+    const bool biases = biasesActiveNow(); // BiasSettings: the switch and the piano-silence gate
+    const int32_t low = RegisterRange::lowPitch();
+    const int32_t high = RegisterRange::highPitch();
+    // model 1: the silent side's adjustments, with the base taus (the legacy Hybrid's v1)
+    s.pitchBias = biases && hybridV1PitchBias.load();
+    s.durationBias = biases && hybridV1DurationBias.load();
+    s.onsetGapBias = biases && hybridV1OnsetGapBias.load();
+    s.shortGap = hybridV1ShortGapPenalty.load();
+    s.logitTd = hybridV1LogitTd.load();
+    s.pitchTau = DensePitchBias::TauBase;
+    s.pitchTauPrime = DensePitchBias::TauBase;
+    s.durationTau = DenseDurationBias::TauBase;
+    s.durationTauPrime = DenseDurationBias::TauPrimeBase;
+    s.onsetGapTau = DenseOnsetGapBias::TauBase;
+    s.pitchLow = low;
+    s.pitchHigh = high;
     silentEngine.setSettings(s);
     auto w = waitEngine.settings();
     w.continuation = false;
@@ -102,6 +119,19 @@ auto HybridInformativeWaitReductionTransformer::applySettings() -> void {
     w.seed = 1;
     w.tdLevel = td;
     w.tdGamma = tdGamma(false);
+    // model 2: the main adjustments (all OFF by default) with the widget's taus
+    w.pitchBias = biases && isPitchBiasEnabled();
+    w.durationBias = biases && isDurationBiasEnabled();
+    w.onsetGapBias = biases && isOnsetGapBiasEnabled();
+    w.shortGap = isShortGapPenaltyEnabled();
+    w.logitTd = isLogitTdEnabled();
+    w.pitchTau = getPitchTauBase();
+    w.pitchTauPrime = getPitchTauPrimeBase();
+    w.durationTau = getDurationTauBase();
+    w.durationTauPrime = getDurationTauPrimeBase();
+    w.onsetGapTau = getOnsetGapTauBase();
+    w.pitchLow = low;
+    w.pitchHigh = high;
     waitEngine.setSettings(w);
 }
 

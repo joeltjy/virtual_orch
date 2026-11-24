@@ -66,6 +66,8 @@ auto InformativeWaitEngine::setSettings(const Settings &s) -> void {
 }
 
 auto InformativeWaitEngine::reset(int32_t startCs) -> void {
+    pitchScheduler.reset();
+    durationScheduler.reset();
     items.clear();
     before.clear();
     cur = {};
@@ -265,6 +267,25 @@ auto InformativeWaitEngine::applyTdGamma(std::vector<float> &logits, int32_t loR
         sensitivitySum += *s;
         ++sensitivityDraws;
     }
+}
+
+auto InformativeWaitEngine::orchestraHistory() const -> std::vector<int32_t> {
+    std::vector<int32_t> quads;
+    quads.reserve(items.size() * 4);
+    for (const auto &it: items)
+        if (it.kind == Kind::Orch) {
+            quads.push_back(it.onsetCs);
+            quads.push_back(static_cast<int32_t>(DenseVocab::DurOffset) + std::clamp(it.durationCs, 1, 995));
+            quads.push_back(static_cast<int32_t>(DenseVocab::NoteOffset) + DenseConfig::MaxPitch * 1 + it.pitch);
+            quads.push_back(static_cast<int32_t>(DenseVocab::VelocityOffset) + it.velocity);
+        }
+    return quads;
+}
+
+auto InformativeWaitEngine::clampToRegister(int32_t &lo, int32_t &hi) const -> bool {
+    lo = std::max(lo, cfg.pitchLow);
+    hi = std::min(hi, cfg.pitchHigh);
+    return lo <= hi;
 }
 
 auto InformativeWaitEngine::takeSensitivity() -> std::pair<std::optional<double>, int> {
@@ -650,6 +671,18 @@ auto InformativeWaitEngine::drawBody(int32_t onsetCs, int32_t minPitch) -> std::
     const auto *l1 = logitsFor(desired);
     if (l1 == nullptr)
         return std::nullopt;
+    std::vector<int32_t> history;
+    if (cfg.durationBias || cfg.pitchBias)
+        history = orchestraHistory();
+    std::vector<float> biased;
+    if (cfg.durationBias) {
+        biased = *l1;
+        const auto window = DenseDurationBias::collectDurationWindowAt(history, onsetCs, -1, 1);
+        const auto taus = durationScheduler.evaluate(onsetCs, window.uniqueDurations, window.uniqueDeltas,
+                                                     cfg.durationTau, cfg.durationTauPrime, true);
+        DenseDurationBias::applyDurationLogitsBias(biased, window, taus.tau, taus.tauPrime);
+        l1 = &biased;
+    }
     const int32_t dur = pick(*l1, {{kDur0 + 5, kDur0 + 996}}, cfg.otherTemperature, cfg.minP, 5);
     if (dur < 0)
         return std::nullopt;
@@ -660,10 +693,19 @@ auto InformativeWaitEngine::drawBody(int32_t onsetCs, int32_t minPitch) -> std::
         lo = std::max(lo, cfg.bandLow);
         hi = std::min(hi, cfg.bandHigh);
     }
-    lo = std::min(lo, hi);
+    if (! clampToRegister(lo, hi))
+        return std::nullopt; // a chord stacked up to the top of the register: no further note
     const auto *l2 = logitsFor(desired);
     if (l2 == nullptr)
         return std::nullopt;
+    if (cfg.pitchBias) {
+        biased = *l2;
+        const auto window = DensePitchBias::collectPitchWindowAt(history, onsetCs, -1);
+        const auto taus = pitchScheduler.evaluate(onsetCs, window.uniquePitches, window.uniqueDeltas, cfg.pitchTau,
+                                                  cfg.pitchTauPrime, true);
+        DensePitchBias::applyNoteLogitsBias(biased, window, taus.tau, taus.tauPrime);
+        l2 = &biased;
+    }
     const int32_t note = pick(*l2, {{kOrch0 + lo, kOrch0 + hi + 1}}, cfg.otherTemperature, cfg.minP);
     if (note < 0)
         return std::nullopt;
@@ -712,7 +754,8 @@ auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
     const int32_t hiRel = std::min(kOnsetMax, std::max(loRel, hi - baseCs));
     std::vector<std::pair<int32_t, int32_t>> ranges{{loRel, hiRel + 1}};
     const bool chordOk = ! line && cur.chordOnCs != INT32_MIN && cur.chordOnCs >= nowCs - cfg.chordLateCs
-                         && cur.chordOnCs < lo && cur.lastOrchPitch < kPianoHigh && cur.chordCount < kMaxChord;
+                         && cur.chordOnCs < lo && cur.lastOrchPitch < std::min(kPianoHigh, cfg.pitchHigh)
+                         && cur.chordCount < (cfg.logitTd ? TdOnsetBias::kMaxChordNotes : kMaxChord);
     if (chordOk)
         ranges.push_back({rel(cur.chordOnCs), rel(cur.chordOnCs) + 1});
     const bool waitOk = cfg.mode != Mode::LineLegato && ! cfg.continuation;
@@ -727,9 +770,25 @@ auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
     if (logits == nullptr)
         return out;
     std::vector<float> shifted;
-    if (cfg.tdGamma.has_value() && cfg.tdLevel >= 1) {
+    const bool gammaOn = cfg.tdGamma.has_value() && cfg.tdLevel >= 1;
+    const bool chordShiftOn = cfg.logitTd && chordOk && cfg.tdLevel > 1;
+    if (gammaOn || cfg.onsetGapBias || cfg.shortGap || chordShiftOn) {
         shifted = *logits;
-        applyTdGamma(shifted, loRel, hiRel);
+        if (cfg.onsetGapBias) {
+            const auto window = DenseOnsetGapBias::collectOnsetGapWindow(orchestraHistory(), std::max(nowCs, cur.clockCs), -1);
+            DenseOnsetGapBias::applyOnsetLogitsBias(shifted, window, cfg.onsetGapTau, baseCs);
+        }
+        if (cfg.shortGap)
+            for (int32_t t = std::max(loRel, 0); t <= hiRel && t < static_cast<int32_t>(shifted.size()); ++t)
+                if (std::isfinite(shifted[static_cast<size_t>(t)]))
+                    shifted[static_cast<size_t>(t)] += TdOnsetBias::shortGapPenalty(t - (loRel - 1));
+        if (gammaOn)
+            applyTdGamma(shifted, loRel, hiRel);
+        if (chordShiftOn) {
+            auto &chord = shifted[static_cast<size_t>(rel(cur.chordOnCs))];
+            if (std::isfinite(chord))
+                chord += TdOnsetBias::chordShift(cfg.tdLevel, cur.chordCount);
+        }
         logits = &shifted;
     }
     const int32_t t = pick(*logits, ranges, cfg.onsetTemperature, 0.0f);
@@ -921,6 +980,7 @@ auto InformativeWaitEngine::precomputeStep() -> void {
                     lo = std::max(lo, cfg.bandLow);
                     hi = std::min(hi, cfg.bandHigh);
                 }
+                clampToRegister(lo, hi);
                 lo = std::min(lo, hi);
                 const int32_t tok = pick(lg, {{kOrch0 + lo, kOrch0 + hi + 1}}, cfg.otherTemperature, cfg.minP);
                 br.notes.back()[1] = tok - kOrch0;

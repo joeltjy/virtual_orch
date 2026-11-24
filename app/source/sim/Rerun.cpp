@@ -69,10 +69,10 @@ auto Result::matchesLog() const -> bool {
 
 auto defaultModelFile(const std::string &tag) -> juce::File {
     if (tag == "v1" || tag == "T3")
-        return modelsDir().getChildFile("continuation_model.onnx");
+        return modelsDir().getChildFile("rt_continuation_legacy.onnx");
     if (tag == "W")
-        return modelsDir().getChildFile("simultaneous_model_v2.onnx"); // W3 (hybrid_v1_w3)
-    return modelsDir().getChildFile("instrument_octave_predictions.onnx");
+        return modelsDir().getChildFile("rt_simultaneous_legacy.onnx"); // W3 (the retired hybrid_v1_w3)
+    return modelsDir().getChildFile("ot_legacy.onnx");
 }
 
 auto rerunsFileFor(const juce::File &oplog) -> juce::File {

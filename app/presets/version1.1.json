@@ -1,7 +1,7 @@
 {
   "model": "hybrid_v11",
   "reduction": "hybridInformativeWait",
-  "orchestrationModel": "IodPretrainedExpressive",
+  "orchestrationModel": "IodPretrained",
   "orchestrationMode": "jam",
   "inputMode": "direct",
   "inputFilterType": "passthrough",

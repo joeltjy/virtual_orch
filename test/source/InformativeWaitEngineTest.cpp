@@ -433,7 +433,7 @@ auto home() -> std::string {
 
 auto modelPath() -> std::string {
     const char *p = std::getenv("IW_MODEL");
-    return p != nullptr ? p : home() + "/Documents/virtual_orch_models/simultaneous_model_v3.onnx";
+    return p != nullptr ? p : home() + "/Documents/virtual_orch_models/rt_simultaneous_latest.onnx";
 }
 
 auto readTokens(const std::string &path) -> std::vector<int32_t> {
@@ -537,10 +537,10 @@ TEST(InformativeWaitOnnx, CommitFromScratchMatchesRefeeding) {
 
 TEST(InformativeWaitOnnx, HybridV11LoadsBothModels) {
     const auto dir = home() + "/Documents/virtual_orch_models/";
-    const auto m1 = dir + "continuation_model_v2.onnx";
-    const auto m2 = dir + "simultaneous_model_v3.onnx";
+    const auto m1 = dir + "rt_continuation_latest.onnx";
+    const auto m2 = dir + "rt_simultaneous_latest.onnx";
     if (! juce::File(m1).existsAsFile() || ! juce::File(m2).existsAsFile())
-        GTEST_SKIP() << "continuation_model_v2 / simultaneous_model_v3 not on this machine";
+        GTEST_SKIP() << "rt_continuation_latest / rt_simultaneous_latest not on this machine";
     ModelConfig config;
     HybridInformativeWaitReductionTransformer hy(config);
     ASSERT_TRUE(hy.init(m1.c_str(), m2.c_str())) << hy.lastInitError;

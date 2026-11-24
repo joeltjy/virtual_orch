@@ -21,13 +21,11 @@ namespace {
  * VIRTUAL_ORCH_APP_DIR, so the JSON is read from the repo next to this file.
  */
 auto findT3Onnx(juce::String &stem) -> juce::File {
-    const auto json = juce::File(__FILE__).getParentDirectory().getParentDirectory()
-                          .getParentDirectory().getChildFile("app/t3_anticipated_reduction.json");
-    stem = juce::JSON::parse(json.loadFileAsString()).getProperty("onnx", {}).toString();
-    const std::vector<juce::File> dirs{modelsDir()};
-    for (const auto &d: dirs)
-        if (const auto f = d.getChildFile(stem + ".onnx"); f.existsAsFile())
-            return f;
+    // The T3'' config (t3_anticipated_reduction.json) was retired on 2026-11-23; its model is kept as
+    // rt_continuation_legacy.onnx (log replay, the legacy HybridTransformer).
+    stem = "rt_continuation_legacy";
+    if (const auto f = modelsDir().getChildFile(stem + ".onnx"); f.existsAsFile())
+        return f;
     return {};
 }
 
@@ -36,9 +34,9 @@ auto findT3Onnx(juce::String &stem) -> juce::File {
 TEST(T3ModelFile, configPointsAtContinuationModelAndItLoads) {
     juce::String stem;
     const auto onnx = findT3Onnx(stem);
-    EXPECT_EQ(stem, juce::String("continuation_model"));
+    EXPECT_EQ(stem, juce::String("rt_continuation_legacy"));
     if (! onnx.existsAsFile())
-        GTEST_SKIP() << "continuation_model.onnx is not in Documents/virtual_orch_models here";
+        GTEST_SKIP() << "rt_continuation_legacy.onnx is not in Documents/virtual_orch_models here";
 
     StreamingKv::OnnxBackend backend;
     std::string error;
@@ -65,10 +63,10 @@ TEST(OnnxModelKind, kvExportsAreTheOnesWithPastInputs) {
 }
 
 TEST(T3ModelFile, wrongPairingsAreRefusedWithAReason) {
-    const auto kv = modelsDir().getChildFile("continuation_model.onnx");
+    const auto kv = modelsDir().getChildFile("rt_continuation_legacy.onnx");
     const auto full = modelsDir().getChildFile("amt_causal_2instrument.onnx");
     if (! kv.existsAsFile() || ! full.existsAsFile())
-        GTEST_SKIP() << "needs continuation_model.onnx and amt_causal_2instrument.onnx";
+        GTEST_SKIP() << "needs rt_continuation_legacy.onnx and amt_causal_2instrument.onnx";
     ModelConfig config;
 
     ReductionTransformerPianoReduction piano(config);
@@ -84,11 +82,11 @@ TEST(T3ModelFile, wrongPairingsAreRefusedWithAReason) {
 }
 
 TEST(WaitModelFiles, w2AndW3LoadOnlyAsWaitModelsAndTheHybridPairLoads) {
-    const auto v1 = modelsDir().getChildFile("continuation_model.onnx");
-    const auto w2 = modelsDir().getChildFile("simultaneous_model_v1.onnx");
-    const auto w3 = modelsDir().getChildFile("simultaneous_model_v2.onnx");
+    const auto v1 = modelsDir().getChildFile("rt_continuation_legacy.onnx");
+    const auto w2 = modelsDir().getChildFile("rt_simultaneous_legacy_w2.onnx");
+    const auto w3 = modelsDir().getChildFile("rt_simultaneous_legacy.onnx");
     if (! v1.existsAsFile() || ! w2.existsAsFile() || ! w3.existsAsFile())
-        GTEST_SKIP() << "needs continuation_model.onnx + simultaneous_model_v1/v2.onnx";
+        GTEST_SKIP() << "needs rt_continuation_legacy.onnx + rt_simultaneous_legacy(_w2).onnx";
     using Variant = TwoInstrumentAnticipatedReductionTransformer::Variant;
     ModelConfig config;
 

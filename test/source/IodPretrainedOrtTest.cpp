@@ -11,7 +11,7 @@ namespace virtual_orch_test {
 namespace {
 
 auto onnxPath() -> juce::File {
-    return modelsDir().getChildFile("instrument_octave_predictions.onnx");
+    return modelsDir().getChildFile("ot_legacy.onnx");
 }
 
 auto makeToken(int32_t onset, int32_t durCs, int32_t pitch) -> Token {

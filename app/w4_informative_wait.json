@@ -5,11 +5,11 @@
     1
   ],
   "defaultPreset": {},
-  "onnx": "simultaneous_model_v3",
+  "onnx": "rt_simultaneous_latest",
   "reductionType": 9,
   "iwMode": "unconstrained",
   "bandLow": 55,
   "bandHigh": 84,
   "precompute": true,
-  "notes": "Informative WAIT = overnight model 2 round 10, p/q variant p = 0.30 / q = 0.03 (ovn_m2_r10_p30_q03, best within 5000 steps: step 4500, eval 0.9020 vs r10 0.9055; KV + StreamingLLM export, vocab 11879, simultaneous_model_v3.onnx). Mode unconstrained. Sampling: min-p 0.25 (duration/pitch/velocity), onset/WAIT/COUNT T 1.0, others T 0.5, top-p 0.98; batched top-5 anticipation precompute. See orchestration/112326_decisions.txt."
+  "notes": "Informative WAIT = overnight model 2 round 10, p/q variant p = 0.30 / q = 0.03 (ovn_m2_r10_p30_q03, best within 5000 steps: step 4500, eval 0.9020 vs r10 0.9055; KV + StreamingLLM export, vocab 11879, rt_simultaneous_latest.onnx). Mode unconstrained. Sampling: min-p 0.25 (duration/pitch/velocity), onset/WAIT/COUNT T 1.0, others T 0.5, top-p 0.98; batched top-5 anticipation precompute. See orchestration/112326_decisions.txt."
 }

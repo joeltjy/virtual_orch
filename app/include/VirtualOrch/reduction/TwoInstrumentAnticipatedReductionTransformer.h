@@ -46,7 +46,7 @@
  *   - Every logit adjustment of the older models can be switched on (pitch / duration / onset-gap
  *     biases with their tau, the short-gap penalty, LogitTD); all start OFF.
  *
- * Variant::Wait = W2/W3 (simultaneous_model_v1 / v2, vocab 11777, WAIT = 11776): WAIT before every
+ * Variant::Wait = W2/W3 (legacy rt_simultaneous_legacy_w2 / rt_simultaneous_legacy, vocab 11777, WAIT = 11776): WAIT before every
  * piano onset group, given notes merged within 5 cs, ascending pitch at a shared onset, the WAIT
  * threshold rule (P(play) >= 0.30 plays) and the live 1 s wait; onset temperature 1.0, the other
  * fields 0.5 (simultaneous_model_sampling.txt).

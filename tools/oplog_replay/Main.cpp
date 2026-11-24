@@ -2,8 +2,8 @@
 // with the real models, every choice forced to the logged one, and write each session's operation
 // log (format: orchestration/performance_streams/oplogs/README.md).
 //
-//   oplog_replay --models DIR --out DIR [--rt-v1 continuation_model.onnx] [--rt-wait simultaneous_model_v2.onnx]
-//                [--ot instrument_octave_predictions.onnx] [--zero] session_*.log[.gz] ...
+//   oplog_replay --models DIR --out DIR [--rt-v1 rt_continuation_legacy.onnx] [--rt-wait rt_simultaneous_legacy.onnx]
+//                [--ot ot_legacy.onnx] [--zero] session_*.log[.gz] ...
 //
 // Resumable: a session whose oplog_<stamp>.jsonl.gz exists is skipped; each file is written to
 // .part and renamed when complete. Progress and a per-session summary go to stdout (unbuffered).
@@ -41,8 +41,8 @@ int main(int argc, char **argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     juce::ScopedJuceInitialiser_GUI juce;
     juce::File models, out;
-    juce::String rtV1 = "continuation_model.onnx", rtWait = "simultaneous_model_v2.onnx",
-                 ot = "instrument_octave_predictions.onnx";
+    juce::String rtV1 = "rt_continuation_legacy.onnx", rtWait = "rt_simultaneous_legacy.onnx",
+                 ot = "ot_legacy.onnx";
     bool zero = false, noOt = false, noRt = false;
     double untilMs = -1.0;
     std::vector<juce::File> logs;

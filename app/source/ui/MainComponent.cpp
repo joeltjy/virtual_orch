@@ -110,6 +110,17 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
         savePresetButton.setEnabled(false);
     };
     presetList.setSelectedId(1, juce::dontSendNotification);
+    // Default preset: version1.1 (Hybrid v1.1 + IodPretrained with ot_robust), loaded once the window exists,
+    // through the same path as picking it in the list.
+    juce::MessageManager::callAsync([safe = juce::Component::SafePointer<MainComponent>(this)] {
+        if (safe == nullptr)
+            return;
+        for (int i = 0; i < safe->presetList.getNumItems(); ++i)
+            if (safe->presetList.getItemText(i) == "version1.1") {
+                safe->presetList.setSelectedId(safe->presetList.getItemId(i), juce::sendNotification);
+                break;
+            }
+    });
 
     /* PRESET BUTTONS */
     addAndMakeVisible(leftPresetButton);
@@ -510,13 +521,12 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     reductionTypeList.addItem("V1 (initial version)", 2);
     reductionTypeList.addItem("V2 (smart sampling)", 3);
     reductionTypeList.addItem("Piano Reduction (2-instrument)", 4);
-    reductionTypeList.addItem("Anticipated Piano Reduction (T3'')", 5);
+    // Types 5 (T3'') and 7 (W2/W3) are retired (2026-11-23; their models are kept as rt_*_legacy for log replay).
     reductionTypeList.addItem("Melody First (T8'' + T7'')", 6);
-    reductionTypeList.addItem("Anticipated Reduction + WAIT (W2/W3)", 7);
-    reductionTypeList.addItem("HybridTransformer (v1 silent / W2-W3 playing)", 8);
+    reductionTypeList.addItem("HybridTransformer (legacy: v1 silent / W3 playing)", 8);
     reductionTypeList.addItem("Informative WAIT (model 2: unconstrained / line A / line B)", 9);
     reductionTypeList.addItem("Hybrid v1.1 (model 1 silent / informative WAIT playing)", 10);
-    reductionTypeList.setSelectedId(2, juce::dontSendNotification);
+    reductionTypeList.setSelectedId(10, juce::dontSendNotification); // Hybrid v1.1
     reductionTypeList.onChange = [this] {
         stop();
         refreshCheckpointList();
@@ -1244,7 +1254,7 @@ auto MainComponent::selectPreferredCheckpointForCurrentReduction() -> bool {
             preferred = "w2_wait_reduction";
             break;
         case 8: // HybridTransformer
-            preferred = "hybrid_v1_w2";
+            preferred = "hybrid_v1_w3";
             break;
         case 9: // Informative WAIT
             preferred = "w4_informative_wait";

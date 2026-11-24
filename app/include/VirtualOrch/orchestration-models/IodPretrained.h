@@ -16,7 +16,7 @@
 #include "VirtualOrch/orchestration-models/IodPretrainedTypes.h"
 #include "VirtualOrch/orchestration-models/OrchestrationModel.h"
 
-/** iod_pretrained / instrument_octave_predictions.onnx orchestration backend. */
+/** iod_pretrained orchestration backend: ot_robust.onnx (robust, expressive-timing; see its .md). */
 class IodPretrained : public OrchestrationModel {
 public:
     IodPretrained();

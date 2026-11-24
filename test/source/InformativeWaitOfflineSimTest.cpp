@@ -129,7 +129,7 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
     if (fixtures.isEmpty() || outRoot.isEmpty())
         GTEST_SKIP() << "set IW_FIXTURES and IW_OUT";
     const auto model = envOr("IW_MODEL", juce::File::getSpecialLocation(juce::File::userHomeDirectory)
-                                             .getChildFile("Documents/virtual_orch_models/simultaneous_model_v3.onnx")
+                                             .getChildFile("Documents/virtual_orch_models/rt_simultaneous_latest.onnx")
                                              .getFullPathName());
     const int32_t endCs = envOr("IW_SECONDS", "15").getIntValue() * 100;
     const bool precompute = envOr("IW_PRECOMPUTE", "1") != "0";

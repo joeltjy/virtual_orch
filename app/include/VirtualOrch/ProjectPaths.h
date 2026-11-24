@@ -10,8 +10,9 @@
 /**
  * The one folder every model weight (.onnx) is read from: Documents/virtual_orch_models.
  * Mirrors /data/scratch-oc40/joel/virtual_orch_models on the cluster (same file names), e.g.
- * continuation_model.onnx (v1 / T3''), simultaneous_model_v1/v2.onnx (W2 / W3),
- * instrument_octave_predictions.onnx (IOD pretrained), vocsep.onnx.
+ * rt_continuation_latest / rt_simultaneous_latest.onnx (Hybrid v1.1, Informative WAIT), ot_robust.onnx
+ * (IodPretrained), vocsep.onnx, and the legacy rt_continuation_legacy, rt_simultaneous_legacy(_w2), ot_legacy
+ * (kept for replaying old sessions). Each has a .md next to it.
  */
 [[nodiscard]] inline auto modelsDir() -> juce::File {
     return juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)

@@ -59,6 +59,9 @@ public:
         if (e.what == "wait") {
             pending = Pending{nowCs, e.atCs + e.a, e.a, e.b, false};
             lastRank = 0;
+        } else if (e.what == "late") {
+            // chord-token model: the window closed and the pianist is late; the new window is close + d
+            pending = Pending{nowCs, e.atCs + e.a, e.a, e.b, false};
         } else if (e.what == "provisional") {
             pending = Pending{nowCs, e.atCs + e.a, e.a, 1, true};
             lastRank = 0;

@@ -1,0 +1,15 @@
+{
+  "arch": "dense",
+  "contextNotes": 40,
+  "outputInstruments": [
+    1
+  ],
+  "defaultPreset": {},
+  "onnx": "rt_simultaneous_chord_latest",
+  "silentOnnx": "rt_continuation_latest",
+  "reductionType": 10,
+  "iwMode": "unconstrained",
+  "precompute": true,
+  "voicingBank": "/Users/Joel/orchestration/overnight/results/voicing_bank_m2c.json",
+  "notes": "Hybrid v1.2: model 1 (rt_continuation_latest.onnx, as v1.1) while the piano is silent; the CHORD-TOKEN model 2 (m2c, run ovn_m2c_r1, vocab 14071; rt_simultaneous_chord_latest.onnx is a PLACEHOLDER until the export) while it plays. Same switching rules as v1.1. Model 2: WAITs only on strong chords ([WAIT d >= 6][K k,+1]); at a fire one CHORD block [CHORD][SDUR][BASS][SVEL] (+ one leftover quad) decoded into notes for the OT with the voicing bank (an absolute path; elsewhere the same file name in virtual_orch_models); a late pianist gets [LATE d] (at most 2), then [EXPIRED] = the chord plays alone; piano durations are [DUR?] until known. Spec: orchestration/docs/model_specs/expressified_simultaneous.txt B3f; tokens: overnight/pkg/wait3.py."
+}

@@ -525,7 +525,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     reductionTypeList.addItem("Melody First (T8'' + T7'')", 6);
     reductionTypeList.addItem("HybridTransformer (legacy: v1 silent / W3 playing)", 8);
     reductionTypeList.addItem("Informative WAIT (model 2: unconstrained / line A / line B)", 9);
-    reductionTypeList.addItem("Hybrid v1.1 (model 1 silent / informative WAIT playing)", 10);
+    reductionTypeList.addItem("Hybrid v1.1 / v1.2 (model 1 silent / informative WAIT or chord-token playing)", 10);
     reductionTypeList.setSelectedId(10, juce::dontSendNotification); // Hybrid v1.1
     reductionTypeList.onChange = [this] {
         stop();
@@ -1413,12 +1413,25 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
                 hy.setPrecompute(static_cast<bool>(parsedJson.getProperty("precompute", true)));
                 hy.setMinWaitCs(static_cast<int32_t>(parsedJson.getProperty("minWaitCs", 0)));
                 hy.setShortWaitRedraw(static_cast<bool>(parsedJson.getProperty("shortWaitRedraw", false)));
+                // v1.2 (chord-token model 2): the voicing bank that decodes CHORD blocks for the OT. An absolute
+                // path, or a file name looked up next to the ONNX exports, then next to the JSON.
+                hy.setVoicingBank(nullptr);
+                const juce::String bankPath = parsedJson.getProperty("voicingBank", {}).toString().trim();
+                if (bankPath.isNotEmpty()) {
+                    juce::File bank = juce::File::isAbsolutePath(bankPath) ? juce::File(bankPath) : modelsDir().getChildFile(bankPath);
+                    if (! bank.existsAsFile() && ! juce::File::isAbsolutePath(bankPath))
+                        bank = checkpoint->jsonFile.getSiblingFile(bankPath);
+                    if (! bank.existsAsFile() && juce::File::isAbsolutePath(bankPath))
+                        bank = modelsDir().getChildFile(juce::File(bankPath).getFileName()); // another machine's path
+                    hy.loadVoicingBank(bank.getFullPathName().toStdString());
+                }
                 if (! silentFile.existsAsFile()
                     || ! hy.init(silentFile.getFullPathName().toRawUTF8(), modelPathStr.toRawUTF8())) {
                     juce::AlertWindow::showMessageBoxAsync(
                         juce::AlertWindow::WarningIcon, "Error",
-                        "Failed to load '" + modelName + "' for Hybrid v1.1: it needs model 1's export ('" + silentStem
-                            + "', vocab 11768) and the informative-WAIT export (vocab 11879) in virtual_orch_models. "
+                        "Failed to load '" + modelName + "' for Hybrid v1.1 / v1.2: it needs model 1's export ('" + silentStem
+                            + "', vocab 11768) and model 2's export (informative WAIT 11879, or chord-token 14071 for v1.2) in "
+                              "virtual_orch_models. "
                             + juce::String(hy.lastInitError));
                     checkpointList.setSelectedId(0, juce::dontSendNotification);
                     return;

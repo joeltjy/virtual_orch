@@ -618,6 +618,8 @@ private:
     auto expiredToken() const -> int32_t { return chordMode() ? kChordExpired : kExpired; }
     /** CHORD ids whose type has k pitch classes, as pick ranges. */
     static auto chordRanges(int32_t k) -> std::vector<std::pair<int32_t, int32_t>>;
+    /** BASS ids in [lo, hi] whose pitch class is a tone of `chordTok`'s chord (all of [lo, hi] if none is). */
+    static auto bassRanges(int32_t chordTok, int32_t lo, int32_t hi) -> std::vector<std::pair<int32_t, int32_t>>;
     /** The block tokens on top of `desired` (CHORD masked to k, SDUR, BASS, SVEL); empty on a model failure. */
     auto decodeBlock(std::vector<int32_t> desired, int32_t k, int32_t onsetCs, int32_t firstChord = -1,
                      std::vector<std::pair<int32_t, int32_t>> chordMask = {}) -> std::vector<int32_t>;

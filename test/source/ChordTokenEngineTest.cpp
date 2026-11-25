@@ -6,6 +6,7 @@
 #include <memory>
 #include <set>
 
+#include <VirtualOrch/reduction/ChordTheory.h>
 #include <VirtualOrch/reduction/DenseTypes.h>
 #include <VirtualOrch/reduction/HybridInformativeWaitReductionTransformer.h>
 #include <VirtualOrch/reduction/InformativeWaitEngine.h>
@@ -702,4 +703,81 @@ TEST(ChordTokenEngine, PrecomputedChordBlocksAreBiasedByCommittedNotes) {
             EXPECT_EQ(toks[at + 6], Engine::kOrch0 + kBass);
         }
     }
+}
+
+// BASS is masked to the CHORD's tones (training: the bass is the lowest band note, always a chord tone). The script
+// prefers BASS C3 (48); with an E minor or G major CHORD that is not allowed, so the bass must move to a chord tone.
+TEST(ChordTokenEngine, ADecodedBlocksBassIsAlwaysAChordTone) {
+    const auto bassOf = [](const std::vector<int32_t> &toks, int32_t chordAt) {
+        EXPECT_GE(toks[static_cast<size_t>(chordAt)], Engine::kChord0);
+        const auto cv = Engine::chordValue(toks[static_cast<size_t>(chordAt)]);
+        const int32_t bass = toks[static_cast<size_t>(chordAt + 2)] - Engine::kOrch0;
+        const auto tones = ChordTheory::chordMask(cv.type, cv.root);
+        EXPECT_TRUE((tones >> (bass % 12)) & 1u) << "bass " << bass << " under type " << cv.type << " root " << cv.root;
+        return bass;
+    };
+    const int32_t eMinor = Engine::chordToken(8, 4, 3);
+    for (int seed = 0; seed < 4; ++seed) {
+        // a precomputed candidate (E minor, matched by the piano's E)
+        {
+            ChordRig rig;
+            rig.model.chordTok = eMinor;
+            auto s = rig.engine.settings();
+            s.seed = static_cast<uint64_t>(seed);
+            rig.engine.setSettings(s);
+            rig.engine.reset(0);
+            rig.engine.noteOn(0, 60, 80);
+            rig.run(0, 22);
+            ASSERT_TRUE(rig.engine.precomputeComplete());
+            rig.engine.noteOn(30, 64, 80);
+            rig.run(30, 30);
+            EXPECT_EQ(rig.engine.stats().chordMatched, 1);
+            bassOf(rig.engine.tokens(), 10);
+            EXPECT_GE(rig.played.size(), 2u); // a voicing, never the bass alone
+        }
+        // the live decode of an inferred chord (piano B: G major, V of C major)
+        {
+            ChordRig rig(false);
+            auto s = rig.engine.settings();
+            s.seed = static_cast<uint64_t>(seed);
+            rig.engine.setSettings(s);
+            rig.engine.reset(0);
+            rig.engine.noteOn(0, 60, 80);
+            rig.run(0, 20);
+            rig.engine.noteOn(28, 71, 80);
+            rig.run(28, 28);
+            EXPECT_EQ(rig.engine.stats().inferSteps[1], 1);
+            const auto toks = rig.engine.tokens();
+            EXPECT_EQ(Engine::chordValue(toks[10]).type, kMaj);
+            EXPECT_EQ(Engine::chordValue(toks[10]).root, 7);
+            bassOf(toks, 10);
+            EXPECT_GE(rig.played.size(), 2u);
+        }
+        // a give-up ([EXPIRED], then the model's E minor CHORD)
+        {
+            ChordRig rig;
+            rig.model.chordTok = eMinor;
+            rig.model.expiredAfterWait = 30.0f;
+            auto s = rig.engine.settings();
+            s.seed = static_cast<uint64_t>(seed);
+            rig.engine.setSettings(s);
+            rig.engine.reset(0);
+            rig.engine.noteOn(0, 60, 80);
+            rig.run(0, 38);
+            EXPECT_EQ(rig.engine.stats().giveUps, 1);
+            bassOf(rig.engine.tokens(), 7);
+            EXPECT_GE(rig.played.size(), 2u);
+        }
+    }
+}
+
+TEST(ChordTokenEngine, VoicingFallbackStacksNNotesOnAnUnknownBassPosition) {
+    const auto bank = testBank(); // only maj|3|0
+    std::mt19937_64 rng(4);
+    // C major over E (bass_iv 4): no maj|3|4 and no other n there -> the chord tones stacked from the bass
+    auto d = bank->decode(kMaj, 0, 3, 52, rng);
+    EXPECT_EQ(d.source, VoicingBank::Decoded::Source::Stacked);
+    EXPECT_EQ(d.pitches, (std::vector<int32_t>{52, 55, 60}));
+    d = bank->decode(kMaj, 0, 5, 55, rng); // over G, 5 notes
+    EXPECT_EQ(d.pitches, (std::vector<int32_t>{55, 60, 64, 67, 72}));
 }

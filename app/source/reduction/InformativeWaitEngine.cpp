@@ -1202,6 +1202,19 @@ auto InformativeWaitEngine::chordRanges(int32_t k) -> std::vector<std::pair<int3
     return r;
 }
 
+auto InformativeWaitEngine::bassRanges(int32_t chordTok, int32_t lo, int32_t hi) -> std::vector<std::pair<int32_t, int32_t>> {
+    // training: BASS is the lowest band note, so its pitch class is always a chord tone
+    const auto cv = chordValue(chordTok);
+    const auto mask = ChordTheory::chordMask(cv.type, cv.root);
+    std::vector<std::pair<int32_t, int32_t>> r;
+    for (int32_t p = lo; p <= hi; ++p)
+        if ((mask >> (((p % 12) + 12) % 12)) & 1u)
+            r.push_back({kOrch0 + p, kOrch0 + p + 1});
+    if (r.empty())
+        r.push_back({kOrch0 + lo, kOrch0 + hi + 1}); // no chord tone in the register: any pitch rather than none
+    return r;
+}
+
 auto InformativeWaitEngine::decodeBlock(std::vector<int32_t> desired, int32_t k, int32_t onsetCs, int32_t firstChord,
                                        std::vector<std::pair<int32_t, int32_t>> chordMask) -> std::vector<int32_t> {
     std::vector<int32_t> block;
@@ -1237,7 +1250,7 @@ auto InformativeWaitEngine::decodeBlock(std::vector<int32_t> desired, int32_t k,
     clampToRegister(lo, hi);
     lo = std::min(lo, hi);
     if ((firstChord < 0 && ! next(chordMask.empty() ? chordRanges(k) : chordMask, 1)) || ! next({{kDur0 + cfg.minDurationCs, kDur0 + cfg.maxDurationCs + 1}}, 5, 1)
-        || ! next({{kOrch0 + lo, kOrch0 + hi + 1}}, 1, 2) || ! next({{kVel0 + 8, kVel0 + 121}}, 8))
+        || ! next(bassRanges(block.front(), lo, hi), 1, 2) || ! next({{kVel0 + 8, kVel0 + 121}}, 8))
         return {};
     return block;
 }
@@ -1783,7 +1796,9 @@ auto InformativeWaitEngine::precomputeStep() -> void {
                 int32_t hi = kPianoHigh;
                 clampToRegister(lo, hi);
                 lo = std::min(lo, hi);
-                tok = pick(lg, {{kOrch0 + lo, kOrch0 + hi + 1}}, cfg.otherTemperature, cfg.minP);
+                // BASS: the chord's tones only; the leftover's pitch (r 5): any
+                tok = pick(lg, r == 2 ? bassRanges(br.block.front(), lo, hi) : std::vector<std::pair<int32_t, int32_t>>{{kOrch0 + lo, kOrch0 + hi + 1}},
+                           cfg.otherTemperature, cfg.minP);
             } else {
                 tok = pick(lg, {{kVel0 + 8, kVel0 + 121}}, cfg.otherTemperature, cfg.minP, 8);
             }

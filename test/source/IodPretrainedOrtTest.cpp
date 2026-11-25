@@ -183,4 +183,20 @@ TEST(IodPretrainedOrt, TheSplitExportGivesTheFullModelsLogits) {
     dir.deleteRecursively();
 }
 
+void runEnsembleChecks(const std::string &path); // IodPretrainedSmokeTest.cpp
+
+TEST(IodPretrainedOrt, TheSplitExportOrchestratesNotes) {
+    // Nov 24 2026: getOutput returned nothing when only the split export was loaded (it checked the full
+    // model's session), so the app played no orchestra. The same checks as the smoke test, on ot_robust.
+    const auto full = modelsDir().getChildFile("ot_robust.onnx");
+    if (! full.existsAsFile() || ! modelsDir().getChildFile("ot_robust_dec.onnx").existsAsFile())
+        GTEST_SKIP() << "no ot_robust split export";
+    IodPretrained probe;
+    probe.init(full.getFullPathName().toRawUTF8());
+    if (! probe.isModelLoaded())
+        GTEST_SKIP() << "ORT session failed";
+    ASSERT_TRUE(probe.usesSplitModel());
+    runEnsembleChecks(full.getFullPathName().toStdString());
+}
+
 } // namespace virtual_orch_test

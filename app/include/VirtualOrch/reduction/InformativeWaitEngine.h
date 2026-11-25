@@ -60,10 +60,15 @@
  *   duration slot), [CHORD] 11911 + (type*12 + root)*10 + (n-1) (VoicingBank::kTypeNames order, n 1..10).
  *   - [WAIT d][K] right after the previous orchestra onset; WAITs under 6 cs are masked (training floor; 12 cs when
  *     plus = 1, so K's plus tokens are masked after a WAIT under 12 cs).
- *   - Fire: [first piano quad of T (DUR?)][CHORD][SDUR 10000+q][BASS 11128+p][SVEL 11640+v][leftover quad at T if
- *     plus][other piano quads of T]. The CHORD logits are masked to the chord types with k pitch classes. The
- *     context keeps these tokens; the OT gets the block decoded into notes (VoicingBank, duration q, velocity v).
- *     The precompute branches decode CHORD/SDUR/BASS/SVEL (+ the leftover's duration/pitch/velocity).
+ *   - Fire (B3f CHORD BRANCHES): [all piano quads of T, each DUR?][CHORD][SDUR 10000+q][BASS 11128+p][SVEL 11640+v]
+ *     [leftover quad at T if plus]. The block follows the piano notes that came in with the target (the input's
+ *     own grouping; no extra wait). The precompute's branches are chord candidates: the top-5 piano pitches each
+ *     give p(CHORD | pitch); chord type + root are scored by sum p(pitch) p(chord | pitch), and the top 5 have
+ *     their full block decoded after their largest contributor. At the fire a candidate matches if the piano
+ *     pitch classes plus its own form a triad, a seventh or fewer than 3 pitch classes (several: the best score);
+ *     its block is written as is. Otherwise CHORD's type and root are inferred (ChordTheory::infer), the model
+ *     picks n, and SDUR / BASS / SVEL (+ leftover) are decoded live. The context keeps the tokens; the OT gets
+ *     the block decoded into notes (VoicingBank, duration q, velocity v).
  *   - Window close (a WAIT's, any d, or a LATE's): the model draws [LATE d] or [EXPIRED] (LATE masked to the values
  *     whose window has not passed; window [close + d - 6, close + d + 6], from the close on; no LATE after
  *     maxLates of them). A piano onset already known to be past the close forces LATE d = its true delay.
@@ -314,6 +319,8 @@ public:
         int expiredChosen = 0; // [EXPIRED] drawn by the model at a close where a LATE was still allowed
         int chordBlocks = 0; // CHORD blocks written (fires and give-ups)
         int voicingFallbacks = 0; // blocks decoded without an exact bank key
+        int chordMatched = 0;     // fires served by a precomputed chord candidate (MATCH RULE)
+        std::array<int, 5> inferSteps{}; // fires whose CHORD was inferred from the piano notes, by INFERENCE RULE step 1-4
     };
 
     /**
@@ -472,13 +479,17 @@ private:
         int32_t headCs = 0;
         std::vector<PianoNote> notes; // arrival order
         bool fired = false;           // the head fired a WAIT (rest of the chord goes after the stack)
+        bool firePending = false;     // chord mode: fired; the block follows once the onset's notes are all in
+        size_t written = 0;           // notes already written by the fire (the rest go in at the group's close)
     };
     struct Branch {
         int32_t pitch = 0;
         int32_t velocity = 0;
         std::vector<std::array<int32_t, 3>> notes; // (duration, pitch, velocity) of the orchestra notes
-        // chord mode: the block's tokens (CHORD, SDUR, BASS, SVEL) drawn so far; the leftover goes in `notes`
+        // chord mode: a chord candidate. The block's tokens (CHORD, SDUR, BASS, SVEL) drawn so far; the leftover
+        // goes in `notes`. `pitch` = the anticipated piano pitch it is decoded after (its largest contributor).
         std::vector<int32_t> block;
+        double score = 0; // sum over the top-5 pitches of p(pitch) p(chord type + root | pitch)
     };
     struct Precompute {
         int32_t targetCs = 0;
@@ -488,7 +499,7 @@ private:
         int32_t durationCs = 0;
         std::vector<float> pianoProbs; // 88 keys, p(A0..C8)
         std::vector<Branch> branches;
-        StreamingKv::State state; // batch 1: context + T + D (phase 0)
+        StreamingKv::State state; // batch 1: context + T + D (phase 0; chord mode keeps it to tile it again)
         StreamingKv::BatchState kv;
         std::vector<float> logits; // batch x vocab of the last batched call
         bool complete = false;
@@ -585,17 +596,23 @@ private:
         int32_t k = 1;
         bool noPiano = false; // a give-up: the notes play at the step's now (the context's onset is the close)
         int32_t firstChord = -1; // a give-up: the CHORD token already drawn after [EXPIRED]
+        int32_t inferType = -1;  // no candidate matched: CHORD masked to this type and root (the model picks n)
+        int32_t inferRoot = 0;
     };
     auto chordMode() const -> bool { return cfg.chordTokens; }
     auto expiredToken() const -> int32_t { return chordMode() ? kChordExpired : kExpired; }
     /** CHORD ids whose type has k pitch classes, as pick ranges. */
     static auto chordRanges(int32_t k) -> std::vector<std::pair<int32_t, int32_t>>;
     /** The block tokens on top of `desired` (CHORD masked to k, SDUR, BASS, SVEL); empty on a model failure. */
-    auto decodeBlock(std::vector<int32_t> desired, int32_t k, int32_t firstChord = -1) -> std::vector<int32_t>;
+    auto decodeBlock(std::vector<int32_t> desired, int32_t k, int32_t firstChord = -1,
+                     std::vector<std::pair<int32_t, int32_t>> chordMask = {}) -> std::vector<int32_t>;
+    /** Pitch-class weights of the piano + orchestra notes of the last ~8 s before `atCs`, by duration (the key). */
+    auto keyWeights(int32_t atCs) const -> std::array<double, 12>;
     /** Append a block item and return its notes for the OT (at `playCs`), capped by maxFireNotes - `already`. */
     auto writeBlock(const std::vector<int32_t> &block, int32_t onsetCs, int32_t playCs, int32_t already, bool precomputed)
         -> std::vector<OutNote>;
-    auto fireChord(const PianoNote &head) -> std::vector<OutNote>;
+    /** Chord mode: the open group fired; all its piano notes, then a matching candidate's block or an inferred one. */
+    auto fireChord() -> std::vector<OutNote>;
     /** The next part of a chord-mode fireLeft (the block, then the leftover). */
     auto fireChordStep() -> std::vector<OutNote>;
     /** Chord mode, a window closed: [LATE] or [EXPIRED], then a re-wait or a give-up. `arrivalCs`: a piano onset known past it. */

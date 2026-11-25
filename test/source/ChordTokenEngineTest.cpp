@@ -15,7 +15,7 @@
 /**
  * Hybrid v1.2: the chord-token model 2 (m2c, vocab 14071; orchestration/overnight/pkg/wait3.py, spec B3f) in
  * InformativeWaitEngine's chordTokens mode, against a scripted backend: [WAIT d][K k,+1], the CHORD block at a fire
- * (precomputed or decoded), the leftover quad, [LATE d] or [EXPIRED] at a close, then a re-wait or a give-up, the 6 / 12 cs floors and the
+ * (a matching chord candidate, or inferred from the piano notes), the leftover quad, [LATE d] or [EXPIRED] at a close, then a re-wait or a give-up, the 6 / 12 cs floors and the
  * [DUR?] rule; and the voicing bank.
  */
 namespace {
@@ -59,6 +59,8 @@ public:
                 set(Engine::waitToken(waitD), 20.0f);
             set(onsetRel, 15.0f);
             set(chordTok, 20.0f);
+            if (chordTok2 >= 0)
+                set(chordTok2, chordLogit2);
             set(Engine::lateToken(lateD), 20.0f);
             set(Engine::kChordExpired, late ? expiredAfterLate : expiredAfterWait);
         } else if (t >= Engine::kWait0 && t < Engine::kK0) {
@@ -121,6 +123,8 @@ public:
     int32_t k = 3;
     bool plus = false;
     int32_t chordTok = kCMajor3;
+    int32_t chordTok2 = -1; // a second chord candidate, with this logit
+    float chordLogit2 = 0.0f;
     int32_t lateD = 12;
     float expiredAfterWait = 0.0f; // the [EXPIRED] logit at a WAIT's close (LATE d has 20)
     float expiredAfterLate = 0.0f; // ... at a LATE's close
@@ -273,7 +277,8 @@ TEST(ChordTokenEngine, FireServedFromThePrecomputedChordBlock) {
     rig.engine.noteOn(0, 60, 80);
     rig.run(0, 6); // the group closes at 5; [WAIT 30][K 3]
     ASSERT_TRUE(rig.engine.hasPendingWait());
-    rig.run(7, 22); // 1 anticipation call + 4 batched (CHORD, SDUR, BASS, SVEL)
+    rig.run(7, 22); // 1 anticipation call + 4 batched (-> CHORD | pitch; re-tiled
+                    // [pitch, vel, CHORD] -> SDUR; -> BASS; -> SVEL)
     ASSERT_TRUE(rig.engine.precomputeComplete());
     EXPECT_EQ(rig.model.batchedCalls, 4);
     EXPECT_TRUE(rig.played.empty()); // silent while the WAIT is pending
@@ -288,6 +293,7 @@ TEST(ChordTokenEngine, FireServedFromThePrecomputedChordBlock) {
         EXPECT_TRUE(n.precomputed);
     }
     EXPECT_EQ(rig.engine.stats().precomputeHits, 1);
+    EXPECT_EQ(rig.engine.stats().chordMatched, 1);
     EXPECT_EQ(rig.engine.stats().chordBlocks, 1);
     // context: piano quad, WAIT, K, target piano quad ([DUR?]), the 4 block tokens (not the 3 notes)
     const auto toks = rig.engine.tokens();
@@ -304,7 +310,9 @@ TEST(ChordTokenEngine, FireDecodedOnTheSpotWithoutPrecompute) {
     rig.engine.noteOn(0, 60, 80);
     rig.run(0, 20);
     ASSERT_TRUE(rig.engine.hasPendingWait());
-    rig.engine.noteOn(28, 64, 80); // no branches: the block is decoded (4 calls) in the fire's own step
+    // no finished precompute = no match: CHORD inferred from the piano (E, k = 3, in C major: C major, step 1);
+    // n from the model, then SDUR / BASS / SVEL, all in the fire's own step
+    rig.engine.noteOn(28, 64, 80);
     const auto out = rig.engine.step(28);
     EXPECT_EQ(pitchesOf(out), (std::vector<int32_t>{48, 52, 55}));
     for (const auto &n: out) {
@@ -312,7 +320,79 @@ TEST(ChordTokenEngine, FireDecodedOnTheSpotWithoutPrecompute) {
         EXPECT_FALSE(n.precomputed);
     }
     EXPECT_EQ(rig.engine.stats().fireDecoded, 1);
+    EXPECT_EQ(rig.engine.stats().chordMatched, 0);
+    EXPECT_EQ(rig.engine.stats().inferSteps[1], 1);
     expectBlockAfterPianoQuad(rig.engine.tokens(), 6, 64);
+}
+
+TEST(ChordTokenEngine, AllPianoNotesOfTheOnsetComeBeforeTheBlock) {
+    ChordRig rig;
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 22);
+    ASSERT_TRUE(rig.engine.precomputeComplete());
+    rig.engine.noteOn(30, 64, 80); // the chord's notes come in together
+    rig.engine.noteOn(30, 60, 80);
+    const auto out = rig.engine.step(30);
+    EXPECT_EQ(pitchesOf(out), (std::vector<int32_t>{48, 52, 55})); // C E with the C major candidate: matches
+    EXPECT_EQ(rig.engine.stats().chordMatched, 1);
+    const auto toks = rig.engine.tokens();
+    ASSERT_EQ(toks.size(), 4u + 2u + 8u + 4u);
+    EXPECT_EQ(toks[6], 30);
+    EXPECT_EQ(toks[7], Engine::kDurUnknown);
+    EXPECT_EQ(toks[8], Engine::kPiano0 + 60);
+    EXPECT_EQ(toks[10], 30);
+    EXPECT_EQ(toks[11], Engine::kDurUnknown); // every piano quad of T is [DUR?]
+    EXPECT_EQ(toks[12], Engine::kPiano0 + 64);
+    EXPECT_EQ(toks[14], kCMajor3);
+    // a release now does not rewrite them (the block follows)
+    rig.engine.noteOff(30, 64, 10);
+    rig.run(31, 33);
+    EXPECT_EQ(rig.engine.tokens()[11], Engine::kDurUnknown);
+}
+
+TEST(ChordTokenEngine, MatchRuleTakesTheBestScoringCandidateThatFits) {
+    ChordRig rig;
+    rig.model.chordTok2 = Engine::chordToken(kMaj, 7, 3); // G major, a little less likely than C major
+    rig.model.chordLogit2 = 19.5f;
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 22);
+    ASSERT_TRUE(rig.engine.precomputeComplete());
+    rig.engine.noteOn(30, 62, 80); // D F#: with C major C D E F# G (no), with G major G B D F# = Gmaj7 (yes)
+    rig.engine.noteOn(30, 66, 80);
+    rig.run(30, 30);
+    EXPECT_EQ(rig.engine.stats().chordMatched, 1);
+    EXPECT_EQ(rig.engine.tokens()[14], Engine::chordToken(kMaj, 7, 3));
+    // with G instead, both fit and C major has the higher score
+    ChordRig rig2;
+    rig2.model.chordTok2 = Engine::chordToken(kMaj, 7, 3);
+    rig2.model.chordLogit2 = 19.5f;
+    rig2.engine.noteOn(0, 60, 80);
+    rig2.run(0, 22);
+    rig2.engine.noteOn(30, 67, 80); // G: in both
+    rig2.run(30, 30);
+    EXPECT_EQ(rig2.engine.tokens()[10], kCMajor3);
+}
+
+TEST(ChordTokenEngine, NoMatchInfersTheChordFromThePianoNotes) {
+    ChordRig rig;
+    rig.engine.noteOn(0, 70, 80); // Bb: the key around it
+    rig.run(0, 22);
+    ASSERT_TRUE(rig.engine.precomputeComplete());
+    // C Eb F with K 3: no triad holds them, so no candidate can match; inferred F7 (step 2, a seventh accepted for k 3)
+    rig.engine.noteOn(30, 60, 80);
+    rig.engine.noteOn(30, 63, 80);
+    rig.engine.noteOn(30, 65, 80);
+    rig.run(30, 31);
+    EXPECT_EQ(rig.engine.stats().chordMatched, 0);
+    EXPECT_EQ(rig.engine.stats().inferSteps[2], 1);
+    const auto toks = rig.engine.tokens();
+    ASSERT_GE(toks.size(), 4u + 2u + 12u + 4u);
+    const auto cv = Engine::chordValue(toks[18]); // after the three piano quads
+    EXPECT_EQ(cv.type, 11);
+    EXPECT_EQ(cv.root, 5);
+    EXPECT_EQ(toks[19], Engine::kDur0 + 80); // then SDUR / BASS / SVEL from the model
+    EXPECT_EQ(toks[20], Engine::kOrch0 + kBass);
+    EXPECT_FALSE(rig.played.empty());
 }
 
 TEST(ChordTokenEngine, PlusOneWritesTheLeftoverQuadAtTheTargetOnset) {
@@ -345,7 +425,7 @@ TEST(ChordTokenEngine, ALatePianistGetsALateTokenAndStillFires) {
     ASSERT_TRUE(rig.engine.hasPendingWait());
     EXPECT_TRUE(rig.played.empty()); // the orchestra holds
     rig.run(38, 44);                 // the precompute starts again after the LATE
-    rig.engine.noteOn(45, 62, 80);
+    rig.engine.noteOn(45, 64, 80);
     rig.run(45, 46);
     EXPECT_EQ(rig.engine.stats().fires, 1);
     EXPECT_EQ(pitchesOf(rig.played), (std::vector<int32_t>{48, 52, 55}));
@@ -354,7 +434,7 @@ TEST(ChordTokenEngine, ALatePianistGetsALateTokenAndStillFires) {
     EXPECT_EQ(toks[4], Engine::waitToken(30));
     EXPECT_EQ(toks[6], Engine::lateToken(12));
     EXPECT_EQ(toks[7], 45);
-    expectBlockAfterPianoQuad(toks, 7, 62);
+    expectBlockAfterPianoQuad(toks, 7, 64);
 }
 
 TEST(ChordTokenEngine, AfterTwoLatesExpiredIsForcedAndACHORDGivesUp) {

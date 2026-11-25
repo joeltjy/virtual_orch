@@ -1296,6 +1296,12 @@ auto InformativeWaitEngine::decodeBlock(std::vector<int32_t> desired, int32_t k,
                 applyPitchBias(biased, history, onsetCs, pitchScheduler);
             l = &biased;
         }
+        if (bias == 1 && cfg.tdDurationTaper && cfg.tdLevel > 1) { // SDUR / the leftover's duration, as drawBody
+            if (l != &biased)
+                biased = *l;
+            applyTdDurationTaper(biased);
+            l = &biased;
+        }
         const int32_t t = pick(*l, ranges, cfg.otherTemperature, cfg.minP, step);
         if (t < 0)
             return false;
@@ -1850,6 +1856,8 @@ auto InformativeWaitEngine::precomputeStep() -> void {
                 auto scheduler = pitchScheduler;
                 applyPitchBias(lg, history, pc.targetCs, scheduler);
             }
+            if (r == 1 || r == 4)
+                applyTdDurationTaper(lg); // chord branches: SDUR / the leftover's duration (no-op unless tapering)
             int32_t tok = -1;
             if (r == 1 || r == 4) {
                 tok = pick(lg, {{kDur0 + cfg.minDurationCs, kDur0 + cfg.maxDurationCs + 1}}, cfg.otherTemperature, cfg.minP, 5);

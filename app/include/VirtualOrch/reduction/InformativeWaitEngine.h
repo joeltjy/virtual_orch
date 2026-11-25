@@ -17,7 +17,6 @@
 #include "VirtualOrch/OpLogDraw.h"
 #include "VirtualOrch/reduction/DensePitchBias.h"
 #include "VirtualOrch/reduction/StreamingKvCache.h"
-#include "VirtualOrch/reduction/VoicingBank.h"
 
 /**
  * Informative WAIT (overnight model 2, 2026-11-23; vocab 11879). Token ids:
@@ -52,31 +51,6 @@
  * once (no decode on the critical path); otherwise they are decoded then (k x 3 calls).
  *
  * Times are absolute app centiseconds. No JUCE: the transformer wraps it (and tests drive it).
- *
- * CHORD-TOKEN MODE (Settings::chordTokens; model "m2c", vocab 14071, Hybrid v1.2; spec B3f, token layout =
- * orchestration/overnight/pkg/wait3.py):
- *   [WAIT d] 11768 + d/3 - 1 (d 3..300), [K k,+1] 11868 + (k-1)*2 + plus (k = pitch classes 1..4, plus = one
- *   leftover quad follows), [EXPIRED] 11876, [LATE d] 11877 + d/3 - 1 (d 3..99), [DUR?] 11910 (a piano quad's
- *   duration slot), [CHORD] 11911 + (type*12 + root)*10 + (n-1) (VoicingBank::kTypeNames order, n 1..10).
- *   - [WAIT d][K] right after the previous orchestra onset; WAITs under 6 cs are masked (training floor; 12 cs when
- *     plus = 1, so K's plus tokens are masked after a WAIT under 12 cs).
- *   - Fire (B3f CHORD BRANCHES): [all piano quads of T, each DUR?][CHORD][SDUR 10000+q][BASS 11128+p][SVEL 11640+v]
- *     [leftover quad at T if plus]. The block follows the piano notes that came in with the target (the input's
- *     own grouping; no extra wait). The precompute's branches are chord candidates: the top-5 piano pitches each
- *     give p(CHORD | pitch); chord type + root are scored by sum p(pitch) p(chord | pitch), and the top 5 have
- *     their full block decoded after their largest contributor. At the fire a candidate matches if the piano
- *     pitch classes plus its own form a triad, a seventh or fewer than 3 pitch classes (several: the best score);
- *     its block is written as is. Otherwise CHORD's type and root are inferred (ChordTheory::infer), the model
- *     picks n, and SDUR / BASS / SVEL (+ leftover) are decoded live. The context keeps the tokens; the OT gets
- *     the block decoded into notes (VoicingBank, duration q, velocity v).
- *   - Window close (a WAIT's, any d, or a LATE's): the model draws [LATE d] or [EXPIRED] (LATE masked to the values
- *     whose window has not passed; window [close + d - 6, close + d + 6], from the close on; no LATE after
- *     maxLates of them). A piano onset already known to be past the close forces LATE d = its true delay.
- *     After [EXPIRED] the model draws a WAIT (a re-wait: the next draw is a WAIT with the same K) or a CHORD masked
- *     to k (give up: the rest of the block (+ leftover) is decoded at once and plays now with no piano).
- *   - Piano quads are written with [DUR?] at key-down; the release writes the real duration only while no
- *     model-written unit (orchestra quad, WAIT/K, chord block, LATE) follows the quad.
- *   - After a piano onset the orchestra may share it (no 5 cs block, B3f 1g).
  */
 class InformativeWaitEngine {
 public:
@@ -90,46 +64,14 @@ public:
     static constexpr int32_t kExpired = 11878;
     static constexpr int32_t kVocab = 11879;
     static constexpr int32_t kGrid = 3;
+    /** An open-ended WAIT's hi(): never reached (and safe to add a grace to). */
+    static constexpr int32_t kNeverCs = 1 << 29;
     // The default fire window around a WAIT's predicted onset (Settings::fireWindowCs): +-kEps.
     static constexpr int32_t kEps = 6;
     static constexpr int32_t kMaxWait = 300;
     static constexpr int32_t kMaxCount = 10;
     static constexpr int32_t kMergeCs = 5;
     static constexpr int kBranches = 5;
-
-    // chord-token model (m2c, wait3.py)
-    static constexpr int32_t kK0 = 11868;
-    static constexpr int32_t kChordExpired = 11876;
-    static constexpr int32_t kLate0 = 11877;
-    static constexpr int32_t kLateMax = 99;
-    static constexpr int32_t kDurUnknown = 11910;
-    static constexpr int32_t kChord0 = 11911;
-    static constexpr int32_t kChordTypes = 18;
-    static constexpr int32_t kChordVocab = kChord0 + kChordTypes * 12 * 10; // 14071
-    static constexpr int32_t kWaitFloor = 6;      // cs, training floor without the leftover
-    static constexpr int32_t kWaitFloorPlus = 12; // ... and with it
-    static constexpr auto kToken(int32_t k, bool plus) -> int32_t {
-        return kK0 + ((k < 1 ? 1 : (k > 4 ? 4 : k)) - 1) * 2 + (plus ? 1 : 0);
-    }
-    static constexpr auto kOf(int32_t token) -> int32_t { return (token - kK0) / 2 + 1; }
-    static constexpr auto plusOf(int32_t token) -> bool { return ((token - kK0) % 2) == 1; }
-    static constexpr auto lateToken(int32_t d) -> int32_t {
-        const int32_t q = ((d + kGrid / 2) / kGrid) * kGrid;
-        return kLate0 + (q < kGrid ? kGrid : (q > kLateMax ? kLateMax : q)) / kGrid - 1;
-    }
-    static constexpr auto lateValue(int32_t token) -> int32_t { return (token - kLate0 + 1) * kGrid; }
-    static constexpr auto chordToken(int32_t type, int32_t root, int32_t n) -> int32_t {
-        return kChord0 + (type * 12 + root) * 10 + (n < 1 ? 1 : (n > 10 ? 10 : n)) - 1;
-    }
-    struct ChordValue {
-        int32_t type = 0;
-        int32_t root = 0; // pitch class of the root
-        int32_t n = 1;
-    };
-    static constexpr auto chordValue(int32_t token) -> ChordValue {
-        const int32_t i = token - kChord0;
-        return {i / 10 / 12, (i / 10) % 12, i % 10 + 1};
-    }
 
     static constexpr auto waitToken(int32_t d) -> int32_t { return kWait0 + quantizeWait(d) / kGrid - 1; }
     static constexpr auto waitValue(int32_t token) -> int32_t { return (token - kWait0 + 1) * kGrid; }
@@ -169,11 +111,6 @@ public:
          * 0 = the model's full range.
          */
         int32_t minWaitCs = 0;
-        /**
-         * No orchestra and no WAIT drawn for the first startDelayCs after reset() (the piano still goes into the
-         * context): the model has never seen a context without orchestra (Hybrid v1.2 preset "startDelayMs").
-         */
-        int32_t startDelayCs = 0;
         /** A WAIT under minWaitCs: false = the orchestra note at the WAIT's predicted onset, true = an onset redrawn. */
         bool shortWaitRedraw = false;
         /**
@@ -188,12 +125,26 @@ public:
          * at once (it shows the window closed empty).
          */
         int32_t expiryGraceCs = 0;
+        /**
+         * One-sided window: a model WAIT never expires; it waits for the pianist. A piano onset at or after
+         * the earliest window's start (t - fireWindowCs over the top-K lengths) fires: within a length's
+         * window as before, later (or between two windows) with the WAIT rewritten to the time that passed
+         * (capped at 300 cs, the longest WAIT token). Line modes' provisional WAITs are unchanged. Nov 24 2026.
+         */
+        bool openEndedWait = false;
         float otherTemperature = 0.5f; // duration / pitch / velocity
         float minP = 0.25f;            // duration / pitch / velocity (0 = off)
         float topP = 0.98f;
         bool precompute = true;
         /** A fired WAIT whose piano pitch is not in the anticipated top 5 plays the rank-1 branch's notes. */
         bool outsideTopFiveAsRankOne = true;
+        /**
+         * The 5 branches are the 5 likeliest pitch classes (each at its likeliest octave), and a fire takes the
+         * branch of the played note's pitch class in any octave (an exact pitch first). Off: the 5 likeliest
+         * pitches, matched exactly. The branch's notes were drawn after its own octave; the context gets the
+         * pitch played. Nov 24 2026.
+         */
+        bool pitchClassBranches = false;
         /** At most this many notes per fired WAIT, whatever its COUNT (0 = COUNT notes): the polyphony cap. */
         int32_t maxFireNotes = 0;
         /** A drawn orchestra onset is at most this far after now. */
@@ -240,14 +191,6 @@ public:
          * onset (the T3'' / v1 rules of sample_overnight.generate for m1). Unconstrained mode only.
          */
         bool continuation = false;
-        /**
-         * The chord-token model 2 (m2c, vocab 14071; see the class comment). Unconstrained mode only. `voicings`
-         * decodes CHORD blocks for the OT (null or empty: the chord tones stacked from the bass).
-         */
-        bool chordTokens = false;
-        std::shared_ptr<const VoicingBank> voicings;
-        /** Chord-token mode: LATEs written in a row before [EXPIRED] gives up (training: at most 2). */
-        int32_t maxLates = 2;
         /**
          * Dynamic LogitTD (TdController, set by the transformer): the Launchpad TD level (0 = AUTO) and the
          * strength gamma. At an onset draw the onsets lo..hi (c = t - (lo - 1) cs, c >= 1) get
@@ -298,7 +241,6 @@ public:
         int32_t pitch = 60;
         int32_t velocity = 64;
         bool precomputed = false; // a fire served from the anticipation branches
-        bool fromChord = false;   // chord mode: a CHORD block's note or its leftover (fire or give-up)
         /** The draws that made this note (onset, dur, pitch, vel), when draw logging is on (logDraws). */
         std::vector<OpLogDraw::Draw> draws;
     };
@@ -328,17 +270,6 @@ public:
         int contextRebuilds = 0;
         int lagSkips = 0;         // line A fills skipped because the engine was behind
         int shortWaitsReplaced = 0; // WAITs under minWaitCs drawn, replaced by an orchestra onset
-        // chord-token mode
-        int lates = 0;       // [LATE d] written
-        int lateForced = 0;  // ... with d set from a piano onset already known to be past the close
-        int giveUps = 0;     // [EXPIRED] then a CHORD: the chord played with no piano
-        int chains = 0;      // [EXPIRED] then a WAIT: a re-wait with the same K
-        int expiredChosen = 0; // [EXPIRED] drawn by the model at a close where a LATE was still allowed
-        int chordBlocks = 0; // CHORD blocks written (fires and give-ups)
-        int voicingFallbacks = 0; // blocks decoded without an exact bank key
-        int chordMatched = 0;     // fires served by a precomputed chord candidate (MATCH RULE)
-        std::array<int, 5> inferSteps{};
-        int pianoPitchDrops = 0;  // plain notes whose pitch step drew a piano pitch: nothing written // fires whose CHORD was inferred from the piano notes, by INFERENCE RULE step 1-4
     };
 
     /**
@@ -415,21 +346,17 @@ public:
     [[nodiscard]] auto lastWaitDraws() const -> const std::vector<OpLogDraw::Draw> & { return waitDraws; }
 
 private:
-    /** Chord: a chord-token block [CHORD][SDUR][BASS][SVEL] (token, durationCs = q, pitch = bass, velocity = v). */
-    enum class Kind { Piano, Orch, Wait, Count, Expired, Chord, Late };
+    enum class Kind { Piano, Orch, Wait, Count, Expired };
     struct Item {
         Kind kind = Kind::Piano;
-        int32_t onsetCs = 0; // absolute (WAIT / COUNT / EXPIRED / LATE: the time they refer to)
+        int32_t onsetCs = 0; // absolute (WAIT / COUNT / EXPIRED: the time they refer to)
         int32_t durationCs = 0;
         int32_t pitch = 0;
         int32_t velocity = 0;
-        int32_t token = 0;   // WAIT / COUNT / K / LATE / CHORD id
-        bool held = false;   // piano: key still down (duration provisional; chord mode: [DUR?] still replaceable)
-        bool durUnknown = false; // piano, chord mode: written as [DUR?]
+        int32_t token = 0;   // WAIT / COUNT id
+        bool held = false;   // piano: key still down (duration provisional)
         bool provisional = false; // line-mode WAIT / COUNT that is removed at expiry
     };
-    static auto width(Kind k) -> size_t { return (k == Kind::Piano || k == Kind::Orch || k == Kind::Chord) ? 4 : 1; }
-    static auto isEvent(Kind k) -> bool { return k == Kind::Piano || k == Kind::Orch || k == Kind::Chord; }
     /** The sampler's scalar state; one snapshot per item so a cut can restore it. */
     struct Cursor {
         int32_t clockCs = INT32_MIN; // onset of the last written event (piano, orchestra, expiry)
@@ -441,7 +368,6 @@ private:
         int32_t lastPianoCs = INT32_MIN;
         int32_t freeFloorCs = INT32_MIN; // line B: next free onset >= this
         bool afterExpired = false;       // an EXPIRED since the last piano onset
-        int32_t chainK = 0;              // chord mode: [EXPIRED] then a WAIT was drawn; the next draw is that WAIT, this K
     };
     struct Pending {
         int32_t refCs = 0;
@@ -451,12 +377,7 @@ private:
         size_t waitItem = 0;      // index of the WAIT item
         std::vector<int32_t> alts; // other WAIT lengths that also count (the model's most likely ones)
         int32_t win = kEps;        // the fire window: +-win cs around each length
-        // chord mode
-        bool plus = false;     // a leftover quad follows the chord block
-        int32_t kToken = 0;    // the [K k,+1] written
-        int lates = 0;         // LATEs written for this target so far (refCs / d are then the last LATE's)
-        bool isLate = false;   // the open window is a LATE's: it starts no earlier than refCs (the close)
-        int32_t floorLo = INT32_MIN; // the window starts no earlier than this
+        bool openEnded = false;    // never expires: any onset from lo() on fires (Settings::openEndedWait)
         [[nodiscard]] auto lowest() const -> int32_t {
             int32_t m = d;
             for (const int32_t a: alts)
@@ -470,19 +391,23 @@ private:
             return m;
         }
         /** Before this, a piano onset is early; after hi, the WAIT has expired (over all the lengths). */
-        [[nodiscard]] auto lo() const -> int32_t { return std::max(floorLo, refCs + lowest() - win); }
-        [[nodiscard]] auto hi(bool line) const -> int32_t { return line ? refCs + d : refCs + highest() + win; }
+        [[nodiscard]] auto lo() const -> int32_t { return refCs + lowest() - win; }
+        [[nodiscard]] auto hi(bool line) const -> int32_t {
+            if (line)
+                return refCs + d;
+            return openEnded ? kNeverCs : refCs + highest() + win;
+        }
         /** The length whose window holds this onset (the drawn one first, then the nearest), if any. */
         [[nodiscard]] auto match(int32_t onsetCs) const -> std::optional<int32_t> {
-            const auto in = [&](int32_t x) {
-                return onsetCs >= std::max(floorLo, refCs + x - win) && onsetCs <= refCs + x + win;
-            };
+            const auto in = [&](int32_t x) { return onsetCs >= refCs + x - win && onsetCs <= refCs + x + win; };
             if (in(d))
                 return d;
             std::optional<int32_t> best;
             for (const int32_t a: alts)
                 if (in(a) && (! best || std::abs(onsetCs - refCs - a) < std::abs(onsetCs - refCs - *best)))
                     best = a;
+            if (! best && openEnded && onsetCs >= lo()) // later than every window, or between two: what passed
+                best = std::clamp(onsetCs - refCs, 3, 300);
             return best;
         }
     };
@@ -497,27 +422,20 @@ private:
         int32_t headCs = 0;
         std::vector<PianoNote> notes; // arrival order
         bool fired = false;           // the head fired a WAIT (rest of the chord goes after the stack)
-        bool firePending = false;     // chord mode: fired; the block follows once the onset's notes are all in
-        size_t written = 0;           // notes already written by the fire (the rest go in at the group's close)
     };
     struct Branch {
         int32_t pitch = 0;
         int32_t velocity = 0;
         std::vector<std::array<int32_t, 3>> notes; // (duration, pitch, velocity) of the orchestra notes
-        // chord mode: a chord candidate. The block's tokens (CHORD, SDUR, BASS, SVEL) drawn so far; the leftover
-        // goes in `notes`. `pitch` = the anticipated piano pitch it is decoded after (its largest contributor).
-        std::vector<int32_t> block;
-        double score = 0; // sum over the top-5 pitches of p(pitch) p(chord type + root | pitch)
     };
     struct Precompute {
         int32_t targetCs = 0;
         int32_t k = 1;
-        bool plus = false; // chord mode
         int phase = 0; // 0 top-5 (batch 1), 1 tile + [pitch, velocity, T], then 3 per orchestra note
         int32_t durationCs = 0;
         std::vector<float> pianoProbs; // 88 keys, p(A0..C8)
         std::vector<Branch> branches;
-        StreamingKv::State state; // batch 1: context + T + D (phase 0; chord mode keeps it to tile it again)
+        StreamingKv::State state; // batch 1: context + T + D (phase 0)
         StreamingKv::BatchState kv;
         std::vector<float> logits; // batch x vocab of the last batched call
         bool complete = false;
@@ -578,12 +496,9 @@ private:
     /** Truncate at the first piano / orchestra item after `onsetCs`; returns what was removed. */
     auto takeAfter(int32_t onsetCs) -> std::vector<Item>;
     auto drawEvent() -> std::vector<OutNote>;
-    /** One note's duration, pitch, velocity at onsetCs. pianoAllowed: piano pitches too; one drawn -> nullopt, drewPianoPitch. */
-    auto drawBody(int32_t onsetCs, int32_t minPitch, bool pianoAllowed = false) -> std::optional<OutNote>;
-    bool drewPianoPitch = false;
+    auto drawBody(int32_t onsetCs, int32_t minPitch) -> std::optional<OutNote>;
     auto fire(const PianoNote &head) -> std::vector<OutNote>;
-    /** A pending window closed. `arrivalCs` (chord mode): the piano onset that showed it closed, if one did. */
-    auto expire(std::optional<int32_t> arrivalCs = std::nullopt) -> std::vector<OutNote>;
+    auto expire() -> std::vector<OutNote>;
     auto noteAt(int32_t onsetCs) -> std::vector<OutNote>;
     auto addProvisionalWait(const OutNote &note) -> void;
     auto removeProvisionalWait(size_t index) -> void;
@@ -606,7 +521,6 @@ private:
     Cursor cur;
     int32_t baseCs = 0;
     int32_t nowCs = 0;
-    int32_t startedAtCs = 0; // reset() time (cfg.startDelayCs)
     bool started = false;
     std::optional<Pending> pending;
     std::optional<OpenGroup> group;
@@ -618,45 +532,13 @@ private:
     std::optional<Precompute> pre;
     std::vector<OutNote> mirrored;
     auto gap() const -> int32_t { return cfg.continuation ? 0 : kMergeCs; }
-    auto vocab() const -> int32_t { return cfg.continuation ? kWait0 : (cfg.chordTokens ? kChordVocab : kVocab); }
+    auto vocab() const -> int32_t { return cfg.continuation ? kWait0 : kVocab; }
     auto applyMirrored() -> void;
     struct FireLeft {
         int32_t onsetCs = 0;
         int32_t left = 0;
         int32_t minPitch = 21;
-        // chord mode: what of the fire (or give-up) is still to decode, one part per step
-        bool chord = false;
-        bool needBlock = false;
-        bool needLeftover = false;
-        int32_t k = 1;
-        bool noPiano = false; // a give-up: the notes play at the step's now (the context's onset is the close)
-        int32_t firstChord = -1; // a give-up: the CHORD token already drawn after [EXPIRED]
-        int32_t inferType = -1;  // no candidate matched: CHORD masked to this type and root (the model picks n)
-        int32_t inferRoot = 0;
     };
-    auto chordMode() const -> bool { return cfg.chordTokens; }
-    auto expiredToken() const -> int32_t { return chordMode() ? kChordExpired : kExpired; }
-    /** CHORD ids whose type has k pitch classes, as pick ranges. */
-    static auto chordRanges(int32_t k) -> std::vector<std::pair<int32_t, int32_t>>;
-    /** BASS ids in [lo, hi] whose pitch class is a tone of `chordTok`'s chord (all of [lo, hi] if none is). */
-    static auto bassRanges(int32_t chordTok, int32_t lo, int32_t hi) -> std::vector<std::pair<int32_t, int32_t>>;
-    /** The block tokens on top of `desired` (CHORD masked to k, SDUR, BASS, SVEL); empty on a model failure. */
-    auto decodeBlock(std::vector<int32_t> desired, int32_t k, int32_t onsetCs, int32_t firstChord = -1,
-                     std::vector<std::pair<int32_t, int32_t>> chordMask = {}) -> std::vector<int32_t>;
-    /** Pitch-class weights of the piano + orchestra notes of the last ~8 s before `atCs`, by duration (the key). */
-    auto keyWeights(int32_t atCs) const -> std::array<double, 12>;
-    /** Append a block item and return its notes for the OT (at `playCs`), capped by maxFireNotes - `already`. */
-    auto writeBlock(const std::vector<int32_t> &block, int32_t onsetCs, int32_t playCs, int32_t already, bool precomputed)
-        -> std::vector<OutNote>;
-    /** Chord mode: the open group fired; all its piano notes, then a matching candidate's block or an inferred one. */
-    auto fireChord() -> std::vector<OutNote>;
-    /** The next part of a chord-mode fireLeft (the block, then the leftover). */
-    auto fireChordStep() -> std::vector<OutNote>;
-    /** Chord mode, a window closed: [LATE] or [EXPIRED], then a re-wait or a give-up. `arrivalCs`: a piano onset known past it. */
-    auto closeChordWindow(std::optional<int32_t> arrivalCs) -> std::vector<OutNote>;
-    /** Chord mode: piano quads still showing a replaceable [DUR?] are frozen (a model-written unit follows them). */
-    auto freezeUnknownDurations() -> void;
-    int32_t fireNotesOut = 0; // notes of the current chord-mode fire sent to the OT (the polyphony cap)
     std::optional<FireLeft> fireLeft; // stacked notes of a fire still to decode (one per step)
     /** When the firing key landed (else when the fire began), and how many notes are placed ("placed"). */
     int64_t fireFromUs = 0;

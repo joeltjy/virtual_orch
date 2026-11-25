@@ -244,6 +244,27 @@ What the numbers say:
   per step) and ededfdf + b045041 (Mono pad fixes). Still not taken: fae4bd7, d59171a; 9342c57 (logs) waits for
   Joel's confirmation.
 
+## v1.2 is its own reduction transformer (2026-11-25)
+
+Joel: "i want to make sure that each one inherits from the base reduction Transformer class so that they are all
+independent of each other. i don't want v1.2's changes to affect v1.1".
+
+- **v1.2** = `HybridChordTokenReductionTransformer` (: ReductionTransformer, RtLogitAdjustments) with
+  `ChordTokenEngine`: copies of HybridInformativeWaitReductionTransformer / InformativeWaitEngine as v1.2 had them
+  (chord tokens, voicing bank, LATE / EXPIRED, cluster guards, start delay, the TD commit and the SDUR taper).
+  Its own `MusicModelArch::DenseHybridChordToken` and reduction type **12** ("Hybrid v1.2"); `hybrid_v12.json`
+  says `"reductionType": 12`; preset key `"reduction": "hybridChordToken"`. It only takes the chord-token model 2
+  (vocab 14071). AppSession wires it like v1.1 (TD meter, polyphony cap, logit adjustments, WAIT visualizer,
+  active-model widget).
+- **v1.1** = `HybridInformativeWaitReductionTransformer` / `InformativeWaitEngine` back to v1.1's own version
+  (origin/informative-wait with fae4bd7 and d59171a, plus the TD commit: td-debug 5d308c9), reduction type 10.
+  Nothing of v1.2 is in it any more.
+- Shared helpers only: ReductionTransformer, StreamingKvCache, the Dense*Bias formulas, TdController, WaitTracker
+  (its onEvent takes either engine's events), VoicingBank / ChordTheory (v1.2 / v1.3 only), the OT.
+- Tests: `ChordTokenEngineTest` runs on the v1.2 classes; the offline sim runs v1.1's engine, or v1.2's with
+  `IW_CHORD=1`.
+- Trimming v1.1-only code paths out of the v1.2 copy is left for later (they are unused there).
+
 ## Open points for Joel
 
 - **Root-field offset: fixed (2026-11-24).** The first m2c tokenizer named CHORD roots from the token

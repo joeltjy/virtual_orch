@@ -57,8 +57,9 @@ TEST(InformativeWaitDurationProbe, fineVersusCoarseDurationBias) {
             w.noWaitAfterExpiry = true;
             w.fireWindowCs = 6;
             w.waitTopK = 3;
-            // (v1.1's openEndedWait (d59171a) and pitchClassBranches (fae4bd7) are not on this branch)
+            w.openEndedWait = true;
             w.expiryGraceCs = 20;
+            w.pitchClassBranches = true;
             w.maxFireNotes = 1; // Mono
             w.ascendingChords = true;
             w.maxAheadCs = 300;

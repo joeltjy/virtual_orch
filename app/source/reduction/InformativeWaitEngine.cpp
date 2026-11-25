@@ -1,6 +1,5 @@
 #include "VirtualOrch/reduction/InformativeWaitEngine.h"
 
-#include "VirtualOrch/reduction/ChordTheory.h"
 #include "VirtualOrch/reduction/TdOnsetBias.h"
 
 #include <algorithm>
@@ -12,17 +11,18 @@
 
 namespace {
 
-auto markChord(std::vector<InformativeWaitEngine::OutNote> notes) -> std::vector<InformativeWaitEngine::OutNote> {
-    for (auto &n: notes)
-        n.fromChord = true;
-    return notes;
-}
-
-
 constexpr float kNegInf = -std::numeric_limits<float>::infinity();
 constexpr int32_t kPianoLow = 21;
 constexpr int32_t kPianoHigh = 108;
 constexpr int32_t kMaxChord = 12;
+
+/** The 88 piano-key probabilities summed by pitch class (C = 0). */
+auto pitchClassProbs(const std::vector<float> &piano) -> std::array<float, 12> {
+    std::array<float, 12> out{};
+    for (size_t i = 0; i < piano.size(); ++i)
+        out[(i + static_cast<size_t>(kPianoLow)) % 12] += piano[i];
+    return out;
+}
 
 struct Range {
     int32_t lo;
@@ -82,7 +82,6 @@ auto InformativeWaitEngine::reset(int32_t startCs) -> void {
     cur = {};
     baseCs = 0;
     nowCs = startCs;
-    startedAtCs = startCs;
     started = true;
     pending.reset();
     group.reset();
@@ -129,14 +128,8 @@ auto InformativeWaitEngine::tokens() const -> std::vector<int32_t> {
     for (const auto &it: items) {
         switch (it.kind) {
             case Kind::Piano:
-                out.insert(out.end(), {rel(it.onsetCs), it.durUnknown ? kDurUnknown : kDur0 + q5(it.durationCs),
-                                       kPiano0 + it.pitch, kVel0 + q8(it.velocity)});
-                break;
-            case Kind::Chord:
-                out.insert(out.end(), {it.token, kDur0 + it.durationCs, kOrch0 + it.pitch, kVel0 + it.velocity});
-                break;
-            case Kind::Late:
-                out.push_back(it.token);
+                out.insert(out.end(), {rel(it.onsetCs), kDur0 + q5(it.durationCs), kPiano0 + it.pitch,
+                                       kVel0 + q8(it.velocity)});
                 break;
             case Kind::Orch:
                 out.insert(out.end(), {rel(it.onsetCs), kDur0 + it.durationCs, kOrch0 + it.pitch, kVel0 + it.velocity});
@@ -146,7 +139,7 @@ auto InformativeWaitEngine::tokens() const -> std::vector<int32_t> {
                 out.push_back(it.token);
                 break;
             case Kind::Expired:
-                out.push_back(expiredToken());
+                out.push_back(kExpired);
                 break;
         }
     }
@@ -165,7 +158,7 @@ auto InformativeWaitEngine::committedLen() const -> size_t {
                                  || (cfg.waitTopK > 1 && pending.has_value() && i >= pending->waitItem);
         if (mutableItem)
             return len;
-        len += width(it.kind);
+        len += (it.kind == Kind::Piano || it.kind == Kind::Orch) ? 4 : 1;
     }
     return len;
 }
@@ -277,10 +270,7 @@ auto InformativeWaitEngine::pick(const std::vector<float> &logits,
     const auto ps = samplingProbs(scores, temperature);
     const int32_t token = pickFrom(scores, temperature);
     const int32_t first = ranges.empty() ? 0 : ranges.front().first;
-    const char *name = chordMode() && first >= kChord0                      ? "chord"
-                       : chordMode() && first >= kLate0 && first < kDurUnknown ? "late"
-                       : chordMode() && first >= kK0 && first < kChordExpired  ? "k"
-                       : first >= kCount0 && first < kExpired ? "count"
+    const char *name = first >= kCount0 && first < kExpired ? "count"
                        : first >= kVel0 && first < kWait0   ? "vel"
                        : first >= kOrch0 && first < kVel0   ? "pitch"
                        : first >= kDur0 && first < kPiano0  ? "dur"
@@ -365,7 +355,7 @@ auto InformativeWaitEngine::orchestraHistory() const -> std::vector<int32_t> {
     std::vector<int32_t> quads;
     quads.reserve(items.size() * 4);
     for (const auto &it: items)
-        if (it.kind == Kind::Orch || it.kind == Kind::Chord) { // chord mode: a chord block counts as its bass note
+        if (it.kind == Kind::Orch) {
             quads.push_back(it.onsetCs);
             quads.push_back(static_cast<int32_t>(DenseVocab::DurOffset) + std::clamp(it.durationCs, 1, 995));
             quads.push_back(static_cast<int32_t>(DenseVocab::NoteOffset) + DenseConfig::MaxPitch * 1 + it.pitch);
@@ -391,17 +381,8 @@ auto InformativeWaitEngine::takeSensitivity() -> std::pair<std::optional<double>
 // ---------------------------------------------------------------- stream
 
 auto InformativeWaitEngine::append(const Item &item) -> void {
-    // chord mode ([DUR?] rule, B3f 3b): a model-written unit after a piano quad fixes its [DUR?]
-    if (chordMode() && item.kind != Kind::Piano && item.kind != Kind::Expired)
-        freezeUnknownDurations();
     before.push_back(cur);
     items.push_back(item);
-}
-
-auto InformativeWaitEngine::freezeUnknownDurations() -> void {
-    for (auto &it: items)
-        if (it.kind == Kind::Piano && it.held && it.durUnknown)
-            it.held = false;
 }
 
 auto InformativeWaitEngine::truncateTo(size_t index) -> void {
@@ -422,31 +403,16 @@ auto InformativeWaitEngine::reappend(std::vector<Item> tail) -> void {
             return a.onsetCs < b.onsetCs;
         return a.kind == Kind::Piano && b.kind != Kind::Piano;
     });
-    int32_t pianoOnset = INT32_MIN;
-    int pianoAtOnset = 0;
     for (const auto &it: tail) {
         if (it.kind == Kind::Piano) {
             append(it);
-            pianoAtOnset = it.onsetCs == pianoOnset ? pianoAtOnset + 1 : 1;
-            pianoOnset = it.onsetCs;
             cur.clockCs = std::max(cur.clockCs, it.onsetCs);
             cur.floorCs = std::max(cur.floorCs, it.onsetCs);
-            cur.exclHiCs = cfg.continuation ? it.onsetCs - 1
-                         : chordMode()      ? (pianoAtOnset >= 2 ? it.onsetCs : it.onsetCs - 1) // as closeGroup
-                                            : it.onsetCs + kMergeCs;
+            cur.exclHiCs = cfg.continuation ? it.onsetCs - 1 : it.onsetCs + kMergeCs;
             cur.chordOnCs = INT32_MIN;
             cur.chordCount = 0;
             cur.lastPianoCs = std::max(cur.lastPianoCs, it.onsetCs);
             cur.afterExpired = false;
-            cur.chainK = 0; // a piano onset ends a re-wait chain
-        } else if (it.kind == Kind::Chord) {
-            // a chord block: nothing else is drawn at its onset (its notes are all in the block)
-            append(it);
-            cur.clockCs = std::max(cur.clockCs, it.onsetCs);
-            cur.floorCs = std::max(cur.floorCs, it.onsetCs);
-            cur.chordOnCs = INT32_MIN;
-            cur.chordCount = 0;
-            cur.exclHiCs = it.onsetCs + kMergeCs;
         } else if (it.kind == Kind::Orch) {
             append(it);
             const bool same = cur.chordOnCs == it.onsetCs;
@@ -462,7 +428,7 @@ auto InformativeWaitEngine::reappend(std::vector<Item> tail) -> void {
 
 auto InformativeWaitEngine::takeAfter(int32_t onsetCs) -> std::vector<Item> {
     for (size_t i = 0; i < items.size(); ++i)
-        if (isEvent(items[i].kind) && items[i].onsetCs > onsetCs) {
+        if ((items[i].kind == Kind::Piano || items[i].kind == Kind::Orch) && items[i].onsetCs > onsetCs) {
             std::vector<Item> tail(items.begin() + static_cast<std::ptrdiff_t>(i), items.end());
             truncateTo(i);
             return tail;
@@ -512,14 +478,6 @@ auto InformativeWaitEngine::writePianoNotes(std::vector<PianoNote> notes) -> voi
         it.pitch = n.pitch;
         it.velocity = n.velocity;
         const bool down = n.durationCs < 0;
-        if (chordMode()) {
-            // [DUR?] at key-down; the release may still replace it (applyInput) until a model-written unit follows
-            it.durUnknown = down;
-            it.held = down;
-            it.durationCs = down ? 0 : std::max(5, n.onsetCs + n.durationCs - head);
-            append(it);
-            continue;
-        }
         if (! down)
             it.durationCs = std::max(5, n.onsetCs + n.durationCs - head);
         else if (cfg.rewriteHeldDurations)
@@ -542,8 +500,6 @@ auto InformativeWaitEngine::estimatedDuration(int32_t heldSoFar) const -> int32_
 }
 
 auto InformativeWaitEngine::commitLongHolds() -> void {
-    if (chordMode())
-        return; // [DUR?] replaces the hold commit (B3f 3b)
     // a key still down after holdCommitCs is committed with the time it has been down (it stops being
     // rewritten, so the KV cache's scratch tail stays short)
     for (auto &it: items)
@@ -591,7 +547,6 @@ auto InformativeWaitEngine::applyInput() -> std::vector<OutNote> {
                 && onset - it->onsetCs <= kMergeCs) {
                 it->durationCs = std::max(5, onset + dur - it->onsetCs);
                 it->held = false;
-                it->durUnknown = false; // chord mode: nothing model-written after it yet, the real duration goes in
                 done = true;
             }
     }
@@ -606,10 +561,6 @@ auto InformativeWaitEngine::applyInput() -> std::vector<OutNote> {
             group->notes.push_back(n);
             continue;
         }
-        if (group.has_value() && group->firePending) {
-            auto f = markChord(fireChord()); // chord mode: every piano note of the onset that came in is written first
-            out.insert(out.end(), f.begin(), f.end());
-        }
         if (fireLeft.has_value()) {
             inbox.push_back(n); // the stack of the current fire is finished first (training order)
             continue;
@@ -621,10 +572,6 @@ auto InformativeWaitEngine::applyInput() -> std::vector<OutNote> {
         auto fired = onGroupHead(n);
         out.insert(out.end(), fired.begin(), fired.end());
     }
-    if (group.has_value() && group->firePending) {
-        auto f = markChord(fireChord());
-        out.insert(out.end(), f.begin(), f.end());
-    }
     return out;
 }
 
@@ -632,7 +579,7 @@ auto InformativeWaitEngine::onGroupHead(const PianoNote &head) -> std::vector<Ou
     std::vector<OutNote> out;
     cutFuture(head.onsetCs);
     if (pending.has_value() && head.onsetCs > pending->hi(pending->provisional)) {
-        auto e = expire(head.onsetCs); // its window closed before this onset
+        auto e = expire(); // its window closed before this onset
         out.insert(out.end(), e.begin(), e.end());
         cutFuture(head.onsetCs); // a legato note written at the expiry may now be in the future
     }
@@ -647,19 +594,17 @@ auto InformativeWaitEngine::onGroupHead(const PianoNote &head) -> std::vector<Ou
         } else {
             if (*length != pending->d) {
                 // one of the model's most likely lengths: the WAIT is rewritten to it, then fires
-                event("snap", head.onsetCs, pending->d, *length, "WAIT rewritten to a top-" + std::to_string(cfg.waitTopK) + " length");
+                const bool inAWindow = std::abs(head.onsetCs - pending->refCs - *length) <= pending->win;
+                event("snap", head.onsetCs, pending->d, *length,
+                      inAWindow ? "WAIT rewritten to a top-" + std::to_string(cfg.waitTopK) + " length"
+                                : "WAIT rewritten to the time that passed (open-ended: no expiry)");
                 items[pending->waitItem].token = waitToken(*length);
-                pending->d = *length;
+                pending->d = waitValue(waitToken(*length));
                 ++st.waitSnaps;
             }
             group->fired = true;
-            if (chordMode()) {
-                group->firePending = true; // the block goes after all the onset's piano notes (applyInput)
-            } else {
-                group->written = 1;
-                auto f = fire(head);
-                out.insert(out.end(), f.begin(), f.end());
-            }
+            auto f = fire(head);
+            out.insert(out.end(), f.begin(), f.end());
         }
     }
     return out;
@@ -673,9 +618,8 @@ auto InformativeWaitEngine::closeGroup() -> std::vector<OutNote> {
     group.reset();
     ++st.pianoGroups;
     if (g.fired) {
-        // the fired piano notes and the stack are written; the rest of the chord follows them
-        std::vector<PianoNote> rest(g.notes.begin() + static_cast<std::ptrdiff_t>(std::min(g.written, g.notes.size())),
-                                    g.notes.end());
+        // first piano note and the stack are written; the rest of the chord follows them
+        std::vector<PianoNote> rest(g.notes.begin() + 1, g.notes.end());
         if (! rest.empty()) {
             for (auto &n: rest)
                 n.onsetCs = g.headCs;
@@ -703,19 +647,12 @@ auto InformativeWaitEngine::closeGroup() -> std::vector<OutNote> {
     writePianoNotes(notes);
     cur.clockCs = std::max(cur.clockCs, g.headCs);
     cur.floorCs = std::max(cur.floorCs, g.headCs);
-    // model 2: nothing within 5 cs after a piano onset; model 1 and the chord-token model 2 (B3f 1g: joint onsets
-    // without a WAIT are in its training data): the orchestra may share it
-    // chord mode: a single piano note's onset may be shared (training: orchestra quads after the FIRST piano quad of a
-    // joint onset without a WAIT); after a group of 2+ notes, the next plain onset is later (training never has
-    // orchestra quads after several piano quads of one onset; with them the model stacked 8-12-note clusters)
-    cur.exclHiCs = cfg.continuation ? g.headCs - 1
-                 : chordMode()      ? (notes.size() >= 2 ? g.headCs : g.headCs - 1)
-                                    : g.headCs + kMergeCs;
+    // model 2: nothing within 5 cs after a piano onset; model 1: the orchestra may share it
+    cur.exclHiCs = cfg.continuation ? g.headCs - 1 : g.headCs + kMergeCs;
     cur.chordOnCs = INT32_MIN;
     cur.chordCount = 0;
     cur.lastPianoCs = g.headCs;
     cur.afterExpired = false;
-    cur.chainK = 0; // a piano onset ends a re-wait chain
     reappend(later);
     event("piano", g.headCs, static_cast<int32_t>(notes.size()));
     // A pending WAIT's anticipation is NOT restarted by this (early) piano group: live, restarting on every
@@ -752,6 +689,10 @@ auto InformativeWaitEngine::fire(const PianoNote &head) -> std::vector<OutNote> 
         for (const auto &b: pre->branches)
             if (b.pitch == head.pitch)
                 branch = &b;
+        if (branch == nullptr && cfg.pitchClassBranches)
+            for (const auto &b: pre->branches)
+                if (b.pitch % 12 == head.pitch % 12)
+                    branch = &b;
         if (branch == nullptr && cfg.outsideTopFiveAsRankOne && ! pre->branches.empty()) {
             branch = &pre->branches.front();
             substituted = true;
@@ -784,7 +725,9 @@ auto InformativeWaitEngine::fire(const PianoNote &head) -> std::vector<OutNote> 
         ++st.precomputeHits;
         event("hit", head.onsetCs, head.pitch, p.k,
               substituted ? "not in the top 5: the rank-1 branch (" + std::to_string(branch->pitch) + ") played"
-                          : "precomputed branch played");
+              : branch->pitch != head.pitch
+                  ? "precomputed branch played (pitch class: drawn after " + std::to_string(branch->pitch) + ")"
+                  : "precomputed branch played");
     } else {
         if (ready > 0)
             ++st.precomputePartial;
@@ -807,7 +750,6 @@ auto InformativeWaitEngine::fire(const PianoNote &head) -> std::vector<OutNote> 
     cur.lastOrchPitch = out.empty() ? -1 : out.back().pitch;
     cur.lastPianoCs = head.onsetCs;
     cur.afterExpired = false;
-    cur.chainK = 0; // a piano onset ends a re-wait chain
     pending.reset();
     pre.reset();
     return out;
@@ -821,12 +763,10 @@ auto InformativeWaitEngine::firePlacedEvent(int32_t onsetCs, bool precomputed) -
           std::string(precomputed ? "precomputed" : "decoded") + (fireFromKey ? "|key" : "|fire"));
 }
 
-auto InformativeWaitEngine::expire(std::optional<int32_t> arrivalCs) -> std::vector<OutNote> {
+auto InformativeWaitEngine::expire() -> std::vector<OutNote> {
     std::vector<OutNote> out;
     if (! pending.has_value())
         return out;
-    if (chordMode() && ! pending->provisional)
-        return closeChordWindow(arrivalCs);
     const auto p = *pending;
     pending.reset();
     pre.reset();
@@ -940,8 +880,7 @@ auto InformativeWaitEngine::countCommittedForBias(int32_t onsetCs, int notes) ->
     }
 }
 
-auto InformativeWaitEngine::drawBody(int32_t onsetCs, int32_t minPitch, bool pianoAllowed) -> std::optional<OutNote> {
-    drewPianoPitch = false;
+auto InformativeWaitEngine::drawBody(int32_t onsetCs, int32_t minPitch) -> std::optional<OutNote> {
     auto desired = tokens();
     desired.push_back(rel(onsetCs));
     const auto *l1 = logitsFor(desired);
@@ -982,16 +921,9 @@ auto InformativeWaitEngine::drawBody(int32_t onsetCs, int32_t minPitch, bool pia
         applyPitchBias(biased, history, onsetCs, pitchScheduler);
         l2 = &biased;
     }
-    std::vector<std::pair<int32_t, int32_t>> pitchRanges{{kOrch0 + lo, kOrch0 + hi + 1}};
-    if (pianoAllowed)
-        pitchRanges.push_back({kPiano0 + kPianoLow, kPiano0 + kPianoHigh + 1}); // the model may want a piano note
-    const int32_t note = pick(*l2, pitchRanges, cfg.otherTemperature, cfg.minP);
+    const int32_t note = pick(*l2, {{kOrch0 + lo, kOrch0 + hi + 1}}, cfg.otherTemperature, cfg.minP);
     if (note < 0)
         return std::nullopt;
-    if (note >= kPiano0 && note < kOrch0) {
-        drewPianoPitch = true; // nothing is written (the caller drops the onset and duration)
-        return std::nullopt;
-    }
     desired.push_back(note);
     const auto *l3 = logitsFor(desired);
     if (l3 == nullptr)
@@ -1049,23 +981,13 @@ auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
                          && cur.chordCount < std::min(cfg.maxChordNotes, kMaxChord);
     if (chordOk)
         ranges.push_back({rel(cur.chordOnCs), rel(cur.chordOnCs) + 1});
-    // chord mode: [EXPIRED] then a WAIT was drawn, so the next token is that WAIT (with the same K, as in training)
-    bool chain = chordMode() && cur.chainK != 0;
     const bool waitOk = cfg.mode != Mode::LineLegato && ! cfg.continuation
-                        && (chain || ! (cfg.noWaitAfterExpiry && cur.afterExpired));
+                        && ! (cfg.noWaitAfterExpiry && cur.afterExpired);
     if (waitOk) {
-        // only WAITs whose window has not already passed: ref + d + 6 > now (chord mode: and >= the 6 cs floor)
-        int32_t dMin = std::max(kGrid, nowCs + 1 - cur.clockCs - cfg.fireWindowCs);
-        if (chordMode())
-            dMin = std::max(dMin, chain && plusOf(cur.chainK) ? kWaitFloorPlus : kWaitFloor);
-        if (dMin <= kMaxWait) {
-            if (chain)
-                ranges.clear(); // the chain: a WAIT only
+        // only WAITs whose window has not already passed: ref + d + 6 > now
+        const int32_t dMin = std::max(kGrid, nowCs + 1 - cur.clockCs - cfg.fireWindowCs);
+        if (dMin <= kMaxWait)
             ranges.push_back({waitToken(((dMin + kGrid - 1) / kGrid) * kGrid), kCount0});
-        } else if (chain) {
-            cur.chainK = 0; // the engine is too far behind for any chained WAIT: the model draws freely
-            chain = false;
-        }
     }
     const auto toks = tokens();
     const auto *logits = logitsFor(toks);
@@ -1157,29 +1079,6 @@ auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
             c.onsetCs = cur.clockCs;
             c.token = countToken(1);
             append(c);
-        } else if (chordMode()) {
-            // [K k,+1]: the chain repeats its K; otherwise drawn, with the leftover (+1) masked under its 12 cs floor
-            int32_t c = cur.chainK;
-            if (c == 0) {
-                const auto *lc = logitsFor(tokens());
-                if (lc == nullptr)
-                    return out;
-                c = d < kWaitFloorPlus ? pick(*lc, {{kK0, kK0 + 8}}, cfg.onsetTemperature, 0.0f, 2)
-                                       : pick(*lc, {{kK0, kK0 + 8}}, cfg.onsetTemperature, 0.0f);
-                if (c < 0)
-                    return out;
-            } else {
-                ++st.chains;
-            }
-            cur.chainK = 0;
-            k = kOf(c);
-            Item ci;
-            ci.kind = Kind::Count;
-            ci.onsetCs = cur.clockCs;
-            ci.token = c;
-            append(ci);
-            const int32_t floor = plusOf(c) ? kWaitFloorPlus : kWaitFloor;
-            alts.erase(std::remove_if(alts.begin(), alts.end(), [floor](int32_t a) { return a < floor; }), alts.end());
         } else {
             auto desired = tokens();
             const auto *lc = logitsFor(desired);
@@ -1196,10 +1095,7 @@ auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
         pending = Pending{cur.clockCs, d, k, false, at};
         pending->alts = std::move(alts);
         pending->win = cfg.fireWindowCs;
-        if (chordMode()) {
-            pending->kToken = items.back().token;
-            pending->plus = plusOf(pending->kToken);
-        }
+        pending->openEnded = cfg.openEndedWait;
         ++st.waitsDrawn;
         if (d >= 10)
             ++st.waitsGe10;
@@ -1213,24 +1109,9 @@ auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
     if (line)
         return noteAt(onset);
     const bool same = chordOk && onset == cur.chordOnCs;
-    // chord mode: a plain note's pitch step also allows piano pitches. r2b's training order for joint onsets without
-    // a WAIT is [first piano quad][orchestra quads][other piano quads], so after a piano group the model often wants
-    // another piano note; masked to orchestra pitches (ascending within the onset) it walked up the scale into a
-    // 12-note cluster. A piano pitch drops the onset and duration, and the next plain onset is strictly later.
-    auto note = drawBody(onset, same && cfg.ascendingChords ? cur.lastOrchPitch : kPianoLow, chordMode());
-    if (! note.has_value()) {
-        if (drewPianoPitch) {
-            drawLog.clear();
-            ++st.pianoPitchDrops;
-            cur.exclHiCs = std::max(cur.exclHiCs, onset);
-            if (cur.chordOnCs != INT32_MIN && cur.chordOnCs <= onset) {
-                cur.chordOnCs = INT32_MIN; // no stacking onto this (or an earlier) onset either
-                cur.chordCount = 0;
-            }
-            event("drop", onset, 0, 0, "piano pitch drawn for a plain note: nothing written");
-        }
+    auto note = drawBody(onset, same && cfg.ascendingChords ? cur.lastOrchPitch : kPianoLow);
+    if (! note.has_value())
         return out;
-    }
     note->draws = std::move(drawLog);
     drawLog.clear();
     Item it;
@@ -1250,401 +1131,6 @@ auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
     return out;
 }
 
-// ---------------------------------------------------------------- chord-token mode (m2c)
-
-auto InformativeWaitEngine::chordRanges(int32_t k) -> std::vector<std::pair<int32_t, int32_t>> {
-    std::vector<std::pair<int32_t, int32_t>> r;
-    for (int32_t type = 0; type < kChordTypes; ++type)
-        if (VoicingBank::pitchClassCount(type) == k)
-            r.push_back({chordToken(type, 0, 1), chordToken(type, 11, 10) + 1}); // the type's 12 roots x 10 n
-    return r;
-}
-
-auto InformativeWaitEngine::bassRanges(int32_t chordTok, int32_t lo, int32_t hi) -> std::vector<std::pair<int32_t, int32_t>> {
-    // training: BASS is the lowest band note, so its pitch class is always a chord tone
-    const auto cv = chordValue(chordTok);
-    const auto mask = ChordTheory::chordMask(cv.type, cv.root);
-    std::vector<std::pair<int32_t, int32_t>> r;
-    for (int32_t p = lo; p <= hi; ++p)
-        if ((mask >> (((p % 12) + 12) % 12)) & 1u)
-            r.push_back({kOrch0 + p, kOrch0 + p + 1});
-    if (r.empty())
-        r.push_back({kOrch0 + lo, kOrch0 + hi + 1}); // no chord tone in the register: any pitch rather than none
-    return r;
-}
-
-auto InformativeWaitEngine::decodeBlock(std::vector<int32_t> desired, int32_t k, int32_t onsetCs, int32_t firstChord,
-                                       std::vector<std::pair<int32_t, int32_t>> chordMask) -> std::vector<int32_t> {
-    std::vector<int32_t> block;
-    if (firstChord >= 0) {
-        block.push_back(firstChord); // already in the context (a give-up's CHORD, drawn after [EXPIRED])
-        desired.push_back(firstChord);
-    }
-    // SDUR and BASS take the duration / pitch bias as a decoded note's duration and pitch (the engine's schedulers:
-    // this block is committed)
-    const auto history = cfg.durationBias || cfg.pitchBias ? orchestraHistory() : std::vector<int32_t>{};
-    const auto next = [&](const std::vector<std::pair<int32_t, int32_t>> &ranges, int32_t step, int bias = 0) -> bool {
-        const auto *l = logitsFor(desired);
-        if (l == nullptr)
-            return false;
-        std::vector<float> biased;
-        if ((bias == 1 && cfg.durationBias) || (bias == 2 && cfg.pitchBias)) {
-            biased = *l;
-            if (bias == 1)
-                applyDurationBias(biased, history, onsetCs, durationScheduler);
-            else
-                applyPitchBias(biased, history, onsetCs, pitchScheduler);
-            l = &biased;
-        }
-        if (bias == 1 && cfg.tdDurationTaper && cfg.tdLevel > 1) { // SDUR / the leftover's duration, as drawBody
-            if (l != &biased)
-                biased = *l;
-            applyTdDurationTaper(biased);
-            l = &biased;
-        }
-        const int32_t t = pick(*l, ranges, cfg.otherTemperature, cfg.minP, step);
-        if (t < 0)
-            return false;
-        block.push_back(t);
-        desired.push_back(t);
-        return true;
-    };
-    int32_t lo = kPianoLow;
-    int32_t hi = kPianoHigh;
-    clampToRegister(lo, hi);
-    lo = std::min(lo, hi);
-    if ((firstChord < 0 && ! next(chordMask.empty() ? chordRanges(k) : chordMask, 1)) || ! next({{kDur0 + cfg.minDurationCs, kDur0 + cfg.maxDurationCs + 1}}, 5, 1)
-        || ! next(bassRanges(block.front(), lo, hi), 1, 2) || ! next({{kVel0 + 8, kVel0 + 121}}, 8))
-        return {};
-    return block;
-}
-
-auto InformativeWaitEngine::writeBlock(const std::vector<int32_t> &block, int32_t onsetCs, int32_t playCs,
-                                       int32_t already, bool precomputed) -> std::vector<OutNote> {
-    std::vector<OutNote> out;
-    if (block.size() < 4)
-        return out;
-    Item it;
-    it.kind = Kind::Chord;
-    it.onsetCs = onsetCs;
-    it.token = block[0];
-    it.durationCs = block[1] - kDur0;
-    it.pitch = block[2] - kOrch0;
-    it.velocity = block[3] - kVel0;
-    append(it);
-    ++st.chordBlocks;
-    // nothing plain at the block's onset (fire, inference or give-up): only its leftover sits at T in training
-    cur.exclHiCs = std::max(cur.exclHiCs, onsetCs + kMergeCs);
-    cur.chordOnCs = INT32_MIN;
-    cur.chordCount = 0;
-    const auto cv = chordValue(block[0]);
-    VoicingBank::Decoded dec;
-    if (cfg.voicings != nullptr && ! cfg.voicings->empty()) {
-        dec = cfg.voicings->decode(cv.type, cv.root, cv.n, it.pitch, rng);
-    } else {
-        static const VoicingBank none;
-        dec = none.decode(cv.type, cv.root, cv.n, it.pitch, rng); // empty bank: the chord tones stacked
-    }
-    if (dec.source != VoicingBank::Decoded::Source::Bank)
-        ++st.voicingFallbacks;
-    // the Launchpad register: notes above it go down an octave while they stay above the bass, else they go
-    std::vector<int32_t> pitches;
-    for (int32_t p: dec.pitches) {
-        while (p > cfg.pitchHigh && p - 12 >= it.pitch)
-            p -= 12;
-        if (p <= cfg.pitchHigh && std::find(pitches.begin(), pitches.end(), p) == pitches.end())
-            pitches.push_back(p);
-    }
-    std::sort(pitches.begin(), pitches.end());
-    std::string text = VoicingBank::key(cv.type, cv.n, ((it.pitch - cv.root) % 12 + 12) % 12) + ":";
-    for (const int32_t p: pitches) {
-        text += " " + std::to_string(p);
-        if (cfg.maxFireNotes > 0 && already + static_cast<int32_t>(out.size()) >= cfg.maxFireNotes)
-            continue; // the polyphony cap (monophonic: the bass only)
-        OutNote n{playCs, it.durationCs, p, std::clamp(it.velocity, 8, 120), precomputed};
-        if (out.empty())
-            n.draws = std::move(drawLog);
-        out.push_back(std::move(n));
-    }
-    drawLog.clear();
-    st.orchestraNotes += static_cast<int>(out.size());
-    event("chord", onsetCs, static_cast<int32_t>(out.size()), cv.n, text);
-    cur.clockCs = std::max(cur.clockCs, onsetCs);
-    cur.floorCs = std::max(cur.floorCs, onsetCs);
-    cur.chordOnCs = INT32_MIN;
-    cur.chordCount = 0;
-    cur.exclHiCs = onsetCs + kMergeCs;
-    cur.lastOrchPitch = pitches.empty() ? -1 : pitches.back();
-    return out;
-}
-
-auto InformativeWaitEngine::keyWeights(int32_t atCs) const -> std::array<double, 12> {
-    std::array<double, 12> w{};
-    constexpr int32_t kKeyWindowCs = 800; // the last ~8 s
-    for (const auto &it: items) {
-        if (it.onsetCs < atCs - kKeyWindowCs || it.onsetCs > atCs)
-            continue;
-        if (it.kind != Kind::Piano && it.kind != Kind::Orch && it.kind != Kind::Chord)
-            continue;
-        const int32_t dur = it.durUnknown ? std::max(5, nowCs - it.onsetCs) : std::max(5, it.durationCs);
-        const double weight = std::min(dur, kKeyWindowCs);
-        if (it.kind == Kind::Chord) {
-            const auto cv = chordValue(it.token); // a chord block: each of its pitch classes
-            const auto m = ChordTheory::chordMask(cv.type, cv.root);
-            for (int pc = 0; pc < 12; ++pc)
-                if ((m >> pc) & 1u)
-                    w[static_cast<size_t>(pc)] += weight;
-        } else {
-            w[static_cast<size_t>(((it.pitch % 12) + 12) % 12)] += weight;
-        }
-    }
-    return w;
-}
-
-auto InformativeWaitEngine::fireChord() -> std::vector<OutNote> {
-    std::vector<OutNote> out;
-    const auto p = *pending;
-    auto &g = *group;
-    g.firePending = false;
-    g.written = g.notes.size();
-    const PianoNote head = g.notes.front();
-    ++st.fires;
-    scoreAnticipation(head.pitch);
-    const auto t0 = std::chrono::steady_clock::now();
-    fireFromKey = head.landedUs >= 0;
-    fireFromUs = fireFromKey ? head.landedUs
-                             : std::chrono::duration_cast<std::chrono::microseconds>(t0.time_since_epoch()).count();
-
-    // every piano note of the onset, each [DUR?] (training: they still sound at the chord block), frozen
-    drawLog.clear();
-    std::vector<PianoNote> notes = g.notes;
-    std::vector<int32_t> pitches;
-    int32_t lowest = kPianoHigh;
-    for (auto &n: notes) {
-        n.onsetCs = g.headCs;
-        n.durationCs = -1;
-        pitches.push_back(n.pitch);
-        lowest = std::min(lowest, n.pitch);
-    }
-    const size_t from = items.size();
-    writePianoNotes(notes);
-    for (size_t i = from; i < items.size(); ++i)
-        items[i].held = false;
-    const auto piano = ChordTheory::maskOf(pitches);
-
-    // MATCH RULE: the piano pitch classes with a candidate's form a triad, a seventh or < 3 pitch classes
-    const Branch *branch = nullptr;
-    if (pre.has_value() && pre->complete)
-        for (const auto &b: pre->branches) {
-            if (b.block.size() != 4)
-                continue;
-            const auto cv = chordValue(b.block[0]);
-            if (ChordTheory::recognized(static_cast<ChordTheory::Pcs>(piano | ChordTheory::chordMask(cv.type, cv.root)))
-                && (branch == nullptr || b.score > branch->score))
-                branch = &b;
-        }
-    cur.clockCs = cur.floorCs = head.onsetCs;
-    fireNotesOut = 0;
-    firePlaced = 0;
-    std::string names;
-    for (const int32_t x: pitches)
-        names += " " + std::to_string(x);
-    if (branch != nullptr) {
-        auto block = writeBlock(branch->block, head.onsetCs, head.onsetCs, 0, true);
-        fireNotesOut += static_cast<int32_t>(block.size());
-        out.insert(out.end(), block.begin(), block.end());
-        if (p.plus && ! branch->notes.empty()) {
-            const auto &[dur, pitch, vel] = branch->notes.front();
-            Item it;
-            it.kind = Kind::Orch;
-            it.onsetCs = head.onsetCs;
-            it.durationCs = dur;
-            it.pitch = pitch;
-            it.velocity = vel;
-            append(it);
-            if (cfg.maxFireNotes <= 0 || fireNotesOut < cfg.maxFireNotes) {
-                out.push_back({head.onsetCs, dur, pitch, vel, true});
-                ++fireNotesOut;
-                ++st.orchestraNotes;
-            }
-        }
-        countCommittedForBias(head.onsetCs, p.plus && ! branch->notes.empty() ? 2 : 1); // block (+ leftover) committed
-        ++st.precomputeHits;
-        ++st.chordMatched;
-        const auto cv = chordValue(branch->block[0]);
-        event("hit", head.onsetCs, head.pitch, p.k,
-              "piano" + names + ": candidate " + VoicingBank::kTypeNames[static_cast<size_t>(cv.type)] + " root "
-                  + std::to_string(cv.root) + " matches");
-    } else {
-        // INFERENCE RULE: CHORD's type and root from the piano notes; the model picks n, then the rest is decoded
-        const auto inf = ChordTheory::infer(piano, lowest, p.k, keyWeights(head.onsetCs));
-        ++st.inferSteps[static_cast<size_t>(std::clamp(inf.step, 0, 4))];
-        fireLeft = FireLeft{head.onsetCs, 0, kPianoLow, true, true, p.plus, p.k, false, -1, inf.chord.type, inf.chord.root};
-        ++st.fireDecoded;
-        event("miss", head.onsetCs, head.pitch, p.k,
-              std::string(pre.has_value() && pre->complete ? "no candidate matches" : "precompute not finished")
-                  + "; piano" + names + ": inferred " + VoicingBank::kTypeNames[static_cast<size_t>(inf.chord.type)]
-                  + " root " + std::to_string(inf.chord.root) + " (step " + std::to_string(inf.step) + ")");
-    }
-    event("fire", head.onsetCs, p.k, static_cast<int32_t>(out.size()));
-    firePlaced = static_cast<int32_t>(out.size());
-    if (! fireLeft.has_value())
-        firePlacedEvent(head.onsetCs, true);
-    cur.exclHiCs = head.onsetCs + kMergeCs; // everything of this onset is in the block
-    cur.chordOnCs = INT32_MIN;
-    cur.chordCount = 0;
-    cur.lastPianoCs = head.onsetCs;
-    cur.afterExpired = false;
-    cur.chainK = 0;
-    pending.reset();
-    pre.reset();
-    return out;
-}
-
-auto InformativeWaitEngine::fireChordStep() -> std::vector<OutNote> {
-    std::vector<OutNote> out;
-    auto &f = *fireLeft;
-    const auto t0 = std::chrono::steady_clock::now();
-    drawLog.clear();
-    const int32_t playCs = f.noPiano ? std::max(nowCs, f.onsetCs) : f.onsetCs;
-    bool failed = false;
-    if (f.needBlock) {
-        std::vector<std::pair<int32_t, int32_t>> mask;
-        if (f.inferType >= 0)
-            mask.push_back({chordToken(f.inferType, f.inferRoot, 1), chordToken(f.inferType, f.inferRoot, 10) + 1});
-        const auto block = decodeBlock(tokens(), f.k, f.onsetCs, f.firstChord, mask);
-        if (block.empty()) {
-            failed = true;
-        } else {
-            out = writeBlock(block, f.onsetCs, playCs, fireNotesOut, false);
-            fireNotesOut += static_cast<int32_t>(out.size());
-        }
-        f.needBlock = false;
-    } else if (f.needLeftover) {
-        // the leftover quad: onset forced to the block's onset, then duration, pitch, velocity
-        auto note = drawBody(f.onsetCs, kPianoLow);
-        if (note.has_value()) {
-            note->draws = std::move(drawLog);
-            drawLog.clear();
-            Item it;
-            it.kind = Kind::Orch;
-            it.onsetCs = f.onsetCs;
-            it.durationCs = note->durationCs;
-            it.pitch = note->pitch;
-            it.velocity = note->velocity;
-            append(it);
-            if (cfg.maxFireNotes <= 0 || fireNotesOut < cfg.maxFireNotes) {
-                note->onsetCs = playCs;
-                out.push_back(*note);
-                ++fireNotesOut;
-                ++st.orchestraNotes;
-            }
-        } else {
-            failed = true;
-        }
-        f.needLeftover = false;
-    }
-    st.fireDecodeMsTotal += msSince(t0);
-    firePlaced += static_cast<int32_t>(out.size());
-    if (failed || (! f.needBlock && ! f.needLeftover)) {
-        if (! f.noPiano)
-            firePlacedEvent(f.onsetCs, false);
-        fireLeft.reset();
-    }
-    return out;
-}
-
-auto InformativeWaitEngine::closeChordWindow(std::optional<int32_t> arrivalCs) -> std::vector<OutNote> {
-    std::vector<OutNote> out;
-    auto p = *pending;
-    const int32_t close = p.hi(false);
-    const auto writeExpired = [&] {
-        Item it;
-        it.kind = Kind::Expired;
-        it.onsetCs = close;
-        append(it);
-        ++st.expired;
-        cur.clockCs = std::max(cur.clockCs, close);
-        cur.floorCs = std::max(cur.floorCs, close);
-        cur.exclHiCs = cur.floorCs - 1;
-        cur.chordOnCs = INT32_MIN;
-        cur.freeFloorCs = close;
-    };
-    // 1. [LATE d] or [EXPIRED], drawn by the model (no LATE after maxLates). LATE d = the time from the close to the
-    // piano's arrival: a piano onset already known to be past the close sets it (as training's true remaining
-    // delay); otherwise the LATEs whose window has not passed yet (close + d + win > now) are allowed.
-    int32_t tok = kChordExpired;
-    bool forced = false;
-    bool chose = false;
-    if (p.lates < cfg.maxLates) {
-        if (arrivalCs.has_value() && *arrivalCs - close <= kLateMax + p.win) {
-            tok = lateToken(std::max(kGrid, *arrivalCs - close));
-            forced = true;
-        } else {
-            std::vector<std::pair<int32_t, int32_t>> ranges{{kChordExpired, kChordExpired + 1}};
-            const int32_t dMin = std::max(kGrid, nowCs + 1 - close - p.win);
-            if (dMin <= kLateMax)
-                ranges.push_back({lateToken(((dMin + kGrid - 1) / kGrid) * kGrid), kLate0 + kLateMax / kGrid});
-            const auto *l = logitsFor(tokens());
-            if (l == nullptr)
-                return out;
-            tok = pick(*l, ranges, cfg.onsetTemperature, 0.0f);
-            if (tok < 0)
-                tok = kChordExpired;
-            chose = true;
-        }
-    }
-    if (tok != kChordExpired) {
-        pre.reset();
-        Item it;
-        it.kind = Kind::Late;
-        it.onsetCs = close;
-        it.token = tok;
-        append(it);
-        ++st.lates;
-        st.lateForced += forced ? 1 : 0;
-        p.refCs = close;
-        p.d = lateValue(tok);
-        p.alts.clear();
-        p.lates += 1;
-        p.isLate = true;
-        p.floorLo = close; // the window starts no earlier than the close
-        pending = p;
-        event("late", close, p.d, p.k, forced ? "d from the piano onset already in" : "d sampled");
-        startPrecompute(); // the context gained the LATE and the target moved
-        return out;
-    }
-    pending.reset();
-    pre.reset();
-    writeExpired();
-    st.expiredChosen += chose ? 1 : 0;
-    // 2. after [EXPIRED]: a WAIT (re-wait, same K) or a CHORD masked to k (give up, B3f 2e). Only the choice is
-    // taken here: on a WAIT, drawEvent draws the WAIT from the same logits within the WAIT range (the same
-    // distribution as this draw given a WAIT), with the WAITs whose window has passed by then masked.
-    auto ranges = chordRanges(p.k);
-    const int32_t waitFloor = p.plus ? kWaitFloorPlus : kWaitFloor;
-    const int32_t wMin = std::max({kGrid, waitFloor, nowCs + 1 - close - cfg.fireWindowCs});
-    if (wMin <= kMaxWait)
-        ranges.push_back({waitToken(((wMin + kGrid - 1) / kGrid) * kGrid), kCount0});
-    int32_t next = -1;
-    if (const auto *l = logitsFor(tokens()); l != nullptr)
-        next = pick(*l, ranges, cfg.onsetTemperature, 0.0f);
-    if (next >= kWait0 && next < kCount0) {
-        cur.chainK = p.kToken;
-        event("expired", close, p.d, p.k,
-              "after " + std::to_string(p.lates) + " LATE: WAIT drawn, re-wait with the same K");
-        return out;
-    }
-    // give up: the CHORD drawn (or, if the draw failed, drawn again by decodeBlock), then SDUR/BASS/SVEL (+ leftover)
-    cur.afterExpired = true;
-    ++st.giveUps;
-    event("expired", close, p.d, p.k, "after " + std::to_string(p.lates) + " LATE: CHORD drawn, the chord plays alone");
-    fireNotesOut = 0;
-    firePlaced = 0;
-    fireLeft = FireLeft{close, 0, kPianoLow, true, true, p.plus, p.k, true, next >= kChord0 ? next : -1};
-    return out;
-}
-
 // ---------------------------------------------------------------- anticipation
 
 auto InformativeWaitEngine::startPrecompute() -> void {
@@ -1653,7 +1139,6 @@ auto InformativeWaitEngine::startPrecompute() -> void {
     pre = Precompute{};
     pre->targetCs = pending->refCs + pending->d;
     pre->k = pending->k;
-    pre->plus = pending->plus;
     ++st.precomputeStarted;
 }
 
@@ -1670,10 +1155,17 @@ auto InformativeWaitEngine::anticipatedPitches() const -> std::vector<int32_t> {
 auto InformativeWaitEngine::scoreAnticipation(int32_t pitch) -> void {
     if (! pre.has_value() || pre->pianoProbs.size() != 88 || pitch < kPianoLow || pitch > kPianoHigh)
         return;
-    const float pa = pre->pianoProbs[static_cast<size_t>(pitch - kPianoLow)];
     int rank = 1;
-    for (const float x: pre->pianoProbs)
-        rank += x > pa ? 1 : 0;
+    if (cfg.pitchClassBranches) { // ranked among the 12 pitch classes, as the branches are
+        const auto classes = pitchClassProbs(pre->pianoProbs);
+        const float pa = classes[static_cast<size_t>(pitch % 12)];
+        for (const float x: classes)
+            rank += x > pa ? 1 : 0;
+    } else {
+        const float pa = pre->pianoProbs[static_cast<size_t>(pitch - kPianoLow)];
+        for (const float x: pre->pianoProbs)
+            rank += x > pa ? 1 : 0;
+    }
     ++st.anticipated;
     st.antTop1 += rank == 1 ? 1 : 0;
     st.antTop5 += rank <= 5 ? 1 : 0;
@@ -1699,9 +1191,8 @@ auto InformativeWaitEngine::precomputeStep() -> void {
             st.precomputeMsTotal += pc.ms;
         }
         char text[96];
-        std::snprintf(text, sizeof text, "%s: %d %s x 5 branches, %d calls, %.1f ms inference, %.1f ms wall",
-                      ok ? "precompute done" : "precompute failed", pc.k,
-                      chordMode() ? (pc.plus ? "pc chord block + leftover" : "pc chord block") : "notes", pc.calls, pc.ms,
+        std::snprintf(text, sizeof text, "%s: %d notes x 5 branches, %d calls, %.1f ms inference, %.1f ms wall",
+                      ok ? "precompute done" : "precompute failed", pc.k, pc.calls, pc.ms,
                       std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - pc.started).count());
         event("precomputed", pc.targetCs, pc.k, ok ? 1 : 0, text);
     };
@@ -1718,9 +1209,7 @@ auto InformativeWaitEngine::precomputeStep() -> void {
         StreamingKv::evictForIncoming(s, dims, 2);
         std::vector<float> lv;
         ++pc.calls;
-        // chord mode: the target piano quad is always written with [DUR?] (a chord block follows it at once)
-        const int32_t durTok = chordMode() ? kDurUnknown : kDur0 + q5(pc.durationCs);
-        if (! backend->run(s, {T, durTok}, pc.state, lv) || lv.size() < static_cast<size_t>(vocab()))
+        if (! backend->run(s, {T, kDur0 + q5(pc.durationCs)}, pc.state, lv) || lv.size() < static_cast<size_t>(kVocab))
             return finish(false);
         float peak = kNegInf;
         for (int32_t p = kPianoLow; p <= kPianoHigh; ++p)
@@ -1736,16 +1225,36 @@ auto InformativeWaitEngine::precomputeStep() -> void {
             x = static_cast<float>(x / total);
         std::vector<int32_t> order(88);
         std::iota(order.begin(), order.end(), 0);
-        std::partial_sort(order.begin(), order.begin() + kBranches, order.end(), [&](int32_t a, int32_t b) {
+        std::sort(order.begin(), order.end(), [&](int32_t a, int32_t b) {
             return pc.pianoProbs[static_cast<size_t>(a)] > pc.pianoProbs[static_cast<size_t>(b)];
         });
+        std::vector<int32_t> picks; // piano pitches, rank order
+        if (cfg.pitchClassBranches) {
+            // the 5 likeliest pitch classes (summed over octaves), each at its likeliest pitch
+            const auto classes = pitchClassProbs(pc.pianoProbs);
+            std::array<int32_t, 12> byClass{};
+            std::iota(byClass.begin(), byClass.end(), 0);
+            std::sort(byClass.begin(), byClass.end(), [&](int32_t a, int32_t b) {
+                return classes[static_cast<size_t>(a)] > classes[static_cast<size_t>(b)];
+            });
+            for (int i = 0; i < kBranches; ++i)
+                for (const int32_t o: order) // order is by probability: the first of this class is its likeliest
+                    if ((kPianoLow + o) % 12 == byClass[static_cast<size_t>(i)]) {
+                        picks.push_back(kPianoLow + o);
+                        break;
+                    }
+        } else {
+            for (int i = 0; i < kBranches; ++i)
+                picks.push_back(kPianoLow + order[static_cast<size_t>(i)]);
+        }
         pc.branches.clear();
         std::string text;
-        for (int i = 0; i < kBranches; ++i) {
-            pc.branches.push_back(Branch{kPianoLow + order[static_cast<size_t>(i)], q8(lastPianoVelocity), {}});
-            text += std::to_string(pc.branches.back().pitch) + " ";
+        for (const int32_t pitch: picks) {
+            pc.branches.push_back(Branch{pitch, q8(lastPianoVelocity), {}});
+            text += std::to_string(pitch) + " ";
         }
-        event("anticipate", pc.targetCs, pc.durationCs, 0, "top 5: " + text);
+        event("anticipate", pc.targetCs, pc.durationCs, 0,
+              (cfg.pitchClassBranches ? "top 5 pitch classes: " : "top 5: ") + text);
         ++pc.phase;
         pc.ms += msSince(t0);
         if (! cfg.precompute)
@@ -1758,138 +1267,11 @@ auto InformativeWaitEngine::precomputeStep() -> void {
     std::vector<int64_t> feed;
     if (pc.phase == 1) {
         const bool tiled = StreamingKv::tileState(pc.state, dims, kBranches, pc.kv);
-        if (! chordMode())
-            pc.state = {}; // chord mode tiles it again for the chord candidates
+        pc.state = {};
         if (! tiled)
             return finish(false);
-        for (const auto &b: pc.branches) {
-            if (chordMode())
-                feed.insert(feed.end(), {kPiano0 + b.pitch, kVel0 + b.velocity}); // -> CHORD
-            else
-                feed.insert(feed.end(), {kPiano0 + b.pitch, kVel0 + b.velocity, T});
-        }
-    } else if (chordMode()) {
-        // chord mode, what the last logits predict: 0 CHORD, 1 SDUR, 2 BASS, 3 SVEL, then the leftover quad's
-        // 4 duration, 5 pitch, 6 velocity (fed [SVEL, T] so the leftover's onset is T)
-        const auto V = static_cast<size_t>(vocab());
-        if (pc.logits.size() < V * kBranches)
-            return finish(false);
-        const int r = pc.phase - 2;
-        if (r == 0) {
-            // CHORD BRANCHES (A iii): per pitch b, p(CHORD | b) masked to the types with k pitch classes; chord
-            // type + root (n summed) scored by sum_b p(b) p(chord | b); the top 5 become the branches, each decoded
-            // after its largest contributor, which also picks its n. The batch is tiled again from [T, DUR?].
-            std::vector<double> score(static_cast<size_t>(kChordTypes * 12), 0.0);
-            std::vector<double> bestPart(score.size(), -1.0);
-            std::vector<int> contributor(score.size(), 0);
-            const auto ranges = chordRanges(pc.k);
-            for (int b = 0; b < kBranches; ++b) {
-                const auto *lg = pc.logits.data() + static_cast<size_t>(b) * V;
-                float peak = kNegInf;
-                for (const auto &[lo, hi]: ranges)
-                    for (int32_t t = lo; t < hi; ++t)
-                        peak = std::max(peak, lg[t]);
-                double total = 0;
-                for (const auto &[lo, hi]: ranges)
-                    for (int32_t t = lo; t < hi; ++t)
-                        total += std::isfinite(lg[t]) ? std::exp(static_cast<double>(lg[t] - peak)) : 0.0;
-                if (! (total > 0))
-                    continue;
-                const double pb = pc.pianoProbs[static_cast<size_t>(pc.branches[static_cast<size_t>(b)].pitch - kPianoLow)];
-                std::vector<double> part(score.size(), 0.0);
-                for (const auto &[lo, hi]: ranges)
-                    for (int32_t t = lo; t < hi; ++t)
-                        if (std::isfinite(lg[t]))
-                            part[static_cast<size_t>((t - kChord0) / 10)] += std::exp(static_cast<double>(lg[t] - peak)) / total;
-                for (size_t c = 0; c < score.size(); ++c) {
-                    score[c] += pb * part[c];
-                    if (pb * part[c] > bestPart[c]) {
-                        bestPart[c] = pb * part[c];
-                        contributor[c] = b;
-                    }
-                }
-            }
-            std::vector<int> order;
-            for (const auto &[lo, hi]: ranges)
-                for (int32_t t = lo; t < hi; t += 10)
-                    order.push_back((t - kChord0) / 10);
-            if (static_cast<int>(order.size()) < kBranches)
-                return finish(false);
-            std::partial_sort(order.begin(), order.begin() + kBranches, order.end(),
-                              [&](int a, int b) { return score[static_cast<size_t>(a)] > score[static_cast<size_t>(b)]; });
-            std::vector<Branch> cands;
-            std::string text;
-            for (int i = 0; i < kBranches; ++i) {
-                const int c = order[static_cast<size_t>(i)];
-                const auto &src = pc.branches[static_cast<size_t>(contributor[static_cast<size_t>(c)])];
-                const std::vector<float> lg(pc.logits.begin() + static_cast<std::ptrdiff_t>(static_cast<size_t>(contributor[static_cast<size_t>(c)]) * V),
-                                            pc.logits.begin() + static_cast<std::ptrdiff_t>(static_cast<size_t>(contributor[static_cast<size_t>(c)] + 1) * V));
-                const int32_t tok = pick(lg, {{kChord0 + c * 10, kChord0 + c * 10 + 10}}, cfg.otherTemperature, cfg.minP);
-                if (tok < 0)
-                    return finish(false);
-                Branch br{src.pitch, src.velocity, {}, {tok}, score[static_cast<size_t>(c)]};
-                cands.push_back(br);
-                char buf[64];
-                std::snprintf(buf, sizeof buf, "%s/%d (%.2f, after %d) ", VoicingBank::kTypeNames[static_cast<size_t>(c / 12)],
-                              c % 12, score[static_cast<size_t>(c)], src.pitch);
-                text += buf;
-                feed.insert(feed.end(), {kPiano0 + br.pitch, kVel0 + br.velocity, tok});
-            }
-            pc.branches = std::move(cands);
-            event("candidates", pc.targetCs, pc.k, 0, text);
-            if (! StreamingKv::tileState(pc.state, dims, kBranches, pc.kv))
-                return finish(false);
-        }
-        // SDUR / the leftover's duration and BASS / the leftover's pitch: the duration / pitch biases from the
-        // committed notes only, with copies of the schedulers (countCommittedForBias counts them at a match)
-        const bool biasDur = (r == 1 || r == 4) && cfg.durationBias;
-        const bool biasPitch = (r == 2 || r == 5) && cfg.pitchBias;
-        const auto history = biasDur || biasPitch ? orchestraHistory() : std::vector<int32_t>{};
-        for (int b = 0; b < kBranches && r > 0; ++b) {
-            auto &br = pc.branches[static_cast<size_t>(b)];
-            std::vector<float> lg(pc.logits.begin() + static_cast<std::ptrdiff_t>(static_cast<size_t>(b) * V),
-                                  pc.logits.begin() + static_cast<std::ptrdiff_t>(static_cast<size_t>(b + 1) * V));
-            if (biasDur) {
-                auto scheduler = durationScheduler;
-                applyDurationBias(lg, history, pc.targetCs, scheduler);
-            } else if (biasPitch) {
-                auto scheduler = pitchScheduler;
-                applyPitchBias(lg, history, pc.targetCs, scheduler);
-            }
-            if (r == 1 || r == 4)
-                applyTdDurationTaper(lg); // chord branches: SDUR / the leftover's duration (no-op unless tapering)
-            int32_t tok = -1;
-            if (r == 1 || r == 4) {
-                tok = pick(lg, {{kDur0 + cfg.minDurationCs, kDur0 + cfg.maxDurationCs + 1}}, cfg.otherTemperature, cfg.minP, 5);
-            } else if (r == 2 || r == 5) {
-                int32_t lo = kPianoLow;
-                int32_t hi = kPianoHigh;
-                clampToRegister(lo, hi);
-                lo = std::min(lo, hi);
-                // BASS: the chord's tones only; the leftover's pitch (r 5): any
-                tok = pick(lg, r == 2 ? bassRanges(br.block.front(), lo, hi) : std::vector<std::pair<int32_t, int32_t>>{{kOrch0 + lo, kOrch0 + hi + 1}},
-                           cfg.otherTemperature, cfg.minP);
-            } else {
-                tok = pick(lg, {{kVel0 + 8, kVel0 + 121}}, cfg.otherTemperature, cfg.minP, 8);
-            }
-            if (tok < 0)
-                return finish(false);
-            if (r <= 3) {
-                br.block.push_back(tok);
-            } else if (r == 4) {
-                br.notes.push_back({tok - kDur0, 0, 0});
-            } else if (r == 5) {
-                br.notes.back()[1] = tok - kOrch0;
-            } else {
-                br.notes.back()[2] = tok - kVel0;
-            }
-            if (r == 3 && pc.plus)
-                feed.insert(feed.end(), {tok, T});
-            else
-                feed.push_back(tok);
-        }
-        if ((r == 3 && ! pc.plus) || r == 6)
-            return finish(true); // every branch has its block (and leftover): nothing more to feed
+        for (const auto &b: pc.branches)
+            feed.insert(feed.end(), {kPiano0 + b.pitch, kVel0 + b.velocity, T});
     } else {
         const auto V = static_cast<size_t>(kVocab);
         if (pc.logits.size() < V * kBranches)
@@ -1963,7 +1345,7 @@ auto InformativeWaitEngine::maybeShrinkContext() -> void {
     if (! items.empty() && nowCs + std::min(cfg.maxAheadCs, 1000) - baseCs > kOnsetMax - 200) {
         size_t cut = items.size();
         for (size_t i = 0; i < items.size(); ++i)
-            if (isEvent(items[i].kind) && items[i].onsetCs >= nowCs - 6000) {
+            if ((items[i].kind == Kind::Piano || items[i].kind == Kind::Orch) && items[i].onsetCs >= nowCs - 6000) {
                 cut = i;
                 break;
             }
@@ -1991,7 +1373,7 @@ auto InformativeWaitEngine::maybeShrinkContext() -> void {
     }
     size_t total = 0;
     for (const auto &it: items)
-        total += width(it.kind);
+        total += (it.kind == Kind::Piano || it.kind == Kind::Orch) ? 4 : 1;
     if (total <= cfg.maxTokens)
         return;
     // the prefill that follows a cut is the costliest call: not while a WAIT is pending (unless the context
@@ -2006,7 +1388,7 @@ auto InformativeWaitEngine::maybeShrinkContext() -> void {
     size_t fallback = 0;
     for (size_t i = 0; i < limit; ++i) {
         const auto &it = items[i];
-        const bool boundary = isEvent(it.kind);
+        const bool boundary = it.kind == Kind::Piano || it.kind == Kind::Orch;
         if (boundary && i > 0) {
             if (keep <= cfg.keepTokens) {
                 cut = i;
@@ -2014,7 +1396,7 @@ auto InformativeWaitEngine::maybeShrinkContext() -> void {
             }
             fallback = i;
         }
-        keep -= width(it.kind);
+        keep -= boundary ? 4 : 1;
     }
     if (cut == 0)
         cut = fallback;
@@ -2061,14 +1443,7 @@ auto InformativeWaitEngine::applyMirrored() -> void {
 auto InformativeWaitEngine::interrupt() -> void {
     // The pending WAIT / COUNT leave the context: neither fired nor EXPIRED, they would stay unanswered,
     // which no training line has (a model-drawn one too, not only a line mode's provisional one).
-    if (pending.has_value() && chordMode()) {
-        // the WAIT, its K and any LATEs written for it (piano notes between them stay)
-        for (size_t i = items.size(); i-- > pending->waitItem;)
-            if (items[i].kind == Kind::Wait || items[i].kind == Kind::Count || items[i].kind == Kind::Late) {
-                items.erase(items.begin() + static_cast<std::ptrdiff_t>(i));
-                before.erase(before.begin() + static_cast<std::ptrdiff_t>(i));
-            }
-    } else if (pending.has_value()) {
+    if (pending.has_value()) {
         const size_t i = pending->waitItem;
         if (i + 1 < items.size() && items[i].kind == Kind::Wait && items[i + 1].kind == Kind::Count) {
             items.erase(items.begin() + static_cast<std::ptrdiff_t>(i), items.begin() + static_cast<std::ptrdiff_t>(i + 2));
@@ -2084,14 +1459,13 @@ auto InformativeWaitEngine::dropGeneratedFrom(int32_t cutCs) -> void {
     mirrored.erase(std::remove_if(mirrored.begin(), mirrored.end(), [cutCs](const auto &n) { return n.onsetCs >= cutCs; }),
                    mirrored.end());
     // Only the orchestra notes from the cut on go; piano notes after it are written back (the legacy rewind).
-    const auto generated = [cutCs](const Item &it) {
-        return (it.kind == Kind::Orch || it.kind == Kind::Chord) && it.onsetCs >= cutCs;
-    };
     for (size_t i = 0; i < items.size(); ++i)
-        if (generated(items[i])) {
+        if (items[i].kind == Kind::Orch && items[i].onsetCs >= cutCs) {
             std::vector<Item> tail(items.begin() + static_cast<std::ptrdiff_t>(i), items.end());
             truncateTo(i);
-            tail.erase(std::remove_if(tail.begin(), tail.end(), generated), tail.end());
+            tail.erase(std::remove_if(tail.begin(), tail.end(),
+                                      [cutCs](const Item &it) { return it.kind == Kind::Orch && it.onsetCs >= cutCs; }),
+                       tail.end());
             reappend(std::move(tail));
             return;
         }
@@ -2120,8 +1494,6 @@ auto InformativeWaitEngine::step(int32_t stepNowCs) -> std::vector<OutNote> {
     out = applyInput();
     applyMirrored();
     commitLongHolds();
-    if (fireLeft.has_value() && fireLeft->chord && out.empty())
-        return markChord(fireChordStep()); // the chord block, then the leftover, of a fire or a give-up
     if (fireLeft.has_value() && out.empty()) {
         // the next stacked note of a fire
         const auto t0 = std::chrono::steady_clock::now();
@@ -2159,13 +1531,6 @@ auto InformativeWaitEngine::step(int32_t stepNowCs) -> std::vector<OutNote> {
         && nowCs > pending->hi(pending->provisional) + (pending->provisional ? 0 : cfg.expiryGraceCs)) {
         auto e = expire();
         out.insert(out.end(), e.begin(), e.end());
-        if (fireLeft.has_value() && fireLeft->chord) {
-            // chord mode, given up: the chord block (and leftover) right away, before anything else is drawn
-            auto c = markChord(fireChordStep());
-            out.insert(out.end(), c.begin(), c.end());
-            maybeShrinkContext();
-            return out;
-        }
     }
     if (! out.empty()) {
         maybeShrinkContext();
@@ -2180,8 +1545,6 @@ auto InformativeWaitEngine::step(int32_t stepNowCs) -> std::vector<OutNote> {
         return out; // a piano group is still being collected / no context yet
     if (! isLine() && cur.clockCs > nowCs + cfg.drawAheadCs)
         return out; // far enough ahead
-    if (cfg.startDelayCs > 0 && nowCs < startedAtCs + cfg.startDelayCs)
-        return out; // the start delay: the piano only, nothing drawn yet
     out = drawEvent();
     maybeShrinkContext();
     return out;

@@ -54,7 +54,9 @@ public:
     };
 
     /** One engine event; `nowCs` is the app clock when it happened. */
-    auto onEvent(const InformativeWaitEngine::Event &e, int32_t nowCs) -> void {
+    /** An engine event (InformativeWaitEngine::Event or ChordTokenEngine::Event: the same fields). */
+    template<typename EngineEvent>
+    auto onEvent(const EngineEvent &e, int32_t nowCs) -> void {
         const std::lock_guard<std::mutex> lock(mutex);
         if (e.what == "wait") {
             pending = Pending{nowCs, e.atCs + e.a, e.a, e.b, false};

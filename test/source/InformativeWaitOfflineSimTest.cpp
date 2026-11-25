@@ -6,7 +6,9 @@
 #include <chrono>
 #include <cstdlib>
 #include <map>
+#include <type_traits>
 
+#include <VirtualOrch/reduction/ChordTokenEngine.h>
 #include <VirtualOrch/reduction/InformativeWaitEngine.h>
 #include <VirtualOrch/reduction/StreamingKvCache.h>
 #include <VirtualOrch/reduction/VoicingBank.h>
@@ -28,7 +30,9 @@
  */
 namespace {
 
-using Engine = InformativeWaitEngine;
+// v1.1 runs InformativeWaitEngine; IW_CHORD=1 runs Hybrid v1.2's own copy (ChordTokenEngine)
+inline auto isChordNote(const InformativeWaitEngine::OutNote &) -> bool { return false; }
+inline auto isChordNote(const ChordTokenEngine::OutNote &n) -> bool { return n.fromChord; }
 
 /**
  * Forwards to the ONNX backend and charges each call to a virtual clock: msPerCall for a 1-token
@@ -96,8 +100,9 @@ auto loadPiano(const juce::File &mid, int32_t endCs) -> std::vector<PianoNote> {
     return out;
 }
 
+template<typename OutNote>
 auto writeMidi(const juce::File &path, const std::vector<PianoNote> &piano,
-               const std::vector<std::pair<Engine::OutNote, int32_t>> &orch, bool splitChords) -> void {
+               const std::vector<std::pair<OutNote, int32_t>> &orch, bool splitChords) -> void {
     juce::MidiFile file;
     file.setTicksPerQuarterNote(480); // 120 bpm: 1 s = 960 ticks
     const auto ticks = [](int32_t cs) { return cs * 9.6; };
@@ -116,8 +121,8 @@ auto writeMidi(const juce::File &path, const std::vector<PianoNote> &piano,
     c.addEvent(juce::MidiMessage::programChange(3, 48), 0);
     for (const auto &[n, playedAt]: orch) {
         const int32_t start = std::max(n.onsetCs, playedAt); // a late note sounds when it was produced
-        auto &seq = splitChords && n.fromChord ? c : o;
-        const int ch = splitChords && n.fromChord ? 3 : 2;
+        auto &seq = splitChords && isChordNote(n) ? c : o;
+        const int ch = splitChords && isChordNote(n) ? 3 : 2;
         seq.addEvent(juce::MidiMessage::noteOn(ch, n.pitch, static_cast<juce::uint8>(std::max(1, n.velocity))), ticks(start));
         seq.addEvent(juce::MidiMessage::noteOff(ch, n.pitch), ticks(start + std::max(1, n.durationCs)));
     }
@@ -140,7 +145,8 @@ auto envOr(const char *name, const juce::String &fallback) -> juce::String {
     return v != nullptr ? juce::String(v) : fallback;
 }
 
-TEST(InformativeWaitOfflineSim, Fixtures) {
+template<typename Engine>
+auto runFixtures() -> void {
     const auto fixtures = envOr("IW_FIXTURES", {});
     const auto outRoot = envOr("IW_OUT", {});
     if (fixtures.isEmpty() || outRoot.isEmpty())
@@ -159,7 +165,7 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
     const int only = envOr("IW_ONLY", "-1").getIntValue();
     backend.verbose = envOr("IW_TRACE", "0") == "1";
 
-    const bool chord = envOr("IW_CHORD", "0") == "1";
+    constexpr bool chord = std::is_same_v<Engine, ChordTokenEngine>;
     std::shared_ptr<VoicingBank> bank;
     if (chord) {
         const juce::File bankFile(envOr("IW_BANK", juce::File::getSpecialLocation(juce::File::userHomeDirectory)
@@ -170,7 +176,7 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
     }
     juce::StringArray modes;
     modes.addTokens(envOr("IW_MODES", "unconstrained,monophonic_A,monophonic_B"), ",", "");
-    const std::map<juce::String, Engine::Mode> modeOf{{"unconstrained", Engine::Mode::Unconstrained},
+    const std::map<juce::String, typename Engine::Mode> modeOf{{"unconstrained", Engine::Mode::Unconstrained},
                                                       {"monophonic_A", Engine::Mode::LineLegato},
                                                       {"monophonic_B", Engine::Mode::LineRests},
                                                       {"mono", Engine::Mode::Unconstrained}};
@@ -183,7 +189,7 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
     for (const auto &modeName: modes) {
         auto *all = new juce::DynamicObject();
         juce::Array<juce::var> perFixture;
-        Engine::Stats total;
+        typename Engine::Stats total;
         double lateSum = 0;
         int lateN = 0;
         double lateAllSum = 0;
@@ -200,11 +206,11 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
                 continue;
             Engine engine;
             engine.setBackend(&backend);
-            Engine::Settings s;
+            typename Engine::Settings s;
             s.mode = modeOf.at(modeName);
             s.seed = static_cast<uint64_t>(fi);
             s.precompute = precompute;
-            if (chord) {
+            if constexpr (chord) {
                 // HybridInformativeWaitReductionTransformer::applySettings, model 2 (logit adjustments off)
                 s.rewriteHeldDurations = true;
                 s.holdCommitCs = 1000;
@@ -268,7 +274,7 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
                               << e.text << std::endl;
             };
             engine.reset(0);
-            std::vector<std::pair<Engine::OutNote, int32_t>> orch;
+            std::vector<std::pair<typename Engine::OutNote, int32_t>> orch;
             std::vector<std::pair<int32_t, size_t>> offs; // (time, piano index)
             size_t next = 0;
             int32_t now = 0;
@@ -347,7 +353,7 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
             o->setProperty("piano_notes", static_cast<int>(piano.size()));
             o->setProperty("orchestra_notes", static_cast<int>(orch.size()));
             {
-                const auto fromChord = std::count_if(orch.begin(), orch.end(), [](const auto &e) { return e.first.fromChord; });
+                const auto fromChord = std::count_if(orch.begin(), orch.end(), [](const auto &e) { return isChordNote(e.first); });
                 o->setProperty("notes_piano_given", static_cast<int>(piano.size()));
                 o->setProperty("notes_orchestra_free", static_cast<int>(orch.size() - static_cast<size_t>(fromChord)));
                 o->setProperty("notes_orchestra_wait_chords", static_cast<int>(fromChord));
@@ -386,7 +392,7 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
             }
             o->setProperty("fire_latency_all_notes_cs", latesAll);
             o->setProperty("context_rebuilds", stt.contextRebuilds);
-            if (chord) {
+            if constexpr (chord) {
                 o->setProperty("chord_blocks", stt.chordBlocks);
                 o->setProperty("chord_matched", stt.chordMatched);
                 juce::Array<juce::var> steps;
@@ -455,6 +461,13 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
                   << total.precomputeHits << ", top1 " << total.antTop1 << ", top5 " << total.antTop5 << "/"
                   << total.anticipated << ", mean fire latency " << (lateN > 0 ? lateSum / lateN : 0.0) << " cs" << std::endl;
     }
+}
+
+TEST(InformativeWaitOfflineSim, Fixtures) {
+    if (envOr("IW_CHORD", "0") == "1")
+        runFixtures<ChordTokenEngine>();
+    else
+        runFixtures<InformativeWaitEngine>();
 }
 
 } // namespace

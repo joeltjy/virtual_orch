@@ -38,6 +38,8 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     session.presetStore.setLogitAdjustmentsProvider([this] { return session.logitAdjustmentsToVar(); });
     session.presetStore.setReductionTypeProvider([this]() -> juce::String {
         switch (reductionTypeList.getSelectedId()) {
+            case 12:
+                return "hybridChordToken";
             case 11:
                 return "hybridEvent";
             case 10:
@@ -528,7 +530,8 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     reductionTypeList.addItem("Melody First (T8'' + T7'')", 6);
     reductionTypeList.addItem("HybridTransformer (legacy: v1 silent / W3 playing)", 8);
     reductionTypeList.addItem("Informative WAIT (model 2: unconstrained / line A / line B)", 9);
-    reductionTypeList.addItem("Hybrid v1.1 / v1.2 (model 1 silent / informative WAIT or chord-token playing)", 10);
+    reductionTypeList.addItem("Hybrid v1.1 (model 1 silent / informative WAIT playing)", 10);
+    reductionTypeList.addItem("Hybrid v1.2 (model 1 silent / chord-token model 2 playing)", 12);
     reductionTypeList.addItem("Hybrid v1.3 (event models: m1e silent / m2e playing)", 11);
     reductionTypeList.setSelectedId(10, juce::dontSendNotification); // Hybrid v1.1
     reductionTypeList.onChange = [this] {
@@ -1080,7 +1083,9 @@ void MainComponent::loadPresetFromName(const juce::String &presetName) {
     const juce::String reductionKey =
         preset.getProperty("reduction", checkpoint->isDense ? "v1" : "amt").toString().toLowerCase();
     int desiredReductionId = 1;
-    if (reductionKey == "hybridevent")
+    if (reductionKey == "hybridchordtoken")
+        desiredReductionId = 12;
+    else if (reductionKey == "hybridevent")
         desiredReductionId = 11;
     else if (reductionKey == "hybridinformativewait")
         desiredReductionId = 10;
@@ -1213,7 +1218,7 @@ void MainComponent::clearModel() {
 
 auto MainComponent::selectedReductionIsDense() const -> bool {
     const auto id = reductionTypeList.getSelectedId();
-    return id >= 2 && id <= 11;
+    return id >= 2 && id <= 12;
 }
 
 auto MainComponent::selectedCheckpointName() const -> juce::String {
@@ -1267,6 +1272,12 @@ auto MainComponent::selectPreferredCheckpointForCurrentReduction() -> bool {
             break;
         case 10: // Hybrid v1.1
             preferred = "hybrid_v11";
+            break;
+        case 12: // Hybrid v1.2
+            preferred = "hybrid_v12";
+            break;
+        case 11: // Hybrid v1.3
+            preferred = "hybrid_v13";
             break;
         default:
             // AMT: leave first listed checkpoint if any.
@@ -1434,22 +1445,21 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
                     return;
                 }
                 SessionLog::add("HYBRID13", "loaded " + modelName);
-            } else if (reductionId == 10) {
-                session.setMusicModelArch(MusicModelArch::DenseHybridInformativeWait);
+            } else if (reductionId == 12) {
+                session.setMusicModelArch(MusicModelArch::DenseHybridChordToken);
                 // "onnx" = model 2 (piano playing), "silentOnnx" = model 1 (piano silent)
                 juce::String silentStem = parsedJson.getProperty("silentOnnx", {}).toString().trim();
                 if (silentStem.endsWithIgnoreCase(".onnx"))
                     silentStem = silentStem.dropLastCharacters(5);
                 const auto silentFile = silentStem.isNotEmpty() ? modelsDir().getChildFile(silentStem + ".onnx") : juce::File();
-                auto &hy = session.reductionTransformerHybridIW;
-                hy.setWaitMode(InformativeWaitReductionTransformer::modeFromName(
-                    parsedJson.getProperty("iwMode", "unconstrained").toString()));
+                auto &hy = session.reductionTransformerHybridChord;
+                hy.setWaitMode(static_cast<ChordTokenEngine::Mode>(InformativeWaitReductionTransformer::modeFromName(
+                    parsedJson.getProperty("iwMode", "unconstrained").toString())));
                 hy.setPrecompute(static_cast<bool>(parsedJson.getProperty("precompute", true)));
                 hy.setMinWaitCs(static_cast<int32_t>(parsedJson.getProperty("minWaitCs", 0)));
                 hy.setShortWaitRedraw(static_cast<bool>(parsedJson.getProperty("shortWaitRedraw", false)));
-                // model 2's start delay: v1.2 presets (a voicing bank) default to 3000 ms, v1.1 presets to none
-                hy.setStartDelayMs(static_cast<int32_t>(parsedJson.getProperty(
-                    "startDelayMs", parsedJson.hasProperty("voicingBank") ? 3000 : 0)));
+                // model 2's start delay (default 3000 ms)
+                hy.setStartDelayMs(static_cast<int32_t>(parsedJson.getProperty("startDelayMs", 3000)));
                 // v1.2 (chord-token model 2): the voicing bank that decodes CHORD blocks for the OT. An absolute
                 // path, or a file name looked up next to the ONNX exports, then next to the JSON.
                 hy.setVoicingBank(nullptr);
@@ -1466,9 +1476,32 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
                     || ! hy.init(silentFile.getFullPathName().toRawUTF8(), modelPathStr.toRawUTF8())) {
                     juce::AlertWindow::showMessageBoxAsync(
                         juce::AlertWindow::WarningIcon, "Error",
-                        "Failed to load '" + modelName + "' for Hybrid v1.1 / v1.2: it needs model 1's export ('" + silentStem
-                            + "', vocab 11768) and model 2's export (informative WAIT 11879, or chord-token 14071 for v1.2) in "
-                              "virtual_orch_models. "
+                        "Failed to load '" + modelName + "' for Hybrid v1.2: it needs model 1's export ('" + silentStem
+                            + "', vocab 11768) and the chord-token model 2's export (vocab 14071) in virtual_orch_models. "
+                            + juce::String(hy.lastInitError));
+                    checkpointList.setSelectedId(0, juce::dontSendNotification);
+                    return;
+                }
+                SessionLog::add("HYBRID12", "loaded " + modelName);
+            } else if (reductionId == 10) {
+                session.setMusicModelArch(MusicModelArch::DenseHybridInformativeWait);
+                // "onnx" = model 2 (piano playing), "silentOnnx" = model 1 (piano silent)
+                juce::String silentStem = parsedJson.getProperty("silentOnnx", {}).toString().trim();
+                if (silentStem.endsWithIgnoreCase(".onnx"))
+                    silentStem = silentStem.dropLastCharacters(5);
+                const auto silentFile = silentStem.isNotEmpty() ? modelsDir().getChildFile(silentStem + ".onnx") : juce::File();
+                auto &hy = session.reductionTransformerHybridIW;
+                hy.setWaitMode(InformativeWaitReductionTransformer::modeFromName(
+                    parsedJson.getProperty("iwMode", "unconstrained").toString()));
+                hy.setPrecompute(static_cast<bool>(parsedJson.getProperty("precompute", true)));
+                hy.setMinWaitCs(static_cast<int32_t>(parsedJson.getProperty("minWaitCs", 0)));
+                hy.setShortWaitRedraw(static_cast<bool>(parsedJson.getProperty("shortWaitRedraw", false)));
+                if (! silentFile.existsAsFile()
+                    || ! hy.init(silentFile.getFullPathName().toRawUTF8(), modelPathStr.toRawUTF8())) {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::AlertWindow::WarningIcon, "Error",
+                        "Failed to load '" + modelName + "' for Hybrid v1.1: it needs model 1's export ('" + silentStem
+                            + "', vocab 11768) and the informative-WAIT export (vocab 11879) in virtual_orch_models. "
                             + juce::String(hy.lastInitError));
                     checkpointList.setSelectedId(0, juce::dontSendNotification);
                     return;

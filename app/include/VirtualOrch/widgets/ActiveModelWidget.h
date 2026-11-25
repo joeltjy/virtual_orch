@@ -24,7 +24,8 @@ private:
         explicit View(AppSession &s) : session(s) {}
         auto paint(juce::Graphics &g) -> void override;
         /** Hybrid v1.1 (m1 / m2). */
-        auto paintHybridV11(juce::Graphics &g, juce::Rectangle<float> area) -> void;
+        template<typename Hybrid>
+        auto paintHybrid(juce::Graphics &g, juce::Rectangle<float> area, const Hybrid &hybrid, const char *m2Title) -> void;
         AppSession &session;
     };
 

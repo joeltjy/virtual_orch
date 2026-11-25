@@ -48,7 +48,11 @@ auto ActiveModelWidget::View::paint(juce::Graphics &g) -> void {
     const auto text = UiConstants::workspaceWidgetTitleTextColour;
 
     if (session.musicModelArch == MusicModelArch::DenseHybridInformativeWait) {
-        paintHybridV11(g, area);
+        paintHybrid(g, area, session.reductionTransformerHybridIW, "m2  informative WAIT");
+        return;
+    }
+    if (session.musicModelArch == MusicModelArch::DenseHybridChordToken) {
+        paintHybrid(g, area, session.reductionTransformerHybridChord, "m2  chord-token WAIT");
         return;
     }
     if (session.musicModelArch != MusicModelArch::DenseHybrid) {
@@ -99,10 +103,11 @@ auto ActiveModelWidget::View::paint(juce::Graphics &g) -> void {
     g.drawText(status, area.removeFromTop(16.0f), juce::Justification::centredLeft);
 }
 
-auto ActiveModelWidget::View::paintHybridV11(juce::Graphics &g, juce::Rectangle<float> area) -> void {
-    // Hybrid v1.1: model 1 (continuation) while the pianist is silent, model 2 (informative WAIT) while they play.
-    using Reason = HybridInformativeWaitReductionTransformer::Reason;
-    const auto &hybrid = session.reductionTransformerHybridIW;
+template<typename Hybrid>
+auto ActiveModelWidget::View::paintHybrid(juce::Graphics &g, juce::Rectangle<float> area, const Hybrid &hybrid,
+                                          const char *m2Title) -> void {
+    // Hybrid v1.1 / v1.2: model 1 (continuation) while the pianist is silent, model 2 (WAIT) while they play.
+    using Reason = typename Hybrid::Reason;
     const bool m1 = hybrid.usesSilentModel();
     const auto colour = m1 ? kV1Colour : kWaitColour;
     const auto text = UiConstants::workspaceWidgetTitleTextColour;
@@ -112,7 +117,7 @@ auto ActiveModelWidget::View::paintHybridV11(juce::Graphics &g, juce::Rectangle<
     g.fillRoundedRectangle(badge, 6.0f);
     g.setColour(juce::Colours::black);
     g.setFont(juce::Font(20.0f, juce::Font::bold));
-    g.drawFittedText(juce::String(m1 ? "m1  continuation" : "m2  informative WAIT") + "   "
+    g.drawFittedText(juce::String(m1 ? "m1  continuation" : m2Title) + "   "
                          + juce::String(m1 ? hybrid.silentName : hybrid.waitName),
                      badge.reduced(8.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft, 1, 0.7f);
 
@@ -138,7 +143,7 @@ auto ActiveModelWidget::View::paintHybridV11(juce::Graphics &g, juce::Rectangle<
     g.fillRoundedRectangle(bar, 3.0f);
     if (m1 && playingFor >= 0) {
         const float f = juce::jlimit(0.0f, 1.0f, static_cast<float>(playingFor)
-                                                      / static_cast<float>(HybridInformativeWaitReductionTransformer::kPlayToWaitMs));
+                                                      / static_cast<float>(Hybrid::kPlayToWaitMs));
         g.setColour(kWaitColour.withAlpha(0.8f));
         g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * f), 3.0f);
     }

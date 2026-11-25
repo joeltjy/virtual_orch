@@ -375,6 +375,8 @@ auto LogitAdjustmentsWidget::anticipatedModel() const -> RtLogitAdjustments * {
             return &session.reductionTransformerHybrid;
         case MusicModelArch::DenseHybridInformativeWait:
             return &session.reductionTransformerHybridIW;
+        case MusicModelArch::DenseHybridChordToken:
+            return &session.reductionTransformerHybridChord;
         default:
             return nullptr;
     }

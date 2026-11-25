@@ -24,14 +24,12 @@ auto denseQuad(int32_t time, int32_t durCs, int32_t instrument, int32_t pitch, i
             static_cast<int32_t>(DenseVocab::VelocityOffset) + velocity};
 }
 
-auto loadOnnx(const char *path, std::vector<size_t> vocabs, std::string &error)
-    -> std::unique_ptr<StreamingKv::OnnxBackend> {
+auto loadOnnx(const char *path, size_t vocab, std::string &error) -> std::unique_ptr<StreamingKv::OnnxBackend> {
     auto onnx = std::make_unique<StreamingKv::OnnxBackend>();
     if (! onnx->init(path, error))
         return nullptr;
-    if (std::find(vocabs.begin(), vocabs.end(), onnx->vocabSize()) == vocabs.end()) {
-        error = std::string(path) + ": vocab " + std::to_string(onnx->vocabSize()) + ", expected " + std::to_string(vocabs.front())
-                + (vocabs.size() > 1 ? " or " + std::to_string(vocabs.back()) : std::string());
+    if (onnx->vocabSize() != vocab) {
+        error = std::string(path) + ": vocab " + std::to_string(onnx->vocabSize()) + ", expected " + std::to_string(vocab);
         return nullptr;
     }
     return onnx;
@@ -40,7 +38,7 @@ auto loadOnnx(const char *path, std::vector<size_t> vocabs, std::string &error)
 } // namespace
 
 HybridInformativeWaitReductionTransformer::HybridInformativeWaitReductionTransformer(ModelConfig &modelConfigIn)
-    : ReductionTransformer("Reduction Transformer Hybrid v1.1 / v1.2", modelConfigIn) {
+    : ReductionTransformer("Reduction Transformer Hybrid v1.1", modelConfigIn) {
     const auto logger = [this](const char *who) {
         return [this, who](const InformativeWaitEngine::Event &e) {
             if (SessionLog::isRunning())
@@ -61,44 +59,22 @@ HybridInformativeWaitReductionTransformer::HybridInformativeWaitReductionTransfo
 auto HybridInformativeWaitReductionTransformer::init(const char *silentModelPath, const char *waitModelPath) -> bool {
     lastInitError.clear();
     std::string error;
-    auto silent = loadOnnx(silentModelPath, {static_cast<size_t>(InformativeWaitEngine::kWait0)}, error);
+    auto silent = loadOnnx(silentModelPath, static_cast<size_t>(InformativeWaitEngine::kWait0), error);
     if (silent == nullptr) {
         lastInitError = "silent-side model (overnight model 1, vocab 11768): " + error;
-        reportSamplingError(juce::String(label()) + ": " + juce::String(lastInitError));
+        reportSamplingError("Hybrid v1.1: " + juce::String(lastInitError));
         return false;
     }
-    // model 2: the informative-WAIT model (v1.1, vocab 11879) or the chord-token model (v1.2, vocab 14071)
-    auto wait = loadOnnx(waitModelPath, {static_cast<size_t>(InformativeWaitEngine::kVocab),
-                                         static_cast<size_t>(InformativeWaitEngine::kChordVocab)}, error);
+    auto wait = loadOnnx(waitModelPath, static_cast<size_t>(InformativeWaitEngine::kVocab), error);
     if (wait == nullptr) {
-        lastInitError = "playing-side model (informative WAIT 11879 / chord-token 14071): " + error;
-        reportSamplingError(juce::String(label()) + ": " + juce::String(lastInitError));
+        lastInitError = "playing-side model (informative WAIT, vocab 11879): " + error;
+        reportSamplingError("Hybrid v1.1: " + juce::String(lastInitError));
         return false;
     }
-    chordModel.store(wait->vocabSize() == static_cast<size_t>(InformativeWaitEngine::kChordVocab));
-    if (chordModel.load() && (voicings == nullptr || voicings->empty()))
-        SessionLog::add("HYBRID", "v1.2: no voicing bank loaded: CHORD blocks are decoded as chord tones stacked from the bass");
     silentName = juce::File(silentModelPath).getFileNameWithoutExtension().toStdString();
     waitName = juce::File(waitModelPath).getFileNameWithoutExtension().toStdString();
     initWithBackends(std::move(silent), std::move(wait));
     return true;
-}
-
-auto HybridInformativeWaitReductionTransformer::loadVoicingBank(const std::string &path) -> bool {
-    const juce::File file(path);
-    std::string error;
-    auto bank = std::make_shared<VoicingBank>();
-    if (! file.existsAsFile()) {
-        error = "voicing bank not found: " + path;
-    } else if (bank->loadJson(file.loadFileAsString().toStdString(), error)) {
-        voicings = std::move(bank);
-        SessionLog::add("HYBRID", "voicing bank " + juce::String(path) + ": " + juce::String(static_cast<int>(voicings->size())) + " keys");
-        return true;
-    }
-    voicings.reset();
-    lastInitError = error;
-    SessionLog::add("HYBRID", juce::String(error));
-    return false;
 }
 
 auto HybridInformativeWaitReductionTransformer::initWithBackends(std::unique_ptr<StreamingKv::Backend> silent,
@@ -184,12 +160,13 @@ auto HybridInformativeWaitReductionTransformer::applySettings() -> void {
     w.fireWindowCs = 6;         // +-6 cs, as in training
     w.waitTopK = 3;             // a piano onset at any of the model's 3 most likely WAIT lengths fires
     w.minWaitCs = minWaitCs.load(); // the checkpoint JSON's "minWaitCs" (0 = any length)
-    w.startDelayCs = startDelayMs.load() / 10; // ... and "startDelayMs" (v1.2 default 3000)
     w.shortWaitRedraw = shortWaitRedraw.load(); // ... and "shortWaitRedraw"
+    w.openEndedWait = true;     // a WAIT never expires: any key from t - 6 cs on fires (one-sided window)
     w.expiryGraceCs = 20;       // live input arrives ~12 cs late (p90 ~15): wait for it before expiring
     // a pitch outside the anticipated top 5 is decoded for the note played (not the rank-1 branch's):
     // with the substitution, half the fires in a B-flat/D passage played chords made for other pitches
     w.outsideTopFiveAsRankOne = false;
+    w.pitchClassBranches = true; // branches by pitch class: a key in any octave takes its class's branch
     w.maxFireNotes = getMaxPolyphony(); // monophonic (cap 1): a fire places one note, not COUNT
     w.ascendingChords = true; // W's rule: pitch >= the previous one at a shared onset
     w.maxAheadCs = 300;       // W: onsets at most 3 s ahead
@@ -210,10 +187,6 @@ auto HybridInformativeWaitReductionTransformer::applySettings() -> void {
     w.onsetGapTau = getOnsetGapTauBase();
     w.pitchLow = low;
     w.pitchHigh = high;
-    // v1.2: the chord-token model 2 (B3f): CHORD blocks, [LATE d] (at most 2, then give up), [DUR?]
-    w.chordTokens = chordModel.load();
-    w.voicings = voicings;
-    w.maxLates = 2;
     waitEngine.setSettings(w);
 }
 
@@ -492,7 +465,7 @@ auto HybridInformativeWaitReductionTransformer::generate(int32_t now) -> bool {
     if (! out.empty())
         notifyInputDataChanged();
     if (! active.lastError.empty()) {
-        reportSamplingError(juce::String(label()) + ": " + juce::String(active.lastError));
+        reportSamplingError("Hybrid v1.1: " + juce::String(active.lastError));
         active.lastError.clear();
     }
     return ! out.empty();
@@ -630,7 +603,7 @@ auto HybridInformativeWaitReductionTransformer::logWaitEvent(const InformativeWa
     // Model 2's WAITs, as RT_WAIT records: "wait" (drawn: d, COUNT k, the onset-step and COUNT draws),
     // then what became of it: "fire", "snap" (a top-3 length), "early" (a piano onset before / between
     // the windows: ordinary input), "expired", "hit" / "miss" (the precomputed branch or not), "short".
-    static const std::set<std::string> kinds{"wait", "fire", "snap", "early", "expired", "hit", "miss", "short", "late", "chord"};
+    static const std::set<std::string> kinds{"wait", "fire", "snap", "early", "expired", "hit", "miss", "short"};
     if (! OpLog::on() || kinds.count(e.what) == 0)
         return;
     std::vector<OpLog::Field> f{{"model", "m2"}, {"decision", e.what}, {"at", e.atCs}, {"a", e.a}, {"b", e.b}};

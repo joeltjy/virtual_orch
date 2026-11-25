@@ -8,20 +8,20 @@
 
 #include <VirtualOrch/reduction/ChordTheory.h>
 #include <VirtualOrch/reduction/DenseTypes.h>
-#include <VirtualOrch/reduction/HybridInformativeWaitReductionTransformer.h>
-#include <VirtualOrch/reduction/InformativeWaitEngine.h>
+#include <VirtualOrch/reduction/HybridChordTokenReductionTransformer.h>
+#include <VirtualOrch/reduction/ChordTokenEngine.h>
 #include <VirtualOrch/reduction/StreamingKvCache.h>
 #include <VirtualOrch/reduction/VoicingBank.h>
 
 /**
  * Hybrid v1.2: the chord-token model 2 (m2c, vocab 14071; orchestration/overnight/pkg/wait3.py, spec B3f) in
- * InformativeWaitEngine's chordTokens mode, against a scripted backend: [WAIT d][K k,+1], the CHORD block at a fire
+ * ChordTokenEngine's chordTokens mode, against a scripted backend: [WAIT d][K k,+1], the CHORD block at a fire
  * (a matching chord candidate, or inferred from the piano notes), the leftover quad, [LATE d] or [EXPIRED] at a close, then a re-wait or a give-up, the 6 / 12 cs floors and the
  * [DUR?] rule; and the voicing bank.
  */
 namespace {
 
-using Engine = InformativeWaitEngine;
+using Engine = ChordTokenEngine;
 using namespace StreamingKv;
 
 constexpr int32_t kMaj = 7; // VoicingBank::kTypeNames index
@@ -633,7 +633,7 @@ TEST(ChordTokenEngine, ModelOneSeesAFiredChordAsPlainQuads) {
 
 TEST(ChordTokenEngine, HybridRunsTheChordModelAndSwitchesToIt) {
     ModelConfig config;
-    HybridInformativeWaitReductionTransformer hy(config);
+    HybridChordTokenReductionTransformer hy(config);
     auto silent = std::make_unique<ChordScript>();
     silent->waitD = 0;
     silent->onsetRel = 40;
@@ -885,4 +885,20 @@ TEST(ChordTokenEngine, NothingIsDrawnDuringTheStartDelay) {
     EXPECT_FALSE(rig.played.empty() && rig.engine.stats().waitsDrawn == 0);
     for (const auto &n: rig.played)
         EXPECT_GE(n.onsetCs, 300);
+}
+
+TEST(ChordTokenEngine, HybridV12LoadsTheChordModel) {
+    const auto dir = juce::File::getSpecialLocation(juce::File::userHomeDirectory).getChildFile("Documents/virtual_orch_models");
+    const auto m1 = dir.getChildFile("rt_continuation_latest.onnx");
+    const auto m2 = dir.getChildFile("v1.2_simultaneous.onnx");
+    const auto bank = dir.getChildFile("voicing_bank.json");
+    if (! m1.existsAsFile() || ! m2.existsAsFile() || ! bank.existsAsFile())
+        GTEST_SKIP() << "rt_continuation_latest / v1.2_simultaneous / voicing_bank not on this machine";
+    ModelConfig config;
+    HybridChordTokenReductionTransformer hy(config);
+    hy.loadVoicingBank(bank.getFullPathName().toStdString());
+    ASSERT_TRUE(hy.init(m1.getFullPathName().toRawUTF8(), m2.getFullPathName().toRawUTF8())) << hy.lastInitError;
+    EXPECT_TRUE(hy.isModelLoaded());
+    EXPECT_TRUE(hy.isChordModel());
+    EXPECT_STREQ(hy.label(), "Hybrid v1.2");
 }

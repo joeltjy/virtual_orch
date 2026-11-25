@@ -7,7 +7,7 @@
   "defaultPreset": {},
   "onnx": "v1.2_simultaneous",
   "silentOnnx": "rt_continuation_latest",
-  "reductionType": 10,
+  "reductionType": 12,
   "iwMode": "unconstrained",
   "precompute": true,
   "voicingBank": "voicing_bank.json",

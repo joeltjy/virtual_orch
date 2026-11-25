@@ -2,6 +2,7 @@
 
 #include "VirtualOrch/AppSession.h"
 #include "VirtualOrch/reduction/HybridInformativeWaitReductionTransformer.h"
+#include "VirtualOrch/reduction/HybridChordTokenReductionTransformer.h"
 #include "VirtualOrch/reduction/InformativeWaitReductionTransformer.h"
 #include "VirtualOrch/ui/UiConstants.h"
 
@@ -336,6 +337,8 @@ auto WaitVisualizerWidget::timerCallback() -> void {
     auto &rt = session.activeReduction();
     if (auto *hy = dynamic_cast<HybridInformativeWaitReductionTransformer *>(&rt))
         view.setState(hy->waitState(), now, "Hybrid v1.1, playing side");
+    else if (auto *h12 = dynamic_cast<HybridChordTokenReductionTransformer *>(&rt))
+        view.setState(h12->waitState(), now, "Hybrid v1.2, playing side");
     else if (auto *iw = dynamic_cast<InformativeWaitReductionTransformer *>(&rt))
         view.setState(iw->waitState(), now, "Informative WAIT");
     else

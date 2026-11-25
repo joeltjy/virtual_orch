@@ -58,9 +58,8 @@ public:
         } else if (last <= Engine::kOnsetMax) {
             set(Engine::kDur0 + 50, 20.0f); // duration 50 cs
         } else if (last >= Engine::kDur0 && last < Engine::kPiano0) {
-            const int pianoPitches[] = {60, 62, 64, 65, 67};
-            for (int i = 0; i < 5; ++i)
-                set(Engine::kPiano0 + pianoPitches[i], 10.0f - static_cast<float>(i));
+            for (size_t i = 0; i < pianoPitches->size(); ++i)
+                set(Engine::kPiano0 + (*pianoPitches)[i], 10.0f - static_cast<float>(i));
             set(Engine::kOrch0 + 60, 9.0f);
             set(Engine::kOrch0 + 64, 8.8f);
             set(Engine::kOrch0 + 67, 8.6f);
@@ -114,6 +113,8 @@ public:
     std::shared_ptr<int32_t> count = std::make_shared<int32_t>(2);
     std::shared_ptr<int32_t> onsetRel = std::make_shared<int32_t>(10);
     std::shared_ptr<float> onsetSlope = std::make_shared<float>(0.0f);
+    /** The piano pitches the model expects next, likeliest first. */
+    std::shared_ptr<std::vector<int>> pianoPitches = std::make_shared<std::vector<int>>(std::vector<int>{60, 62, 64, 65, 67});
     bool batching = true;
     int calls = 0;
     int batchedCalls = 0;
@@ -298,6 +299,52 @@ TEST(InformativeWaitEngine, APitchOutsideTheTopFivePlaysTheRankOneBranch) {
     EXPECT_EQ(rig.engine.stats().antTop5, 0) << "still scored as outside the top 5";
 }
 
+TEST(InformativeWaitEngine, PitchClassBranchesServeAKeyInAnyOctave) {
+    Rig rig(Engine::Mode::Unconstrained);
+    auto s = rig.engine.settings();
+    s.outsideTopFiveAsRankOne = false;
+    s.pitchClassBranches = true;
+    rig.engine.setSettings(s);
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 30); // [WAIT 30][COUNT 2]; the scripted model's top classes are C D E F G (60 62 64 65 67)
+    ASSERT_TRUE(rig.engine.precomputeComplete());
+    EXPECT_EQ(rig.engine.anticipatedPitches(), (std::vector<int32_t>{60, 62, 64, 65, 67}));
+    rig.played.clear();
+    rig.engine.noteOn(31, 50, 80); // D3: D's branch (62), drawn an octave up
+    const auto out = rig.engine.step(31);
+    ASSERT_EQ(out.size(), 2u) << "all COUNT notes at once, from D's branch";
+    for (const auto &n: out)
+        EXPECT_TRUE(n.precomputed);
+    EXPECT_EQ(rig.engine.stats().precomputeHits, 1);
+    EXPECT_EQ(rig.engine.stats().fireDecoded, 0);
+    EXPECT_EQ(rig.engine.stats().antTop5, 1) << "D is among the top 5 pitch classes";
+    const auto hit = std::find_if(rig.events.begin(), rig.events.end(), [](const auto &e) { return e.what == "hit"; });
+    ASSERT_NE(hit, rig.events.end());
+    EXPECT_NE(hit->text.find("pitch class"), std::string::npos);
+    const auto toks = rig.engine.tokens();
+    EXPECT_NE(std::find(toks.begin(), toks.end(), Engine::kPiano0 + 50), toks.end()) << "the context has the key played";
+}
+
+TEST(InformativeWaitEngine, PitchClassBranchesSpendNoTwoBranchesOnOneClass) {
+    Rig rig(Engine::Mode::Unconstrained);
+    *rig.model.pianoPitches = {60, 72, 62, 74, 64, 65}; // by pitch: C4 C5 D4 D5 E4 (two each of C and D)
+    auto s = rig.engine.settings();
+    s.pitchClassBranches = true;
+    rig.engine.setSettings(s);
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 22);
+    ASSERT_TRUE(rig.engine.precomputeComplete());
+    const auto top = rig.engine.anticipatedPitches();
+    ASSERT_EQ(top.size(), 5u);
+    // C D E F at their likeliest octave (C4 not C5, D4 not D5); the fifth is a class the model gives only its floor
+    EXPECT_EQ(std::vector<int32_t>(top.begin(), top.begin() + 4), (std::vector<int32_t>{60, 62, 64, 65}));
+    std::vector<int32_t> classes;
+    for (const auto p: rig.engine.anticipatedPitches())
+        classes.push_back(p % 12);
+    std::sort(classes.begin(), classes.end());
+    EXPECT_EQ(std::unique(classes.begin(), classes.end()), classes.end());
+}
+
 TEST(InformativeWaitEngine, MissDecodesOnTheSpot) {
     Rig rig(Engine::Mode::Unconstrained);
     auto s = rig.engine.settings();
@@ -329,6 +376,45 @@ TEST(InformativeWaitEngine, NoPianoWritesExpired) {
     // the model draws again after the expiry (another WAIT, measured from the expiry at 36)
     rig.run(38, 38);
     EXPECT_EQ(rig.engine.stats().waitsDrawn, 2);
+}
+
+TEST(InformativeWaitEngine, AnOpenEndedWaitNeverExpiresAndFiresOnALateKey) {
+    Rig rig(Engine::Mode::Unconstrained);
+    auto s = rig.engine.settings();
+    s.openEndedWait = true;
+    s.expiryGraceCs = 20;
+    rig.engine.setSettings(s);
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 200); // [WAIT 30]: its window [24, 36] closed long ago
+    EXPECT_TRUE(rig.engine.hasPendingWait()) << "waits for the pianist";
+    EXPECT_EQ(rig.engine.stats().expired, 0);
+    EXPECT_TRUE(rig.played.empty());
+    rig.engine.noteOn(201, 60, 80);
+    const auto out = rig.engine.step(201);
+    ASSERT_EQ(out.size(), 2u);
+    for (const auto &n: out) {
+        EXPECT_EQ(n.onsetCs, 201);
+        EXPECT_TRUE(n.precomputed);
+    }
+    EXPECT_EQ(rig.engine.stats().fires, 1);
+    EXPECT_FALSE(rig.engine.hasPendingWait());
+    const auto toks = rig.engine.tokens();
+    EXPECT_EQ(toks[4], Engine::waitToken(201)) << "the WAIT says how long it was";
+    EXPECT_EQ(std::find(toks.begin(), toks.end(), Engine::kExpired), toks.end());
+}
+
+TEST(InformativeWaitEngine, AnOpenEndedWaitStillTakesAnEarlyKeyAsInput) {
+    Rig rig(Engine::Mode::Unconstrained);
+    auto s = rig.engine.settings();
+    s.openEndedWait = true;
+    rig.engine.setSettings(s);
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 15); // [WAIT 30] drawn at 5: window from 29
+    ASSERT_TRUE(rig.engine.hasPendingWait());
+    rig.engine.noteOn(16, 62, 80); // before t - 6: early, ordinary input
+    rig.run(16, 16);
+    EXPECT_EQ(rig.engine.stats().earlyPiano, 1);
+    EXPECT_EQ(rig.engine.stats().fires, 0);
 }
 
 TEST(InformativeWaitEngine, AWiderWindowExpiresLater) {
@@ -977,22 +1063,6 @@ TEST(InformativeWaitOnnx, HybridV11LoadsBothModels) {
     // the wrong way round is refused (vocab check)
     HybridInformativeWaitReductionTransformer wrong(config);
     EXPECT_FALSE(wrong.init(m2.c_str(), m1.c_str()));
-}
-
-TEST(InformativeWaitOnnx, HybridV12LoadsTheChordModel) {
-    const auto dir = home() + "/Documents/virtual_orch_models/";
-    const auto m1 = dir + "rt_continuation_latest.onnx";
-    const auto m2 = dir + "v1.2_simultaneous.onnx";
-    const auto bank = dir + "voicing_bank.json";
-    if (! juce::File(m1).existsAsFile() || ! juce::File(m2).existsAsFile() || ! juce::File(bank).existsAsFile())
-        GTEST_SKIP() << "rt_continuation_latest / v1.2_simultaneous / voicing_bank not on this machine";
-    ModelConfig config;
-    HybridInformativeWaitReductionTransformer hy(config);
-    hy.loadVoicingBank(bank);
-    ASSERT_TRUE(hy.init(m1.c_str(), m2.c_str())) << hy.lastInitError;
-    EXPECT_TRUE(hy.isModelLoaded());
-    EXPECT_TRUE(hy.isChordModel()); // vocab 14071
-    EXPECT_STREQ(hy.label(), "Hybrid v1.2");
 }
 
 TEST(InformativeWaitOnnx, MatchesPythonSampler) {

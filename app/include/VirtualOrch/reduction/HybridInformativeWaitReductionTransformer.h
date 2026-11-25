@@ -35,12 +35,6 @@
  * WAIT); the gamma goes to that model's onset draws (InformativeWaitEngine::Settings::tdGamma). Both go back to
  * their warm-start gamma on a stream restart; a pedal press only drops a negative gamma. TD AUTO: no shift.
  *
- * Hybrid v1.2 (2026-11-24): the same, with the chord-token model 2 (m2c, vocab 14071; picked by the ONNX vocab): its
- * engine runs InformativeWaitEngine::Settings::chordTokens (CHORD blocks decoded for the OT with the preset's voicing
- * bank, [LATE d], [DUR?]). Model 1 needs nothing new: it never reads model 2's tokens; each model-2 note it mirrors
- * is a decoded chord note (or the leftover), so model 1 sees the chord as plain quads, and its own piano durations
- * stay its own estimate / release rewrite.
- *
  * Logit adjustments as the legacy Hybrid (RtLogitAdjustments): model 1 takes the silent side's (hybridV1*, all ON,
  * base taus), model 2 the main ones (all OFF, the widget's taus); the BiasSettings switch and silence gate apply to
  * the three biases; both draw within the Launchpad register range.
@@ -69,15 +63,8 @@ public:
     void threadRun();
     void threadStop() {}
 
-    /** Load model 1 (silent side, vocab 11768) and model 2 (playing side, vocab 11879 = v1.1, 14071 = v1.2). */
+    /** Load model 1 (silent side, vocab 11768) and model 2 (playing side, vocab 11879). */
     auto init(const char *silentModelPath, const char *waitModelPath) -> bool;
-    /** v1.2: the voicing bank (orchestration/overnight/results/voicing_bank_m2c.json); false if unreadable. */
-    auto loadVoicingBank(const std::string &path) -> bool;
-    /** Tests: the bank directly, and the chord-token mode without an ONNX vocab check. */
-    auto setVoicingBank(std::shared_ptr<const VoicingBank> bank) -> void { voicings = std::move(bank); }
-    auto setChordModel(bool on) -> void { chordModel.store(on); }
-    [[nodiscard]] auto isChordModel() const -> bool { return chordModel.load(); }
-    [[nodiscard]] auto label() const -> const char * { return chordModel.load() ? "Hybrid v1.2" : "Hybrid v1.1"; }
     /** Tests: other backends (owned). */
     auto initWithBackends(std::unique_ptr<StreamingKv::Backend> silent, std::unique_ptr<StreamingKv::Backend> wait)
         -> void;
@@ -91,8 +78,6 @@ public:
     auto setPrecompute(bool on) -> void { precompute.store(on); }
     /** Model 2's shortest allowed WAIT (cs; 0 = any): InformativeWaitEngine::Settings::minWaitCs. */
     auto setMinWaitCs(int32_t cs) -> void { minWaitCs.store(cs); }
-    /** Model 2's start delay (ms; 0 = none): InformativeWaitEngine::Settings::startDelayCs. */
-    auto setStartDelayMs(int32_t ms) -> void { startDelayMs.store(ms); }
     /** A short WAIT's orchestra note: at its predicted onset (false) or at a redrawn onset (true). */
     auto setShortWaitRedraw(bool on) -> void { shortWaitRedraw.store(on); }
     [[nodiscard]] auto usesSilentModel() const -> bool { return silentActive.load(); }
@@ -175,10 +160,7 @@ private:
     std::atomic<int> waitMode{0};
     std::atomic<bool> precompute{true};
     std::atomic<int32_t> minWaitCs{0};
-    std::atomic<int32_t> startDelayMs{0};
     std::atomic<bool> shortWaitRedraw{false};
-    std::atomic<bool> chordModel{false};
-    std::shared_ptr<const VoicingBank> voicings;
     int64_t playingSinceMs = -1;
     std::atomic<int64_t> playingForValue{-1};
     uint64_t silentSeed = 0; // random per run (threadRun); fixed in tests

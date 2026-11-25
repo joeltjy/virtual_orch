@@ -1,0 +1,53 @@
+0.1 | clock - | SESSION | start 24 Nov 2026 20:43:49
+0.2 | clock - | SESSION | launchpad layout 2
+4907.4 | clock 0 | HYBRID | loaded hybrid_v11
+4968.2 | clock 0 | PEDAL | pedal device selected: orchestra silent until pedal down
+4969.3 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+6051.9 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | F0 00 20 29 02 0D 00 7F F7 (f0 00 20 29 02 0d 00 7f f7)
+6596.6 | clock 0 | MODE | Jam
+25696.5 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+28740.7 | clock - | MIDI_OUT | clear: note off on every channel and pitch
+29608.0 | clock 0 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | B0 0B 7E (Controller Expression (coarse): 126 Channel 1)
+29608.0 | clock 0 | MIDI_OUT | thru | BF 0B 7E (Controller Expression (coarse): 126 Channel 16)
+29608.0 | clock 0 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | B0 0B 7F (Controller Expression (coarse): 127 Channel 1)
+29608.0 | clock 0 | MIDI_OUT | thru | BF 0B 7F (Controller Expression (coarse): 127 Channel 16)
+29608.0 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+29608.0 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | F0 00 20 29 02 0D 00 7F F7 (f0 00 20 29 02 0d 00 7f f7)
+29608.0 | clock 0 | MODE | Jam
+29608.0 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 41 7F (Note on F3 Velocity 127 Channel 1)
+29608.0 | clock 0 | LAUNCHPAD | Model: Str Ens on
+29608.0 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 42 7F (Note on F#3 Velocity 127 Channel 1)
+29608.0 | clock 0 | LAUNCHPAD | Model: Pizz on
+29608.0 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 43 7F (Note on G3 Velocity 127 Channel 1)
+29608.0 | clock 0 | LAUNCHPAD | Model: Tremolo on
+29608.1 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 41 00 (Note off F3 Velocity 0 Channel 1)
+29608.1 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 42 00 (Note off F#3 Velocity 0 Channel 1)
+29608.1 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 43 00 (Note off G3 Velocity 0 Channel 1)
+29608.1 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 37 7F (Note on G2 Velocity 127 Channel 1)
+29608.1 | clock 0 | LAUNCHPAD | Model: Flute on
+29608.1 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 39 7F (Note on A2 Velocity 127 Channel 1)
+29608.1 | clock 0 | LAUNCHPAD | Model: Clarinet on
+29608.1 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 38 7F (Note on G#2 Velocity 127 Channel 1)
+29608.1 | clock 0 | LAUNCHPAD | Model: Oboe on
+29608.1 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 37 00 (Note off G2 Velocity 0 Channel 1)
+29608.1 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 38 00 (Note off G#2 Velocity 0 Channel 1)
+29608.1 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 39 00 (Note off A2 Velocity 0 Channel 1)
+29608.1 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2D 7F (Note on A1 Velocity 127 Channel 1)
+29608.1 | clock 0 | LAUNCHPAD | Model: Horn on
+29608.1 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2E 7F (Note on A#1 Velocity 127 Channel 1)
+29608.1 | clock 0 | LAUNCHPAD | Model: Trumpet on
+29608.1 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2F 7F (Note on B1 Velocity 127 Channel 1)
+29608.1 | clock 0 | LAUNCHPAD | Model: Trombone on
+29608.1 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2D 00 (Note off A1 Velocity 0 Channel 1)
+29608.1 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2E 00 (Note off A#1 Velocity 0 Channel 1)
+29608.1 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2F 00 (Note off B1 Velocity 0 Channel 1)
+29608.1 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+29608.1 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+29608.2 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+29608.2 | clock 0 | MODE | Jam
+29608.2 | clock 0 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 41 50 (Note on F3 Velocity 80 Channel 1)
+29608.2 | clock 0 | MIDI_OUT | thru | 9F 41 50 (Note on F3 Velocity 80 Channel 16)
+587601.3 | clock - | MIDI_OUT | clear: note off on every channel and pitch
+587781.1 | clock - | MIDI_OUT | clear: note off on every channel and pitch
+587931.5 | clock - | MIDI_OUT | clear: note off on every channel and pitch
+588012.5 | clock - | SESSION | stop

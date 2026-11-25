@@ -1,0 +1,1367 @@
+0.1 | clock - | SESSION | start 24 Nov 2026 20:06:23
+0.1 | clock - | SESSION | launchpad layout 2
+1515.0 | clock - | UI | Presets: version1.1_fast changed in the app, kept your edited copy
+1515.3 | clock - | UI | Presets: version1.1 changed in the app, kept your edited copy
+2765.4 | clock 0 | UI | Presets: version1.1_fast changed in the app, kept your edited copy
+2765.5 | clock 0 | UI | Presets: version1.1 changed in the app, kept your edited copy
+5666.8 | clock 0 | HYBRID | loaded hybrid_v11
+5674.5 | clock 0 | PEDAL | pedal device selected: orchestra silent until pedal down
+5676.1 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+5677.1 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | F0 00 20 29 02 0D 00 7F F7 (f0 00 20 29 02 0d 00 7f f7)
+7405.8 | clock 0 | MODE | Jam
+142804.9 | clock 0 | UI | Preset applied: {"model": "hybrid_v11", "orchestrationModel": "IodPretrained", "orchestrationMode": "jam", "reduction": "hybridInformativeWait", "inputMode": "direct", "directInputWindowLength": 1, "directInputSendNoteOffs": true, "directInputStartOnInput": false, "directInputStartDelay": 0, "directInputHoldBass": false, "directInputBassLow": 24, "directInputBassHigh": 36, "directInputInitialBass": -1, "inputInstrument": 0, "inputLow": 36, "inputHigh": 120, "inputDuration": 400, "inputInitialData": "", "contextNotes": 40, "outputMinimumDuration": 10, "outputMaximumDuration": 999, "outputTemperatures": [0.5, 0.5, 0.5], "outputStartTime": 0, "outputForceStartTime": false, "outputMaxAheadSeconds": 5, "outputAheadThrottleSeconds": 2, "outputInstruments": [{"id": 1, "active": false, "monophony": false, "low": 36, "high": 120}], "logitAdjustments": {"biasesOn": true, "biasesOnlyWhenPianoSilent": false, "logitTdStrength": 6.0, "model": {"pitchBias": false, "durationBias": false, "onsetGapBias": false, "shortGapPenalty": false, "logitTd": false, "pitchTau": 0.2000000029802322, "pitchTauPrime": 0.2000000029802322, "durationTau": 0.5, "durationTauPrime": 0.0, "onsetGapTau": 0.5, "waitMinPlay": 0.300000011920929}, "hybridV1": {"pitchBias": true, "durationBias": true, "onsetGapBias": true, "shortGapPenalty": true, "logitTd": true}}}
+142805.2 | clock 0 | HYBRID | rt_continuation_latest from 0 (start)
+144534.1 | clock 173 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 41 7F (Note on F3 Velocity 127 Channel 1)
+144534.2 | clock 173 | LAUNCHPAD | Model: Str Ens on
+144548.1 | clock 174 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 43 7F (Note on G3 Velocity 127 Channel 1)
+144548.2 | clock 174 | LAUNCHPAD | Model: Tremolo on
+144550.4 | clock 174 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 42 7F (Note on F#3 Velocity 127 Channel 1)
+144550.5 | clock 174 | LAUNCHPAD | Model: Pizz on
+144651.3 | clock 184 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 43 00 (Note off G3 Velocity 0 Channel 1)
+144681.0 | clock 187 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 41 00 (Note off F3 Velocity 0 Channel 1)
+144684.2 | clock 188 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 42 00 (Note off F#3 Velocity 0 Channel 1)
+144987.6 | clock 218 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 39 7F (Note on A2 Velocity 127 Channel 1)
+144987.6 | clock 218 | LAUNCHPAD | Model: Clarinet on
+144990.9 | clock 218 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 38 7F (Note on G#2 Velocity 127 Channel 1)
+144991.0 | clock 218 | LAUNCHPAD | Model: Oboe on
+145006.2 | clock 220 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 37 7F (Note on G2 Velocity 127 Channel 1)
+145006.3 | clock 220 | LAUNCHPAD | Model: Flute on
+145063.0 | clock 226 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 37 00 (Note off G2 Velocity 0 Channel 1)
+145069.9 | clock 226 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 39 00 (Note off A2 Velocity 0 Channel 1)
+145080.1 | clock 227 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 38 00 (Note off G#2 Velocity 0 Channel 1)
+145228.1 | clock 242 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2D 7F (Note on A1 Velocity 127 Channel 1)
+145228.2 | clock 242 | LAUNCHPAD | Model: Horn on
+145237.4 | clock 243 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2F 7F (Note on B1 Velocity 127 Channel 1)
+145237.5 | clock 243 | LAUNCHPAD | Model: Trombone on
+145240.3 | clock 243 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2E 7F (Note on A#1 Velocity 127 Channel 1)
+145240.4 | clock 243 | LAUNCHPAD | Model: Trumpet on
+145363.9 | clock 256 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2F 00 (Note off B1 Velocity 0 Channel 1)
+145398.1 | clock 259 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2D 00 (Note off A1 Velocity 0 Channel 1)
+145406.1 | clock 260 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2E 00 (Note off A#1 Velocity 0 Channel 1)
+146136.7 | clock 333 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 41 4F (Note on F3 Velocity 79 Channel 1)
+146136.8 | clock 333 | MIDI_OUT | thru | 9F 41 4F (Note on F3 Velocity 79 Channel 16)
+146183.0 | clock 338 | IWAIT | m1 | piano @333 1 0
+146183.0 | clock 338 | IWAIT | m2 | piano @333 1 0
+146271.3 | clock 346 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 43 4E (Note on G3 Velocity 78 Channel 1)
+146271.4 | clock 346 | MIDI_OUT | thru | 9F 43 4E (Note on G3 Velocity 78 Channel 16)
+146312.3 | clock 351 | IWAIT | m1 | piano @346 1 0
+146312.3 | clock 351 | IWAIT | m2 | piano @346 1 0
+146358.0 | clock 355 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 41 00 (Note off F3 Velocity 0 Channel 1)
+146358.0 | clock 355 | MIDI_OUT | thru | 8F 41 00 (Note off F3 Velocity 0 Channel 16)
+146410.4 | clock 360 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 45 4E (Note on A3 Velocity 78 Channel 1)
+146410.5 | clock 360 | MIDI_OUT | thru | 9F 45 4E (Note on A3 Velocity 78 Channel 16)
+146449.6 | clock 364 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 43 00 (Note off G3 Velocity 0 Channel 1)
+146449.7 | clock 364 | MIDI_OUT | thru | 8F 43 00 (Note off G3 Velocity 0 Channel 16)
+146455.0 | clock 365 | IWAIT | m1 | piano @360 1 0
+146455.0 | clock 365 | IWAIT | m2 | piano @360 1 0
+146527.8 | clock 372 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 46 59 (Note on A#3 Velocity 89 Channel 1)
+146527.9 | clock 372 | MIDI_OUT | thru | 9F 46 59 (Note on A#3 Velocity 89 Channel 16)
+146562.2 | clock 376 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 45 00 (Note off A3 Velocity 0 Channel 1)
+146562.3 | clock 376 | MIDI_OUT | thru | 8F 45 00 (Note off A3 Velocity 0 Channel 16)
+146572.8 | clock 377 | IWAIT | m1 | piano @372 1 0
+146572.8 | clock 377 | IWAIT | m2 | piano @372 1 0
+146650.5 | clock 384 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 48 65 (Note on C4 Velocity 101 Channel 1)
+146650.5 | clock 384 | MIDI_OUT | thru | 9F 48 65 (Note on C4 Velocity 101 Channel 16)
+146689.4 | clock 388 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 46 00 (Note off A#3 Velocity 0 Channel 1)
+146689.5 | clock 388 | MIDI_OUT | thru | 8F 46 00 (Note off A#3 Velocity 0 Channel 16)
+146694.8 | clock 389 | IWAIT | m1 | piano @384 1 0
+146694.8 | clock 389 | IWAIT | m2 | piano @384 1 0
+146726.0 | clock 392 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 48 00 (Note off C4 Velocity 0 Channel 1)
+146726.1 | clock 392 | MIDI_OUT | thru | 8F 48 00 (Note off C4 Velocity 0 Channel 16)
+147109.4 | clock 430 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 48 5D (Note on C4 Velocity 93 Channel 1)
+147109.5 | clock 430 | MIDI_OUT | thru | 9F 48 5D (Note on C4 Velocity 93 Channel 16)
+147110.9 | clock 430 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 41 4E (Note on F3 Velocity 78 Channel 1)
+147110.9 | clock 430 | MIDI_OUT | thru | 9F 41 4E (Note on F3 Velocity 78 Channel 16)
+147121.4 | clock 431 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 45 46 (Note on A3 Velocity 70 Channel 1)
+147121.5 | clock 431 | MIDI_OUT | thru | 9F 45 46 (Note on A3 Velocity 70 Channel 16)
+147153.0 | clock 435 | IWAIT | m1 | piano @430 3 0
+147153.0 | clock 435 | IWAIT | m2 | piano @430 3 0
+147185.6 | clock 438 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 45 00 (Note off A3 Velocity 0 Channel 1)
+147185.6 | clock 438 | MIDI_OUT | thru | 8F 45 00 (Note off A3 Velocity 0 Channel 16)
+147195.5 | clock 439 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 41 00 (Note off F3 Velocity 0 Channel 1)
+147195.5 | clock 439 | MIDI_OUT | thru | 8F 41 00 (Note off F3 Velocity 0 Channel 16)
+147204.3 | clock 440 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 48 00 (Note off C4 Velocity 0 Channel 1)
+147204.3 | clock 440 | MIDI_OUT | thru | 8F 48 00 (Note off C4 Velocity 0 Channel 16)
+147586.4 | clock 478 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 41 4A (Note on F3 Velocity 74 Channel 1)
+147586.5 | clock 478 | MIDI_OUT | thru | 9F 41 4A (Note on F3 Velocity 74 Channel 16)
+147586.9 | clock 478 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 48 55 (Note on C4 Velocity 85 Channel 1)
+147587.0 | clock 478 | MIDI_OUT | thru | 9F 48 55 (Note on C4 Velocity 85 Channel 16)
+147594.2 | clock 479 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 45 4F (Note on A3 Velocity 79 Channel 1)
+147594.2 | clock 479 | MIDI_OUT | thru | 9F 45 4F (Note on A3 Velocity 79 Channel 16)
+147632.5 | clock 483 | IWAIT | m1 | piano @478 3 0
+147632.5 | clock 483 | IWAIT | m2 | piano @478 3 0
+147652.4 | clock 485 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 45 00 (Note off A3 Velocity 0 Channel 1)
+147652.4 | clock 485 | MIDI_OUT | thru | 8F 45 00 (Note off A3 Velocity 0 Channel 16)
+147669.2 | clock 486 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 41 00 (Note off F3 Velocity 0 Channel 1)
+147669.3 | clock 486 | MIDI_OUT | thru | 8F 41 00 (Note off F3 Velocity 0 Channel 16)
+147679.9 | clock 487 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 48 00 (Note off C4 Velocity 0 Channel 1)
+147680.0 | clock 487 | MIDI_OUT | thru | 8F 48 00 (Note off C4 Velocity 0 Channel 16)
+148024.2 | clock 522 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 4A 60 (Note on D4 Velocity 96 Channel 1)
+148024.3 | clock 522 | MIDI_OUT | thru | 9F 4A 60 (Note on D4 Velocity 96 Channel 16)
+148030.0 | clock 522 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 46 4D (Note on A#3 Velocity 77 Channel 1)
+148030.0 | clock 522 | MIDI_OUT | thru | 9F 46 4D (Note on A#3 Velocity 77 Channel 16)
+148032.5 | clock 523 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 41 48 (Note on F3 Velocity 72 Channel 1)
+148032.5 | clock 523 | MIDI_OUT | thru | 9F 41 48 (Note on F3 Velocity 72 Channel 16)
+148074.2 | clock 527 | IWAIT | m1 | piano @522 3 0
+148074.2 | clock 527 | IWAIT | m2 | piano @522 3 0
+148111.4 | clock 530 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 46 00 (Note off A#3 Velocity 0 Channel 1)
+148111.4 | clock 530 | MIDI_OUT | thru | 8F 46 00 (Note off A#3 Velocity 0 Channel 16)
+148118.6 | clock 531 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 41 00 (Note off F3 Velocity 0 Channel 1)
+148118.7 | clock 531 | MIDI_OUT | thru | 8F 41 00 (Note off F3 Velocity 0 Channel 16)
+148118.7 | clock 531 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 4A 00 (Note off D4 Velocity 0 Channel 1)
+148118.7 | clock 531 | MIDI_OUT | thru | 8F 4A 00 (Note off D4 Velocity 0 Channel 16)
+148507.4 | clock 570 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 45 4F (Note on A3 Velocity 79 Channel 1)
+148507.5 | clock 570 | MIDI_OUT | thru | 9F 45 4F (Note on A3 Velocity 79 Channel 16)
+148508.9 | clock 570 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 48 5D (Note on C4 Velocity 93 Channel 1)
+148509.0 | clock 570 | MIDI_OUT | thru | 9F 48 5D (Note on C4 Velocity 93 Channel 16)
+148509.8 | clock 570 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 41 47 (Note on F3 Velocity 71 Channel 1)
+148509.9 | clock 570 | MIDI_OUT | thru | 9F 41 47 (Note on F3 Velocity 71 Channel 16)
+148553.4 | clock 575 | IWAIT | m1 | piano @570 3 0
+148553.4 | clock 575 | IWAIT | m2 | piano @570 3 0
+148600.5 | clock 579 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 45 00 (Note off A3 Velocity 0 Channel 1)
+148600.6 | clock 579 | MIDI_OUT | thru | 8F 45 00 (Note off A3 Velocity 0 Channel 16)
+148605.4 | clock 580 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 48 00 (Note off C4 Velocity 0 Channel 1)
+148605.4 | clock 580 | MIDI_OUT | thru | 8F 48 00 (Note off C4 Velocity 0 Channel 16)
+148612.3 | clock 581 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 41 00 (Note off F3 Velocity 0 Channel 1)
+148612.4 | clock 581 | MIDI_OUT | thru | 8F 41 00 (Note off F3 Velocity 0 Channel 16)
+148638.3 | clock 583 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | B0 40 7F (Controller Hold Pedal (on/off): 127 Channel 1)
+148638.4 | clock 583 | MIDI_OUT | thru | BF 40 7F (Controller Hold Pedal (on/off): 127 Channel 16)
+148785.7 | clock 598 | IWAIT | m1 | orch @620 65 10
+148785.8 | clock 598 | RT | Reduction Transformer Hybrid v1.1 | (620, 10, 0 - 65, vel 64) voice 0 noteId 0 | TD 4 LogitTD on s 6.0
+148821.8 | clock 601 | IWAIT | m1 | orch @678 65 15
+148844.9 | clock 604 | RT | Reduction Transformer Hybrid v1.1 | (678, 15, 0 - 65, vel 64) voice 0 noteId 1 | TD 4 LogitTD on s 6.0
+148880.8 | clock 607 | IWAIT | m1 | orch @746 65 20
+148883.4 | clock 608 | RT | Reduction Transformer Hybrid v1.1 | (746, 20, 0 - 65, vel 64) voice 0 noteId 2 | TD 4 LogitTD on s 6.0
+148918.7 | clock 611 | IWAIT | m1 | orch @818 46 25
+148921.1 | clock 611 | RT | Reduction Transformer Hybrid v1.1 | (818, 25, 0 - 46, vel 48) voice 1 noteId 3 | TD 4 LogitTD on s 6.0
+148950.6 | clock 614 | IWAIT | m1 | orch @818 58 25
+148953.0 | clock 615 | RT | Reduction Transformer Hybrid v1.1 | (818, 25, 0 - 58, vel 48) voice 0 noteId 4 | TD 4 LogitTD on s 6.0
+148980.9 | clock 617 | IWAIT | m1 | orch @818 62 70
+148983.4 | clock 618 | RT | Reduction Transformer Hybrid v1.1 | (818, 70, 0 - 62, vel 48) voice 0 noteId 5 | TD 4 LogitTD on s 6.0
+149011.6 | clock 620 | IWAIT | m1 | orch @818 65 70
+149014.1 | clock 621 | RT | Reduction Transformer Hybrid v1.1 | (818, 70, 0 - 65, vel 48) voice 0 noteId 6 | TD 4 LogitTD on s 6.0
+149042.2 | clock 623 | IWAIT | m1 | orch @891 58 25
+149044.6 | clock 624 | RT | Reduction Transformer Hybrid v1.1 | (891, 25, 0 - 58, vel 48) voice 2 noteId 7 | TD 4 LogitTD on s 6.0
+149073.0 | clock 627 | IWAIT | m1 | orch @891 61 50
+149075.5 | clock 627 | RT | Reduction Transformer Hybrid v1.1 | (891, 50, 0 - 61, vel 48) voice 4 noteId 8 | TD 4 LogitTD on s 6.0
+149104.1 | clock 630 | IWAIT | m1 | orch @891 64 50
+149107.3 | clock 630 | RT | Reduction Transformer Hybrid v1.1 | (891, 50, 0 - 64, vel 48) voice 0 noteId 9 | TD 4 LogitTD on s 6.0
+149136.3 | clock 633 | IWAIT | m1 | orch @943 58 20
+149138.8 | clock 633 | RT | Reduction Transformer Hybrid v1.1 | (943, 20, 0 - 58, vel 48) voice 2 noteId 10 | TD 4 LogitTD on s 6.0
+149165.7 | clock 636 | IWAIT | m1 | orch @943 62 45
+149168.1 | clock 636 | RT | Reduction Transformer Hybrid v1.1 | (943, 45, 0 - 62, vel 48) voice 0 noteId 11 | TD 4 LogitTD on s 6.0
+149195.9 | clock 639 | IWAIT | m1 | orch @943 65 45
+149198.6 | clock 639 | RT | Reduction Transformer Hybrid v1.1 | (943, 45, 0 - 65, vel 48) voice 0 noteId 12 | TD 4 LogitTD on s 6.0
+149227.1 | clock 642 | IWAIT | m1 | orch @989 58 25
+149229.5 | clock 642 | RT | Reduction Transformer Hybrid v1.1 | (989, 25, 0 - 58, vel 48) voice 2 noteId 13 | TD 4 LogitTD on s 6.0
+149257.3 | clock 645 | IWAIT | m1 | orch @989 63 95
+149259.8 | clock 645 | RT | Reduction Transformer Hybrid v1.1 | (989, 95, 0 - 63, vel 48) voice 0 noteId 14 | TD 4 LogitTD on s 6.0
+149290.6 | clock 648 | IWAIT | m1 | orch @989 67 95
+149293.1 | clock 649 | RT | Reduction Transformer Hybrid v1.1 | (989, 95, 0 - 67, vel 48) voice 0 noteId 15 | TD 4 LogitTD on s 6.0
+149323.2 | clock 652 | IWAIT | m1 | orch @1084 58 25
+149325.6 | clock 652 | RT | Reduction Transformer Hybrid v1.1 | (1084, 25, 0 - 58, vel 48) voice 2 noteId 16 | TD 4 LogitTD on s 6.0
+149354.6 | clock 655 | IWAIT | m1 | orch @1084 62 75
+149357.1 | clock 655 | RT | Reduction Transformer Hybrid v1.1 | (1084, 75, 0 - 62, vel 48) voice 0 noteId 17 | TD 4 LogitTD on s 6.0
+149388.4 | clock 658 | IWAIT | m1 | orch @1084 65 75
+149390.9 | clock 658 | RT | Reduction Transformer Hybrid v1.1 | (1084, 75, 0 - 65, vel 48) voice 0 noteId 18 | TD 4 LogitTD on s 6.0
+149419.0 | clock 661 | IWAIT | m1 | orch @1107 70 30
+149421.4 | clock 661 | RT | Reduction Transformer Hybrid v1.1 | (1107, 30, 0 - 70, vel 48) voice 8 noteId 19 | TD 4 LogitTD on s 6.0
+149449.7 | clock 664 | IWAIT | m1 | orch @1134 69 30
+149452.2 | clock 665 | RT | Reduction Transformer Hybrid v1.1 | (1134, 30, 0 - 69, vel 48) voice 9 noteId 20 | TD 4 LogitTD on s 6.0
+149483.9 | clock 668 | IWAIT | m1 | orch @1159 70 30
+149486.5 | clock 668 | RT | Reduction Transformer Hybrid v1.1 | (1159, 30, 0 - 70, vel 48) voice 8 noteId 21 | TD 4 LogitTD on s 6.0
+149518.4 | clock 671 | IWAIT | m1 | orch @1185 58 15
+149521.0 | clock 671 | RT | Reduction Transformer Hybrid v1.1 | (1185, 15, 0 - 58, vel 48) voice 9 noteId 22 | TD 4 LogitTD on s 6.0
+151561.8 | clock 875 | IWAIT | m1 | orch @1185 63 15
+151564.5 | clock 876 | RT | Reduction Transformer Hybrid v1.1 | (1185, 15, 0 - 63, vel 48) voice 9 noteId 23 | TD 4 LogitTD on s 6.0
+151602.0 | clock 879 | IWAIT | m1 | orch @1185 67 15
+151605.6 | clock 880 | RT | Reduction Transformer Hybrid v1.1 | (1185, 15, 0 - 67, vel 48) voice 8 noteId 24 | TD 4 LogitTD on s 6.0
+151644.6 | clock 884 | IWAIT | m1 | orch @1235 58 10
+151647.5 | clock 884 | RT | Reduction Transformer Hybrid v1.1 | (1235, 10, 0 - 58, vel 48) voice 10 noteId 25 | TD 4 LogitTD on s 6.0
+151684.6 | clock 888 | IWAIT | m1 | orch @1235 63 10
+151687.2 | clock 888 | RT | Reduction Transformer Hybrid v1.1 | (1235, 10, 0 - 63, vel 48) voice 11 noteId 26 | TD 4 LogitTD on s 6.0
+151724.8 | clock 892 | IWAIT | m1 | orch @1235 67 10
+151727.5 | clock 892 | RT | Reduction Transformer Hybrid v1.1 | (1235, 10, 0 - 67, vel 48) voice 8 noteId 27 | TD 4 LogitTD on s 6.0
+151759.3 | clock 895 | IWAIT | m1 | orch @1284 58 15
+151762.0 | clock 895 | RT | Reduction Transformer Hybrid v1.1 | (1284, 15, 0 - 58, vel 48) voice 10 noteId 28 | TD 4 LogitTD on s 6.0
+151793.8 | clock 899 | IWAIT | m1 | orch @1284 62 15
+151797.0 | clock 899 | RT | Reduction Transformer Hybrid v1.1 | (1284, 15, 0 - 62, vel 48) voice 12 noteId 29 | TD 4 LogitTD on s 6.0
+151826.8 | clock 902 | IWAIT | m1 | orch @1284 65 15
+151830.0 | clock 902 | RT | Reduction Transformer Hybrid v1.1 | (1284, 15, 0 - 65, vel 48) voice 8 noteId 30 | TD 4 LogitTD on s 6.0
+151860.6 | clock 905 | IWAIT | m1 | orch @1335 58 15
+151863.7 | clock 906 | RT | Reduction Transformer Hybrid v1.1 | (1335, 15, 0 - 58, vel 48) voice 10 noteId 31 | TD 4 LogitTD on s 6.0
+151895.2 | clock 909 | IWAIT | m1 | orch @1335 62 15
+151898.4 | clock 909 | RT | Reduction Transformer Hybrid v1.1 | (1335, 15, 0 - 62, vel 48) voice 13 noteId 32 | TD 4 LogitTD on s 6.0
+151929.8 | clock 912 | IWAIT | m1 | orch @1335 65 15
+151932.6 | clock 913 | RT | Reduction Transformer Hybrid v1.1 | (1335, 15, 0 - 65, vel 48) voice 8 noteId 33 | TD 4 LogitTD on s 6.0
+151965.2 | clock 916 | IWAIT | m1 | orch @1388 55 100
+151968.0 | clock 916 | RT | Reduction Transformer Hybrid v1.1 | (1388, 100, 0 - 55, vel 48) voice 10 noteId 34 | TD 4 LogitTD on s 6.0
+151999.7 | clock 919 | IWAIT | m1 | orch @1388 60 100
+152002.7 | clock 920 | RT | Reduction Transformer Hybrid v1.1 | (1388, 100, 0 - 60, vel 48) voice 14 noteId 35 | TD 4 LogitTD on s 6.0
+152033.2 | clock 923 | IWAIT | m1 | orch @1388 63 100
+152036.1 | clock 923 | RT | Reduction Transformer Hybrid v1.1 | (1388, 100, 0 - 63, vel 48) voice 8 noteId 36 | TD 4 LogitTD on s 6.0
+152066.9 | clock 926 | IWAIT | m1 | orch @1488 53 50
+152069.8 | clock 926 | RT | Reduction Transformer Hybrid v1.1 | (1488, 50, 0 - 53, vel 48) voice 10 noteId 37 | TD 4 LogitTD on s 6.0
+154117.1 | clock 1131 | IWAIT | m1 | orch @1488 58 50
+154120.2 | clock 1131 | RT | Reduction Transformer Hybrid v1.1 | (1488, 50, 0 - 58, vel 48) voice 8 noteId 38 | TD 4 LogitTD on s 6.0
+154155.5 | clock 1135 | IWAIT | m1 | orch @1488 62 50
+154158.6 | clock 1135 | RT | Reduction Transformer Hybrid v1.1 | (1488, 50, 0 - 62, vel 48) voice 8 noteId 39 | TD 4 LogitTD on s 6.0
+154195.8 | clock 1139 | IWAIT | m1 | orch @1540 51 45
+154199.1 | clock 1139 | RT | Reduction Transformer Hybrid v1.1 | (1540, 45, 0 - 51, vel 48) voice 10 noteId 40 | TD 4 LogitTD on s 6.0
+154236.6 | clock 1143 | IWAIT | m1 | orch @1540 57 45
+154239.6 | clock 1143 | RT | Reduction Transformer Hybrid v1.1 | (1540, 45, 0 - 57, vel 48) voice 16 noteId 41 | TD 4 LogitTD on s 6.0
+154277.7 | clock 1147 | IWAIT | m1 | orch @1540 60 45
+154280.9 | clock 1147 | RT | Reduction Transformer Hybrid v1.1 | (1540, 45, 0 - 60, vel 48) voice 8 noteId 42 | TD 4 LogitTD on s 6.0
+154316.8 | clock 1151 | IWAIT | m1 | orch @1594 50 55
+154319.5 | clock 1151 | RT | Reduction Transformer Hybrid v1.1 | (1594, 55, 0 - 50, vel 48) voice 10 noteId 43 | TD 4 LogitTD on s 6.0
+154351.7 | clock 1154 | IWAIT | m1 | orch @1594 58 55
+154354.6 | clock 1155 | RT | Reduction Transformer Hybrid v1.1 | (1594, 55, 0 - 58, vel 64) voice 8 noteId 44 | TD 4 LogitTD on s 6.0
+154385.9 | clock 1158 | IWAIT | m1 | orch @1650 53 60
+154389.0 | clock 1158 | RT | Reduction Transformer Hybrid v1.1 | (1650, 60, 0 - 53, vel 48) voice 10 noteId 45 | TD 4 LogitTD on s 6.0
+154422.3 | clock 1162 | IWAIT | m1 | orch @1650 60 60
+154425.1 | clock 1162 | RT | Reduction Transformer Hybrid v1.1 | (1650, 60, 0 - 60, vel 48) voice 8 noteId 46 | TD 4 LogitTD on s 6.0
+154455.7 | clock 1165 | IWAIT | m1 | orch @1650 69 60
+154458.5 | clock 1165 | RT | Reduction Transformer Hybrid v1.1 | (1650, 60, 0 - 69, vel 48) voice 8 noteId 47 | TD 4 LogitTD on s 6.0
+154491.5 | clock 1168 | IWAIT | m1 | orch @1710 46 25
+154494.3 | clock 1169 | RT | Reduction Transformer Hybrid v1.1 | (1710, 25, 0 - 46, vel 48) voice 10 noteId 48 | TD 4 LogitTD on s 6.0
+156545.7 | clock 1374 | IWAIT | m1 | orch @1710 58 25
+156548.7 | clock 1374 | RT | Reduction Transformer Hybrid v1.1 | (1710, 25, 0 - 58, vel 48) voice 17 noteId 49 | TD 4 LogitTD on s 6.0
+156589.8 | clock 1378 | IWAIT | m1 | orch @1710 70 25
+156592.9 | clock 1379 | RT | Reduction Transformer Hybrid v1.1 | (1710, 25, 0 - 70, vel 48) voice 8 noteId 50 | TD 4 LogitTD on s 6.0
+156633.0 | clock 1383 | IWAIT | m1 | orch @1786 65 10
+156636.3 | clock 1383 | RT | Reduction Transformer Hybrid v1.1 | (1786, 10, 0 - 65, vel 48) voice 18 noteId 51 | TD 4 LogitTD on s 6.0
+156676.3 | clock 1387 | IWAIT | m1 | orch @1831 65 10
+156679.4 | clock 1387 | RT | Reduction Transformer Hybrid v1.1 | (1831, 10, 0 - 65, vel 48) voice 18 noteId 52 | TD 4 LogitTD on s 6.0
+156722.7 | clock 1392 | IWAIT | m1 | orch @1879 65 10
+156725.8 | clock 1392 | RT | Reduction Transformer Hybrid v1.1 | (1879, 10, 0 - 65, vel 48) voice 18 noteId 53 | TD 4 LogitTD on s 6.0
+156758.7 | clock 1395 | IWAIT | m1 | orch @1926 64 15
+156762.2 | clock 1396 | RT | Reduction Transformer Hybrid v1.1 | (1926, 15, 0 - 64, vel 48) voice 18 noteId 54 | TD 4 LogitTD on s 6.0
+158804.1 | clock 1600 | IWAIT | m1 | orch @1972 65 15
+158807.1 | clock 1600 | RT | Reduction Transformer Hybrid v1.1 | (1972, 15, 0 - 65, vel 48) voice 18 noteId 55 | TD 4 LogitTD on s 6.0
+158847.0 | clock 1604 | IWAIT | m1 | orch @2016 67 15
+158849.9 | clock 1604 | RT | Reduction Transformer Hybrid v1.1 | (2016, 15, 0 - 67, vel 48) voice 18 noteId 56 | TD 4 LogitTD on s 6.0
+158892.1 | clock 1608 | IWAIT | m1 | orch @2065 68 50
+158895.7 | clock 1609 | RT | Reduction Transformer Hybrid v1.1 | (2065, 50, 0 - 68, vel 48) voice 18 noteId 57 | TD 4 LogitTD on s 6.0
+158933.6 | clock 1613 | IWAIT | m1 | orch @2115 69 45
+158936.6 | clock 1613 | RT | Reduction Transformer Hybrid v1.1 | (2115, 45, 0 - 69, vel 48) voice 18 noteId 58 | TD 4 LogitTD on s 6.0
+160974.6 | clock 1817 | IWAIT | m1 | orch @2160 70 20
+160977.5 | clock 1817 | RT | Reduction Transformer Hybrid v1.1 | (2160, 20, 0 - 70, vel 48) voice 18 noteId 59 | TD 4 LogitTD on s 6.0
+161013.2 | clock 1821 | IWAIT | m1 | orch @2211 58 20
+161016.1 | clock 1821 | RT | Reduction Transformer Hybrid v1.1 | (2211, 20, 0 - 58, vel 48) voice 18 noteId 60 | TD 4 LogitTD on s 6.0
+161051.4 | clock 1824 | IWAIT | m1 | orch @2211 62 20
+161054.7 | clock 1825 | RT | Reduction Transformer Hybrid v1.1 | (2211, 20, 0 - 62, vel 48) voice 18 noteId 61 | TD 4 LogitTD on s 6.0
+161087.8 | clock 1828 | IWAIT | m1 | orch @2211 70 20
+161090.6 | clock 1828 | RT | Reduction Transformer Hybrid v1.1 | (2211, 20, 0 - 70, vel 48) voice 18 noteId 62 | TD 4 LogitTD on s 6.0
+161127.6 | clock 1832 | IWAIT | m1 | orch @2266 58 25
+161130.7 | clock 1832 | RT | Reduction Transformer Hybrid v1.1 | (2266, 25, 0 - 58, vel 48) voice 19 noteId 63 | TD 4 LogitTD on s 6.0
+161163.8 | clock 1836 | IWAIT | m1 | orch @2266 63 25
+161166.6 | clock 1836 | RT | Reduction Transformer Hybrid v1.1 | (2266, 25, 0 - 63, vel 48) voice 21 noteId 64 | TD 4 LogitTD on s 6.0
+161200.2 | clock 1839 | IWAIT | m1 | orch @2266 67 25
+161203.1 | clock 1840 | RT | Reduction Transformer Hybrid v1.1 | (2266, 25, 0 - 67, vel 48) voice 18 noteId 65 | TD 4 LogitTD on s 6.0
+161235.9 | clock 1843 | IWAIT | m1 | orch @2316 58 25
+161238.8 | clock 1843 | RT | Reduction Transformer Hybrid v1.1 | (2316, 25, 0 - 58, vel 48) voice 19 noteId 66 | TD 4 LogitTD on s 6.0
+161272.0 | clock 1846 | IWAIT | m1 | orch @2316 63 25
+161274.9 | clock 1847 | RT | Reduction Transformer Hybrid v1.1 | (2316, 25, 0 - 63, vel 48) voice 18 noteId 67 | TD 4 LogitTD on s 6.0
+161309.5 | clock 1850 | IWAIT | m1 | orch @2316 67 25
+161313.0 | clock 1851 | RT | Reduction Transformer Hybrid v1.1 | (2316, 25, 0 - 67, vel 48) voice 18 noteId 68 | TD 4 LogitTD on s 6.0
+161347.4 | clock 1854 | IWAIT | m1 | orch @2343 57 30
+161350.3 | clock 1854 | RT | Reduction Transformer Hybrid v1.1 | (2343, 30, 0 - 57, vel 48) voice 19 noteId 69 | TD 4 LogitTD on s 6.0
+161382.5 | clock 1858 | IWAIT | m1 | orch @2343 60 30
+161385.3 | clock 1858 | RT | Reduction Transformer Hybrid v1.1 | (2343, 30, 0 - 60, vel 48) voice 23 noteId 70 | TD 4 LogitTD on s 6.0
+161417.7 | clock 1861 | IWAIT | m1 | orch @2368 58 55
+161420.9 | clock 1861 | RT | Reduction Transformer Hybrid v1.1 | (2368, 55, 0 - 58, vel 48) voice 24 noteId 71 | TD 4 LogitTD on s 6.0
+163462.8 | clock 2066 | IWAIT | m1 | orch @2368 62 55
+163466.7 | clock 2066 | RT | Reduction Transformer Hybrid v1.1 | (2368, 55, 0 - 62, vel 48) voice 25 noteId 72 | TD 4 LogitTD on s 6.0
+163506.3 | clock 2070 | IWAIT | m1 | orch @2448 58 10
+163509.2 | clock 2070 | RT | Reduction Transformer Hybrid v1.1 | (2448, 10, 0 - 58, vel 48) voice 24 noteId 73 | TD 4 LogitTD on s 6.0
+163550.1 | clock 2074 | IWAIT | m1 | orch @2448 62 10
+163553.1 | clock 2075 | RT | Reduction Transformer Hybrid v1.1 | (2448, 10, 0 - 62, vel 48) voice 25 noteId 74 | TD 4 LogitTD on s 6.0
+163594.5 | clock 2079 | IWAIT | m1 | orch @2472 57 10
+163598.8 | clock 2079 | RT | Reduction Transformer Hybrid v1.1 | (2472, 10, 0 - 57, vel 48) voice 24 noteId 75 | TD 4 LogitTD on s 6.0
+163641.0 | clock 2083 | IWAIT | m1 | orch @2472 60 10
+163643.9 | clock 2084 | RT | Reduction Transformer Hybrid v1.1 | (2472, 10, 0 - 60, vel 48) voice 25 noteId 76 | TD 4 LogitTD on s 6.0
+163685.4 | clock 2088 | IWAIT | m1 | orch @2495 55 10
+163688.4 | clock 2088 | RT | Reduction Transformer Hybrid v1.1 | (2495, 10, 0 - 55, vel 48) voice 24 noteId 77 | TD 4 LogitTD on s 6.0
+163730.4 | clock 2092 | IWAIT | m1 | orch @2495 58 10
+163733.2 | clock 2093 | RT | Reduction Transformer Hybrid v1.1 | (2495, 10, 0 - 58, vel 48) voice 25 noteId 78 | TD 4 LogitTD on s 6.0
+163769.0 | clock 2096 | IWAIT | m1 | orch @2518 53 15
+163771.8 | clock 2096 | RT | Reduction Transformer Hybrid v1.1 | (2518, 15, 0 - 53, vel 48) voice 24 noteId 79 | TD 4 LogitTD on s 6.0
+163807.8 | clock 2100 | IWAIT | m1 | orch @2518 57 15
+163810.8 | clock 2100 | RT | Reduction Transformer Hybrid v1.1 | (2518, 15, 0 - 57, vel 48) voice 25 noteId 80 | TD 4 LogitTD on s 6.0
+163848.1 | clock 2104 | IWAIT | m1 | orch @2571 53 15
+163851.2 | clock 2104 | RT | Reduction Transformer Hybrid v1.1 | (2571, 15, 0 - 53, vel 48) voice 24 noteId 81 | TD 4 LogitTD on s 6.0
+163886.8 | clock 2108 | IWAIT | m1 | orch @2571 57 15
+163889.5 | clock 2108 | RT | Reduction Transformer Hybrid v1.1 | (2571, 15, 0 - 57, vel 48) voice 25 noteId 82 | TD 4 LogitTD on s 6.0
+163923.8 | clock 2112 | IWAIT | m1 | orch @2623 53 15
+163926.6 | clock 2112 | RT | Reduction Transformer Hybrid v1.1 | (2623, 15, 0 - 53, vel 48) voice 24 noteId 83 | TD 4 LogitTD on s 6.0
+165970.5 | clock 2316 | IWAIT | m1 | orch @2623 56 15
+165973.5 | clock 2317 | RT | Reduction Transformer Hybrid v1.1 | (2623, 15, 0 - 56, vel 48) voice 25 noteId 84 | TD 4 LogitTD on s 6.0
+166016.9 | clock 2321 | IWAIT | m1 | orch @2672 53 50
+166019.9 | clock 2321 | RT | Reduction Transformer Hybrid v1.1 | (2672, 50, 0 - 53, vel 48) voice 24 noteId 85 | TD 4 LogitTD on s 6.0
+166061.4 | clock 2325 | IWAIT | m1 | orch @2672 56 100
+166064.8 | clock 2326 | RT | Reduction Transformer Hybrid v1.1 | (2672, 100, 0 - 56, vel 48) voice 25 noteId 86 | TD 4 LogitTD on s 6.0
+166109.0 | clock 2330 | IWAIT | m1 | orch @2723 46 45
+166112.0 | clock 2330 | RT | Reduction Transformer Hybrid v1.1 | (2723, 45, 0 - 46, vel 48) voice 24 noteId 87 | TD 4 LogitTD on s 6.0
+166148.0 | clock 2334 | IWAIT | m1 | orch @2723 50 45
+166150.6 | clock 2334 | RT | Reduction Transformer Hybrid v1.1 | (2723, 45, 0 - 50, vel 48) voice 26 noteId 88 | TD 4 LogitTD on s 6.0
+166186.1 | clock 2338 | IWAIT | m1 | orch @2771 51 45
+166188.8 | clock 2338 | RT | Reduction Transformer Hybrid v1.1 | (2771, 45, 0 - 51, vel 48) voice 24 noteId 89 | TD 4 LogitTD on s 6.0
+166223.5 | clock 2342 | IWAIT | m1 | orch @2771 55 45
+166226.2 | clock 2342 | RT | Reduction Transformer Hybrid v1.1 | (2771, 45, 0 - 55, vel 48) voice 25 noteId 90 | TD 4 LogitTD on s 6.0
+166264.4 | clock 2346 | IWAIT | m1 | orch @2771 48 90
+166267.1 | clock 2346 | RT | Reduction Transformer Hybrid v1.1 | (2771, 90, 0 - 48, vel 48) voice 24 noteId 91 | TD 4 LogitTD on s 6.0
+166303.2 | clock 2350 | IWAIT | m1 | orch @2817 45 80
+166306.1 | clock 2350 | RT | Reduction Transformer Hybrid v1.1 | (2817, 80, 0 - 45, vel 48) voice 28 noteId 92 | TD 4 LogitTD on s 6.0
+166342.5 | clock 2354 | IWAIT | m1 | orch @2817 51 80
+166345.4 | clock 2354 | RT | Reduction Transformer Hybrid v1.1 | (2817, 80, 0 - 51, vel 48) voice 27 noteId 93 | TD 4 LogitTD on s 6.0
+166382.4 | clock 2358 | IWAIT | m1 | orch @2861 53 40
+166385.1 | clock 2358 | RT | Reduction Transformer Hybrid v1.1 | (2861, 40, 0 - 53, vel 48) voice 29 noteId 94 | TD 4 LogitTD on s 6.0
+168430.4 | clock 2562 | IWAIT | m1 | orch @2901 46 60
+168433.6 | clock 2563 | RT | Reduction Transformer Hybrid v1.1 | (2901, 60, 0 - 46, vel 48) voice 29 noteId 95 | TD 4 LogitTD on s 6.0
+168477.2 | clock 2567 | IWAIT | m1 | orch @2901 50 60
+168480.2 | clock 2567 | RT | Reduction Transformer Hybrid v1.1 | (2901, 60, 0 - 50, vel 48) voice 27 noteId 96 | TD 4 LogitTD on s 6.0
+168523.2 | clock 2572 | IWAIT | m1 | orch @3001 58 10
+168526.1 | clock 2572 | RT | Reduction Transformer Hybrid v1.1 | (3001, 10, 0 - 58, vel 48) voice 30 noteId 97 | TD 4 LogitTD on s 6.0
+168568.4 | clock 2576 | IWAIT | m1 | orch @3001 62 10
+168571.4 | clock 2576 | RT | Reduction Transformer Hybrid v1.1 | (3001, 10, 0 - 62, vel 48) voice 31 noteId 98 | TD 4 LogitTD on s 6.0
+168610.0 | clock 2580 | IWAIT | m1 | orch @3046 58 10
+168612.8 | clock 2581 | RT | Reduction Transformer Hybrid v1.1 | (3046, 10, 0 - 58, vel 48) voice 30 noteId 99 | TD 4 LogitTD on s 6.0
+168653.8 | clock 2585 | IWAIT | m1 | orch @3046 62 10
+168656.7 | clock 2585 | RT | Reduction Transformer Hybrid v1.1 | (3046, 10, 0 - 62, vel 48) voice 31 noteId 100 | TD 4 LogitTD on s 6.0
+168696.3 | clock 2589 | IWAIT | m1 | orch @3093 58 10
+168699.1 | clock 2589 | RT | Reduction Transformer Hybrid v1.1 | (3093, 10, 0 - 58, vel 48) voice 30 noteId 101 | TD 4 LogitTD on s 6.0
+170752.1 | clock 2794 | IWAIT | m1 | orch @3093 62 10
+170755.1 | clock 2795 | RT | Reduction Transformer Hybrid v1.1 | (3093, 10, 0 - 62, vel 48) voice 31 noteId 102 | TD 4 LogitTD on s 6.0
+170800.1 | clock 2799 | IWAIT | m1 | orch @3136 57 15
+170803.1 | clock 2800 | RT | Reduction Transformer Hybrid v1.1 | (3136, 15, 0 - 57, vel 48) voice 30 noteId 103 | TD 4 LogitTD on s 6.0
+170850.8 | clock 2804 | IWAIT | m1 | orch @3136 60 15
+170853.7 | clock 2805 | RT | Reduction Transformer Hybrid v1.1 | (3136, 15, 0 - 60, vel 48) voice 31 noteId 104 | TD 4 LogitTD on s 6.0
+170899.2 | clock 2809 | IWAIT | m1 | orch @3186 58 15
+170902.1 | clock 2809 | RT | Reduction Transformer Hybrid v1.1 | (3186, 15, 0 - 58, vel 48) voice 30 noteId 105 | TD 4 LogitTD on s 6.0
+170946.9 | clock 2814 | IWAIT | m1 | orch @3186 62 15
+170949.7 | clock 2814 | RT | Reduction Transformer Hybrid v1.1 | (3186, 15, 0 - 62, vel 48) voice 31 noteId 106 | TD 4 LogitTD on s 6.0
+170985.8 | clock 2818 | IWAIT | m1 | orch @3240 60 50
+170988.8 | clock 2818 | RT | Reduction Transformer Hybrid v1.1 | (3240, 50, 0 - 60, vel 48) voice 30 noteId 107 | TD 4 LogitTD on s 6.0
+171026.1 | clock 2822 | IWAIT | m1 | orch @3240 63 50
+171029.2 | clock 2822 | RT | Reduction Transformer Hybrid v1.1 | (3240, 50, 0 - 63, vel 48) voice 31 noteId 108 | TD 4 LogitTD on s 6.0
+171097.2 | clock 2829 | IWAIT | m1 | orch @3290 61 45
+171100.4 | clock 2829 | RT | Reduction Transformer Hybrid v1.1 | (3290, 45, 0 - 61, vel 48) voice 30 noteId 109 | TD 4 LogitTD on s 6.0
+171135.9 | clock 2833 | IWAIT | m1 | orch @3290 64 45
+171138.7 | clock 2833 | RT | Reduction Transformer Hybrid v1.1 | (3290, 45, 0 - 64, vel 48) voice 31 noteId 110 | TD 4 LogitTD on s 6.0
+171172.2 | clock 2836 | IWAIT | m1 | orch @3336 62 25
+171175.2 | clock 2837 | RT | Reduction Transformer Hybrid v1.1 | (3336, 25, 0 - 62, vel 48) voice 30 noteId 111 | TD 4 LogitTD on s 6.0
+171210.4 | clock 2840 | IWAIT | m1 | orch @3336 65 25
+171213.2 | clock 2841 | RT | Reduction Transformer Hybrid v1.1 | (3336, 25, 0 - 65, vel 48) voice 31 noteId 112 | TD 4 LogitTD on s 6.0
+171246.5 | clock 2844 | IWAIT | m1 | orch @3359 58 20
+171249.5 | clock 2844 | RT | Reduction Transformer Hybrid v1.1 | (3359, 20, 0 - 58, vel 48) voice 30 noteId 113 | TD 4 LogitTD on s 6.0
+173297.4 | clock 3049 | IWAIT | m1 | orch @3359 62 20
+173300.9 | clock 3049 | RT | Reduction Transformer Hybrid v1.1 | (3359, 20, 0 - 62, vel 48) voice 32 noteId 114 | TD 4 LogitTD on s 6.0
+173341.1 | clock 3053 | IWAIT | m1 | orch @3380 53 85
+173344.1 | clock 3054 | RT | Reduction Transformer Hybrid v1.1 | (3380, 85, 0 - 53, vel 48) voice 30 noteId 115 | TD 4 LogitTD on s 6.0
+173386.5 | clock 3058 | IWAIT | m1 | orch @3380 58 85
+173389.5 | clock 3058 | RT | Reduction Transformer Hybrid v1.1 | (3380, 85, 0 - 58, vel 48) voice 32 noteId 116 | TD 4 LogitTD on s 6.0
+173428.4 | clock 3062 | IWAIT | m1 | orch @3478 53 40
+173431.5 | clock 3062 | RT | Reduction Transformer Hybrid v1.1 | (3478, 40, 0 - 53, vel 48) voice 30 noteId 117 | TD 4 LogitTD on s 6.0
+173471.8 | clock 3066 | IWAIT | m1 | orch @3478 60 40
+173474.8 | clock 3067 | RT | Reduction Transformer Hybrid v1.1 | (3478, 40, 0 - 60, vel 48) voice 32 noteId 118 | TD 4 LogitTD on s 6.0
+173515.2 | clock 3071 | IWAIT | m1 | orch @3527 50 75
+173518.0 | clock 3071 | RT | Reduction Transformer Hybrid v1.1 | (3527, 75, 0 - 50, vel 48) voice 30 noteId 119 | TD 4 LogitTD on s 6.0
+173551.7 | clock 3074 | IWAIT | m1 | orch @3527 58 75
+173554.5 | clock 3075 | RT | Reduction Transformer Hybrid v1.1 | (3527, 75, 0 - 58, vel 48) voice 32 noteId 120 | TD 4 LogitTD on s 6.0
+173587.2 | clock 3078 | IWAIT | m1 | orch @3588 46 55
+173590.4 | clock 3078 | RT | Reduction Transformer Hybrid v1.1 | (3588, 55, 0 - 46, vel 48) voice 33 noteId 121 | TD 4 LogitTD on s 6.0
+175637.0 | clock 3283 | IWAIT | m1 | orch @3588 58 55
+175640.1 | clock 3283 | RT | Reduction Transformer Hybrid v1.1 | (3588, 55, 0 - 58, vel 48) voice 32 noteId 122 | TD 4 LogitTD on s 6.0
+175679.6 | clock 3287 | IWAIT | m1 | orch @3688 58 10
+175682.8 | clock 3288 | RT | Reduction Transformer Hybrid v1.1 | (3688, 10, 0 - 58, vel 48) voice 32 noteId 123 | TD 4 LogitTD on s 6.0
+175724.9 | clock 3292 | IWAIT | m1 | orch @3688 62 10
+175728.0 | clock 3292 | RT | Reduction Transformer Hybrid v1.1 | (3688, 10, 0 - 62, vel 48) voice 32 noteId 124 | TD 4 LogitTD on s 6.0
+175766.4 | clock 3296 | IWAIT | m1 | orch @3733 58 10
+175769.4 | clock 3296 | RT | Reduction Transformer Hybrid v1.1 | (3733, 10, 0 - 58, vel 48) voice 34 noteId 125 | TD 4 LogitTD on s 6.0
+175807.6 | clock 3300 | IWAIT | m1 | orch @3733 62 10
+175810.4 | clock 3300 | RT | Reduction Transformer Hybrid v1.1 | (3733, 10, 0 - 62, vel 48) voice 32 noteId 126 | TD 4 LogitTD on s 6.0
+175851.0 | clock 3304 | IWAIT | m1 | orch @3780 58 10
+175853.9 | clock 3305 | RT | Reduction Transformer Hybrid v1.1 | (3780, 10, 0 - 58, vel 48) voice 34 noteId 127 | TD 4 LogitTD on s 6.0
+175891.4 | clock 3308 | IWAIT | m1 | orch @3780 62 10
+175894.3 | clock 3309 | RT | Reduction Transformer Hybrid v1.1 | (3780, 10, 0 - 62, vel 48) voice 32 noteId 128 | TD 4 LogitTD on s 6.0
+175930.3 | clock 3312 | IWAIT | m1 | orch @3824 57 15
+175933.2 | clock 3313 | RT | Reduction Transformer Hybrid v1.1 | (3824, 15, 0 - 57, vel 48) voice 34 noteId 129 | TD 4 LogitTD on s 6.0
+177976.1 | clock 3517 | IWAIT | m1 | orch @3824 60 15
+177979.6 | clock 3517 | RT | Reduction Transformer Hybrid v1.1 | (3824, 15, 0 - 60, vel 48) voice 32 noteId 130 | TD 4 LogitTD on s 6.0
+178021.5 | clock 3521 | IWAIT | m1 | orch @3875 58 15
+178024.5 | clock 3522 | RT | Reduction Transformer Hybrid v1.1 | (3875, 15, 0 - 58, vel 48) voice 34 noteId 131 | TD 4 LogitTD on s 6.0
+178067.2 | clock 3526 | IWAIT | m1 | orch @3875 62 15
+178070.2 | clock 3526 | RT | Reduction Transformer Hybrid v1.1 | (3875, 15, 0 - 62, vel 48) voice 32 noteId 132 | TD 4 LogitTD on s 6.0
+178112.4 | clock 3531 | IWAIT | m1 | orch @3930 60 50
+178115.4 | clock 3531 | RT | Reduction Transformer Hybrid v1.1 | (3930, 50, 0 - 60, vel 48) voice 34 noteId 133 | TD 4 LogitTD on s 6.0
+178151.6 | clock 3534 | IWAIT | m1 | orch @3930 63 50
+178154.4 | clock 3535 | RT | Reduction Transformer Hybrid v1.1 | (3930, 50, 0 - 63, vel 48) voice 32 noteId 134 | TD 4 LogitTD on s 6.0
+178193.9 | clock 3539 | IWAIT | m1 | orch @3980 61 45
+178197.2 | clock 3539 | RT | Reduction Transformer Hybrid v1.1 | (3980, 45, 0 - 61, vel 48) voice 34 noteId 135 | TD 4 LogitTD on s 6.0
+178232.2 | clock 3542 | IWAIT | m1 | orch @3980 64 45
+178234.9 | clock 3543 | RT | Reduction Transformer Hybrid v1.1 | (3980, 45, 0 - 64, vel 48) voice 32 noteId 136 | TD 4 LogitTD on s 6.0
+178269.8 | clock 3546 | IWAIT | m1 | orch @4026 62 25
+178272.7 | clock 3547 | RT | Reduction Transformer Hybrid v1.1 | (4026, 25, 0 - 62, vel 48) voice 34 noteId 137 | TD 4 LogitTD on s 6.0
+178322.7 | clock 3552 | IWAIT | m1 | orch @4026 65 25
+178325.6 | clock 3552 | RT | Reduction Transformer Hybrid v1.1 | (4026, 25, 0 - 65, vel 48) voice 32 noteId 138 | TD 4 LogitTD on s 6.0
+178362.6 | clock 3556 | IWAIT | m1 | orch @4050 58 20
+178365.8 | clock 3556 | RT | Reduction Transformer Hybrid v1.1 | (4050, 20, 0 - 58, vel 48) voice 34 noteId 139 | TD 4 LogitTD on s 6.0
+178402.9 | clock 3560 | IWAIT | m1 | orch @4050 62 20
+178405.8 | clock 3560 | RT | Reduction Transformer Hybrid v1.1 | (4050, 20, 0 - 62, vel 48) voice 32 noteId 140 | TD 4 LogitTD on s 6.0
+178442.3 | clock 3564 | IWAIT | m1 | orch @4072 53 85
+178445.3 | clock 3564 | RT | Reduction Transformer Hybrid v1.1 | (4072, 85, 0 - 53, vel 48) voice 34 noteId 141 | TD 4 LogitTD on s 6.0
+180492.0 | clock 3768 | IWAIT | m1 | orch @4072 58 85
+180495.4 | clock 3769 | RT | Reduction Transformer Hybrid v1.1 | (4072, 85, 0 - 58, vel 48) voice 32 noteId 142 | TD 4 LogitTD on s 6.0
+180540.0 | clock 3773 | IWAIT | m1 | orch @4172 53 40
+180543.0 | clock 3774 | RT | Reduction Transformer Hybrid v1.1 | (4172, 40, 0 - 53, vel 48) voice 34 noteId 143 | TD 4 LogitTD on s 6.0
+180584.4 | clock 3778 | IWAIT | m1 | orch @4172 60 40
+180587.5 | clock 3778 | RT | Reduction Transformer Hybrid v1.1 | (4172, 40, 0 - 60, vel 48) voice 32 noteId 144 | TD 4 LogitTD on s 6.0
+180632.1 | clock 3782 | IWAIT | m1 | orch @4221 50 80
+180635.1 | clock 3783 | RT | Reduction Transformer Hybrid v1.1 | (4221, 80, 0 - 50, vel 48) voice 34 noteId 145 | TD 4 LogitTD on s 6.0
+180675.6 | clock 3787 | IWAIT | m1 | orch @4221 58 80
+180678.8 | clock 3787 | RT | Reduction Transformer Hybrid v1.1 | (4221, 80, 0 - 58, vel 48) voice 32 noteId 146 | TD 4 LogitTD on s 6.0
+180716.2 | clock 3791 | IWAIT | m1 | orch @4302 46 55
+180719.4 | clock 3791 | RT | Reduction Transformer Hybrid v1.1 | (4302, 55, 0 - 46, vel 48) voice 34 noteId 147 | TD 4 LogitTD on s 6.0
+182764.8 | clock 3996 | IWAIT | m1 | orch @4302 58 55
+182767.8 | clock 3996 | RT | Reduction Transformer Hybrid v1.1 | (4302, 55, 0 - 58, vel 48) voice 32 noteId 148 | TD 4 LogitTD on s 6.0
+182813.5 | clock 4001 | IWAIT | m1 | orch @4331 50 30
+182816.4 | clock 4001 | RT | Reduction Transformer Hybrid v1.1 | (4331, 30, 0 - 50, vel 48) voice 34 noteId 149 | TD 4 LogitTD on s 6.0
+182859.3 | clock 4005 | IWAIT | m1 | orch @4331 53 30
+182862.9 | clock 4006 | RT | Reduction Transformer Hybrid v1.1 | (4331, 30, 0 - 53, vel 48) voice 35 noteId 150 | TD 4 LogitTD on s 6.0
+182908.5 | clock 4010 | IWAIT | m1 | orch @4372 41 125
+182911.6 | clock 4010 | RT | Reduction Transformer Hybrid v1.1 | (4372, 125, 0 - 41, vel 48) voice 34 noteId 151 | TD 4 LogitTD on s 6.0
+182949.4 | clock 4014 | IWAIT | m1 | orch @4372 48 125
+182952.5 | clock 4015 | RT | Reduction Transformer Hybrid v1.1 | (4372, 125, 0 - 48, vel 48) voice 36 noteId 152 | TD 4 LogitTD on s 6.0
+182989.9 | clock 4018 | IWAIT | m1 | orch @4385 51 115
+182993.0 | clock 4019 | RT | Reduction Transformer Hybrid v1.1 | (4385, 115, 0 - 51, vel 48) voice 34 noteId 153 | TD 4 LogitTD on s 6.0
+183032.3 | clock 4023 | IWAIT | m1 | orch @4402 57 95
+183035.4 | clock 4023 | RT | Reduction Transformer Hybrid v1.1 | (4402, 95, 0 - 57, vel 48) voice 32 noteId 154 | TD 4 LogitTD on s 6.0
+183071.8 | clock 4026 | IWAIT | m1 | orch @4499 58 15
+183076.3 | clock 4027 | RT | Reduction Transformer Hybrid v1.1 | (4499, 15, 0 - 58, vel 48) voice 32 noteId 155 | TD 4 LogitTD on s 6.0
+183113.1 | clock 4031 | IWAIT | m1 | orch @4515 57 15
+183116.4 | clock 4031 | RT | Reduction Transformer Hybrid v1.1 | (4515, 15, 0 - 57, vel 48) voice 32 noteId 156 | TD 4 LogitTD on s 6.0
+183153.6 | clock 4035 | IWAIT | m1 | orch @4529 55 10
+183160.5 | clock 4035 | RT | Reduction Transformer Hybrid v1.1 | (4529, 10, 0 - 55, vel 48) voice 32 noteId 157 | TD 4 LogitTD on s 6.0
+183200.8 | clock 4039 | IWAIT | m1 | orch @4541 57 10
+183203.8 | clock 4040 | RT | Reduction Transformer Hybrid v1.1 | (4541, 10, 0 - 57, vel 48) voice 32 noteId 158 | TD 4 LogitTD on s 6.0
+185253.4 | clock 4245 | IWAIT | m1 | orch @4551 58 45
+185256.5 | clock 4245 | RT | Reduction Transformer Hybrid v1.1 | (4551, 45, 0 - 58, vel 48) voice 32 noteId 159 | TD 4 LogitTD on s 6.0
+185339.3 | clock 4253 | IWAIT | m1 | orch @4597 60 50
+185342.3 | clock 4254 | RT | Reduction Transformer Hybrid v1.1 | (4597, 50, 0 - 60, vel 48) voice 32 noteId 160 | TD 4 LogitTD on s 6.0
+185384.6 | clock 4258 | IWAIT | m1 | orch @4649 62 25
+185387.6 | clock 4258 | RT | Reduction Transformer Hybrid v1.1 | (4649, 25, 0 - 62, vel 48) voice 32 noteId 161 | TD 4 LogitTD on s 6.0
+185426.2 | clock 4262 | IWAIT | m1 | orch @4674 58 20
+185429.8 | clock 4262 | RT | Reduction Transformer Hybrid v1.1 | (4674, 20, 0 - 58, vel 48) voice 32 noteId 162 | TD 4 LogitTD on s 6.0
+185468.5 | clock 4266 | IWAIT | m1 | orch @4698 53 85
+185471.5 | clock 4266 | RT | Reduction Transformer Hybrid v1.1 | (4698, 85, 0 - 53, vel 48) voice 32 noteId 163 | TD 4 LogitTD on s 6.0
+185507.7 | clock 4270 | IWAIT | m1 | orch @4798 53 40
+185510.5 | clock 4270 | RT | Reduction Transformer Hybrid v1.1 | (4798, 40, 0 - 53, vel 48) voice 32 noteId 164 | TD 4 LogitTD on s 6.0
+187553.1 | clock 4475 | IWAIT | m1 | orch @4848 50 75
+187556.2 | clock 4475 | RT | Reduction Transformer Hybrid v1.1 | (4848, 75, 0 - 50, vel 48) voice 32 noteId 165 | TD 4 LogitTD on s 6.0
+187600.4 | clock 4479 | IWAIT | m1 | orch @4921 46 55
+187603.3 | clock 4480 | RT | Reduction Transformer Hybrid v1.1 | (4921, 55, 0 - 46, vel 48) voice 32 noteId 166 | TD 4 LogitTD on s 6.0
+187644.1 | clock 4484 | IWAIT | m1 | orch @4954 50 30
+187647.2 | clock 4484 | RT | Reduction Transformer Hybrid v1.1 | (4954, 30, 0 - 50, vel 48) voice 32 noteId 167 | TD 4 LogitTD on s 6.0
+187687.9 | clock 4488 | IWAIT | m1 | orch @4954 53 30
+187690.9 | clock 4488 | RT | Reduction Transformer Hybrid v1.1 | (4954, 30, 0 - 53, vel 48) voice 32 noteId 168 | TD 4 LogitTD on s 6.0
+187729.6 | clock 4492 | IWAIT | m1 | orch @4991 41 125
+187732.5 | clock 4493 | RT | Reduction Transformer Hybrid v1.1 | (4991, 125, 0 - 41, vel 48) voice 32 noteId 169 | TD 4 LogitTD on s 6.0
+187766.6 | clock 4496 | IWAIT | m1 | orch @4991 48 125
+187769.5 | clock 4496 | RT | Reduction Transformer Hybrid v1.1 | (4991, 125, 0 - 48, vel 48) voice 39 noteId 170 | TD 4 LogitTD on s 6.0
+187804.7 | clock 4500 | IWAIT | m1 | orch @5004 51 115
+187807.9 | clock 4500 | RT | Reduction Transformer Hybrid v1.1 | (5004, 115, 0 - 51, vel 48) voice 38 noteId 171 | TD 4 LogitTD on s 6.0
+189849.0 | clock 4704 | IWAIT | m1 | orch @5019 57 95
+189852.6 | clock 4705 | RT | Reduction Transformer Hybrid v1.1 | (5019, 95, 0 - 57, vel 48) voice 40 noteId 172 | TD 4 LogitTD on s 6.0
+189891.0 | clock 4708 | IWAIT | m1 | orch @5116 58 15
+189894.9 | clock 4709 | RT | Reduction Transformer Hybrid v1.1 | (5116, 15, 0 - 58, vel 48) voice 40 noteId 173 | TD 4 LogitTD on s 6.0
+189931.3 | clock 4712 | IWAIT | m1 | orch @5130 57 10
+189935.4 | clock 4713 | RT | Reduction Transformer Hybrid v1.1 | (5130, 10, 0 - 57, vel 48) voice 40 noteId 174 | TD 4 LogitTD on s 6.0
+189972.4 | clock 4717 | IWAIT | m1 | orch @5141 55 10
+189976.3 | clock 4717 | RT | Reduction Transformer Hybrid v1.1 | (5141, 10, 0 - 55, vel 48) voice 40 noteId 175 | TD 4 LogitTD on s 6.0
+190017.9 | clock 4721 | IWAIT | m1 | orch @5153 57 10
+190021.6 | clock 4721 | RT | Reduction Transformer Hybrid v1.1 | (5153, 10, 0 - 57, vel 48) voice 40 noteId 176 | TD 4 LogitTD on s 6.0
+190059.5 | clock 4725 | IWAIT | m1 | orch @5164 58 50
+190063.4 | clock 4726 | RT | Reduction Transformer Hybrid v1.1 | (5164, 50, 0 - 58, vel 48) voice 40 noteId 177 | TD 4 LogitTD on s 6.0
+190101.5 | clock 4729 | IWAIT | m1 | orch @5214 60 45
+190105.5 | clock 4730 | RT | Reduction Transformer Hybrid v1.1 | (5214, 45, 0 - 60, vel 48) voice 40 noteId 178 | TD 4 LogitTD on s 6.0
+190144.2 | clock 4734 | IWAIT | m1 | orch @5266 62 25
+190148.0 | clock 4734 | RT | Reduction Transformer Hybrid v1.1 | (5266, 25, 0 - 62, vel 48) voice 40 noteId 179 | TD 4 LogitTD on s 6.0
+192194.5 | clock 4939 | IWAIT | m1 | orch @5288 58 20
+192197.5 | clock 4939 | RT | Reduction Transformer Hybrid v1.1 | (5288, 20, 0 - 58, vel 48) voice 40 noteId 180 | TD 4 LogitTD on s 6.0
+192239.0 | clock 4943 | IWAIT | m1 | orch @5311 53 85
+192242.1 | clock 4943 | RT | Reduction Transformer Hybrid v1.1 | (5311, 85, 0 - 53, vel 48) voice 40 noteId 181 | TD 4 LogitTD on s 6.0
+192290.2 | clock 4948 | IWAIT | m1 | orch @5411 53 40
+192293.4 | clock 4949 | RT | Reduction Transformer Hybrid v1.1 | (5411, 40, 0 - 53, vel 48) voice 40 noteId 182 | TD 4 LogitTD on s 6.0
+192330.1 | clock 4952 | IWAIT | m1 | orch @5458 50 80
+192333.0 | clock 4953 | RT | Reduction Transformer Hybrid v1.1 | (5458, 80, 0 - 50, vel 48) voice 40 noteId 183 | TD 4 LogitTD on s 6.0
+194375.7 | clock 5157 | IWAIT | m1 | orch @5531 46 55
+194379.1 | clock 5157 | RT | Reduction Transformer Hybrid v1.1 | (5531, 55, 0 - 46, vel 48) voice 40 noteId 184 | TD 4 LogitTD on s 6.0
+194418.7 | clock 5161 | IWAIT | m1 | orch @5556 50 30
+194421.9 | clock 5161 | RT | Reduction Transformer Hybrid v1.1 | (5556, 30, 0 - 50, vel 48) voice 40 noteId 185 | TD 4 LogitTD on s 6.0
+194462.5 | clock 5166 | IWAIT | m1 | orch @5556 53 30
+194465.5 | clock 5166 | RT | Reduction Transformer Hybrid v1.1 | (5556, 30, 0 - 53, vel 48) voice 40 noteId 186 | TD 4 LogitTD on s 6.0
+194505.6 | clock 5170 | IWAIT | m1 | orch @5586 41 125
+194508.6 | clock 5170 | RT | Reduction Transformer Hybrid v1.1 | (5586, 125, 0 - 41, vel 48) voice 40 noteId 187 | TD 4 LogitTD on s 6.0
+194542.5 | clock 5174 | IWAIT | m1 | orch @5586 48 125
+194545.6 | clock 5174 | RT | Reduction Transformer Hybrid v1.1 | (5586, 125, 0 - 48, vel 48) voice 40 noteId 188 | TD 4 LogitTD on s 6.0
+194579.1 | clock 5177 | IWAIT | m1 | orch @5602 51 115
+194581.9 | clock 5177 | RT | Reduction Transformer Hybrid v1.1 | (5602, 115, 0 - 51, vel 48) voice 41 noteId 189 | TD 4 LogitTD on s 6.0
+194617.4 | clock 5181 | IWAIT | m1 | orch @5617 57 95
+194620.1 | clock 5181 | RT | Reduction Transformer Hybrid v1.1 | (5617, 95, 0 - 57, vel 48) voice 43 noteId 190 | TD 4 LogitTD on s 6.0
+194653.4 | clock 5185 | IWAIT | m1 | orch @5713 58 15
+194656.3 | clock 5185 | RT | Reduction Transformer Hybrid v1.1 | (5713, 15, 0 - 58, vel 48) voice 43 noteId 191 | TD 4 LogitTD on s 6.0
+196706.4 | clock 5390 | IWAIT | m1 | orch @5727 57 10
+196709.5 | clock 5390 | RT | Reduction Transformer Hybrid v1.1 | (5727, 10, 0 - 57, vel 48) voice 43 noteId 192 | TD 4 LogitTD on s 6.0
+196749.6 | clock 5394 | IWAIT | m1 | orch @5740 55 10
+196752.6 | clock 5395 | RT | Reduction Transformer Hybrid v1.1 | (5740, 10, 0 - 55, vel 48) voice 43 noteId 193 | TD 4 LogitTD on s 6.0
+196791.1 | clock 5398 | IWAIT | m1 | orch @5751 57 10
+196794.1 | clock 5399 | RT | Reduction Transformer Hybrid v1.1 | (5751, 10, 0 - 57, vel 48) voice 43 noteId 194 | TD 4 LogitTD on s 6.0
+196832.7 | clock 5403 | IWAIT | m1 | orch @5763 58 50
+196835.6 | clock 5403 | RT | Reduction Transformer Hybrid v1.1 | (5763, 50, 0 - 58, vel 48) voice 43 noteId 195 | TD 4 LogitTD on s 6.0
+196874.0 | clock 5407 | IWAIT | m1 | orch @5813 60 45
+196877.1 | clock 5407 | RT | Reduction Transformer Hybrid v1.1 | (5813, 45, 0 - 60, vel 48) voice 43 noteId 196 | TD 4 LogitTD on s 6.0
+196913.5 | clock 5411 | IWAIT | m1 | orch @5864 62 25
+196916.3 | clock 5411 | RT | Reduction Transformer Hybrid v1.1 | (5864, 25, 0 - 62, vel 48) voice 43 noteId 197 | TD 4 LogitTD on s 6.0
+196951.4 | clock 5414 | IWAIT | m1 | orch @5890 58 20
+196954.4 | clock 5415 | RT | Reduction Transformer Hybrid v1.1 | (5890, 20, 0 - 58, vel 48) voice 43 noteId 198 | TD 4 LogitTD on s 6.0
+196989.3 | clock 5418 | IWAIT | m1 | orch @5913 53 85
+196992.2 | clock 5418 | RT | Reduction Transformer Hybrid v1.1 | (5913, 85, 0 - 53, vel 48) voice 43 noteId 199 | TD 4 LogitTD on s 6.0
+197027.0 | clock 5422 | IWAIT | m1 | orch @6012 53 40
+197031.3 | clock 5422 | RT | Reduction Transformer Hybrid v1.1 | (6012, 40, 0 - 53, vel 48) voice 43 noteId 200 | TD 4 LogitTD on s 6.0
+199086.6 | clock 5628 | IWAIT | m1 | orch @6061 50 80
+199089.7 | clock 5628 | RT | Reduction Transformer Hybrid v1.1 | (6061, 80, 0 - 50, vel 48) voice 43 noteId 201 | TD 4 LogitTD on s 6.0
+199130.6 | clock 5632 | IWAIT | m1 | orch @6135 46 55
+199133.9 | clock 5633 | RT | Reduction Transformer Hybrid v1.1 | (6135, 55, 0 - 46, vel 48) voice 43 noteId 202 | TD 4 LogitTD on s 6.0
+201180.5 | clock 5837 | IWAIT | m1 | orch @6162 50 30
+201183.5 | clock 5838 | RT | Reduction Transformer Hybrid v1.1 | (6162, 30, 0 - 50, vel 48) voice 43 noteId 203 | TD 4 LogitTD on s 6.0
+201226.5 | clock 5842 | IWAIT | m1 | orch @6162 53 30
+201229.8 | clock 5842 | RT | Reduction Transformer Hybrid v1.1 | (6162, 30, 0 - 53, vel 48) voice 43 noteId 204 | TD 4 LogitTD on s 6.0
+201276.7 | clock 5847 | IWAIT | m1 | orch @6190 41 125
+201279.8 | clock 5847 | RT | Reduction Transformer Hybrid v1.1 | (6190, 125, 0 - 41, vel 48) voice 43 noteId 205 | TD 4 LogitTD on s 6.0
+201321.7 | clock 5851 | IWAIT | m1 | orch @6190 48 125
+201324.5 | clock 5852 | RT | Reduction Transformer Hybrid v1.1 | (6190, 125, 0 - 48, vel 48) voice 43 noteId 206 | TD 4 LogitTD on s 6.0
+201363.4 | clock 5856 | IWAIT | m1 | orch @6206 51 115
+201366.3 | clock 5856 | RT | Reduction Transformer Hybrid v1.1 | (6206, 115, 0 - 51, vel 48) voice 44 noteId 207 | TD 4 LogitTD on s 6.0
+201402.0 | clock 5859 | IWAIT | m1 | orch @6218 57 100
+201404.8 | clock 5860 | RT | Reduction Transformer Hybrid v1.1 | (6218, 100, 0 - 57, vel 48) voice 43 noteId 208 | TD 4 LogitTD on s 6.0
+201443.0 | clock 5864 | IWAIT | m1 | orch @6316 58 15
+201446.4 | clock 5864 | RT | Reduction Transformer Hybrid v1.1 | (6316, 15, 0 - 58, vel 48) voice 46 noteId 209 | TD 4 LogitTD on s 6.0
+201488.5 | clock 5868 | IWAIT | m1 | orch @6330 57 10
+201491.3 | clock 5868 | RT | Reduction Transformer Hybrid v1.1 | (6330, 10, 0 - 57, vel 48) voice 44 noteId 210 | TD 4 LogitTD on s 6.0
+201561.9 | clock 5875 | IWAIT | m1 | orch @6343 55 10
+201564.7 | clock 5876 | RT | Reduction Transformer Hybrid v1.1 | (6343, 10, 0 - 55, vel 48) voice 44 noteId 211 | TD 4 LogitTD on s 6.0
+201599.8 | clock 5879 | IWAIT | m1 | orch @6356 57 10
+201602.6 | clock 5880 | RT | Reduction Transformer Hybrid v1.1 | (6356, 10, 0 - 57, vel 48) voice 44 noteId 212 | TD 4 LogitTD on s 6.0
+201637.2 | clock 5883 | IWAIT | m1 | orch @6367 58 50
+201640.1 | clock 5883 | RT | Reduction Transformer Hybrid v1.1 | (6367, 50, 0 - 58, vel 48) voice 44 noteId 213 | TD 4 LogitTD on s 6.0
+201675.0 | clock 5887 | IWAIT | m1 | orch @6418 60 45
+201678.2 | clock 5887 | RT | Reduction Transformer Hybrid v1.1 | (6418, 45, 0 - 60, vel 48) voice 44 noteId 214 | TD 4 LogitTD on s 6.0
+202232.1 | clock 5942 | MIDI_OUT | clear: note off on every channel and pitch
+202389.6 | clock 5942 | MIDI_OUT | clear: note off on every channel and pitch
+202543.0 | clock 5942 | MIDI_OUT | clear: note off on every channel and pitch
+202693.4 | clock 5942 | MIDI_OUT | clear: note off on every channel and pitch
+204925.6 | clock 0 | UI | Preset applied: {"model": "hybrid_v11", "orchestrationModel": "IodPretrained", "orchestrationMode": "jam", "reduction": "hybridInformativeWait", "inputMode": "direct", "directInputWindowLength": 1, "directInputSendNoteOffs": true, "directInputStartOnInput": false, "directInputStartDelay": 0, "directInputHoldBass": false, "directInputBassLow": 24, "directInputBassHigh": 36, "directInputInitialBass": -1, "inputInstrument": 0, "inputLow": 36, "inputHigh": 120, "inputDuration": 400, "inputInitialData": "", "contextNotes": 40, "outputMinimumDuration": 10, "outputMaximumDuration": 999, "outputTemperatures": [0.5, 0.5, 0.5], "outputStartTime": 0, "outputForceStartTime": false, "outputMaxAheadSeconds": 5, "outputAheadThrottleSeconds": 2, "outputInstruments": [{"id": 1, "active": false, "monophony": false, "low": 36, "high": 120}], "logitAdjustments": {"biasesOn": true, "biasesOnlyWhenPianoSilent": false, "logitTdStrength": 6.0, "model": {"pitchBias": false, "durationBias": false, "onsetGapBias": false, "shortGapPenalty": false, "logitTd": false, "pitchTau": 0.2000000029802322, "pitchTauPrime": 0.2000000029802322, "durationTau": 0.5, "durationTauPrime": 0.0, "onsetGapTau": 0.5, "waitMinPlay": 0.300000011920929}, "hybridV1": {"pitchBias": true, "durationBias": true, "onsetGapBias": true, "shortGapPenalty": true, "logitTd": true}}}
+204926.0 | clock 0 | HYBRID | rt_continuation_latest from 0 (start)
+207321.4 | clock 239 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | B0 40 00 (Controller Hold Pedal (on/off): 0 Channel 1)
+207321.4 | clock 239 | CUT | pedal up: future removed from 239
+207321.5 | clock 239 | MIDI_OUT | thru | BF 40 00 (Controller Hold Pedal (on/off): 0 Channel 16)
+207321.8 | clock 239 | RT | Reduction Transformer Hybrid v1.1 | (239, Clear Queue) voice -1 noteId -1 | TD 4 LogitTD on s 6.0
+207321.9 | clock 239 | HYBRID | mode cut at 239: generated notes from it removed, context kept
+207321.9 | clock 239 | OT | (239, Clear Queue) instr 15 vel 0 voice -1
+207321.9 | clock 239 | RT | Reduction Transformer Hybrid v1.1 | (239, Clear Queue) voice -1 noteId -1 | TD 4 LogitTD on s 6.0
+207321.9 | clock 239 | OT | (239, Clear Queue) instr 15 vel 0 voice -1
+207541.4 | clock 261 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 41 51 (Note on F3 Velocity 81 Channel 1)
+207541.5 | clock 261 | MIDI_OUT | thru | 9F 41 51 (Note on F3 Velocity 81 Channel 16)
+207582.7 | clock 266 | IWAIT | m1 | piano @261 1 0
+207582.7 | clock 266 | IWAIT | m2 | piano @261 1 0
+207657.2 | clock 273 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 43 4F (Note on G3 Velocity 79 Channel 1)
+207657.3 | clock 273 | MIDI_OUT | thru | 9F 43 4F (Note on G3 Velocity 79 Channel 16)
+207705.4 | clock 278 | IWAIT | m1 | piano @273 1 0
+207705.4 | clock 278 | IWAIT | m2 | piano @273 1 0
+207738.2 | clock 281 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 41 00 (Note off F3 Velocity 0 Channel 1)
+207738.3 | clock 281 | MIDI_OUT | thru | 8F 41 00 (Note off F3 Velocity 0 Channel 16)
+207772.3 | clock 285 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 45 57 (Note on A3 Velocity 87 Channel 1)
+207772.4 | clock 285 | MIDI_OUT | thru | 9F 45 57 (Note on A3 Velocity 87 Channel 16)
+207821.3 | clock 289 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 43 00 (Note off G3 Velocity 0 Channel 1)
+207821.4 | clock 289 | MIDI_OUT | thru | 8F 43 00 (Note off G3 Velocity 0 Channel 16)
+207826.6 | clock 290 | IWAIT | m1 | piano @285 1 0
+207826.6 | clock 290 | IWAIT | m2 | piano @285 1 0
+207872.8 | clock 295 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 46 5E (Note on A#3 Velocity 94 Channel 1)
+207872.8 | clock 295 | MIDI_OUT | thru | 9F 46 5E (Note on A#3 Velocity 94 Channel 16)
+207923.9 | clock 300 | IWAIT | m1 | piano @295 1 0
+207923.9 | clock 300 | IWAIT | m2 | piano @295 1 0
+207925.2 | clock 300 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 45 00 (Note off A3 Velocity 0 Channel 1)
+207925.3 | clock 300 | MIDI_OUT | thru | 8F 45 00 (Note off A3 Velocity 0 Channel 16)
+207986.0 | clock 306 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 48 69 (Note on C4 Velocity 105 Channel 1)
+207986.0 | clock 306 | MIDI_OUT | thru | 9F 48 69 (Note on C4 Velocity 105 Channel 16)
+208027.0 | clock 310 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 46 00 (Note off A#3 Velocity 0 Channel 1)
+208027.0 | clock 310 | MIDI_OUT | thru | 8F 46 00 (Note off A#3 Velocity 0 Channel 16)
+208032.3 | clock 311 | IWAIT | m1 | piano @306 1 0
+208032.3 | clock 311 | IWAIT | m2 | piano @306 1 0
+208063.5 | clock 314 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 48 00 (Note off C4 Velocity 0 Channel 1)
+208063.6 | clock 314 | MIDI_OUT | thru | 8F 48 00 (Note off C4 Velocity 0 Channel 16)
+208153.6 | clock 323 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | B0 40 7F (Controller Hold Pedal (on/off): 127 Channel 1)
+208153.7 | clock 323 | MIDI_OUT | thru | BF 40 7F (Controller Hold Pedal (on/off): 127 Channel 16)
+208193.8 | clock 327 | IWAIT | m1 | orch @331 53 10
+208193.9 | clock 327 | RT | Reduction Transformer Hybrid v1.1 | (331, 10, 0 - 53, vel 104) voice 0 noteId 215 | TD 4 LogitTD on s 6.0
+208229.6 | clock 330 | IWAIT | m1 | orch @331 65 15
+208229.7 | clock 330 | RT | Reduction Transformer Hybrid v1.1 | (331, 15, 0 - 65, vel 120) voice 1 noteId 216 | TD 4 LogitTD on s 6.0
+208265.0 | clock 334 | IWAIT | m1 | orch @341 55 10
+208267.4 | clock 334 | RT | Reduction Transformer Hybrid v1.1 | (341, 10, 0 - 55, vel 104) voice 0 noteId 217 | TD 4 LogitTD on s 6.0
+208301.1 | clock 337 | IWAIT | m1 | orch @341 67 15
+208303.4 | clock 338 | RT | Reduction Transformer Hybrid v1.1 | (341, 15, 0 - 67, vel 120) voice 3 noteId 218 | TD 4 LogitTD on s 6.0
+208333.6 | clock 341 | IWAIT | m1 | orch @353 57 10
+208336.2 | clock 341 | RT | Reduction Transformer Hybrid v1.1 | (353, 10, 0 - 57, vel 104) voice 0 noteId 219 | TD 4 LogitTD on s 6.0
+208365.8 | clock 344 | IWAIT | m1 | orch @353 69 15
+208368.0 | clock 344 | RT | Reduction Transformer Hybrid v1.1 | (353, 15, 0 - 69, vel 120) voice 3 noteId 220 | TD 4 LogitTD on s 6.0
+208397.6 | clock 347 | IWAIT | m1 | orch @364 58 10
+208400.0 | clock 347 | RT | Reduction Transformer Hybrid v1.1 | (364, 10, 0 - 58, vel 104) voice 0 noteId 221 | TD 4 LogitTD on s 6.0
+208429.8 | clock 350 | IWAIT | m1 | orch @364 70 15
+208432.1 | clock 350 | RT | Reduction Transformer Hybrid v1.1 | (364, 15, 0 - 70, vel 120) voice 3 noteId 222 | TD 4 LogitTD on s 6.0
+208461.8 | clock 353 | IWAIT | m1 | orch @374 60 25
+208464.1 | clock 354 | RT | Reduction Transformer Hybrid v1.1 | (374, 25, 0 - 60, vel 104) voice 0 noteId 223 | TD 4 LogitTD on s 6.0
+208493.9 | clock 357 | IWAIT | m1 | orch @374 72 30
+208496.2 | clock 357 | RT | Reduction Transformer Hybrid v1.1 | (374, 30, 0 - 72, vel 120) voice 3 noteId 224 | TD 4 LogitTD on s 6.0
+208523.3 | clock 360 | IWAIT | m1 | orch @399 60 25
+208525.6 | clock 360 | RT | Reduction Transformer Hybrid v1.1 | (399, 25, 0 - 60, vel 104) voice 0 noteId 225 | TD 4 LogitTD on s 6.0
+208553.5 | clock 363 | IWAIT | m1 | orch @399 72 30
+208555.9 | clock 363 | RT | Reduction Transformer Hybrid v1.1 | (399, 30, 0 - 72, vel 120) voice 5 noteId 226 | TD 4 LogitTD on s 6.0
+208582.4 | clock 366 | IWAIT | m1 | orch @422 60 25
+208585.3 | clock 366 | RT | Reduction Transformer Hybrid v1.1 | (422, 25, 0 - 60, vel 104) voice 6 noteId 227 | TD 4 LogitTD on s 6.0
+208612.4 | clock 369 | IWAIT | m1 | orch @422 72 30
+208615.7 | clock 369 | RT | Reduction Transformer Hybrid v1.1 | (422, 30, 0 - 72, vel 120) voice 3 noteId 228 | TD 4 LogitTD on s 6.0
+208642.4 | clock 372 | IWAIT | m1 | orch @446 48 20
+208644.8 | clock 372 | RT | Reduction Transformer Hybrid v1.1 | (446, 20, 0 - 48, vel 120) voice 0 noteId 229 | TD 4 LogitTD on s 6.0
+208671.9 | clock 374 | IWAIT | m1 | orch @446 60 20
+208674.2 | clock 375 | RT | Reduction Transformer Hybrid v1.1 | (446, 20, 0 - 60, vel 120) voice 7 noteId 230 | TD 4 LogitTD on s 6.0
+208702.0 | clock 377 | IWAIT | m1 | orch @468 53 40
+208704.4 | clock 378 | RT | Reduction Transformer Hybrid v1.1 | (468, 40, 0 - 53, vel 120) voice 0 noteId 231 | TD 4 LogitTD on s 6.0
+208732.6 | clock 381 | IWAIT | m1 | orch @468 65 45
+208734.9 | clock 381 | RT | Reduction Transformer Hybrid v1.1 | (468, 45, 0 - 65, vel 120) voice 7 noteId 232 | TD 4 LogitTD on s 6.0
+208763.4 | clock 384 | IWAIT | m1 | orch @516 41 40
+208765.8 | clock 384 | RT | Reduction Transformer Hybrid v1.1 | (516, 40, 0 - 41, vel 120) voice 0 noteId 233 | TD 4 LogitTD on s 6.0
+208793.7 | clock 387 | IWAIT | m1 | orch @516 53 45
+208796.1 | clock 387 | RT | Reduction Transformer Hybrid v1.1 | (516, 45, 0 - 53, vel 120) voice 0 noteId 234 | TD 4 LogitTD on s 6.0
+208823.8 | clock 390 | IWAIT | m1 | orch @516 57 50
+208826.2 | clock 390 | RT | Reduction Transformer Hybrid v1.1 | (516, 50, 0 - 57, vel 120) voice 7 noteId 235 | TD 4 LogitTD on s 6.0
+208853.5 | clock 393 | IWAIT | m1 | orch @516 60 50
+208856.2 | clock 393 | RT | Reduction Transformer Hybrid v1.1 | (516, 50, 0 - 60, vel 120) voice 7 noteId 236 | TD 4 LogitTD on s 6.0
+208884.3 | clock 396 | IWAIT | m1 | orch @561 60 55
+208888.0 | clock 396 | RT | Reduction Transformer Hybrid v1.1 | (561, 55, 0 - 60, vel 120) voice 0 noteId 237 | TD 4 LogitTD on s 6.0
+208914.7 | clock 399 | IWAIT | m1 | orch @561 65 60
+208917.3 | clock 399 | RT | Reduction Transformer Hybrid v1.1 | (561, 60, 0 - 65, vel 120) voice 7 noteId 238 | TD 4 LogitTD on s 6.0
+208944.6 | clock 402 | IWAIT | m1 | orch @629 60 10
+208947.2 | clock 402 | RT | Reduction Transformer Hybrid v1.1 | (629, 10, 0 - 60, vel 120) voice 0 noteId 239 | TD 4 LogitTD on s 6.0
+208974.5 | clock 405 | IWAIT | m1 | orch @629 69 15
+208977.1 | clock 405 | RT | Reduction Transformer Hybrid v1.1 | (629, 15, 0 - 69, vel 120) voice 7 noteId 240 | TD 4 LogitTD on s 6.0
+209004.6 | clock 408 | IWAIT | m1 | orch @642 58 10
+209007.2 | clock 408 | RT | Reduction Transformer Hybrid v1.1 | (642, 10, 0 - 58, vel 120) voice 0 noteId 241 | TD 4 LogitTD on s 6.0
+209034.4 | clock 411 | IWAIT | m1 | orch @642 67 15
+209037.0 | clock 411 | RT | Reduction Transformer Hybrid v1.1 | (642, 15, 0 - 67, vel 120) voice 7 noteId 242 | TD 4 LogitTD on s 6.0
+209066.7 | clock 414 | IWAIT | m1 | orch @653 57 25
+209069.3 | clock 414 | RT | Reduction Transformer Hybrid v1.1 | (653, 25, 0 - 57, vel 120) voice 0 noteId 243 | TD 4 LogitTD on s 6.0
+209098.7 | clock 417 | IWAIT | m1 | orch @653 65 30
+209101.4 | clock 417 | RT | Reduction Transformer Hybrid v1.1 | (653, 30, 0 - 65, vel 120) voice 7 noteId 244 | TD 4 LogitTD on s 6.0
+209130.6 | clock 420 | IWAIT | m1 | orch @677 57 25
+209133.3 | clock 421 | RT | Reduction Transformer Hybrid v1.1 | (677, 25, 0 - 57, vel 120) voice 0 noteId 245 | TD 4 LogitTD on s 6.0
+209163.2 | clock 424 | IWAIT | m1 | orch @677 65 30
+209166.0 | clock 424 | RT | Reduction Transformer Hybrid v1.1 | (677, 30, 0 - 65, vel 120) voice 7 noteId 246 | TD 4 LogitTD on s 6.0
+209195.0 | clock 427 | IWAIT | m1 | orch @698 57 25
+209197.9 | clock 427 | RT | Reduction Transformer Hybrid v1.1 | (698, 25, 0 - 57, vel 120) voice 0 noteId 247 | TD 4 LogitTD on s 6.0
+209227.8 | clock 430 | IWAIT | m1 | orch @698 65 30
+209230.6 | clock 430 | RT | Reduction Transformer Hybrid v1.1 | (698, 30, 0 - 65, vel 120) voice 7 noteId 248 | TD 4 LogitTD on s 6.0
+209261.5 | clock 433 | IWAIT | m1 | orch @721 48 20
+209264.3 | clock 434 | RT | Reduction Transformer Hybrid v1.1 | (721, 20, 0 - 48, vel 120) voice 0 noteId 249 | TD 4 LogitTD on s 6.0
+209294.6 | clock 437 | IWAIT | m1 | orch @721 60 25
+209297.4 | clock 437 | RT | Reduction Transformer Hybrid v1.1 | (721, 25, 0 - 60, vel 120) voice 7 noteId 250 | TD 4 LogitTD on s 6.0
+209326.6 | clock 440 | IWAIT | m1 | orch @744 53 35
+209329.5 | clock 440 | RT | Reduction Transformer Hybrid v1.1 | (744, 35, 0 - 53, vel 120) voice 0 noteId 251 | TD 4 LogitTD on s 6.0
+209359.2 | clock 443 | IWAIT | m1 | orch @744 57 45
+209362.1 | clock 443 | RT | Reduction Transformer Hybrid v1.1 | (744, 45, 0 - 57, vel 120) voice 7 noteId 252 | TD 4 LogitTD on s 6.0
+209392.0 | clock 446 | IWAIT | m1 | orch @779 55 10
+209394.9 | clock 447 | RT | Reduction Transformer Hybrid v1.1 | (779, 10, 0 - 55, vel 120) voice 0 noteId 253 | TD 4 LogitTD on s 6.0
+209425.0 | clock 450 | IWAIT | m1 | orch @789 51 35
+209427.9 | clock 450 | RT | Reduction Transformer Hybrid v1.1 | (789, 35, 0 - 51, vel 120) voice 0 noteId 254 | TD 4 LogitTD on s 6.0
+209457.8 | clock 453 | IWAIT | m1 | orch @789 53 40
+209460.6 | clock 453 | RT | Reduction Transformer Hybrid v1.1 | (789, 40, 0 - 53, vel 120) voice 7 noteId 255 | TD 4 LogitTD on s 6.0
+209489.7 | clock 456 | IWAIT | m1 | orch @826 50 10
+209492.7 | clock 457 | RT | Reduction Transformer Hybrid v1.1 | (826, 10, 0 - 50, vel 120) voice 0 noteId 256 | TD 4 LogitTD on s 6.0
+209523.5 | clock 460 | IWAIT | m1 | orch @837 48 35
+209526.4 | clock 460 | RT | Reduction Transformer Hybrid v1.1 | (837, 35, 0 - 48, vel 120) voice 0 noteId 257 | TD 4 LogitTD on s 6.0
+209556.9 | clock 463 | IWAIT | m1 | orch @870 46 10
+209560.0 | clock 463 | RT | Reduction Transformer Hybrid v1.1 | (870, 10, 0 - 46, vel 120) voice 0 noteId 258 | TD 4 LogitTD on s 6.0
+209589.9 | clock 466 | IWAIT | m1 | orch @882 45 35
+209593.3 | clock 467 | RT | Reduction Transformer Hybrid v1.1 | (882, 35, 0 - 45, vel 120) voice 0 noteId 259 | TD 4 LogitTD on s 6.0
+209622.7 | clock 470 | IWAIT | m1 | orch @882 60 40
+209626.8 | clock 470 | RT | Reduction Transformer Hybrid v1.1 | (882, 40, 0 - 60, vel 120) voice 11 noteId 260 | TD 4 LogitTD on s 6.0
+209656.5 | clock 473 | IWAIT | m1 | orch @916 43 10
+209660.3 | clock 473 | RT | Reduction Transformer Hybrid v1.1 | (916, 10, 0 - 43, vel 120) voice 0 noteId 261 | TD 4 LogitTD on s 6.0
+209690.2 | clock 476 | IWAIT | m1 | orch @930 41 80
+209693.3 | clock 477 | RT | Reduction Transformer Hybrid v1.1 | (930, 80, 0 - 41, vel 120) voice 0 noteId 262 | TD 4 LogitTD on s 6.0
+209723.9 | clock 480 | IWAIT | m1 | orch @930 60 95
+209726.9 | clock 480 | RT | Reduction Transformer Hybrid v1.1 | (930, 95, 0 - 60, vel 120) voice 11 noteId 263 | TD 4 LogitTD on s 6.0
+209757.2 | clock 483 | IWAIT | m1 | orch @976 63 40
+209760.1 | clock 483 | RT | Reduction Transformer Hybrid v1.1 | (976, 40, 0 - 63, vel 120) voice 12 noteId 264 | TD 4 LogitTD on s 6.0
+209790.5 | clock 486 | IWAIT | m1 | orch @976 69 40
+209793.4 | clock 487 | RT | Reduction Transformer Hybrid v1.1 | (976, 40, 0 - 69, vel 120) voice 13 noteId 265 | TD 4 LogitTD on s 6.0
+209824.6 | clock 490 | IWAIT | m1 | orch @1023 34 85
+209827.7 | clock 490 | RT | Reduction Transformer Hybrid v1.1 | (1023, 85, 0 - 34, vel 120) voice 0 noteId 266 | TD 4 LogitTD on s 6.0
+211875.8 | clock 695 | IWAIT | m1 | orch @1023 62 90
+211878.8 | clock 695 | RT | Reduction Transformer Hybrid v1.1 | (1023, 90, 0 - 62, vel 120) voice 11 noteId 267 | TD 4 LogitTD on s 6.0
+211915.7 | clock 699 | IWAIT | m1 | orch @1068 58 50
+211921.0 | clock 699 | RT | Reduction Transformer Hybrid v1.1 | (1068, 50, 0 - 58, vel 120) voice 14 noteId 268 | TD 4 LogitTD on s 6.0
+211959.5 | clock 703 | IWAIT | m1 | orch @1068 62 55
+211962.5 | clock 704 | RT | Reduction Transformer Hybrid v1.1 | (1068, 55, 0 - 62, vel 120) voice 15 noteId 269 | TD 4 LogitTD on s 6.0
+211999.8 | clock 707 | IWAIT | m1 | orch @1068 67 50
+212002.7 | clock 708 | RT | Reduction Transformer Hybrid v1.1 | (1068, 50, 0 - 67, vel 120) voice 13 noteId 270 | TD 4 LogitTD on s 6.0
+212040.7 | clock 711 | IWAIT | m1 | orch @1117 36 75
+212043.8 | clock 712 | RT | Reduction Transformer Hybrid v1.1 | (1117, 75, 0 - 36, vel 120) voice 0 noteId 271 | TD 4 LogitTD on s 6.0
+212083.4 | clock 716 | IWAIT | m1 | orch @1117 57 70
+212086.2 | clock 716 | RT | Reduction Transformer Hybrid v1.1 | (1117, 70, 0 - 57, vel 120) voice 11 noteId 272 | TD 4 LogitTD on s 6.0
+212117.0 | clock 719 | IWAIT | m1 | orch @1117 60 70
+212120.1 | clock 719 | RT | Reduction Transformer Hybrid v1.1 | (1117, 70, 0 - 60, vel 120) voice 11 noteId 273 | TD 4 LogitTD on s 6.0
+212150.8 | clock 722 | IWAIT | m1 | orch @1187 55 15
+212153.6 | clock 723 | RT | Reduction Transformer Hybrid v1.1 | (1187, 15, 0 - 55, vel 120) voice 16 noteId 274 | TD 4 LogitTD on s 6.0
+212187.1 | clock 726 | IWAIT | m1 | orch @1187 58 15
+212189.8 | clock 726 | RT | Reduction Transformer Hybrid v1.1 | (1187, 15, 0 - 58, vel 120) voice 11 noteId 275 | TD 4 LogitTD on s 6.0
+212222.8 | clock 730 | IWAIT | m1 | orch @1200 53 15
+212225.5 | clock 730 | RT | Reduction Transformer Hybrid v1.1 | (1200, 15, 0 - 53, vel 120) voice 17 noteId 276 | TD 4 LogitTD on s 6.0
+212261.9 | clock 733 | IWAIT | m1 | orch @1200 57 15
+212264.7 | clock 734 | RT | Reduction Transformer Hybrid v1.1 | (1200, 15, 0 - 57, vel 120) voice 11 noteId 277 | TD 4 LogitTD on s 6.0
+212296.9 | clock 737 | IWAIT | m1 | orch @1215 52 30
+212299.7 | clock 737 | RT | Reduction Transformer Hybrid v1.1 | (1215, 30, 0 - 52, vel 120) voice 17 noteId 278 | TD 4 LogitTD on s 6.0
+212333.4 | clock 741 | IWAIT | m1 | orch @1215 55 30
+212336.3 | clock 741 | RT | Reduction Transformer Hybrid v1.1 | (1215, 30, 0 - 55, vel 120) voice 11 noteId 279 | TD 4 LogitTD on s 6.0
+212370.8 | clock 744 | IWAIT | m1 | orch @1245 53 25
+212373.8 | clock 745 | RT | Reduction Transformer Hybrid v1.1 | (1245, 25, 0 - 53, vel 120) voice 17 noteId 280 | TD 4 LogitTD on s 6.0
+212405.7 | clock 748 | IWAIT | m1 | orch @1245 57 25
+212408.6 | clock 748 | RT | Reduction Transformer Hybrid v1.1 | (1245, 25, 0 - 57, vel 120) voice 11 noteId 281 | TD 4 LogitTD on s 6.0
+212442.1 | clock 751 | IWAIT | m1 | orch @1270 48 45
+212444.8 | clock 752 | RT | Reduction Transformer Hybrid v1.1 | (1270, 45, 0 - 48, vel 120) voice 17 noteId 282 | TD 4 LogitTD on s 6.0
+214489.3 | clock 956 | IWAIT | m1 | orch @1270 55 45
+214493.3 | clock 957 | RT | Reduction Transformer Hybrid v1.1 | (1270, 45, 0 - 55, vel 120) voice 11 noteId 283 | TD 4 LogitTD on s 6.0
+214537.8 | clock 961 | IWAIT | m1 | orch @1288 60 20
+214541.3 | clock 961 | RT | Reduction Transformer Hybrid v1.1 | (1288, 20, 0 - 60, vel 120) voice 11 noteId 284 | TD 4 LogitTD on s 6.0
+214581.1 | clock 965 | IWAIT | m1 | orch @1305 62 20
+214585.0 | clock 966 | RT | Reduction Transformer Hybrid v1.1 | (1305, 20, 0 - 62, vel 120) voice 18 noteId 285 | TD 4 LogitTD on s 6.0
+214627.6 | clock 970 | IWAIT | m1 | orch @1325 64 20
+214631.6 | clock 970 | RT | Reduction Transformer Hybrid v1.1 | (1325, 20, 0 - 64, vel 120) voice 18 noteId 286 | TD 4 LogitTD on s 6.0
+214675.0 | clock 975 | IWAIT | m1 | orch @1346 65 20
+214679.0 | clock 975 | RT | Reduction Transformer Hybrid v1.1 | (1346, 20, 0 - 65, vel 120) voice 18 noteId 287 | TD 4 LogitTD on s 6.0
+214719.8 | clock 979 | IWAIT | m1 | orch @1368 67 20
+214724.1 | clock 980 | RT | Reduction Transformer Hybrid v1.1 | (1368, 20, 0 - 67, vel 120) voice 18 noteId 288 | TD 4 LogitTD on s 6.0
+214766.4 | clock 984 | IWAIT | m1 | orch @1391 41 35
+214770.6 | clock 984 | RT | Reduction Transformer Hybrid v1.1 | (1391, 35, 0 - 41, vel 120) voice 19 noteId 289 | TD 4 LogitTD on s 6.0
+214814.5 | clock 989 | IWAIT | m1 | orch @1391 53 35
+214819.1 | clock 989 | RT | Reduction Transformer Hybrid v1.1 | (1391, 35, 0 - 53, vel 120) voice 11 noteId 290 | TD 4 LogitTD on s 6.0
+214861.0 | clock 993 | IWAIT | m1 | orch @1391 57 35
+214865.1 | clock 994 | RT | Reduction Transformer Hybrid v1.1 | (1391, 35, 0 - 57, vel 120) voice 18 noteId 291 | TD 4 LogitTD on s 6.0
+214906.8 | clock 998 | IWAIT | m1 | orch @1391 60 35
+214911.0 | clock 998 | RT | Reduction Transformer Hybrid v1.1 | (1391, 35, 0 - 60, vel 120) voice 18 noteId 292 | TD 4 LogitTD on s 6.0
+214952.4 | clock 1003 | IWAIT | m1 | orch @1391 65 35
+214956.4 | clock 1003 | RT | Reduction Transformer Hybrid v1.1 | (1391, 35, 0 - 65, vel 120) voice 18 noteId 293 | TD 4 LogitTD on s 6.0
+214994.4 | clock 1007 | IWAIT | m1 | orch @1426 41 10
+214998.5 | clock 1007 | RT | Reduction Transformer Hybrid v1.1 | (1426, 10, 0 - 41, vel 120) voice 19 noteId 294 | TD 4 LogitTD on s 6.0
+215034.9 | clock 1011 | IWAIT | m1 | orch @1426 53 10
+215038.6 | clock 1011 | RT | Reduction Transformer Hybrid v1.1 | (1426, 10, 0 - 53, vel 120) voice 22 noteId 295 | TD 4 LogitTD on s 6.0
+215079.4 | clock 1015 | IWAIT | m1 | orch @1426 57 10
+215082.9 | clock 1016 | RT | Reduction Transformer Hybrid v1.1 | (1426, 10, 0 - 57, vel 120) voice 18 noteId 296 | TD 4 LogitTD on s 6.0
+215117.9 | clock 1019 | IWAIT | m1 | orch @1426 60 10
+215121.7 | clock 1019 | RT | Reduction Transformer Hybrid v1.1 | (1426, 10, 0 - 60, vel 120) voice 18 noteId 297 | TD 4 LogitTD on s 6.0
+215164.4 | clock 1024 | IWAIT | m1 | orch @1426 65 10
+215168.0 | clock 1024 | RT | Reduction Transformer Hybrid v1.1 | (1426, 10, 0 - 65, vel 120) voice 18 noteId 298 | TD 4 LogitTD on s 6.0
+215205.9 | clock 1028 | IWAIT | m1 | orch @1437 41 80
+215209.7 | clock 1028 | RT | Reduction Transformer Hybrid v1.1 | (1437, 80, 0 - 41, vel 120) voice 19 noteId 299 | TD 4 LogitTD on s 6.0
+215248.7 | clock 1032 | IWAIT | m1 | orch @1437 53 80
+215252.3 | clock 1033 | RT | Reduction Transformer Hybrid v1.1 | (1437, 80, 0 - 53, vel 120) voice 22 noteId 300 | TD 4 LogitTD on s 6.0
+215290.9 | clock 1036 | IWAIT | m1 | orch @1437 57 80
+215295.1 | clock 1037 | RT | Reduction Transformer Hybrid v1.1 | (1437, 80, 0 - 57, vel 120) voice 25 noteId 301 | TD 4 LogitTD on s 6.0
+215333.8 | clock 1041 | IWAIT | m1 | orch @1437 60 80
+215340.1 | clock 1041 | RT | Reduction Transformer Hybrid v1.1 | (1437, 80, 0 - 60, vel 120) voice 24 noteId 302 | TD 4 LogitTD on s 6.0
+215379.1 | clock 1045 | IWAIT | m1 | orch @1437 65 80
+215382.8 | clock 1046 | RT | Reduction Transformer Hybrid v1.1 | (1437, 80, 0 - 65, vel 120) voice 18 noteId 303 | TD 4 LogitTD on s 6.0
+215421.3 | clock 1049 | IWAIT | m1 | orch @1528 46 40
+215425.3 | clock 1050 | RT | Reduction Transformer Hybrid v1.1 | (1528, 40, 0 - 46, vel 120) voice 19 noteId 304 | TD 4 LogitTD on s 6.0
+215466.0 | clock 1054 | IWAIT | m1 | orch @1528 53 40
+215470.7 | clock 1054 | RT | Reduction Transformer Hybrid v1.1 | (1528, 40, 0 - 53, vel 120) voice 26 noteId 305 | TD 4 LogitTD on s 6.0
+215511.4 | clock 1058 | IWAIT | m1 | orch @1528 62 40
+215514.8 | clock 1059 | RT | Reduction Transformer Hybrid v1.1 | (1528, 40, 0 - 62, vel 120) voice 18 noteId 306 | TD 4 LogitTD on s 6.0
+215549.1 | clock 1062 | IWAIT | m1 | orch @1575 46 40
+215552.4 | clock 1063 | RT | Reduction Transformer Hybrid v1.1 | (1575, 40, 0 - 46, vel 120) voice 19 noteId 307 | TD 4 LogitTD on s 6.0
+217611.4 | clock 1268 | IWAIT | m1 | orch @1575 53 40
+217614.4 | clock 1269 | RT | Reduction Transformer Hybrid v1.1 | (1575, 40, 0 - 53, vel 120) voice 26 noteId 308 | TD 4 LogitTD on s 6.0
+217656.7 | clock 1273 | IWAIT | m1 | orch @1575 62 40
+217660.1 | clock 1273 | RT | Reduction Transformer Hybrid v1.1 | (1575, 40, 0 - 62, vel 120) voice 18 noteId 309 | TD 4 LogitTD on s 6.0
+217703.4 | clock 1278 | IWAIT | m1 | orch @1620 50 75
+217706.4 | clock 1278 | RT | Reduction Transformer Hybrid v1.1 | (1620, 75, 0 - 50, vel 120) voice 19 noteId 310 | TD 4 LogitTD on s 6.0
+217744.9 | clock 1282 | IWAIT | m1 | orch @1620 53 75
+217748.0 | clock 1282 | RT | Reduction Transformer Hybrid v1.1 | (1620, 75, 0 - 53, vel 120) voice 26 noteId 311 | TD 4 LogitTD on s 6.0
+217784.4 | clock 1286 | IWAIT | m1 | orch @1620 58 75
+217787.4 | clock 1286 | RT | Reduction Transformer Hybrid v1.1 | (1620, 75, 0 - 58, vel 120) voice 18 noteId 312 | TD 4 LogitTD on s 6.0
+217828.4 | clock 1290 | IWAIT | m1 | orch @1666 46 35
+217831.5 | clock 1290 | RT | Reduction Transformer Hybrid v1.1 | (1666, 35, 0 - 46, vel 120) voice 19 noteId 313 | TD 4 LogitTD on s 6.0
+217868.7 | clock 1294 | IWAIT | m1 | orch @1713 43 55
+217872.0 | clock 1294 | RT | Reduction Transformer Hybrid v1.1 | (1713, 55, 0 - 43, vel 120) voice 19 noteId 314 | TD 4 LogitTD on s 6.0
+217913.1 | clock 1299 | IWAIT | m1 | orch @1713 50 90
+217916.1 | clock 1299 | RT | Reduction Transformer Hybrid v1.1 | (1713, 90, 0 - 50, vel 120) voice 26 noteId 315 | TD 4 LogitTD on s 6.0
+217958.6 | clock 1303 | IWAIT | m1 | orch @1713 58 90
+217961.6 | clock 1303 | RT | Reduction Transformer Hybrid v1.1 | (1713, 90, 0 - 58, vel 120) voice 18 noteId 316 | TD 4 LogitTD on s 6.0
+217998.6 | clock 1307 | IWAIT | m1 | orch @1763 50 25
+218001.9 | clock 1307 | RT | Reduction Transformer Hybrid v1.1 | (1763, 25, 0 - 50, vel 120) voice 19 noteId 317 | TD 4 LogitTD on s 6.0
+218040.0 | clock 1311 | IWAIT | m1 | orch @1787 52 30
+218043.5 | clock 1312 | RT | Reduction Transformer Hybrid v1.1 | (1787, 30, 0 - 52, vel 120) voice 19 noteId 318 | TD 4 LogitTD on s 6.0
+218082.2 | clock 1316 | IWAIT | m1 | orch @1816 45 45
+218085.3 | clock 1316 | RT | Reduction Transformer Hybrid v1.1 | (1816, 45, 0 - 45, vel 120) voice 19 noteId 319 | TD 4 LogitTD on s 6.0
+218121.1 | clock 1319 | IWAIT | m1 | orch @1816 48 50
+218124.4 | clock 1320 | RT | Reduction Transformer Hybrid v1.1 | (1816, 50, 0 - 48, vel 120) voice 26 noteId 320 | TD 4 LogitTD on s 6.0
+218162.0 | clock 1323 | IWAIT | m1 | orch @1816 53 50
+218165.2 | clock 1324 | RT | Reduction Transformer Hybrid v1.1 | (1816, 50, 0 - 53, vel 120) voice 26 noteId 321 | TD 4 LogitTD on s 6.0
+218200.6 | clock 1327 | IWAIT | m1 | orch @1881 48 60
+218203.7 | clock 1328 | RT | Reduction Transformer Hybrid v1.1 | (1881, 60, 0 - 48, vel 120) voice 19 noteId 322 | TD 4 LogitTD on s 6.0
+220251.4 | clock 1532 | IWAIT | m1 | orch @1881 52 60
+220254.2 | clock 1533 | RT | Reduction Transformer Hybrid v1.1 | (1881, 60, 0 - 52, vel 120) voice 26 noteId 323 | TD 4 LogitTD on s 6.0
+220297.1 | clock 1537 | IWAIT | m1 | orch @1941 36 95
+220300.0 | clock 1537 | RT | Reduction Transformer Hybrid v1.1 | (1941, 95, 0 - 36, vel 120) voice 19 noteId 324 | TD 4 LogitTD on s 6.0
+220346.5 | clock 1542 | IWAIT | m1 | orch @2033 41 265
+220349.5 | clock 1542 | RT | Reduction Transformer Hybrid v1.1 | (2033, 265, 0 - 41, vel 120) voice 19 noteId 325 | TD 4 LogitTD on s 6.0
+220391.9 | clock 1546 | IWAIT | m1 | orch @2068 45 235
+220395.0 | clock 1547 | RT | Reduction Transformer Hybrid v1.1 | (2068, 235, 0 - 45, vel 120) voice 19 noteId 326 | TD 4 LogitTD on s 6.0
+222444.9 | clock 1752 | IWAIT | m1 | orch @2068 48 235
+222448.0 | clock 1752 | RT | Reduction Transformer Hybrid v1.1 | (2068, 235, 0 - 48, vel 120) voice 28 noteId 327 | TD 4 LogitTD on s 6.0
+222494.8 | clock 1757 | IWAIT | m1 | orch @2101 53 200
+222497.9 | clock 1757 | RT | Reduction Transformer Hybrid v1.1 | (2101, 200, 0 - 53, vel 120) voice 29 noteId 328 | TD 4 LogitTD on s 6.0
+222541.0 | clock 1761 | IWAIT | m1 | orch @2123 57 175
+222544.0 | clock 1762 | RT | Reduction Transformer Hybrid v1.1 | (2123, 175, 0 - 57, vel 120) voice 30 noteId 329 | TD 4 LogitTD on s 6.0
+222591.1 | clock 1766 | IWAIT | m1 | orch @2157 60 155
+222594.5 | clock 1767 | RT | Reduction Transformer Hybrid v1.1 | (2157, 155, 0 - 60, vel 120) voice 31 noteId 330 | TD 4 LogitTD on s 6.0
+222639.5 | clock 1771 | IWAIT | m1 | orch @2195 65 115
+222643.2 | clock 1772 | RT | Reduction Transformer Hybrid v1.1 | (2195, 115, 0 - 65, vel 120) voice 32 noteId 331 | TD 4 LogitTD on s 6.0
+222690.7 | clock 1776 | IWAIT | m1 | orch @2227 69 85
+222694.5 | clock 1777 | RT | Reduction Transformer Hybrid v1.1 | (2227, 85, 0 - 69, vel 120) voice 33 noteId 332 | TD 4 LogitTD on s 6.0
+222734.3 | clock 1781 | IWAIT | m1 | orch @2288 57 10
+222737.5 | clock 1781 | RT | Reduction Transformer Hybrid v1.1 | (2288, 10, 0 - 57, vel 120) voice 34 noteId 333 | TD 4 LogitTD on s 6.0
+224792.6 | clock 1987 | IWAIT | m1 | orch @2288 69 10
+224795.7 | clock 1987 | RT | Reduction Transformer Hybrid v1.1 | (2288, 10, 0 - 69, vel 120) voice 35 noteId 334 | TD 4 LogitTD on s 6.0
+224846.1 | clock 1992 | IWAIT | m1 | orch @2298 58 20
+224849.6 | clock 1992 | RT | Reduction Transformer Hybrid v1.1 | (2298, 20, 0 - 58, vel 120) voice 34 noteId 335 | TD 4 LogitTD on s 6.0
+224926.7 | clock 2000 | IWAIT | m1 | orch @2298 70 20
+224929.7 | clock 2000 | RT | Reduction Transformer Hybrid v1.1 | (2298, 20, 0 - 70, vel 120) voice 35 noteId 336 | TD 4 LogitTD on s 6.0
+224963.1 | clock 2004 | IWAIT | m1 | orch @2319 60 30
+224966.1 | clock 2004 | RT | Reduction Transformer Hybrid v1.1 | (2319, 30, 0 - 60, vel 120) voice 31 noteId 337 | TD 4 LogitTD on s 6.0
+225000.8 | clock 2007 | IWAIT | m1 | orch @2319 72 30
+225003.5 | clock 2008 | RT | Reduction Transformer Hybrid v1.1 | (2319, 30, 0 - 72, vel 120) voice 35 noteId 338 | TD 4 LogitTD on s 6.0
+225037.1 | clock 2011 | IWAIT | m1 | orch @2349 58 25
+225040.1 | clock 2011 | RT | Reduction Transformer Hybrid v1.1 | (2349, 25, 0 - 58, vel 120) voice 31 noteId 339 | TD 4 LogitTD on s 6.0
+225073.9 | clock 2015 | IWAIT | m1 | orch @2349 70 25
+225077.0 | clock 2015 | RT | Reduction Transformer Hybrid v1.1 | (2349, 25, 0 - 70, vel 120) voice 35 noteId 340 | TD 4 LogitTD on s 6.0
+225111.2 | clock 2018 | IWAIT | m1 | orch @2377 41 40
+225114.5 | clock 2019 | RT | Reduction Transformer Hybrid v1.1 | (2377, 40, 0 - 41, vel 120) voice 19 noteId 341 | TD 4 LogitTD on s 6.0
+225149.2 | clock 2022 | IWAIT | m1 | orch @2377 48 40
+225152.1 | clock 2022 | RT | Reduction Transformer Hybrid v1.1 | (2377, 40, 0 - 48, vel 120) voice 28 noteId 342 | TD 4 LogitTD on s 6.0
+225186.3 | clock 2026 | IWAIT | m1 | orch @2377 57 15
+225189.3 | clock 2026 | RT | Reduction Transformer Hybrid v1.1 | (2377, 15, 0 - 57, vel 120) voice 38 noteId 343 | TD 4 LogitTD on s 6.0
+225225.1 | clock 2030 | IWAIT | m1 | orch @2377 57 40
+225228.2 | clock 2030 | RT | Reduction Transformer Hybrid v1.1 | (2377, 40, 0 - 57, vel 120) voice 39 noteId 344 | TD 4 LogitTD on s 6.0
+225261.2 | clock 2033 | IWAIT | m1 | orch @2377 69 15
+225264.6 | clock 2034 | RT | Reduction Transformer Hybrid v1.1 | (2377, 15, 0 - 69, vel 120) voice 35 noteId 345 | TD 4 LogitTD on s 6.0
+225300.5 | clock 2037 | IWAIT | m1 | orch @2393 55 15
+225303.6 | clock 2038 | RT | Reduction Transformer Hybrid v1.1 | (2393, 15, 0 - 55, vel 120) voice 38 noteId 346 | TD 4 LogitTD on s 6.0
+225338.0 | clock 2041 | IWAIT | m1 | orch @2393 67 15
+225341.1 | clock 2041 | RT | Reduction Transformer Hybrid v1.1 | (2393, 15, 0 - 67, vel 120) voice 35 noteId 347 | TD 4 LogitTD on s 6.0
+225377.9 | clock 2045 | IWAIT | m1 | orch @2407 41 55
+225381.1 | clock 2045 | RT | Reduction Transformer Hybrid v1.1 | (2407, 55, 0 - 41, vel 120) voice 40 noteId 348 | TD 4 LogitTD on s 6.0
+225416.2 | clock 2049 | IWAIT | m1 | orch @2407 48 55
+225419.1 | clock 2049 | RT | Reduction Transformer Hybrid v1.1 | (2407, 55, 0 - 48, vel 120) voice 41 noteId 349 | TD 4 LogitTD on s 6.0
+225454.7 | clock 2053 | IWAIT | m1 | orch @2407 53 50
+225458.1 | clock 2053 | RT | Reduction Transformer Hybrid v1.1 | (2407, 50, 0 - 53, vel 120) voice 42 noteId 350 | TD 4 LogitTD on s 6.0
+225493.1 | clock 2057 | IWAIT | m1 | orch @2407 57 50
+225496.2 | clock 2057 | RT | Reduction Transformer Hybrid v1.1 | (2407, 50, 0 - 57, vel 120) voice 35 noteId 351 | TD 4 LogitTD on s 6.0
+225529.6 | clock 2060 | IWAIT | m1 | orch @2407 65 50
+225532.9 | clock 2061 | RT | Reduction Transformer Hybrid v1.1 | (2407, 50, 0 - 65, vel 120) voice 35 noteId 352 | TD 4 LogitTD on s 6.0
+225565.7 | clock 2064 | IWAIT | m1 | orch @2489 57 10
+225568.8 | clock 2064 | RT | Reduction Transformer Hybrid v1.1 | (2489, 10, 0 - 57, vel 120) voice 44 noteId 353 | TD 4 LogitTD on s 6.0
+225603.5 | clock 2068 | IWAIT | m1 | orch @2489 69 10
+225606.5 | clock 2068 | RT | Reduction Transformer Hybrid v1.1 | (2489, 10, 0 - 69, vel 120) voice 35 noteId 354 | TD 4 LogitTD on s 6.0
+225641.1 | clock 2071 | IWAIT | m1 | orch @2499 58 20
+225644.1 | clock 2072 | RT | Reduction Transformer Hybrid v1.1 | (2499, 20, 0 - 58, vel 120) voice 44 noteId 355 | TD 4 LogitTD on s 6.0
+225678.8 | clock 2075 | IWAIT | m1 | orch @2499 70 20
+225682.0 | clock 2075 | RT | Reduction Transformer Hybrid v1.1 | (2499, 20, 0 - 70, vel 120) voice 35 noteId 356 | TD 4 LogitTD on s 6.0
+225716.2 | clock 2079 | IWAIT | m1 | orch @2519 60 30
+225719.5 | clock 2079 | RT | Reduction Transformer Hybrid v1.1 | (2519, 30, 0 - 60, vel 120) voice 44 noteId 357 | TD 4 LogitTD on s 6.0
+225753.6 | clock 2083 | IWAIT | m1 | orch @2519 72 30
+225756.6 | clock 2083 | RT | Reduction Transformer Hybrid v1.1 | (2519, 30, 0 - 72, vel 120) voice 35 noteId 358 | TD 4 LogitTD on s 6.0
+225790.2 | clock 2086 | IWAIT | m1 | orch @2550 62 25
+225793.6 | clock 2087 | RT | Reduction Transformer Hybrid v1.1 | (2550, 25, 0 - 62, vel 120) voice 44 noteId 359 | TD 4 LogitTD on s 6.0
+225828.9 | clock 2090 | IWAIT | m1 | orch @2550 74 25
+225832.3 | clock 2091 | RT | Reduction Transformer Hybrid v1.1 | (2550, 25, 0 - 74, vel 120) voice 35 noteId 360 | TD 4 LogitTD on s 6.0
+225866.4 | clock 2094 | IWAIT | m1 | orch @2577 41 35
+225869.6 | clock 2094 | RT | Reduction Transformer Hybrid v1.1 | (2577, 35, 0 - 41, vel 120) voice 40 noteId 361 | TD 4 LogitTD on s 6.0
+225904.8 | clock 2098 | IWAIT | m1 | orch @2577 48 35
+225908.3 | clock 2098 | RT | Reduction Transformer Hybrid v1.1 | (2577, 35, 0 - 48, vel 120) voice 47 noteId 362 | TD 4 LogitTD on s 6.0
+225943.7 | clock 2102 | IWAIT | m1 | orch @2577 60 15
+225947.1 | clock 2102 | RT | Reduction Transformer Hybrid v1.1 | (2577, 15, 0 - 60, vel 120) voice 48 noteId 363 | TD 4 LogitTD on s 6.0
+225982.9 | clock 2106 | IWAIT | m1 | orch @2577 60 35
+225986.1 | clock 2106 | RT | Reduction Transformer Hybrid v1.1 | (2577, 35, 0 - 60, vel 120) voice 49 noteId 364 | TD 4 LogitTD on s 6.0
+226022.5 | clock 2110 | IWAIT | m1 | orch @2577 72 15
+226026.2 | clock 2110 | RT | Reduction Transformer Hybrid v1.1 | (2577, 15, 0 - 72, vel 120) voice 35 noteId 365 | TD 4 LogitTD on s 6.0
+226061.2 | clock 2113 | IWAIT | m1 | orch @2592 70 15
+226064.6 | clock 2114 | RT | Reduction Transformer Hybrid v1.1 | (2592, 15, 0 - 70, vel 120) voice 50 noteId 366 | TD 4 LogitTD on s 6.0
+226099.7 | clock 2117 | IWAIT | m1 | orch @2606 41 45
+226103.3 | clock 2118 | RT | Reduction Transformer Hybrid v1.1 | (2606, 45, 0 - 41, vel 120) voice 40 noteId 367 | TD 4 LogitTD on s 6.0
+226139.6 | clock 2121 | IWAIT | m1 | orch @2606 48 45
+226143.0 | clock 2122 | RT | Reduction Transformer Hybrid v1.1 | (2606, 45, 0 - 48, vel 120) voice 47 noteId 368 | TD 4 LogitTD on s 6.0
+226178.6 | clock 2125 | IWAIT | m1 | orch @2606 57 45
+226182.2 | clock 2125 | RT | Reduction Transformer Hybrid v1.1 | (2606, 45, 0 - 57, vel 120) voice 51 noteId 369 | TD 4 LogitTD on s 6.0
+226219.5 | clock 2129 | IWAIT | m1 | orch @2606 60 45
+226223.0 | clock 2130 | RT | Reduction Transformer Hybrid v1.1 | (2606, 45, 0 - 60, vel 120) voice 50 noteId 370 | TD 4 LogitTD on s 6.0
+226258.6 | clock 2133 | IWAIT | m1 | orch @2606 69 45
+226266.1 | clock 2134 | RT | Reduction Transformer Hybrid v1.1 | (2606, 45, 0 - 69, vel 120) voice 50 noteId 371 | TD 4 LogitTD on s 6.0
+226312.5 | clock 2139 | IWAIT | m1 | orch @2648 45 15
+226315.8 | clock 2139 | RT | Reduction Transformer Hybrid v1.1 | (2648, 15, 0 - 45, vel 120) voice 53 noteId 372 | TD 4 LogitTD on s 6.0
+228362.2 | clock 2343 | IWAIT | m1 | orch @2660 50 75
+228365.7 | clock 2344 | RT | Reduction Transformer Hybrid v1.1 | (2660, 75, 0 - 50, vel 120) voice 53 noteId 373 | TD 4 LogitTD on s 6.0
+228412.0 | clock 2348 | IWAIT | m1 | orch @2738 52 15
+228415.2 | clock 2349 | RT | Reduction Transformer Hybrid v1.1 | (2738, 15, 0 - 52, vel 120) voice 53 noteId 374 | TD 4 LogitTD on s 6.0
+228461.4 | clock 2353 | IWAIT | m1 | orch @2751 53 15
+228464.8 | clock 2354 | RT | Reduction Transformer Hybrid v1.1 | (2751, 15, 0 - 53, vel 120) voice 53 noteId 375 | TD 4 LogitTD on s 6.0
+228509.7 | clock 2358 | IWAIT | m1 | orch @2764 55 15
+228512.8 | clock 2359 | RT | Reduction Transformer Hybrid v1.1 | (2764, 15, 0 - 55, vel 120) voice 53 noteId 376 | TD 4 LogitTD on s 6.0
+228548.1 | clock 2362 | IWAIT | m1 | orch @2776 52 10
+228552.4 | clock 2363 | RT | Reduction Transformer Hybrid v1.1 | (2776, 10, 0 - 52, vel 120) voice 53 noteId 377 | TD 4 LogitTD on s 6.0
+228589.7 | clock 2366 | IWAIT | m1 | orch @2776 57 10
+228592.7 | clock 2367 | RT | Reduction Transformer Hybrid v1.1 | (2776, 10, 0 - 57, vel 120) voice 54 noteId 378 | TD 4 LogitTD on s 6.0
+228629.6 | clock 2370 | IWAIT | m1 | orch @2787 53 10
+228632.9 | clock 2371 | RT | Reduction Transformer Hybrid v1.1 | (2787, 10, 0 - 53, vel 120) voice 53 noteId 379 | TD 4 LogitTD on s 6.0
+228670.8 | clock 2374 | IWAIT | m1 | orch @2787 59 10
+228673.8 | clock 2375 | RT | Reduction Transformer Hybrid v1.1 | (2787, 10, 0 - 59, vel 120) voice 54 noteId 380 | TD 4 LogitTD on s 6.0
+228712.7 | clock 2379 | IWAIT | m1 | orch @2797 55 10
+228715.9 | clock 2379 | RT | Reduction Transformer Hybrid v1.1 | (2797, 10, 0 - 55, vel 120) voice 53 noteId 381 | TD 4 LogitTD on s 6.0
+228754.4 | clock 2383 | IWAIT | m1 | orch @2797 61 10
+228757.4 | clock 2383 | RT | Reduction Transformer Hybrid v1.1 | (2797, 10, 0 - 61, vel 120) voice 54 noteId 382 | TD 4 LogitTD on s 6.0
+228795.6 | clock 2387 | IWAIT | m1 | orch @2807 57 10
+228799.0 | clock 2387 | RT | Reduction Transformer Hybrid v1.1 | (2807, 10, 0 - 57, vel 120) voice 53 noteId 383 | TD 4 LogitTD on s 6.0
+228837.6 | clock 2391 | IWAIT | m1 | orch @2807 62 10
+228840.8 | clock 2391 | RT | Reduction Transformer Hybrid v1.1 | (2807, 10, 0 - 62, vel 120) voice 54 noteId 384 | TD 4 LogitTD on s 6.0
+228881.5 | clock 2395 | IWAIT | m1 | orch @2817 50 80
+228884.4 | clock 2396 | RT | Reduction Transformer Hybrid v1.1 | (2817, 80, 0 - 50, vel 120) voice 53 noteId 385 | TD 4 LogitTD on s 6.0
+228922.9 | clock 2400 | IWAIT | m1 | orch @2817 53 80
+228925.8 | clock 2400 | RT | Reduction Transformer Hybrid v1.1 | (2817, 80, 0 - 53, vel 120) voice 60 noteId 386 | TD 4 LogitTD on s 6.0
+229005.2 | clock 2408 | IWAIT | m1 | orch @2896 52 85
+229008.2 | clock 2408 | RT | Reduction Transformer Hybrid v1.1 | (2896, 85, 0 - 52, vel 120) voice 61 noteId 387 | TD 4 LogitTD on s 6.0
+229045.6 | clock 2412 | IWAIT | m1 | orch @2896 55 85
+229048.8 | clock 2412 | RT | Reduction Transformer Hybrid v1.1 | (2896, 85, 0 - 55, vel 120) voice 62 noteId 388 | TD 4 LogitTD on s 6.0
+229083.4 | clock 2416 | IWAIT | m1 | orch @2981 50 90
+229086.4 | clock 2416 | RT | Reduction Transformer Hybrid v1.1 | (2981, 90, 0 - 50, vel 120) voice 61 noteId 389 | TD 4 LogitTD on s 6.0
+230823.9 | clock 2590 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 3D 7F (Note on C#3 Velocity 127 Channel 1)
+230828.7 | clock 2590 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 3E 7F (Note on D3 Velocity 127 Channel 1)
+230851.7 | clock 2592 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 3F 7F (Note on D#3 Velocity 127 Channel 1)
+230987.3 | clock 2606 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 3D 00 (Note off C#3 Velocity 0 Channel 1)
+231022.0 | clock 2609 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 3E 00 (Note off D3 Velocity 0 Channel 1)
+231026.3 | clock 2610 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 3F 00 (Note off D#3 Velocity 0 Channel 1)
+231128.4 | clock 2620 | IWAIT | m1 | orch @2981 53 90
+231132.6 | clock 2621 | RT | Reduction Transformer Hybrid v1.1 | (2981, 90, 0 - 53, vel 120) voice 62 noteId 390 | TD 4 LogitTD on s 6.0
+231173.0 | clock 2625 | IWAIT | m1 | orch @3068 49 95
+231176.1 | clock 2625 | RT | Reduction Transformer Hybrid v1.1 | (3068, 95, 0 - 49, vel 120) voice 61 noteId 391 | TD 4 LogitTD on s 6.0
+231219.4 | clock 2629 | IWAIT | m1 | orch @3068 52 95
+231222.3 | clock 2630 | RT | Reduction Transformer Hybrid v1.1 | (3068, 95, 0 - 52, vel 120) voice 62 noteId 392 | TD 4 LogitTD on s 6.0
+231251.7 | clock 2632 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 33 7F (Note on D#2 Velocity 127 Channel 1)
+231252.8 | clock 2633 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 35 7F (Note on F2 Velocity 127 Channel 1)
+231256.6 | clock 2633 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 34 7F (Note on E2 Velocity 127 Channel 1)
+231264.7 | clock 2634 | IWAIT | m1 | orch @3159 50 45
+231268.6 | clock 2634 | RT | Reduction Transformer Hybrid v1.1 | (3159, 45, 0 - 50, vel 120) voice 63 noteId 393 | TD 4 LogitTD on s 6.0
+231273.3 | clock 2635 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 33 00 (Note off D#2 Velocity 0 Channel 1)
+231360.4 | clock 2643 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 34 00 (Note off E2 Velocity 0 Channel 1)
+231404.2 | clock 2648 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 35 00 (Note off F2 Velocity 0 Channel 1)
+232019.3 | clock 2709 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 40 7F (Note on E3 Velocity 127 Channel 1)
+232020.9 | clock 2709 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 3F 7F (Note on D#3 Velocity 127 Channel 1)
+232023.7 | clock 2710 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 3E 7F (Note on D3 Velocity 127 Channel 1)
+232091.0 | clock 2716 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 3E 00 (Note off D3 Velocity 0 Channel 1)
+232092.1 | clock 2716 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 3F 00 (Note off D#3 Velocity 0 Channel 1)
+232106.1 | clock 2718 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 40 00 (Note off E3 Velocity 0 Channel 1)
+232512.0 | clock 2758 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 41 7F (Note on F3 Velocity 127 Channel 1)
+232512.0 | clock 2758 | LAUNCHPAD | Model: Str Ens off
+232524.4 | clock 2760 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 43 7F (Note on G3 Velocity 127 Channel 1)
+232524.5 | clock 2760 | LAUNCHPAD | Model: Tremolo off
+232532.2 | clock 2760 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 42 7F (Note on F#3 Velocity 127 Channel 1)
+232532.3 | clock 2761 | LAUNCHPAD | Model: Pizz off
+232614.1 | clock 2769 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 41 00 (Note off F3 Velocity 0 Channel 1)
+232660.1 | clock 2773 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 42 00 (Note off F#3 Velocity 0 Channel 1)
+232669.2 | clock 2774 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 43 00 (Note off G3 Velocity 0 Channel 1)
+232910.6 | clock 2798 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 38 7F (Note on G#2 Velocity 127 Channel 1)
+232910.7 | clock 2798 | LAUNCHPAD | Model: Oboe off
+232917.8 | clock 2799 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 37 7F (Note on G2 Velocity 127 Channel 1)
+232917.9 | clock 2799 | LAUNCHPAD | Model: Flute off
+232922.4 | clock 2800 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 39 7F (Note on A2 Velocity 127 Channel 1)
+232922.5 | clock 2800 | LAUNCHPAD | Model: Clarinet off
+233015.9 | clock 2809 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 37 00 (Note off G2 Velocity 0 Channel 1)
+233044.3 | clock 2812 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 39 00 (Note off A2 Velocity 0 Channel 1)
+233051.8 | clock 2812 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 38 00 (Note off G#2 Velocity 0 Channel 1)
+233175.3 | clock 2825 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2E 7F (Note on A#1 Velocity 127 Channel 1)
+233175.4 | clock 2825 | LAUNCHPAD | Model: Trumpet off
+233178.0 | clock 2825 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2D 7F (Note on A1 Velocity 127 Channel 1)
+233178.1 | clock 2825 | LAUNCHPAD | Model: Horn off
+233184.2 | clock 2826 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2F 7F (Note on B1 Velocity 127 Channel 1)
+233184.5 | clock 2826 | LAUNCHPAD | Model: Trombone off
+233251.2 | clock 2832 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2D 00 (Note off A1 Velocity 0 Channel 1)
+233268.4 | clock 2834 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2E 00 (Note off A#1 Velocity 0 Channel 1)
+233277.9 | clock 2835 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2F 00 (Note off B1 Velocity 0 Channel 1)
+233316.4 | clock 2839 | IWAIT | m1 | orch @3159 53 40
+233319.4 | clock 2839 | RT | Reduction Transformer Hybrid v1.1 | (3159, 40, 0 - 53, vel 120) voice 64 noteId 394 | TD 4 LogitTD on s 6.0
+233362.6 | clock 2844 | IWAIT | m1 | orch @3203 45 35
+233365.5 | clock 2844 | RT | Reduction Transformer Hybrid v1.1 | (3203, 35, 0 - 45, vel 120) voice 65 noteId 395 | TD 4 LogitTD on s 6.0
+233407.2 | clock 2848 | IWAIT | m1 | orch @3220 57 20
+233410.9 | clock 2848 | RT | Reduction Transformer Hybrid v1.1 | (3220, 20, 0 - 57, vel 120) voice 64 noteId 396 | TD 4 LogitTD on s 6.0
+233451.4 | clock 2852 | IWAIT | m1 | orch @3239 50 55
+233454.4 | clock 2853 | RT | Reduction Transformer Hybrid v1.1 | (3239, 55, 0 - 50, vel 120) voice 65 noteId 397 | TD 4 LogitTD on s 6.0
+233467.1 | clock 2854 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 39 7F (Note on A2 Velocity 127 Channel 1)
+233467.2 | clock 2854 | LAUNCHPAD | Model: Clarinet on
+233468.4 | clock 2854 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 38 7F (Note on G#2 Velocity 127 Channel 1)
+233468.5 | clock 2854 | LAUNCHPAD | Model: Oboe on
+233472.9 | clock 2855 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 37 7F (Note on G2 Velocity 127 Channel 1)
+233473.0 | clock 2855 | LAUNCHPAD | Model: Flute on
+233498.5 | clock 2857 | IWAIT | m1 | orch @3239 57 50
+233502.8 | clock 2858 | RT | Reduction Transformer Hybrid v1.1 | (3239, 50, 0 - 57, vel 120) voice 64 noteId 398 | TD 4 LogitTD on s 6.0
+233537.5 | clock 2861 | IWAIT | m1 | orch @3329 45 30
+233540.4 | clock 2861 | RT | Reduction Transformer Hybrid v1.1 | (3329, 30, 0 - 45, vel 120) voice 65 noteId 399 | TD 4 LogitTD on s 6.0
+233546.2 | clock 2862 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 37 00 (Note off G2 Velocity 0 Channel 1)
+233556.8 | clock 2863 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 38 00 (Note off G#2 Velocity 0 Channel 1)
+233569.2 | clock 2864 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 39 00 (Note off A2 Velocity 0 Channel 1)
+233573.8 | clock 2865 | IWAIT | m1 | orch @3359 50 65
+233577.0 | clock 2865 | RT | Reduction Transformer Hybrid v1.1 | (3359, 65, 0 - 50, vel 120) voice 65 noteId 400 | TD 4 LogitTD on s 6.0
+233614.0 | clock 2869 | IWAIT | m1 | orch @3428 57 10
+233617.0 | clock 2869 | RT | Reduction Transformer Hybrid v1.1 | (3428, 10, 0 - 57, vel 120) voice 65 noteId 401 | TD 4 LogitTD on s 6.0
+233698.1 | clock 2877 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 43 7F (Note on G3 Velocity 127 Channel 1)
+233698.3 | clock 2877 | LAUNCHPAD | Model: Tremolo on
+233699.3 | clock 2877 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 42 7F (Note on F#3 Velocity 127 Channel 1)
+233699.4 | clock 2877 | LAUNCHPAD | Model: Pizz on
+233705.0 | clock 2878 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 37 7F (Note on G2 Velocity 127 Channel 1)
+233705.0 | clock 2878 | LAUNCHPAD | Model: Flute off
+233768.2 | clock 2884 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 37 00 (Note off G2 Velocity 0 Channel 1)
+233794.9 | clock 2887 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 42 00 (Note off F#3 Velocity 0 Channel 1)
+233794.9 | clock 2887 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 43 00 (Note off G3 Velocity 0 Channel 1)
+233920.4 | clock 2899 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2F 7F (Note on B1 Velocity 127 Channel 1)
+233920.5 | clock 2899 | LAUNCHPAD | Model: Trombone on
+233925.0 | clock 2900 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2E 7F (Note on A#1 Velocity 127 Channel 1)
+233925.0 | clock 2900 | LAUNCHPAD | Model: Trumpet on
+233928.8 | clock 2900 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2D 7F (Note on A1 Velocity 127 Channel 1)
+233928.9 | clock 2900 | LAUNCHPAD | Model: Horn on
+234002.8 | clock 2908 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2D 00 (Note off A1 Velocity 0 Channel 1)
+234019.8 | clock 2909 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2E 00 (Note off A#1 Velocity 0 Channel 1)
+234040.7 | clock 2911 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2F 00 (Note off B1 Velocity 0 Channel 1)
+234335.5 | clock 2941 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 41 7F (Note on F3 Velocity 127 Channel 1)
+234335.6 | clock 2941 | LAUNCHPAD | Model: Str Ens on
+234417.0 | clock 2949 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 41 00 (Note off F3 Velocity 0 Channel 1)
+234519.6 | clock 2959 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 37 7F (Note on G2 Velocity 127 Channel 1)
+234519.7 | clock 2959 | LAUNCHPAD | Model: Flute on
+234622.9 | clock 2970 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 37 00 (Note off G2 Velocity 0 Channel 1)
+235659.4 | clock 3073 | IWAIT | m1 | orch @3439 58 10
+235662.3 | clock 3074 | RT | Reduction Transformer Hybrid v1.1 | (3439, 10, 0 - 58, vel 120) voice 65 noteId 402 | TD 4 LogitTD on s 6.0
+235697.7 | clock 3077 | IWAIT | m1 | orch @3449 60 10
+235700.7 | clock 3077 | RT | Reduction Transformer Hybrid v1.1 | (3449, 10, 0 - 60, vel 120) voice 65 noteId 403 | TD 4 LogitTD on s 6.0
+235734.6 | clock 3081 | IWAIT | m1 | orch @3461 62 15
+235737.4 | clock 3081 | RT | Reduction Transformer Hybrid v1.1 | (3461, 15, 0 - 62, vel 120) voice 65 noteId 404 | TD 4 LogitTD on s 6.0
+235772.3 | clock 3085 | IWAIT | m1 | orch @3488 61 25
+235775.1 | clock 3085 | RT | Reduction Transformer Hybrid v1.1 | (3488, 25, 0 - 61, vel 120) voice 65 noteId 405 | TD 4 LogitTD on s 6.0
+235812.7 | clock 3089 | IWAIT | m1 | orch @3513 62 25
+235815.6 | clock 3089 | RT | Reduction Transformer Hybrid v1.1 | (3513, 25, 0 - 62, vel 120) voice 65 noteId 406 | TD 4 LogitTD on s 6.0
+235852.1 | clock 3092 | IWAIT | m1 | orch @3537 46 60
+235855.3 | clock 3093 | RT | Reduction Transformer Hybrid v1.1 | (3537, 60, 0 - 46, vel 120) voice 67 noteId 407 | TD 4 LogitTD on s 6.0
+235890.8 | clock 3096 | IWAIT | m1 | orch @3587 52 85
+235893.9 | clock 3097 | RT | Reduction Transformer Hybrid v1.1 | (3587, 85, 0 - 52, vel 120) voice 68 noteId 408 | TD 4 LogitTD on s 6.0
+235929.2 | clock 3100 | IWAIT | m1 | orch @3671 53 40
+235933.6 | clock 3101 | RT | Reduction Transformer Hybrid v1.1 | (3671, 40, 0 - 53, vel 120) voice 68 noteId 409 | TD 4 LogitTD on s 6.0
+237981.9 | clock 3305 | IWAIT | m1 | orch @3722 45 35
+237986.3 | clock 3306 | RT | Reduction Transformer Hybrid v1.1 | (3722, 35, 0 - 45, vel 120) voice 68 noteId 410 | TD 4 LogitTD on s 6.0
+238034.3 | clock 3311 | IWAIT | m1 | orch @3747 50 55
+238038.5 | clock 3311 | RT | Reduction Transformer Hybrid v1.1 | (3747, 55, 0 - 50, vel 120) voice 68 noteId 411 | TD 4 LogitTD on s 6.0
+238084.3 | clock 3316 | IWAIT | m1 | orch @3800 53 45
+238087.3 | clock 3316 | RT | Reduction Transformer Hybrid v1.1 | (3800, 45, 0 - 53, vel 120) voice 68 noteId 412 | TD 4 LogitTD on s 6.0
+238124.7 | clock 3320 | IWAIT | m1 | orch @3843 52 30
+238127.8 | clock 3320 | RT | Reduction Transformer Hybrid v1.1 | (3843, 30, 0 - 52, vel 120) voice 68 noteId 413 | TD 4 LogitTD on s 6.0
+240177.4 | clock 3525 | IWAIT | m1 | orch @3873 50 30
+240180.4 | clock 3525 | RT | Reduction Transformer Hybrid v1.1 | (3873, 30, 0 - 50, vel 120) voice 68 noteId 414 | TD 4 LogitTD on s 6.0
+240222.1 | clock 3529 | IWAIT | m1 | orch @3901 49 80
+240225.1 | clock 3530 | RT | Reduction Transformer Hybrid v1.1 | (3901, 80, 0 - 49, vel 120) voice 68 noteId 415 | TD 4 LogitTD on s 6.0
+240267.4 | clock 3534 | IWAIT | m1 | orch @3980 48 75
+240270.8 | clock 3534 | RT | Reduction Transformer Hybrid v1.1 | (3980, 75, 0 - 48, vel 120) voice 68 noteId 416 | TD 4 LogitTD on s 6.0
+240311.3 | clock 3538 | IWAIT | m1 | orch @4050 47 60
+240314.5 | clock 3539 | RT | Reduction Transformer Hybrid v1.1 | (4050, 60, 0 - 47, vel 120) voice 68 noteId 417 | TD 4 LogitTD on s 6.0
+242362.8 | clock 3744 | IWAIT | m1 | orch @4106 46 25
+242365.8 | clock 3744 | RT | Reduction Transformer Hybrid v1.1 | (4106, 25, 0 - 46, vel 120) voice 68 noteId 418 | TD 4 LogitTD on s 6.0
+242406.8 | clock 3748 | IWAIT | m1 | orch @4132 47 20
+242410.4 | clock 3748 | RT | Reduction Transformer Hybrid v1.1 | (4132, 20, 0 - 47, vel 120) voice 68 noteId 419 | TD 4 LogitTD on s 6.0
+242450.9 | clock 3752 | IWAIT | m1 | orch @4152 49 15
+242454.1 | clock 3753 | RT | Reduction Transformer Hybrid v1.1 | (4152, 15, 0 - 49, vel 120) voice 68 noteId 420 | TD 4 LogitTD on s 6.0
+242495.3 | clock 3757 | IWAIT | m1 | orch @4173 45 10
+242498.5 | clock 3757 | RT | Reduction Transformer Hybrid v1.1 | (4173, 10, 0 - 45, vel 120) voice 68 noteId 421 | TD 4 LogitTD on s 6.0
+242533.2 | clock 3761 | IWAIT | m1 | orch @4173 57 10
+242536.1 | clock 3761 | RT | Reduction Transformer Hybrid v1.1 | (4173, 10, 0 - 57, vel 120) voice 69 noteId 422 | TD 4 LogitTD on s 6.0
+242570.8 | clock 3764 | IWAIT | m1 | orch @4183 47 10
+242573.7 | clock 3765 | RT | Reduction Transformer Hybrid v1.1 | (4183, 10, 0 - 47, vel 120) voice 68 noteId 423 | TD 4 LogitTD on s 6.0
+242609.0 | clock 3768 | IWAIT | m1 | orch @4183 59 10
+242611.9 | clock 3768 | RT | Reduction Transformer Hybrid v1.1 | (4183, 10, 0 - 59, vel 120) voice 69 noteId 424 | TD 4 LogitTD on s 6.0
+242647.1 | clock 3772 | IWAIT | m1 | orch @4196 49 10
+242650.1 | clock 3772 | RT | Reduction Transformer Hybrid v1.1 | (4196, 10, 0 - 49, vel 120) voice 68 noteId 425 | TD 4 LogitTD on s 6.0
+242684.6 | clock 3776 | IWAIT | m1 | orch @4196 61 10
+242687.5 | clock 3776 | RT | Reduction Transformer Hybrid v1.1 | (4196, 10, 0 - 61, vel 120) voice 69 noteId 426 | TD 4 LogitTD on s 6.0
+242722.4 | clock 3780 | IWAIT | m1 | orch @4210 50 50
+242725.3 | clock 3780 | RT | Reduction Transformer Hybrid v1.1 | (4210, 50, 0 - 50, vel 120) voice 68 noteId 427 | TD 4 LogitTD on s 6.0
+242760.7 | clock 3783 | IWAIT | m1 | orch @4210 62 50
+242763.5 | clock 3784 | RT | Reduction Transformer Hybrid v1.1 | (4210, 50, 0 - 62, vel 120) voice 69 noteId 428 | TD 4 LogitTD on s 6.0
+242799.8 | clock 3787 | IWAIT | m1 | orch @4310 50 45
+242802.7 | clock 3788 | RT | Reduction Transformer Hybrid v1.1 | (4310, 45, 0 - 50, vel 120) voice 68 noteId 429 | TD 4 LogitTD on s 6.0
+244850.1 | clock 3992 | IWAIT | m1 | orch @4310 62 40
+244853.0 | clock 3993 | RT | Reduction Transformer Hybrid v1.1 | (4310, 40, 0 - 62, vel 120) voice 69 noteId 430 | TD 4 LogitTD on s 6.0
+244895.7 | clock 3997 | IWAIT | m1 | orch @4365 45 35
+244898.5 | clock 3997 | RT | Reduction Transformer Hybrid v1.1 | (4365, 35, 0 - 45, vel 120) voice 68 noteId 431 | TD 4 LogitTD on s 6.0
+244940.5 | clock 4001 | IWAIT | m1 | orch @4365 57 30
+244943.9 | clock 4002 | RT | Reduction Transformer Hybrid v1.1 | (4365, 30, 0 - 57, vel 120) voice 69 noteId 432 | TD 4 LogitTD on s 6.0
+244986.1 | clock 4006 | IWAIT | m1 | orch @4392 50 55
+244988.9 | clock 4006 | RT | Reduction Transformer Hybrid v1.1 | (4392, 55, 0 - 50, vel 120) voice 68 noteId 433 | TD 4 LogitTD on s 6.0
+245032.1 | clock 4010 | IWAIT | m1 | orch @4392 62 50
+245035.1 | clock 4011 | RT | Reduction Transformer Hybrid v1.1 | (4392, 50, 0 - 62, vel 120) voice 69 noteId 434 | TD 4 LogitTD on s 6.0
+245079.3 | clock 4015 | IWAIT | m1 | orch @4480 53 90
+245082.2 | clock 4016 | RT | Reduction Transformer Hybrid v1.1 | (4480, 90, 0 - 53, vel 120) voice 68 noteId 435 | TD 4 LogitTD on s 6.0
+245120.7 | clock 4019 | IWAIT | m1 | orch @4480 65 85
+245123.8 | clock 4020 | RT | Reduction Transformer Hybrid v1.1 | (4480, 85, 0 - 65, vel 120) voice 69 noteId 436 | TD 4 LogitTD on s 6.0
+245163.4 | clock 4024 | IWAIT | m1 | orch @4566 52 80
+245166.4 | clock 4024 | RT | Reduction Transformer Hybrid v1.1 | (4566, 80, 0 - 52, vel 120) voice 68 noteId 437 | TD 4 LogitTD on s 6.0
+247260.5 | clock 4233 | IWAIT | m1 | orch @4566 64 75
+247263.5 | clock 4234 | RT | Reduction Transformer Hybrid v1.1 | (4566, 75, 0 - 64, vel 120) voice 69 noteId 438 | TD 4 LogitTD on s 6.0
+247301.7 | clock 4237 | IWAIT | m1 | orch @4637 51 25
+247304.6 | clock 4238 | RT | Reduction Transformer Hybrid v1.1 | (4637, 25, 0 - 51, vel 120) voice 72 noteId 439 | TD 4 LogitTD on s 6.0
+247341.5 | clock 4241 | IWAIT | m1 | orch @4637 63 20
+247344.8 | clock 4242 | RT | Reduction Transformer Hybrid v1.1 | (4637, 20, 0 - 63, vel 120) voice 69 noteId 440 | TD 4 LogitTD on s 6.0
+247380.8 | clock 4245 | IWAIT | m1 | orch @4657 52 15
+247383.7 | clock 4246 | RT | Reduction Transformer Hybrid v1.1 | (4657, 15, 0 - 52, vel 120) voice 68 noteId 441 | TD 4 LogitTD on s 6.0
+247420.0 | clock 4249 | IWAIT | m1 | orch @4657 64 15
+247422.8 | clock 4250 | RT | Reduction Transformer Hybrid v1.1 | (4657, 15, 0 - 64, vel 120) voice 69 noteId 442 | TD 4 LogitTD on s 6.0
+247460.1 | clock 4253 | IWAIT | m1 | orch @4675 54 15
+247463.1 | clock 4254 | RT | Reduction Transformer Hybrid v1.1 | (4675, 15, 0 - 54, vel 120) voice 68 noteId 443 | TD 4 LogitTD on s 6.0
+247496.7 | clock 4257 | IWAIT | m1 | orch @4675 66 15
+247499.6 | clock 4257 | RT | Reduction Transformer Hybrid v1.1 | (4675, 15, 0 - 66, vel 120) voice 69 noteId 444 | TD 4 LogitTD on s 6.0
+247532.1 | clock 4260 | IWAIT | m1 | orch @4693 55 10
+247535.0 | clock 4261 | RT | Reduction Transformer Hybrid v1.1 | (4693, 10, 0 - 55, vel 120) voice 68 noteId 445 | TD 4 LogitTD on s 6.0
+247568.0 | clock 4264 | IWAIT | m1 | orch @4693 67 10
+247571.0 | clock 4264 | RT | Reduction Transformer Hybrid v1.1 | (4693, 10, 0 - 67, vel 120) voice 69 noteId 446 | TD 4 LogitTD on s 6.0
+247604.1 | clock 4268 | IWAIT | m1 | orch @4708 56 10
+247606.9 | clock 4268 | RT | Reduction Transformer Hybrid v1.1 | (4708, 10, 0 - 56, vel 120) voice 68 noteId 447 | TD 4 LogitTD on s 6.0
+247639.2 | clock 4271 | IWAIT | m1 | orch @4708 68 10
+247642.5 | clock 4272 | RT | Reduction Transformer Hybrid v1.1 | (4708, 10, 0 - 68, vel 120) voice 69 noteId 448 | TD 4 LogitTD on s 6.0
+247675.2 | clock 4275 | IWAIT | m1 | orch @4725 57 10
+247678.0 | clock 4275 | RT | Reduction Transformer Hybrid v1.1 | (4725, 10, 0 - 57, vel 120) voice 68 noteId 449 | TD 4 LogitTD on s 6.0
+247711.1 | clock 4278 | IWAIT | m1 | orch @4725 69 10
+247714.2 | clock 4279 | RT | Reduction Transformer Hybrid v1.1 | (4725, 10, 0 - 69, vel 120) voice 69 noteId 450 | TD 4 LogitTD on s 6.0
+247747.3 | clock 4282 | IWAIT | m1 | orch @4790 57 65
+247750.2 | clock 4282 | RT | Reduction Transformer Hybrid v1.1 | (4790, 65, 0 - 57, vel 120) voice 68 noteId 451 | TD 4 LogitTD on s 6.0
+249795.8 | clock 4487 | IWAIT | m1 | orch @4790 69 60
+249799.1 | clock 4487 | RT | Reduction Transformer Hybrid v1.1 | (4790, 60, 0 - 69, vel 120) voice 69 noteId 452 | TD 4 LogitTD on s 6.0
+249837.6 | clock 4491 | IWAIT | m1 | orch @4847 58 45
+249840.6 | clock 4491 | RT | Reduction Transformer Hybrid v1.1 | (4847, 45, 0 - 58, vel 120) voice 73 noteId 453 | TD 4 LogitTD on s 6.0
+249880.5 | clock 4495 | IWAIT | m1 | orch @4847 70 40
+249883.7 | clock 4496 | RT | Reduction Transformer Hybrid v1.1 | (4847, 40, 0 - 70, vel 120) voice 69 noteId 454 | TD 4 LogitTD on s 6.0
+249920.5 | clock 4499 | IWAIT | m1 | orch @4888 57 30
+249923.3 | clock 4500 | RT | Reduction Transformer Hybrid v1.1 | (4888, 30, 0 - 57, vel 120) voice 68 noteId 455 | TD 4 LogitTD on s 6.0
+249959.5 | clock 4503 | IWAIT | m1 | orch @4888 69 25
+249962.7 | clock 4504 | RT | Reduction Transformer Hybrid v1.1 | (4888, 25, 0 - 69, vel 120) voice 69 noteId 456 | TD 4 LogitTD on s 6.0
+249999.1 | clock 4507 | IWAIT | m1 | orch @4909 55 35
+250001.9 | clock 4507 | RT | Reduction Transformer Hybrid v1.1 | (4909, 35, 0 - 55, vel 120) voice 73 noteId 457 | TD 4 LogitTD on s 6.0
+250037.6 | clock 4511 | IWAIT | m1 | orch @4909 67 30
+250040.8 | clock 4511 | RT | Reduction Transformer Hybrid v1.1 | (4909, 30, 0 - 67, vel 120) voice 69 noteId 458 | TD 4 LogitTD on s 6.0
+250076.5 | clock 4515 | IWAIT | m1 | orch @4941 53 50
+250079.5 | clock 4515 | RT | Reduction Transformer Hybrid v1.1 | (4941, 50, 0 - 53, vel 120) voice 74 noteId 459 | TD 4 LogitTD on s 6.0
+250114.3 | clock 4519 | IWAIT | m1 | orch @4941 65 45
+250117.1 | clock 4519 | RT | Reduction Transformer Hybrid v1.1 | (4941, 45, 0 - 65, vel 120) voice 69 noteId 460 | TD 4 LogitTD on s 6.0
+250150.6 | clock 4522 | IWAIT | m1 | orch @5024 53 95
+250153.5 | clock 4523 | RT | Reduction Transformer Hybrid v1.1 | (5024, 95, 0 - 53, vel 120) voice 74 noteId 461 | TD 4 LogitTD on s 6.0
+252198.9 | clock 4727 | IWAIT | m1 | orch @5024 65 90
+252201.7 | clock 4727 | RT | Reduction Transformer Hybrid v1.1 | (5024, 90, 0 - 65, vel 120) voice 69 noteId 462 | TD 4 LogitTD on s 6.0
+252242.3 | clock 4732 | IWAIT | m1 | orch @5112 52 80
+252245.3 | clock 4732 | RT | Reduction Transformer Hybrid v1.1 | (5112, 80, 0 - 52, vel 120) voice 74 noteId 463 | TD 4 LogitTD on s 6.0
+252285.3 | clock 4736 | IWAIT | m1 | orch @5112 64 75
+252288.2 | clock 4736 | RT | Reduction Transformer Hybrid v1.1 | (5112, 75, 0 - 64, vel 120) voice 69 noteId 464 | TD 4 LogitTD on s 6.0
+252326.6 | clock 4740 | IWAIT | m1 | orch @5189 51 20
+252329.5 | clock 4740 | RT | Reduction Transformer Hybrid v1.1 | (5189, 20, 0 - 51, vel 120) voice 75 noteId 465 | TD 4 LogitTD on s 6.0
+252366.2 | clock 4744 | IWAIT | m1 | orch @5189 63 15
+252369.0 | clock 4744 | RT | Reduction Transformer Hybrid v1.1 | (5189, 15, 0 - 63, vel 120) voice 69 noteId 466 | TD 4 LogitTD on s 6.0
+252405.8 | clock 4748 | IWAIT | m1 | orch @5203 52 15
+252408.9 | clock 4748 | RT | Reduction Transformer Hybrid v1.1 | (5203, 15, 0 - 52, vel 120) voice 74 noteId 467 | TD 4 LogitTD on s 6.0
+252445.8 | clock 4752 | IWAIT | m1 | orch @5203 64 10
+252448.6 | clock 4752 | RT | Reduction Transformer Hybrid v1.1 | (5203, 10, 0 - 64, vel 120) voice 69 noteId 468 | TD 4 LogitTD on s 6.0
+252483.8 | clock 4756 | IWAIT | m1 | orch @5216 54 10
+252486.6 | clock 4756 | RT | Reduction Transformer Hybrid v1.1 | (5216, 10, 0 - 54, vel 120) voice 76 noteId 469 | TD 4 LogitTD on s 6.0
+252521.4 | clock 4759 | IWAIT | m1 | orch @5216 66 10
+252524.2 | clock 4760 | RT | Reduction Transformer Hybrid v1.1 | (5216, 10, 0 - 66, vel 120) voice 69 noteId 470 | TD 4 LogitTD on s 6.0
+252558.6 | clock 4763 | IWAIT | m1 | orch @5229 55 10
+252561.5 | clock 4763 | RT | Reduction Transformer Hybrid v1.1 | (5229, 10, 0 - 55, vel 120) voice 76 noteId 471 | TD 4 LogitTD on s 6.0
+252596.8 | clock 4767 | IWAIT | m1 | orch @5229 67 10
+252599.7 | clock 4767 | RT | Reduction Transformer Hybrid v1.1 | (5229, 10, 0 - 67, vel 120) voice 69 noteId 472 | TD 4 LogitTD on s 6.0
+252633.9 | clock 4771 | IWAIT | m1 | orch @5241 56 10
+252636.9 | clock 4771 | RT | Reduction Transformer Hybrid v1.1 | (5241, 10, 0 - 56, vel 120) voice 76 noteId 473 | TD 4 LogitTD on s 6.0
+252671.6 | clock 4774 | IWAIT | m1 | orch @5241 68 10
+252674.6 | clock 4775 | RT | Reduction Transformer Hybrid v1.1 | (5241, 10, 0 - 68, vel 120) voice 69 noteId 474 | TD 4 LogitTD on s 6.0
+252709.1 | clock 4778 | IWAIT | m1 | orch @5252 57 10
+252712.0 | clock 4778 | RT | Reduction Transformer Hybrid v1.1 | (5252, 10, 0 - 57, vel 120) voice 76 noteId 475 | TD 4 LogitTD on s 6.0
+252747.6 | clock 4782 | IWAIT | m1 | orch @5252 69 10
+252750.5 | clock 4782 | RT | Reduction Transformer Hybrid v1.1 | (5252, 10, 0 - 69, vel 120) voice 69 noteId 476 | TD 4 LogitTD on s 6.0
+252785.5 | clock 4786 | IWAIT | m1 | orch @5308 57 60
+252788.4 | clock 4786 | RT | Reduction Transformer Hybrid v1.1 | (5308, 60, 0 - 57, vel 120) voice 76 noteId 477 | TD 4 LogitTD on s 6.0
+254834.4 | clock 4991 | IWAIT | m1 | orch @5308 69 55
+254837.4 | clock 4991 | RT | Reduction Transformer Hybrid v1.1 | (5308, 55, 0 - 69, vel 120) voice 69 noteId 478 | TD 4 LogitTD on s 6.0
+254879.3 | clock 4995 | IWAIT | m1 | orch @5362 60 40
+254882.4 | clock 4996 | RT | Reduction Transformer Hybrid v1.1 | (5362, 40, 0 - 60, vel 120) voice 77 noteId 479 | TD 4 LogitTD on s 6.0
+254923.4 | clock 5000 | IWAIT | m1 | orch @5362 72 40
+254927.3 | clock 5000 | RT | Reduction Transformer Hybrid v1.1 | (5362, 40, 0 - 72, vel 120) voice 78 noteId 480 | TD 4 LogitTD on s 6.0
+254968.9 | clock 5004 | IWAIT | m1 | orch @5401 58 25
+254971.9 | clock 5004 | RT | Reduction Transformer Hybrid v1.1 | (5401, 25, 0 - 58, vel 120) voice 76 noteId 481 | TD 4 LogitTD on s 6.0
+255015.5 | clock 5009 | IWAIT | m1 | orch @5401 70 20
+255018.5 | clock 5009 | RT | Reduction Transformer Hybrid v1.1 | (5401, 20, 0 - 70, vel 120) voice 79 noteId 482 | TD 4 LogitTD on s 6.0
+255060.9 | clock 5013 | IWAIT | m1 | orch @5419 57 30
+255063.9 | clock 5014 | RT | Reduction Transformer Hybrid v1.1 | (5419, 30, 0 - 57, vel 120) voice 77 noteId 483 | TD 4 LogitTD on s 6.0
+255103.9 | clock 5018 | IWAIT | m1 | orch @5419 69 25
+255107.0 | clock 5018 | RT | Reduction Transformer Hybrid v1.1 | (5419, 25, 0 - 69, vel 120) voice 78 noteId 484 | TD 4 LogitTD on s 6.0
+255144.5 | clock 5022 | IWAIT | m1 | orch @5441 55 45
+255147.5 | clock 5022 | RT | Reduction Transformer Hybrid v1.1 | (5441, 45, 0 - 55, vel 120) voice 76 noteId 485 | TD 4 LogitTD on s 6.0
+255184.5 | clock 5026 | IWAIT | m1 | orch @5441 67 45
+255187.4 | clock 5026 | RT | Reduction Transformer Hybrid v1.1 | (5441, 45, 0 - 67, vel 120) voice 79 noteId 486 | TD 4 LogitTD on s 6.0
+255226.0 | clock 5030 | IWAIT | m1 | orch @5524 55 95
+255229.0 | clock 5030 | RT | Reduction Transformer Hybrid v1.1 | (5524, 95, 0 - 55, vel 120) voice 76 noteId 487 | TD 4 LogitTD on s 6.0
+255268.4 | clock 5034 | IWAIT | m1 | orch @5524 67 90
+255271.4 | clock 5034 | RT | Reduction Transformer Hybrid v1.1 | (5524, 90, 0 - 67, vel 120) voice 79 noteId 488 | TD 4 LogitTD on s 6.0
+255350.2 | clock 5042 | IWAIT | m1 | orch @5614 54 85
+255353.3 | clock 5043 | RT | Reduction Transformer Hybrid v1.1 | (5614, 85, 0 - 54, vel 120) voice 76 noteId 489 | TD 4 LogitTD on s 6.0
+257407.5 | clock 5248 | IWAIT | m1 | orch @5614 66 80
+257411.4 | clock 5248 | RT | Reduction Transformer Hybrid v1.1 | (5614, 80, 0 - 66, vel 120) voice 79 noteId 490 | TD 4 LogitTD on s 6.0
+257459.1 | clock 5253 | IWAIT | m1 | orch @5692 53 20
+257462.3 | clock 5254 | RT | Reduction Transformer Hybrid v1.1 | (5692, 20, 0 - 53, vel 120) voice 80 noteId 491 | TD 4 LogitTD on s 6.0
+257505.8 | clock 5258 | IWAIT | m1 | orch @5692 65 15
+257509.1 | clock 5258 | RT | Reduction Transformer Hybrid v1.1 | (5692, 15, 0 - 65, vel 120) voice 79 noteId 492 | TD 4 LogitTD on s 6.0
+257547.4 | clock 5262 | IWAIT | m1 | orch @5705 54 15
+257550.8 | clock 5262 | RT | Reduction Transformer Hybrid v1.1 | (5705, 15, 0 - 54, vel 120) voice 76 noteId 493 | TD 4 LogitTD on s 6.0
+257589.6 | clock 5266 | IWAIT | m1 | orch @5705 66 10
+257592.8 | clock 5267 | RT | Reduction Transformer Hybrid v1.1 | (5705, 10, 0 - 66, vel 120) voice 79 noteId 494 | TD 4 LogitTD on s 6.0
+257634.5 | clock 5271 | IWAIT | m1 | orch @5718 56 10
+257637.7 | clock 5271 | RT | Reduction Transformer Hybrid v1.1 | (5718, 10, 0 - 56, vel 120) voice 81 noteId 495 | TD 4 LogitTD on s 6.0
+257678.7 | clock 5275 | IWAIT | m1 | orch @5718 68 10
+257682.1 | clock 5275 | RT | Reduction Transformer Hybrid v1.1 | (5718, 10, 0 - 68, vel 120) voice 79 noteId 496 | TD 4 LogitTD on s 6.0
+257716.3 | clock 5279 | IWAIT | m1 | orch @5732 57 10
+257719.8 | clock 5279 | RT | Reduction Transformer Hybrid v1.1 | (5732, 10, 0 - 57, vel 120) voice 81 noteId 497 | TD 4 LogitTD on s 6.0
+257757.0 | clock 5283 | IWAIT | m1 | orch @5732 69 10
+257760.1 | clock 5283 | RT | Reduction Transformer Hybrid v1.1 | (5732, 10, 0 - 69, vel 120) voice 79 noteId 498 | TD 4 LogitTD on s 6.0
+257794.9 | clock 5287 | IWAIT | m1 | orch @5751 58 50
+257798.1 | clock 5287 | RT | Reduction Transformer Hybrid v1.1 | (5751, 50, 0 - 58, vel 120) voice 81 noteId 499 | TD 4 LogitTD on s 6.0
+257832.9 | clock 5291 | IWAIT | m1 | orch @5751 70 50
+257836.1 | clock 5291 | RT | Reduction Transformer Hybrid v1.1 | (5751, 50, 0 - 70, vel 120) voice 79 noteId 500 | TD 4 LogitTD on s 6.0
+257873.2 | clock 5295 | IWAIT | m1 | orch @5842 58 65
+257876.4 | clock 5295 | RT | Reduction Transformer Hybrid v1.1 | (5842, 65, 0 - 58, vel 120) voice 81 noteId 501 | TD 4 LogitTD on s 6.0
+259557.5 | clock 5463 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | B0 40 00 (Controller Hold Pedal (on/off): 0 Channel 1)
+259557.5 | clock 5463 | CUT | pedal up: future removed from 5463
+259557.5 | clock 5463 | MIDI_OUT | thru | BF 40 00 (Controller Hold Pedal (on/off): 0 Channel 16)
+259562.4 | clock 5464 | RT | Reduction Transformer Hybrid v1.1 | (5463, Clear Queue) voice -1 noteId -1 | TD 4 LogitTD on s 6.0
+259562.5 | clock 5464 | HYBRID | mode cut at 5463: generated notes from it removed, context kept
+259562.5 | clock 5464 | OT | (5463, Clear Queue) instr 15 vel 0 voice -1
+259562.5 | clock 5464 | RT | Reduction Transformer Hybrid v1.1 | (5463, Clear Queue) voice -1 noteId -1 | TD 4 LogitTD on s 6.0
+259562.5 | clock 5464 | OT | (5463, Clear Queue) instr 15 vel 0 voice -1
+260229.2 | clock 5530 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | B0 40 7F (Controller Hold Pedal (on/off): 127 Channel 1)
+260229.2 | clock 5530 | MIDI_OUT | thru | BF 40 7F (Controller Hold Pedal (on/off): 127 Channel 16)
+260280.2 | clock 5535 | IWAIT | m1 | orch @5540 55 95
+260283.3 | clock 5536 | RT | Reduction Transformer Hybrid v1.1 | (5540, 95, 0 - 55, vel 120) voice 76 noteId 502 | TD 4 LogitTD on s 6.0
+260323.8 | clock 5540 | IWAIT | m1 | orch @5540 67 90
+260327.1 | clock 5540 | RT | Reduction Transformer Hybrid v1.1 | (5540, 90, 0 - 67, vel 120) voice 79 noteId 503 | TD 4 LogitTD on s 6.0
+260368.8 | clock 5544 | IWAIT | m1 | orch @5629 53 80
+260372.0 | clock 5544 | RT | Reduction Transformer Hybrid v1.1 | (5629, 80, 0 - 53, vel 120) voice 82 noteId 504 | TD 4 LogitTD on s 6.0
+260411.1 | clock 5548 | IWAIT | m1 | orch @5629 65 75
+260414.4 | clock 5549 | RT | Reduction Transformer Hybrid v1.1 | (5629, 75, 0 - 65, vel 120) voice 79 noteId 505 | TD 4 LogitTD on s 6.0
+260454.8 | clock 5553 | IWAIT | m1 | orch @5702 52 20
+260458.6 | clock 5553 | RT | Reduction Transformer Hybrid v1.1 | (5702, 20, 0 - 52, vel 120) voice 83 noteId 506 | TD 4 LogitTD on s 6.0
+260496.3 | clock 5557 | IWAIT | m1 | orch @5702 64 15
+260499.5 | clock 5557 | RT | Reduction Transformer Hybrid v1.1 | (5702, 15, 0 - 64, vel 120) voice 79 noteId 507 | TD 4 LogitTD on s 6.0
+260531.5 | clock 5560 | IWAIT | m1 | orch @5718 53 15
+260534.8 | clock 5561 | RT | Reduction Transformer Hybrid v1.1 | (5718, 15, 0 - 53, vel 120) voice 82 noteId 508 | TD 4 LogitTD on s 6.0
+260569.8 | clock 5564 | IWAIT | m1 | orch @5718 65 10
+260573.1 | clock 5565 | RT | Reduction Transformer Hybrid v1.1 | (5718, 10, 0 - 65, vel 120) voice 79 noteId 509 | TD 4 LogitTD on s 6.0
+260611.0 | clock 5568 | IWAIT | m1 | orch @5731 55 10
+260614.5 | clock 5569 | RT | Reduction Transformer Hybrid v1.1 | (5731, 10, 0 - 55, vel 120) voice 83 noteId 510 | TD 4 LogitTD on s 6.0
+260650.8 | clock 5572 | IWAIT | m1 | orch @5731 67 10
+260654.1 | clock 5573 | RT | Reduction Transformer Hybrid v1.1 | (5731, 10, 0 - 67, vel 120) voice 79 noteId 511 | TD 4 LogitTD on s 6.0
+260689.7 | clock 5576 | IWAIT | m1 | orch @5743 56 10
+260693.2 | clock 5577 | RT | Reduction Transformer Hybrid v1.1 | (5743, 10, 0 - 56, vel 120) voice 83 noteId 512 | TD 4 LogitTD on s 6.0
+260729.6 | clock 5580 | IWAIT | m1 | orch @5743 68 10
+260733.2 | clock 5581 | RT | Reduction Transformer Hybrid v1.1 | (5743, 10, 0 - 68, vel 120) voice 79 noteId 513 | TD 4 LogitTD on s 6.0
+260769.5 | clock 5584 | IWAIT | m1 | orch @5754 57 10
+260774.7 | clock 5585 | RT | Reduction Transformer Hybrid v1.1 | (5754, 10, 0 - 57, vel 120) voice 83 noteId 514 | TD 4 LogitTD on s 6.0
+260818.0 | clock 5589 | IWAIT | m1 | orch @5754 69 10
+260822.4 | clock 5590 | RT | Reduction Transformer Hybrid v1.1 | (5754, 10, 0 - 69, vel 120) voice 79 noteId 515 | TD 4 LogitTD on s 6.0
+260867.0 | clock 5594 | IWAIT | m1 | orch @5764 58 10
+260871.5 | clock 5594 | RT | Reduction Transformer Hybrid v1.1 | (5764, 10, 0 - 58, vel 120) voice 83 noteId 516 | TD 4 LogitTD on s 6.0
+260915.6 | clock 5599 | IWAIT | m1 | orch @5764 70 10
+260920.0 | clock 5599 | RT | Reduction Transformer Hybrid v1.1 | (5764, 10, 0 - 70, vel 120) voice 79 noteId 517 | TD 4 LogitTD on s 6.0
+260966.0 | clock 5604 | IWAIT | m1 | orch @5796 58 50
+260970.9 | clock 5604 | RT | Reduction Transformer Hybrid v1.1 | (5796, 50, 0 - 58, vel 120) voice 83 noteId 518 | TD 4 LogitTD on s 6.0
+261015.4 | clock 5609 | IWAIT | m1 | orch @5796 70 45
+261020.1 | clock 5609 | RT | Reduction Transformer Hybrid v1.1 | (5796, 45, 0 - 70, vel 120) voice 79 noteId 519 | TD 4 LogitTD on s 6.0
+261065.6 | clock 5614 | IWAIT | m1 | orch @5841 62 35
+261070.4 | clock 5614 | RT | Reduction Transformer Hybrid v1.1 | (5841, 35, 0 - 62, vel 120) voice 79 noteId 520 | TD 4 LogitTD on s 6.0
+261115.8 | clock 5619 | IWAIT | m1 | orch @5841 74 30
+261120.3 | clock 5619 | RT | Reduction Transformer Hybrid v1.1 | (5841, 30, 0 - 74, vel 120) voice 79 noteId 521 | TD 4 LogitTD on s 6.0
+261168.2 | clock 5624 | IWAIT | m1 | orch @5872 60 25
+261172.9 | clock 5625 | RT | Reduction Transformer Hybrid v1.1 | (5872, 25, 0 - 60, vel 120) voice 87 noteId 522 | TD 4 LogitTD on s 6.0
+261217.7 | clock 5629 | IWAIT | m1 | orch @5872 72 20
+261222.4 | clock 5630 | RT | Reduction Transformer Hybrid v1.1 | (5872, 20, 0 - 72, vel 120) voice 79 noteId 523 | TD 4 LogitTD on s 6.0
+261275.5 | clock 5635 | IWAIT | m1 | orch @5891 58 25
+261279.1 | clock 5635 | RT | Reduction Transformer Hybrid v1.1 | (5891, 25, 0 - 58, vel 120) voice 86 noteId 524 | TD 4 LogitTD on s 6.0
+261316.7 | clock 5639 | IWAIT | m1 | orch @5891 70 20
+261320.6 | clock 5639 | RT | Reduction Transformer Hybrid v1.1 | (5891, 20, 0 - 70, vel 120) voice 88 noteId 525 | TD 4 LogitTD on s 6.0
+261365.6 | clock 5644 | IWAIT | m1 | orch @5911 57 40
+261369.5 | clock 5644 | RT | Reduction Transformer Hybrid v1.1 | (5911, 40, 0 - 57, vel 120) voice 87 noteId 526 | TD 4 LogitTD on s 6.0
+261412.1 | clock 5648 | IWAIT | m1 | orch @5911 69 35
+261416.9 | clock 5649 | RT | Reduction Transformer Hybrid v1.1 | (5911, 35, 0 - 69, vel 120) voice 88 noteId 527 | TD 4 LogitTD on s 6.0
+261463.4 | clock 5654 | IWAIT | m1 | orch @5938 55 60
+261467.8 | clock 5654 | RT | Reduction Transformer Hybrid v1.1 | (5938, 60, 0 - 55, vel 120) voice 86 noteId 528 | TD 4 LogitTD on s 6.0
+261517.0 | clock 5659 | IWAIT | m1 | orch @5938 67 55
+261521.5 | clock 5659 | RT | Reduction Transformer Hybrid v1.1 | (5938, 55, 0 - 67, vel 120) voice 88 noteId 529 | TD 4 LogitTD on s 6.0
+261566.3 | clock 5664 | IWAIT | m1 | orch @6016 55 100
+261570.7 | clock 5664 | RT | Reduction Transformer Hybrid v1.1 | (6016, 100, 0 - 55, vel 120) voice 86 noteId 530 | TD 4 LogitTD on s 6.0
+261619.9 | clock 5669 | IWAIT | m1 | orch @6016 67 95
+261624.6 | clock 5670 | RT | Reduction Transformer Hybrid v1.1 | (6016, 95, 0 - 67, vel 120) voice 88 noteId 531 | TD 4 LogitTD on s 6.0
+261672.5 | clock 5675 | IWAIT | m1 | orch @6104 53 85
+261676.8 | clock 5675 | RT | Reduction Transformer Hybrid v1.1 | (6104, 85, 0 - 53, vel 120) voice 86 noteId 532 | TD 4 LogitTD on s 6.0
+261728.9 | clock 5680 | IWAIT | m1 | orch @6104 65 80
+261733.4 | clock 5681 | RT | Reduction Transformer Hybrid v1.1 | (6104, 80, 0 - 65, vel 120) voice 88 noteId 533 | TD 4 LogitTD on s 6.0
+261777.7 | clock 5685 | IWAIT | m1 | orch @6179 52 20
+261782.3 | clock 5686 | RT | Reduction Transformer Hybrid v1.1 | (6179, 20, 0 - 52, vel 120) voice 89 noteId 534 | TD 4 LogitTD on s 6.0
+261827.6 | clock 5690 | IWAIT | m1 | orch @6179 64 15
+261831.8 | clock 5690 | RT | Reduction Transformer Hybrid v1.1 | (6179, 15, 0 - 64, vel 120) voice 88 noteId 535 | TD 4 LogitTD on s 6.0
+261886.1 | clock 5696 | IWAIT | m1 | orch @6196 53 15
+261890.7 | clock 5696 | RT | Reduction Transformer Hybrid v1.1 | (6196, 15, 0 - 53, vel 120) voice 86 noteId 536 | TD 4 LogitTD on s 6.0
+261935.6 | clock 5701 | IWAIT | m1 | orch @6196 65 10
+261939.9 | clock 5701 | RT | Reduction Transformer Hybrid v1.1 | (6196, 10, 0 - 65, vel 120) voice 88 noteId 537 | TD 4 LogitTD on s 6.0
+261986.8 | clock 5706 | IWAIT | m1 | orch @6209 55 10
+261991.4 | clock 5706 | RT | Reduction Transformer Hybrid v1.1 | (6209, 10, 0 - 55, vel 120) voice 89 noteId 538 | TD 4 LogitTD on s 6.0
+264038.8 | clock 5911 | IWAIT | m1 | orch @6209 67 10
+264043.5 | clock 5912 | RT | Reduction Transformer Hybrid v1.1 | (6209, 10, 0 - 67, vel 120) voice 88 noteId 539 | TD 4 LogitTD on s 6.0
+264088.6 | clock 5916 | IWAIT | m1 | orch @6221 61 10
+264091.8 | clock 5916 | RT | Reduction Transformer Hybrid v1.1 | (6221, 10, 0 - 61, vel 120) voice 90 noteId 540 | TD 4 LogitTD on s 6.0
+264135.5 | clock 5921 | IWAIT | m1 | orch @6221 73 10
+264138.4 | clock 5921 | RT | Reduction Transformer Hybrid v1.1 | (6221, 10, 0 - 73, vel 120) voice 91 noteId 541 | TD 4 LogitTD on s 6.0
+264185.4 | clock 5926 | IWAIT | m1 | orch @6244 61 75
+264188.5 | clock 5926 | RT | Reduction Transformer Hybrid v1.1 | (6244, 75, 0 - 61, vel 120) voice 90 noteId 542 | TD 4 LogitTD on s 6.0
+264238.0 | clock 5931 | IWAIT | m1 | orch @6244 73 70
+264241.3 | clock 5931 | RT | Reduction Transformer Hybrid v1.1 | (6244, 70, 0 - 73, vel 120) voice 91 noteId 543 | TD 4 LogitTD on s 6.0
+264290.2 | clock 5936 | IWAIT | m1 | orch @6320 60 45
+264293.6 | clock 5937 | RT | Reduction Transformer Hybrid v1.1 | (6320, 45, 0 - 60, vel 120) voice 90 noteId 544 | TD 4 LogitTD on s 6.0
+264339.4 | clock 5941 | IWAIT | m1 | orch @6320 72 40
+264342.8 | clock 5942 | RT | Reduction Transformer Hybrid v1.1 | (6320, 40, 0 - 72, vel 120) voice 91 noteId 545 | TD 4 LogitTD on s 6.0
+264381.8 | clock 5945 | IWAIT | m1 | orch @6362 59 30
+264385.0 | clock 5946 | RT | Reduction Transformer Hybrid v1.1 | (6362, 30, 0 - 59, vel 120) voice 92 noteId 546 | TD 4 LogitTD on s 6.0
+264432.8 | clock 5951 | IWAIT | m1 | orch @6362 71 25
+264436.0 | clock 5951 | RT | Reduction Transformer Hybrid v1.1 | (6362, 25, 0 - 71, vel 120) voice 91 noteId 547 | TD 4 LogitTD on s 6.0
+264477.0 | clock 5955 | IWAIT | m1 | orch @6387 58 50
+264480.3 | clock 5955 | RT | Reduction Transformer Hybrid v1.1 | (6387, 50, 0 - 58, vel 120) voice 90 noteId 548 | TD 4 LogitTD on s 6.0
+264518.9 | clock 5959 | IWAIT | m1 | orch @6387 70 45
+264522.2 | clock 5960 | RT | Reduction Transformer Hybrid v1.1 | (6387, 45, 0 - 70, vel 120) voice 91 noteId 549 | TD 4 LogitTD on s 6.0
+264565.7 | clock 5964 | IWAIT | m1 | orch @6467 58 55
+264569.6 | clock 5964 | RT | Reduction Transformer Hybrid v1.1 | (6467, 55, 0 - 58, vel 120) voice 90 noteId 550 | TD 4 LogitTD on s 6.0
+266437.1 | clock - | MIDI_OUT | clear: note off on every channel and pitch
+266561.5 | clock - | MIDI_OUT | clear: note off on every channel and pitch
+268598.1 | clock - | SESSION | stop

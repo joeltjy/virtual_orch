@@ -1,0 +1,10 @@
+0.1 | clock - | SESSION | start 24 Nov 2026 0:59:05
+0.2 | clock - | SESSION | launchpad layout 2
+9259.2 | clock 0 | HYBRID | loaded hybrid_v11
+9305.6 | clock 0 | PEDAL | pedal device selected: orchestra silent until pedal down
+9306.6 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+9308.9 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | F0 00 20 29 02 0D 00 7F F7 (f0 00 20 29 02 0d 00 7f f7)
+10946.2 | clock 0 | MODE | Jam
+14234.7 | clock - | MIDI_OUT | clear: note off on every channel and pitch
+14341.2 | clock - | MIDI_OUT | clear: note off on every channel and pitch
+16372.3 | clock - | SESSION | stop

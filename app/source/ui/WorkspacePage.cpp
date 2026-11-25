@@ -181,8 +181,8 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
     auto names = viewStore.listViewNames();
     juce::String initialName = getStartupViewName();
     if (initialName.isEmpty() || ! names.contains(initialName)) {
-        if (names.contains(UiConstants::workspaceOrchestrationDebugViewName))
-            initialName = UiConstants::workspaceOrchestrationDebugViewName;
+        if (names.contains(UiConstants::workspacePerformanceViewName))
+            initialName = UiConstants::workspacePerformanceViewName;
         else if (names.contains(UiConstants::workspaceDefaultViewName))
             initialName = UiConstants::workspaceDefaultViewName;
         else if (names.size() > 0)
@@ -200,13 +200,14 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
 auto WorkspacePage::getStartupViewName() const -> juce::String {
     const auto workspace = session.presetStore.settings.getChildWithName(
         UiConstants::workspaceSettingsWorkspaceChild);
+    // No view set with Set Default: the Performance view. Nov 24 2026 (was OrchestrationDebug).
     if (! workspace.isValid())
-        return UiConstants::workspaceOrchestrationDebugViewName;
+        return UiConstants::workspacePerformanceViewName;
 
     const auto name =
         workspace.getProperty(UiConstants::workspaceSettingsDefaultViewProperty, {}).toString().trim();
     return name.isNotEmpty() ? name
-                             : juce::String(UiConstants::workspaceOrchestrationDebugViewName);
+                             : juce::String(UiConstants::workspacePerformanceViewName);
 }
 
 auto WorkspacePage::setCurrentViewAsDefault() -> void {

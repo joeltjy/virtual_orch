@@ -66,5 +66,27 @@
       "low": 36,
       "high": 120
     }
-  ]
+  ],
+  "logitAdjustments": {
+    "biasesOn": true,
+    "model": {
+      "pitchBias": true,
+      "durationBias": true,
+      "onsetGapBias": true,
+      "shortGapPenalty": true,
+      "logitTd": true,
+      "pitchTau": 0.2,
+      "pitchTauPrime": 0.2,
+      "durationTau": 0.5,
+      "durationTauPrime": 0.0,
+      "onsetGapTau": 0.5
+    },
+    "hybridV1": {
+      "pitchBias": true,
+      "durationBias": true,
+      "onsetGapBias": true,
+      "shortGapPenalty": true,
+      "logitTd": true
+    }
+  }
 }

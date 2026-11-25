@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <JuceHeader.h>
+
 #include <algorithm>
 #include <vector>
 
@@ -194,4 +196,74 @@ TEST(EventEngine, TheContextIsRebuiltBeforeTimesPass9999) {
     ASSERT_FALSE(ev.empty());
     EXPECT_LE(ev.back().timeCs - ev.front().timeCs, Engine::kMaxTime);
     EXPECT_GT(rig.outs.size(), 300u); // it kept playing across the rebuild
+}
+
+// Opt-in (IW_M1E=1): the real m1e export (continuation_events_m1e_r1_kv.onnx) on sample_01's piano for 6 s, then
+// silence for 9 s (the spec-8 test setup); prints notes/s and the rule's counts.
+TEST(EventEngine, RealM1eSmoke) {
+    if (juce::SystemStats::getEnvironmentVariable("IW_M1E", "") != "1")
+        GTEST_SKIP() << "set IW_M1E=1";
+    const auto home = juce::File::getSpecialLocation(juce::File::userHomeDirectory);
+    StreamingKv::OnnxBackend onnx;
+    std::string err;
+    ASSERT_TRUE(onnx.init(home.getChildFile("Documents/virtual_orch_models/continuation_events_m1e_r1_kv.onnx")
+                              .getFullPathName().toRawUTF8(), err)) << err;
+    ASSERT_EQ(onnx.vocabSize(), static_cast<size_t>(Engine::kM1eVocab));
+    juce::FileInputStream in(home.getChildFile("orchestration/samples/maestro_fixtures_10/sample_01/input.mid"));
+    juce::MidiFile mf;
+    ASSERT_TRUE(in.openedOk() && mf.readFrom(in));
+    mf.convertTimestampTicksToSeconds();
+    struct Ev { int32_t t; bool on; int32_t p, v; };
+    std::vector<Ev> piano;
+    for (int tr = 0; tr < mf.getNumTracks(); ++tr)
+        for (const auto *e: *mf.getTrack(tr)) {
+            const auto t = static_cast<int32_t>(std::lround(e->message.getTimeStamp() * 100));
+            if (t >= 600)
+                continue;
+            if (e->message.isNoteOn())
+                piano.push_back({t, true, e->message.getNoteNumber(), e->message.getVelocity()});
+            else if (e->message.isNoteOff())
+                piano.push_back({t, false, e->message.getNoteNumber(), 0});
+        }
+    std::stable_sort(piano.begin(), piano.end(), [](const Ev &a, const Ev &b) { return a.t < b.t; });
+    for (const uint64_t seed: {1ull, 2ull}) {
+        Engine engine;
+        engine.setBackend(&onnx);
+        auto s = engine.settings();
+        s.seed = seed;
+        engine.setSettings(s);
+        engine.reset(0);
+        size_t next = 0;
+        int ons = 0, onsSilent = 0;
+        std::vector<int32_t> held;
+        std::vector<int32_t> aheads;
+        for (int32_t now = 0; now < 1500; ++now) {
+            while (next < piano.size() && piano[next].t <= now) {
+                if (piano[next].on) {
+                    engine.pianoOn(now, piano[next].p, piano[next].v);
+                    held.push_back(piano[next].p);
+                } else {
+                    engine.pianoOff(now, piano[next].p);
+                    held.erase(std::remove(held.begin(), held.end(), piano[next].p), held.end());
+                }
+                ++next;
+            }
+            if (now == 600) { // the pianist stops: every key still down comes up
+                for (const auto p: held)
+                    engine.pianoOff(now, p);
+                held.clear();
+            }
+            for (const auto &o: engine.step(now))
+                if (o.on) {
+                    ++ons;
+                    onsSilent += now >= 600 ? 1 : 0;
+                }
+        }
+        const auto &stt = engine.stats();
+        std::printf("[m1e] seed %llu: %d ONs (%.1f/s while the piano is silent), OFFs %d, piano-meant %d, forced %d, "
+                    "forced releases %d, discarded %d, rebuilds %d %s\n",
+                    static_cast<unsigned long long>(seed), ons, onsSilent / 9.0, stt.offs, stt.pianoMeant, stt.forced,
+                    stt.forcedReleases, stt.discarded, stt.rebuilds, engine.lastError.c_str());
+        EXPECT_GT(ons, 0);
+    }
 }

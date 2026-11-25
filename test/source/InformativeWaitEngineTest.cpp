@@ -700,7 +700,7 @@ TEST(InformativeWaitEngine, TdGammaShortensOrLengthensTheOnsetGaps) {
     EXPECT_GT(*plus.first, 0.0);
 }
 
-TEST(HybridInformativeWait, TicksOneTdControllerPerModelAndResetsOnPedalRelease) {
+TEST(HybridInformativeWait, TicksOneTdControllerPerModelAndKeepsGammaOnPedalRelease) {
     ModelConfig config;
     HybridInformativeWaitReductionTransformer hy(config);
     auto silent = std::make_unique<ScriptBackend>();
@@ -734,25 +734,32 @@ TEST(HybridInformativeWait, TicksOneTdControllerPerModelAndResetsOnPedalRelease)
     EXPECT_EQ(views[0].state.why, "TD AUTO");
     EXPECT_FALSE(hy.tdGamma(true).has_value());
 
-    // TD 64: model 1 draws an onset every cs (far denser than TD 64), so its gamma moves (down); model 2 is
-    // not drawing and stays frozen.
+    // TD 64: both controllers start from the warm start (startGamma(64) = 4, Nov 25 2026). Model 1 draws, so its
+    // gamma moves from there by at most one step per 2 s update (up to kMaxStepUp, down kMaxStep); model 2 is not
+    // drawing and stays frozen at the warm start.
     td = 64;
     runFor(6500);
     views = hy.getTdControlStates();
     ASSERT_EQ(views.size(), 2u);
+    const double start = TdController::startGamma(64);
     EXPECT_FALSE(views[0].state.frozen) << views[0].state.why;
-    EXPECT_NE(views[0].state.gamma, 0.0);
-    EXPECT_LE(std::abs(views[0].state.gamma), 3 * TdController::kMaxStep + 1e-9); // at most 0.25 per 2 s update
+    EXPECT_NE(views[0].state.gamma, start) << "model 1's controller updated";
+    EXPECT_LE(views[0].state.gamma, start + 3 * TdController::kMaxStepUp + 1e-9);
+    EXPECT_GE(views[0].state.gamma, start - 3 * TdController::kMaxStep - 1e-9);
     EXPECT_TRUE(views[1].state.frozen);
+    EXPECT_DOUBLE_EQ(views[1].state.gamma, start);
     ASSERT_TRUE(hy.tdGamma(true).has_value());
     EXPECT_FLOAT_EQ(*hy.tdGamma(true), static_cast<float>(views[0].state.gamma));
 
-    // a pedal release puts both back to gamma 0
+    // a pedal release (generation resumes) only soft-resets: a positive gamma is kept for both models
+    const auto m1Before = *hy.tdGamma(true);
+    const auto m2Before = *hy.tdGamma(false);
+    ASSERT_GT(m1Before, 0.0f);
     hy.setGenerationPause(true, "test");
     hy.setGenerationPause(false, "test");
     hy.stepOnce();
-    EXPECT_EQ(*hy.tdGamma(true), 0.0f);
-    EXPECT_EQ(*hy.tdGamma(false), 0.0f);
+    EXPECT_FLOAT_EQ(*hy.tdGamma(true), m1Before);
+    EXPECT_FLOAT_EQ(*hy.tdGamma(false), m2Before);
 }
 
 TEST(HybridInformativeWait, AModeCutKeepsTheContextAndGenerationContinuesWithoutNewInput) {

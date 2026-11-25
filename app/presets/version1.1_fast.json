@@ -78,7 +78,7 @@
       "pitchTau": 0.2,
       "pitchTauPrime": 0.2,
       "durationTau": 0.5,
-      "durationTauPrime": 0.0,
+      "durationTauPrime": 0.3,
       "onsetGapTau": 0.5
     },
     "hybridV1": {

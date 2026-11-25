@@ -347,7 +347,7 @@ auto InformativeWaitEngine::orchestraHistory() const -> std::vector<int32_t> {
     std::vector<int32_t> quads;
     quads.reserve(items.size() * 4);
     for (const auto &it: items)
-        if (it.kind == Kind::Orch) {
+        if (it.kind == Kind::Orch || it.kind == Kind::Chord) { // chord mode: a chord block counts as its bass note
             quads.push_back(it.onsetCs);
             quads.push_back(static_cast<int32_t>(DenseVocab::DurOffset) + std::clamp(it.durationCs, 1, 995));
             quads.push_back(static_cast<int32_t>(DenseVocab::NoteOffset) + DenseConfig::MaxPitch * 1 + it.pitch);
@@ -750,6 +750,7 @@ auto InformativeWaitEngine::fire(const PianoNote &head) -> std::vector<OutNote> 
         out.push_back({head.onsetCs, dur, pitch, vel, true});
         minPitch = std::min(pitch + 1, kPianoHigh);
     }
+    countCommittedForBias(head.onsetCs, ready); // the branch's notes are committed now
     if (ready == k) {
         ++st.precomputeHits;
         event("hit", head.onsetCs, head.pitch, p.k,
@@ -864,6 +865,52 @@ auto InformativeWaitEngine::addProvisionalWait(const OutNote &note) -> void {
     startPrecompute();
 }
 
+auto InformativeWaitEngine::applyDurationBias(std::vector<float> &logits, const std::vector<int32_t> &history,
+                                             int32_t onsetCs, DenseDurationBias::DurationTauScheduler &scheduler) const
+    -> void {
+    if (cfg.coarseDurationBins) {
+        const auto window = DenseDurationBias::collectCoarseDurationWindowAt(history, onsetCs, 1);
+        const auto taus = scheduler.evaluate(onsetCs, window.uniqueBins, window.uniqueMoves, cfg.durationTau,
+                                             cfg.durationTauPrime, true);
+        DenseDurationBias::applyCoarseDurationLogitsBias(logits, window, taus.tau, taus.tauPrime);
+        return;
+    }
+    const auto window = DenseDurationBias::collectDurationWindowAt(history, onsetCs, -1, 1);
+    const auto taus = scheduler.evaluate(onsetCs, window.uniqueDurations, window.uniqueDeltas, cfg.durationTau,
+                                         cfg.durationTauPrime, true);
+    DenseDurationBias::applyDurationLogitsBias(logits, window, taus.tau, taus.tauPrime);
+}
+
+auto InformativeWaitEngine::applyPitchBias(std::vector<float> &logits, const std::vector<int32_t> &history,
+                                          int32_t onsetCs, DensePitchBias::PitchTauScheduler &scheduler) const
+    -> void {
+    const auto window = DensePitchBias::collectPitchWindowAt(history, onsetCs, -1);
+    const auto taus = scheduler.evaluate(onsetCs, window.uniquePitches, window.uniqueDeltas, cfg.pitchTau,
+                                         cfg.pitchTauPrime, true);
+    DensePitchBias::applyNoteLogitsBias(logits, window, taus.tau, taus.tauPrime);
+}
+
+auto InformativeWaitEngine::countCommittedForBias(int32_t onsetCs, int notes) -> void {
+    if (! cfg.durationBias && ! cfg.pitchBias)
+        return;
+    // as drawBody: each note's τ is evaluated on the history before it, then the note is committed
+    const auto history = orchestraHistory();
+    const size_t committed = history.size() / 4;
+    for (int j = 0; j < notes && static_cast<size_t>(j) < committed; ++j) {
+        const std::vector<int32_t> before(history.begin(),
+                                          history.end() - static_cast<std::ptrdiff_t>(4 * (notes - j)));
+        if (cfg.durationBias) {
+            std::vector<float> none; // the τ only: applyDurationBias on no logits is a no-op past the evaluate
+            applyDurationBias(none, before, onsetCs, durationScheduler);
+        }
+        if (cfg.pitchBias) {
+            const auto w = DensePitchBias::collectPitchWindowAt(before, onsetCs, -1);
+            (void) pitchScheduler.evaluate(onsetCs, w.uniquePitches, w.uniqueDeltas, cfg.pitchTau, cfg.pitchTauPrime,
+                                           true);
+        }
+    }
+}
+
 auto InformativeWaitEngine::drawBody(int32_t onsetCs, int32_t minPitch) -> std::optional<OutNote> {
     auto desired = tokens();
     desired.push_back(rel(onsetCs));
@@ -876,10 +923,7 @@ auto InformativeWaitEngine::drawBody(int32_t onsetCs, int32_t minPitch) -> std::
     std::vector<float> biased;
     if (cfg.durationBias) {
         biased = *l1;
-        const auto window = DenseDurationBias::collectDurationWindowAt(history, onsetCs, -1, 1);
-        const auto taus = durationScheduler.evaluate(onsetCs, window.uniqueDurations, window.uniqueDeltas,
-                                                     cfg.durationTau, cfg.durationTauPrime, true);
-        DenseDurationBias::applyDurationLogitsBias(biased, window, taus.tau, taus.tauPrime);
+        applyDurationBias(biased, history, onsetCs, durationScheduler);
         l1 = &biased;
     }
     const int32_t dur = pick(*l1, {{kDur0 + cfg.minDurationCs, kDur0 + cfg.maxDurationCs + 1}}, cfg.otherTemperature, cfg.minP, 5);
@@ -899,10 +943,7 @@ auto InformativeWaitEngine::drawBody(int32_t onsetCs, int32_t minPitch) -> std::
         return std::nullopt;
     if (cfg.pitchBias) {
         biased = *l2;
-        const auto window = DensePitchBias::collectPitchWindowAt(history, onsetCs, -1);
-        const auto taus = pitchScheduler.evaluate(onsetCs, window.uniquePitches, window.uniqueDeltas, cfg.pitchTau,
-                                                  cfg.pitchTauPrime, true);
-        DensePitchBias::applyNoteLogitsBias(biased, window, taus.tau, taus.tauPrime);
+        applyPitchBias(biased, history, onsetCs, pitchScheduler);
         l2 = &biased;
     }
     const int32_t note = pick(*l2, {{kOrch0 + lo, kOrch0 + hi + 1}}, cfg.otherTemperature, cfg.minP);
@@ -1161,17 +1202,29 @@ auto InformativeWaitEngine::chordRanges(int32_t k) -> std::vector<std::pair<int3
     return r;
 }
 
-auto InformativeWaitEngine::decodeBlock(std::vector<int32_t> desired, int32_t k, int32_t firstChord,
+auto InformativeWaitEngine::decodeBlock(std::vector<int32_t> desired, int32_t k, int32_t onsetCs, int32_t firstChord,
                                        std::vector<std::pair<int32_t, int32_t>> chordMask) -> std::vector<int32_t> {
     std::vector<int32_t> block;
     if (firstChord >= 0) {
         block.push_back(firstChord); // already in the context (a give-up's CHORD, drawn after [EXPIRED])
         desired.push_back(firstChord);
     }
-    const auto next = [&](const std::vector<std::pair<int32_t, int32_t>> &ranges, int32_t step) -> bool {
+    // SDUR and BASS take the duration / pitch bias as a decoded note's duration and pitch (the engine's schedulers:
+    // this block is committed)
+    const auto history = cfg.durationBias || cfg.pitchBias ? orchestraHistory() : std::vector<int32_t>{};
+    const auto next = [&](const std::vector<std::pair<int32_t, int32_t>> &ranges, int32_t step, int bias = 0) -> bool {
         const auto *l = logitsFor(desired);
         if (l == nullptr)
             return false;
+        std::vector<float> biased;
+        if ((bias == 1 && cfg.durationBias) || (bias == 2 && cfg.pitchBias)) {
+            biased = *l;
+            if (bias == 1)
+                applyDurationBias(biased, history, onsetCs, durationScheduler);
+            else
+                applyPitchBias(biased, history, onsetCs, pitchScheduler);
+            l = &biased;
+        }
         const int32_t t = pick(*l, ranges, cfg.otherTemperature, cfg.minP, step);
         if (t < 0)
             return false;
@@ -1183,8 +1236,8 @@ auto InformativeWaitEngine::decodeBlock(std::vector<int32_t> desired, int32_t k,
     int32_t hi = kPianoHigh;
     clampToRegister(lo, hi);
     lo = std::min(lo, hi);
-    if ((firstChord < 0 && ! next(chordMask.empty() ? chordRanges(k) : chordMask, 1)) || ! next({{kDur0 + cfg.minDurationCs, kDur0 + cfg.maxDurationCs + 1}}, 5)
-        || ! next({{kOrch0 + lo, kOrch0 + hi + 1}}, 1) || ! next({{kVel0 + 8, kVel0 + 121}}, 8))
+    if ((firstChord < 0 && ! next(chordMask.empty() ? chordRanges(k) : chordMask, 1)) || ! next({{kDur0 + cfg.minDurationCs, kDur0 + cfg.maxDurationCs + 1}}, 5, 1)
+        || ! next({{kOrch0 + lo, kOrch0 + hi + 1}}, 1, 2) || ! next({{kVel0 + 8, kVel0 + 121}}, 8))
         return {};
     return block;
 }
@@ -1334,6 +1387,7 @@ auto InformativeWaitEngine::fireChord() -> std::vector<OutNote> {
                 ++st.orchestraNotes;
             }
         }
+        countCommittedForBias(head.onsetCs, p.plus && ! branch->notes.empty() ? 2 : 1); // block (+ leftover) committed
         ++st.precomputeHits;
         ++st.chordMatched;
         const auto cv = chordValue(branch->block[0]);
@@ -1377,7 +1431,7 @@ auto InformativeWaitEngine::fireChordStep() -> std::vector<OutNote> {
         std::vector<std::pair<int32_t, int32_t>> mask;
         if (f.inferType >= 0)
             mask.push_back({chordToken(f.inferType, f.inferRoot, 1), chordToken(f.inferType, f.inferRoot, 10) + 1});
-        const auto block = decodeBlock(tokens(), f.k, f.firstChord, mask);
+        const auto block = decodeBlock(tokens(), f.k, f.onsetCs, f.firstChord, mask);
         if (block.empty()) {
             failed = true;
         } else {
@@ -1705,10 +1759,22 @@ auto InformativeWaitEngine::precomputeStep() -> void {
             if (! StreamingKv::tileState(pc.state, dims, kBranches, pc.kv))
                 return finish(false);
         }
+        // SDUR / the leftover's duration and BASS / the leftover's pitch: the duration / pitch biases from the
+        // committed notes only, with copies of the schedulers (countCommittedForBias counts them at a match)
+        const bool biasDur = (r == 1 || r == 4) && cfg.durationBias;
+        const bool biasPitch = (r == 2 || r == 5) && cfg.pitchBias;
+        const auto history = biasDur || biasPitch ? orchestraHistory() : std::vector<int32_t>{};
         for (int b = 0; b < kBranches && r > 0; ++b) {
             auto &br = pc.branches[static_cast<size_t>(b)];
-            const std::vector<float> lg(pc.logits.begin() + static_cast<std::ptrdiff_t>(static_cast<size_t>(b) * V),
-                                        pc.logits.begin() + static_cast<std::ptrdiff_t>(static_cast<size_t>(b + 1) * V));
+            std::vector<float> lg(pc.logits.begin() + static_cast<std::ptrdiff_t>(static_cast<size_t>(b) * V),
+                                  pc.logits.begin() + static_cast<std::ptrdiff_t>(static_cast<size_t>(b + 1) * V));
+            if (biasDur) {
+                auto scheduler = durationScheduler;
+                applyDurationBias(lg, history, pc.targetCs, scheduler);
+            } else if (biasPitch) {
+                auto scheduler = pitchScheduler;
+                applyPitchBias(lg, history, pc.targetCs, scheduler);
+            }
             int32_t tok = -1;
             if (r == 1 || r == 4) {
                 tok = pick(lg, {{kDur0 + cfg.minDurationCs, kDur0 + cfg.maxDurationCs + 1}}, cfg.otherTemperature, cfg.minP, 5);
@@ -1744,11 +1810,26 @@ auto InformativeWaitEngine::precomputeStep() -> void {
         if (pc.logits.size() < V * kBranches)
             return finish(false);
         const int r = (pc.phase - 2) % 3; // what the last logits predict: 0 duration, 1 pitch, 2 velocity
+        // The duration / pitch biases as at a decoded fire, from the committed orchestra notes only: a branch's
+        // own notes are not committed (most branches are never played), so they change neither the
+        // statistics nor the τ schedulers (copies here; countCommittedForBias counts them at the fire).
+        const bool biasDur = r == 0 && cfg.durationBias;
+        const bool biasPitch = r == 1 && cfg.pitchBias;
+        std::vector<int32_t> history;
+        if (biasDur || biasPitch)
+            history = orchestraHistory();
         for (int b = 0; b < kBranches; ++b) {
             auto &br = pc.branches[static_cast<size_t>(b)];
             const auto row = static_cast<size_t>(b);
-            const std::vector<float> lg(pc.logits.begin() + static_cast<std::ptrdiff_t>(row * V),
-                                        pc.logits.begin() + static_cast<std::ptrdiff_t>((row + 1) * V));
+            std::vector<float> lg(pc.logits.begin() + static_cast<std::ptrdiff_t>(row * V),
+                                  pc.logits.begin() + static_cast<std::ptrdiff_t>((row + 1) * V));
+            if (biasDur) {
+                auto scheduler = durationScheduler;
+                applyDurationBias(lg, history, pc.targetCs, scheduler);
+            } else if (biasPitch) {
+                auto scheduler = pitchScheduler;
+                applyPitchBias(lg, history, pc.targetCs, scheduler);
+            }
             if (r == 0) {
                 const int32_t tok = pick(lg, {{kDur0 + cfg.minDurationCs, kDur0 + cfg.maxDurationCs + 1}}, cfg.otherTemperature, cfg.minP, 5);
                 br.notes.push_back({tok - kDur0, 0, 0});

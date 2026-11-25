@@ -229,4 +229,59 @@ auto DurationTauScheduler::reset() -> void {
     hasScheduleNow = false;
 }
 
+auto collectCoarseDurationWindowAt(const std::vector<int32_t> &denseInputData,
+                                   int32_t nowCs,
+                                   int32_t onlyInstrument) -> CoarseDurationStats {
+    CoarseDurationStats stats;
+    std::array<int, CoarseBins> counts{};
+    std::array<int, CoarseMoves> moves{};
+    std::set<int32_t> bins;
+    std::set<int32_t> moveSet;
+    int pairs = 0;
+    for (size_t i = 0; i + 3 < denseInputData.size(); i += denseEventWidth) {
+        const int32_t onset = denseInputData[i];
+        if (onset <= nowCs - WindowCs || onset > nowCs)
+            continue;
+        if (onlyInstrument >= 0 && DenseQuantize::instrumentOfNoteToken(denseInputData[i + 2]) != onlyInstrument)
+            continue;
+        const int bin = coarseBin(DenseQuantize::snapDurationCs(durationCsFromToken(denseInputData[i + 1])));
+        ++counts[static_cast<size_t>(bin)];
+        bins.insert(bin);
+        if (stats.lastBin >= 0) {
+            const int move = bin - stats.lastBin;
+            ++moves[static_cast<size_t>(move + CoarseBins - 1)];
+            moveSet.insert(move);
+            ++pairs;
+        }
+        stats.lastBin = bin;
+        ++stats.noteCount;
+    }
+    const float n = static_cast<float>(stats.noteCount) + CoarseBins * CoarseEpsilon;
+    for (int b = 0; b < CoarseBins; ++b)
+        stats.pi[static_cast<size_t>(b)] = (static_cast<float>(counts[static_cast<size_t>(b)]) + CoarseEpsilon) / n;
+    const float d = static_cast<float>(pairs) + CoarseMoves * CoarseEpsilon;
+    for (int m = 0; m < CoarseMoves; ++m)
+        stats.sMove[static_cast<size_t>(m)] = (static_cast<float>(moves[static_cast<size_t>(m)]) + CoarseEpsilon) / d;
+    stats.uniqueBins.assign(bins.begin(), bins.end());
+    stats.uniqueMoves.assign(moveSet.begin(), moveSet.end());
+    return stats;
+}
+
+auto applyCoarseDurationLogitsBias(std::vector<float> &logits,
+                                   const CoarseDurationStats &stats,
+                                   float tau,
+                                   float tauPrime) -> void {
+    if (stats.noteCount <= 0 || stats.lastBin < 0 || logits.size() < DenseVocab::NoteOffset)
+        return;
+    for (int32_t cs = DenseQuantize::DurationMinCs; cs <= DenseQuantize::DurationMaxCs;
+         cs += DenseQuantize::DurationStepCs) {
+        float &logit = logits[DenseVocab::DurOffset + static_cast<size_t>(cs)];
+        if (! std::isfinite(logit))
+            continue;
+        const int bin = coarseBin(cs);
+        logit -= tau * std::log(stats.pi[static_cast<size_t>(bin)]);
+        logit -= tauPrime * std::log(stats.sMove[static_cast<size_t>(bin - stats.lastBin + CoarseBins - 1)]);
+    }
+}
+
 } // namespace DenseDurationBias

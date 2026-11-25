@@ -122,6 +122,28 @@ Decisions taken for this part (each easy to change):
     duration (capped at 800). A `[DUR?]` note counts with the time it has been held so far. A chord block adds its
     chord's pitch classes with its SDUR. All-zero weights give C major.
 
+## Joel's v1.1 evening commits brought in (2026-11-24)
+
+Only c9f419d and 3931ecd were taken from `origin/informative-wait`, as Joel asked. fae4bd7 (branches by pitch
+class) was left out, because v1.2's branches are chord candidates. d59171a (a WAIT never expires) was left out,
+because v1.2 keeps LATE / EXPIRED.
+
+- **c9f419d** was cherry-picked as is. It sets the startup defaults (Performance view, the version1.1_fast preset)
+  and turns on the logit adjustments for both Hybrid v1.1 models.
+- **3931ecd** applied without conflicts. Its v1.1 behaviour is unchanged: biased branch notes,
+  `countCommittedForBias` at a fire, and coarse duration bins with τ′ for model 2. The transformer sets
+  `coarseDurationBins` for model 2's engine, so v1.2's chord-token model 2 gets the coarse bins too. In chord mode:
+  - **Precomputed chord blocks.** SDUR and the leftover's duration take the duration bias; BASS and the leftover's
+    pitch take the pitch bias. Both use the committed notes only, with copies of the τ schedulers.
+  - **Live blocks.** A block decoded at the fire (no match) or at a give-up biases its SDUR and BASS the same way,
+    with the engine's own schedulers.
+  - **The leftover** of a live block goes through `drawBody`, which is already biased.
+  - **A matched block** is counted with `countCommittedForBias`: 1 note, or 2 with the leftover.
+  - **History.** The bias statistics now count each chord block as one orchestra quad: onset, SDUR, BASS, SVEL
+    (`orchestraHistory` in chord mode). Without this, model 2's SDUR and BASS would only ever be compared against
+    the leftovers and model 1's mirrored notes. The onset-gap bias reads the same history, so it now sees chord
+    onsets too.
+
 ## Open points for Joel
 
 - **Root-field offset: fixed (2026-11-24).** The first m2c tokenizer named CHORD roots from the token
@@ -134,4 +156,10 @@ Decisions taken for this part (each easy to change):
   freezes `[DUR?]`. The training rule goes by time: is the note still sounding at the next model unit's onset?
   They differ when the orchestra note is scheduled in the future and the key goes up before it starts. This was
   kept as specified (B3f 3b).
+- **How a chord block should feed the pitch bias.** Counting a block as its bass note is the smallest reading. It
+  could also count every voiced note, or the chord's pitch classes, which would hold back whole harmonies rather
+  than bass pitches. The pitch bias on BASS only steers the bass, never the chord type or root, so CHORD itself is
+  never biased. Is that what you want for v1.2?
+- **Coarse bins on SDUR.** The bins (10–320 cs) were tuned on v1.1's Mono durations. Stack durations are longer on
+  average, so the bins may be worth re-checking once r2 plays.
 - **Placeholder ONNX name.** `rt_simultaneous_chord_latest` has to match the export.

@@ -270,6 +270,9 @@ public:
         float pitchTauPrime = DensePitchBias::TauBase;
         float durationTau = DenseDurationBias::TauBase;
         float durationTauPrime = DenseDurationBias::TauPrimeBase;
+        /** The duration bias over coarse, roughly log-spaced bins (DenseDurationBias::CoarseEdgesCs) instead of
+         *  5 cs steps; τ′ then penalises repeated moves between bins (staying in one included). */
+        bool coarseDurationBins = false;
         float onsetGapTau = DenseOnsetGapBias::TauBase;
         /** The Launchpad register range: orchestra pitches drawn in [pitchLow, pitchHigh]. */
         int32_t pitchLow = 21;
@@ -527,6 +530,18 @@ private:
     [[nodiscard]] auto orchestraHistory() const -> std::vector<int32_t>;
     /** The register range applied to [lo, hi]; false if no pitch is left (a chord stacked past its top). */
     auto clampToRegister(int32_t &lo, int32_t &hi) const -> bool;
+    /**
+     * The duration / pitch bias (cfg.durationBias / cfg.pitchBias) on `logits`, from the statistics of
+     * `history` (the committed orchestra notes) at onsetCs, with the τ of `scheduler`. A decoded note passes
+     * the engine's schedulers (its draw counts toward the τ hold/ramp); a precomputed branch passes copies,
+     * so its uncommitted notes change neither the statistics nor the schedulers.
+     */
+    auto applyDurationBias(std::vector<float> &logits, const std::vector<int32_t> &history, int32_t onsetCs,
+                           DenseDurationBias::DurationTauScheduler &scheduler) const -> void;
+    auto applyPitchBias(std::vector<float> &logits, const std::vector<int32_t> &history, int32_t onsetCs,
+                        DensePitchBias::PitchTauScheduler &scheduler) const -> void;
+    /** A precomputed branch's notes committed at a fire: the τ schedulers count them, as a decoded fire's. */
+    auto countCommittedForBias(int32_t onsetCs, int notes) -> void;
     DensePitchBias::PitchTauScheduler pitchScheduler;
     DenseDurationBias::DurationTauScheduler durationScheduler;
     double sensitivitySum = 0.0;
@@ -604,7 +619,7 @@ private:
     /** CHORD ids whose type has k pitch classes, as pick ranges. */
     static auto chordRanges(int32_t k) -> std::vector<std::pair<int32_t, int32_t>>;
     /** The block tokens on top of `desired` (CHORD masked to k, SDUR, BASS, SVEL); empty on a model failure. */
-    auto decodeBlock(std::vector<int32_t> desired, int32_t k, int32_t firstChord = -1,
+    auto decodeBlock(std::vector<int32_t> desired, int32_t k, int32_t onsetCs, int32_t firstChord = -1,
                      std::vector<std::pair<int32_t, int32_t>> chordMask = {}) -> std::vector<int32_t>;
     /** Pitch-class weights of the piano + orchestra notes of the last ~8 s before `atCs`, by duration (the key). */
     auto keyWeights(int32_t atCs) const -> std::array<double, 12>;

@@ -658,3 +658,48 @@ TEST(ChordTokenEngine, HybridRunsTheChordModelAndSwitchesToIt) {
     }
     EXPECT_FALSE(hy.usesSilentModel());
 }
+
+// v1.1's 3931ecd ported: the duration / pitch biases reach SDUR / BASS of the precomputed chord blocks, from the
+// committed notes only (a chord block counts as its bass note with its SDUR). The script wants SDUR 80, BASS 48.
+TEST(ChordTokenEngine, PrecomputedChordBlocksAreBiasedByCommittedNotes) {
+    const auto biased = [](bool on) {
+        auto rig = std::make_unique<ChordRig>();
+        auto s = rig->engine.settings();
+        s.durationBias = on;
+        s.pitchBias = on;
+        s.durationTau = 20.0f;
+        s.durationTauPrime = 0.0f;
+        s.pitchTau = 20.0f;
+        s.pitchTauPrime = 0.0f;
+        rig->engine.setSettings(s);
+        return rig;
+    };
+    for (const bool on: {true, false}) {
+        auto rig = biased(on);
+        rig->engine.noteOn(0, 60, 80);
+        rig->run(0, 22);
+        ASSERT_TRUE(rig->engine.precomputeComplete());
+        rig->engine.noteOn(30, 60, 80);
+        rig->run(30, 30); // nothing committed while it was precomputed: SDUR 80, BASS 48
+        auto toks = rig->engine.tokens();
+        ASSERT_GE(toks.size(), 14u);
+        EXPECT_EQ(toks[11], Engine::kDur0 + 80);
+        EXPECT_EQ(toks[12], Engine::kOrch0 + kBass);
+        rig->run(31, 59); // the next [WAIT 30][K 3] and its precompute, with the first block committed
+        ASSERT_TRUE(rig->engine.hasPendingWait());
+        ASSERT_TRUE(rig->engine.precomputeComplete());
+        const size_t at = rig->engine.tokens().size();
+        rig->engine.noteOn(60, 64, 80);
+        rig->run(60, 60);
+        toks = rig->engine.tokens();
+        ASSERT_GE(toks.size(), at + 8);
+        EXPECT_EQ(rig->engine.stats().chordMatched, 2);
+        if (on) {
+            EXPECT_NE(toks[at + 5], Engine::kDur0 + 80) << "SDUR held back";
+            EXPECT_NE(toks[at + 6], Engine::kOrch0 + kBass) << "BASS held back";
+        } else {
+            EXPECT_EQ(toks[at + 5], Engine::kDur0 + 80);
+            EXPECT_EQ(toks[at + 6], Engine::kOrch0 + kBass);
+        }
+    }
+}

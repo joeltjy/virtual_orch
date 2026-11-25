@@ -135,4 +135,45 @@ private:
     bool hasScheduleNow = false;
 };
 
+/**
+ * Coarse duration bins (the informative-WAIT simultaneous model): the same bias over roughly log-spaced
+ * groups of durations instead of 5 cs steps, so a "new" duration has to sound different, not just be one
+ * step off the last. τ penalises a bin by how often the last 5 s used it (every duration in the bin alike);
+ * τ′ penalises a move of (bin − last note's bin) by how often the last 5 s made that move, staying in the
+ * same bin (move 0) included.
+ */
+inline constexpr std::array<int32_t, 11> CoarseEdgesCs{10, 15, 20, 30, 40, 60, 80, 120, 160, 240, 320};
+inline constexpr int CoarseBins = static_cast<int>(CoarseEdgesCs.size());
+inline constexpr int CoarseMoves = 2 * CoarseBins - 1; // moves -(B-1)..(B-1)
+inline constexpr float CoarseEpsilon = 0.01f;
+
+/** The coarse bin of a duration: the last edge at or below it (320 cs and longer: the top bin). */
+[[nodiscard]] inline auto coarseBin(int32_t cs) -> int {
+    int bin = 0;
+    for (int i = 0; i < CoarseBins; ++i)
+        if (cs >= CoarseEdgesCs[static_cast<size_t>(i)])
+            bin = i;
+    return bin;
+}
+
+struct CoarseDurationStats {
+    std::array<float, CoarseBins> pi{};
+    std::array<float, CoarseMoves> sMove{}; // index: move + CoarseBins - 1
+    std::vector<int32_t> uniqueBins;  // drives τ's hold/ramp
+    std::vector<int32_t> uniqueMoves; // drives τ′'s
+    int lastBin = -1;
+    int noteCount = 0;
+};
+
+/** The notes with onsets in (now − 5 s, now] (of onlyInstrument, if >= 0), in coarse bins. */
+[[nodiscard]] auto collectCoarseDurationWindowAt(const std::vector<int32_t> &denseInputData,
+                                                 int32_t nowCs,
+                                                 int32_t onlyInstrument = -1) -> CoarseDurationStats;
+
+/** Subtract τ·log(π[bin]) and τ′·log(s[bin − lastBin]) from every legal duration logit. No-op if empty. */
+auto applyCoarseDurationLogitsBias(std::vector<float> &logits,
+                                   const CoarseDurationStats &stats,
+                                   float tau,
+                                   float tauPrime) -> void;
+
 } // namespace DenseDurationBias

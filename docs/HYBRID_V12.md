@@ -141,6 +141,40 @@ The match rule still accepts a candidate that is the upper structure of the pian
 B–E♭–A forms B7. With the bass masked to E♭ dim's tones, the block voices E♭ dim on one of its own tones, and together with the
 piano's B it sounds as B7.
 
+## Plain notes may draw a piano pitch (2026-11-25 fix)
+
+In chord mode, a plain orchestra note's pitch step (one with no WAIT) allows the 88 piano pitches as well as the
+orchestra pitches. The fix has three parts:
+- **Why (suspected, then ruled out).** r2b's training order for joint onsets without a WAIT is still [first piano
+  quad][orchestra quads][other piano quads], so the model might want another piano note after a piano group. Masked
+  to orchestra pitches, and ascending within the onset, it would walk up the scale into clusters. The real cause was
+  different (see the next section); this rule is kept as harmless.
+- **What happens.** If the model draws a piano pitch, nothing is written: that onset and duration are dropped.
+  The next plain onset must then be strictly later, and nothing may stack onto that onset or an earlier one.
+  `pianoPitchDrops` counts these drops.
+- **Scope.** WAIT fires, chord blocks and their leftovers are unaffected, and so are line modes (`noteAt`) and
+  v1.1. Training is to put all piano notes first for non-WAIT onsets too in r3. This rule can then go.
+
+## No plain note at a chord block's or a piano group's onset (2026-11-25)
+
+The m2c samples' clusters (8–12 notes, 5 cs, every few cs) sat at the onset of a waited chord, or of a group of
+several piano notes. Training never has free orchestra notes there: at a WAIT onset only the block and its
+leftover sit at T, and for non-WAIT joint onsets orchestra quads only follow the FIRST piano quad. The rules, in
+chord mode:
+- **After a chord block at T** (fire, inference or give-up): no plain onset ≤ T + 5. Fires already had this;
+  `writeBlock` now applies it to every block, and the leftover is written by the block itself.
+- **After a piano group of 2+ notes at T:** the next plain onset is > T (`closeGroup`, and `reappend` after a
+  rewind). A single piano note's onset may still be shared (B3f 1g).
+
+The engine could not produce these clusters anyway, because plain onsets are never drawn before `now`. A piano group
+only closes at `now ≥ T + 5`, and a give-up only happens once `now` is past the close. The real-model traces show no
+onset with more than one plain note. The rules are guards that match training, for any path that writes behind
+`now`. Training is to put all piano notes first for non-WAIT onsets in r3, which makes the second rule
+unnecessary.
+
+The piano-pitch rule above turned out not to be the clusters' cause (it never triggered in the Python sampler). It
+is kept because it is harmless.
+
 ## Joel's v1.1 evening commits brought in (2026-11-24)
 
 Only c9f419d and 3931ecd were taken from `origin/informative-wait`, as Joel asked. fae4bd7 (branches by pitch
@@ -162,6 +196,36 @@ because v1.2 keeps LATE / EXPIRED.
     (`orchestraHistory` in chord mode). Without this, model 2's SDUR and BASS would only ever be compared against
     the leftovers and model 1's mirrored notes. The onset-gap bias reads the same history, so it now sees chord
     onsets too.
+
+## Smoke test with the real export (2026-11-25, this Mac, CPU)
+
+`InformativeWaitOfflineSim` was run with `IW_CHORD=1`: the MAESTRO fixtures, the first 15 s of each, model 2 alone
+in chord mode with the hybrid's model-2 settings (logit adjustments off), and simulated time charged at 40 ms per
+batch-1 call and 98 ms per batch-5 call (Joel's laptop). There were no crashes and no failed model calls.
+
+| Run | Fires | Matched | Inferred (step 1/2/3/4) | LATE (forced) | EXPIRED (chosen) → give-ups / re-waits | Early piano | Voicing fallbacks |
+|---|---|---|---|---|---|---|---|
+| 10 fixtures, before the BASS fix | 52 | 5 | 32 / 15 / 0 / 0 | 11 (11) | 9 (9) → 9 / 0 | 94 | 21 of 61 blocks |
+| fixtures 1, 2, 8, with the BASS fix | 36 | 3 | 26 / 6 / 1 / 0 | 10 (10) | 1 (1) → 1 / 0 | 44 | 0 of 37 blocks |
+
+What the numbers say:
+- **Most fires are inferred, not matched.** At 40 ms per call a plain note's step costs 200–300 ms, so the
+  5-step precompute rarely finishes inside a WAIT (median ~27 cs). Only 20 fires in the 10-fixture run had any
+  anticipation. Faster hardware, or Joel's laptop at its real speed, should change this; it is worth measuring
+  there.
+- **Fire latency in simulated time is 45–66 cs on average.** It is the same call-cost backlog: the steps before the
+  fire are late.
+- **Every LATE was forced** by a piano onset that was already in. The model never sampled a LATE value, because
+  the expiry grace (20 cs) catches late notes first. Every EXPIRED was the model's own choice, and after it the
+  model always chose CHORD (give up), never a re-wait.
+- **Many "early piano" onsets.** The pianist plays between the model's likely WAIT lengths more often than inside
+  a window.
+- **The BASS fix removed the voicing fallbacks.** Before it, blocks like `ic5|3|5` (an A bass under E–A) missed
+  the bank.
+- **No plain-note clusters.** Each fixture's trace has at most one onset with several plain notes: an ordinary
+  3-note chord drawn ahead, away from any piano onset.
+- **The full Hybrid (model 1 + model 2) could not be run here:** `rt_continuation_latest.onnx` is not on this
+  Mac. `InformativeWaitOnnx.HybridV12LoadsTheChordModel` checks that load where both exports exist.
 
 ## Open points for Joel
 

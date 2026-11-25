@@ -404,12 +404,18 @@ auto InformativeWaitEngine::reappend(std::vector<Item> tail) -> void {
             return a.onsetCs < b.onsetCs;
         return a.kind == Kind::Piano && b.kind != Kind::Piano;
     });
+    int32_t pianoOnset = INT32_MIN;
+    int pianoAtOnset = 0;
     for (const auto &it: tail) {
         if (it.kind == Kind::Piano) {
             append(it);
+            pianoAtOnset = it.onsetCs == pianoOnset ? pianoAtOnset + 1 : 1;
+            pianoOnset = it.onsetCs;
             cur.clockCs = std::max(cur.clockCs, it.onsetCs);
             cur.floorCs = std::max(cur.floorCs, it.onsetCs);
-            cur.exclHiCs = cfg.continuation || chordMode() ? it.onsetCs - 1 : it.onsetCs + kMergeCs;
+            cur.exclHiCs = cfg.continuation ? it.onsetCs - 1
+                         : chordMode()      ? (pianoAtOnset >= 2 ? it.onsetCs : it.onsetCs - 1) // as closeGroup
+                                            : it.onsetCs + kMergeCs;
             cur.chordOnCs = INT32_MIN;
             cur.chordCount = 0;
             cur.lastPianoCs = std::max(cur.lastPianoCs, it.onsetCs);
@@ -681,7 +687,12 @@ auto InformativeWaitEngine::closeGroup() -> std::vector<OutNote> {
     cur.floorCs = std::max(cur.floorCs, g.headCs);
     // model 2: nothing within 5 cs after a piano onset; model 1 and the chord-token model 2 (B3f 1g: joint onsets
     // without a WAIT are in its training data): the orchestra may share it
-    cur.exclHiCs = cfg.continuation || chordMode() ? g.headCs - 1 : g.headCs + kMergeCs;
+    // chord mode: a single piano note's onset may be shared (training: orchestra quads after the FIRST piano quad of a
+    // joint onset without a WAIT); after a group of 2+ notes, the next plain onset is later (training never has
+    // orchestra quads after several piano quads of one onset; with them the model stacked 8-12-note clusters)
+    cur.exclHiCs = cfg.continuation ? g.headCs - 1
+                 : chordMode()      ? (notes.size() >= 2 ? g.headCs : g.headCs - 1)
+                                    : g.headCs + kMergeCs;
     cur.chordOnCs = INT32_MIN;
     cur.chordCount = 0;
     cur.lastPianoCs = g.headCs;
@@ -911,7 +922,8 @@ auto InformativeWaitEngine::countCommittedForBias(int32_t onsetCs, int notes) ->
     }
 }
 
-auto InformativeWaitEngine::drawBody(int32_t onsetCs, int32_t minPitch) -> std::optional<OutNote> {
+auto InformativeWaitEngine::drawBody(int32_t onsetCs, int32_t minPitch, bool pianoAllowed) -> std::optional<OutNote> {
+    drewPianoPitch = false;
     auto desired = tokens();
     desired.push_back(rel(onsetCs));
     const auto *l1 = logitsFor(desired);
@@ -946,9 +958,16 @@ auto InformativeWaitEngine::drawBody(int32_t onsetCs, int32_t minPitch) -> std::
         applyPitchBias(biased, history, onsetCs, pitchScheduler);
         l2 = &biased;
     }
-    const int32_t note = pick(*l2, {{kOrch0 + lo, kOrch0 + hi + 1}}, cfg.otherTemperature, cfg.minP);
+    std::vector<std::pair<int32_t, int32_t>> pitchRanges{{kOrch0 + lo, kOrch0 + hi + 1}};
+    if (pianoAllowed)
+        pitchRanges.push_back({kPiano0 + kPianoLow, kPiano0 + kPianoHigh + 1}); // the model may want a piano note
+    const int32_t note = pick(*l2, pitchRanges, cfg.otherTemperature, cfg.minP);
     if (note < 0)
         return std::nullopt;
+    if (note >= kPiano0 && note < kOrch0) {
+        drewPianoPitch = true; // nothing is written (the caller drops the onset and duration)
+        return std::nullopt;
+    }
     desired.push_back(note);
     const auto *l3 = logitsFor(desired);
     if (l3 == nullptr)
@@ -1170,9 +1189,24 @@ auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
     if (line)
         return noteAt(onset);
     const bool same = chordOk && onset == cur.chordOnCs;
-    auto note = drawBody(onset, same && cfg.ascendingChords ? cur.lastOrchPitch : kPianoLow);
-    if (! note.has_value())
+    // chord mode: a plain note's pitch step also allows piano pitches. r2b's training order for joint onsets without
+    // a WAIT is [first piano quad][orchestra quads][other piano quads], so after a piano group the model often wants
+    // another piano note; masked to orchestra pitches (ascending within the onset) it walked up the scale into a
+    // 12-note cluster. A piano pitch drops the onset and duration, and the next plain onset is strictly later.
+    auto note = drawBody(onset, same && cfg.ascendingChords ? cur.lastOrchPitch : kPianoLow, chordMode());
+    if (! note.has_value()) {
+        if (drewPianoPitch) {
+            drawLog.clear();
+            ++st.pianoPitchDrops;
+            cur.exclHiCs = std::max(cur.exclHiCs, onset);
+            if (cur.chordOnCs != INT32_MIN && cur.chordOnCs <= onset) {
+                cur.chordOnCs = INT32_MIN; // no stacking onto this (or an earlier) onset either
+                cur.chordCount = 0;
+            }
+            event("drop", onset, 0, 0, "piano pitch drawn for a plain note: nothing written");
+        }
         return out;
+    }
     note->draws = std::move(drawLog);
     drawLog.clear();
     Item it;
@@ -1269,6 +1303,10 @@ auto InformativeWaitEngine::writeBlock(const std::vector<int32_t> &block, int32_
     it.velocity = block[3] - kVel0;
     append(it);
     ++st.chordBlocks;
+    // nothing plain at the block's onset (fire, inference or give-up): only its leftover sits at T in training
+    cur.exclHiCs = std::max(cur.exclHiCs, onsetCs + kMergeCs);
+    cur.chordOnCs = INT32_MIN;
+    cur.chordCount = 0;
     const auto cv = chordValue(block[0]);
     VoicingBank::Decoded dec;
     if (cfg.voicings != nullptr && ! cfg.voicings->empty()) {

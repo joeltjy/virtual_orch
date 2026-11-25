@@ -323,7 +323,8 @@ public:
         int chordBlocks = 0; // CHORD blocks written (fires and give-ups)
         int voicingFallbacks = 0; // blocks decoded without an exact bank key
         int chordMatched = 0;     // fires served by a precomputed chord candidate (MATCH RULE)
-        std::array<int, 5> inferSteps{}; // fires whose CHORD was inferred from the piano notes, by INFERENCE RULE step 1-4
+        std::array<int, 5> inferSteps{};
+        int pianoPitchDrops = 0;  // plain notes whose pitch step drew a piano pitch: nothing written // fires whose CHORD was inferred from the piano notes, by INFERENCE RULE step 1-4
     };
 
     /**
@@ -561,7 +562,9 @@ private:
     /** Truncate at the first piano / orchestra item after `onsetCs`; returns what was removed. */
     auto takeAfter(int32_t onsetCs) -> std::vector<Item>;
     auto drawEvent() -> std::vector<OutNote>;
-    auto drawBody(int32_t onsetCs, int32_t minPitch) -> std::optional<OutNote>;
+    /** One note's duration, pitch, velocity at onsetCs. pianoAllowed: piano pitches too; one drawn -> nullopt, drewPianoPitch. */
+    auto drawBody(int32_t onsetCs, int32_t minPitch, bool pianoAllowed = false) -> std::optional<OutNote>;
+    bool drewPianoPitch = false;
     auto fire(const PianoNote &head) -> std::vector<OutNote>;
     /** A pending window closed. `arrivalCs` (chord mode): the piano onset that showed it closed, if one did. */
     auto expire(std::optional<int32_t> arrivalCs = std::nullopt) -> std::vector<OutNote>;

@@ -75,6 +75,8 @@ public:
             const int pianoPitches[] = {60, 62, 64, 65, 67};
             for (int i = 0; i < 5; ++i)
                 set(Engine::kPiano0 + pianoPitches[i], 10.0f - static_cast<float>(i));
+            if (pianoPitchLogit > 0)
+                set(Engine::kPiano0 + 62, pianoPitchLogit); // a plain note's pitch step: the model wants a piano note
             set(Engine::kOrch0 + kBass, 20.0f); // BASS (and the leftover's pitch)
         } else if (t >= Engine::kPiano0 && t < Engine::kVel0) {
             set(Engine::kVel0 + 64, 20.0f);
@@ -129,7 +131,8 @@ public:
     int32_t lateD = 12;
     float expiredAfterWait = 0.0f; // the [EXPIRED] logit at a WAIT's close (LATE d has 20)
     float expiredAfterLate = 0.0f; // ... at a LATE's close
-    bool expiredThenWait = false;  // after [EXPIRED]: WAIT (re-wait) instead of CHORD (give up)
+    bool expiredThenWait = false;
+    float pianoPitchLogit = 0.0f;  // > 20: a piano pitch beats BASS / orchestra pitch 48  // after [EXPIRED]: WAIT (re-wait) instead of CHORD (give up)
     int calls = 0;
     int batchedCalls = 0;
 };
@@ -780,4 +783,84 @@ TEST(ChordTokenEngine, VoicingFallbackStacksNNotesOnAnUnknownBassPosition) {
     EXPECT_EQ(d.pitches, (std::vector<int32_t>{52, 55, 60}));
     d = bank->decode(kMaj, 0, 5, 55, rng); // over G, 5 notes
     EXPECT_EQ(d.pitches, (std::vector<int32_t>{55, 60, 64, 67, 72}));
+}
+
+// Plain orchestra notes (no WAIT): the pitch step also allows piano pitches; one drawn writes nothing and the next
+// plain onset is strictly later (r2b's order for joint onsets without a WAIT: piano, orchestra, other piano quads).
+TEST(ChordTokenEngine, APianoPitchAtAPlainNoteWritesNothingAndMovesOn) {
+    for (const bool wantsPiano: {true, false}) {
+        ChordRig rig(false);
+        rig.model.waitD = 0;                       // no WAITs: plain notes only
+        rig.model.pianoPitchLogit = wantsPiano ? 30.0f : 0.0f;
+        rig.engine.noteOn(0, 60, 80);
+        rig.run(0, 40);
+        std::vector<int32_t> dropped;
+        for (const auto &e: rig.events)
+            if (e.what == "drop")
+                dropped.push_back(e.atCs);
+        const auto toks = rig.engine.tokens();
+        int orch = 0;
+        for (size_t i = 0; i + 3 < toks.size(); i += 4)
+            orch += toks[i + 2] >= Engine::kOrch0 && toks[i + 2] < Engine::kVel0 ? 1 : 0;
+        if (wantsPiano) {
+            EXPECT_GE(rig.engine.stats().pianoPitchDrops, 2);
+            EXPECT_EQ(static_cast<int>(dropped.size()), rig.engine.stats().pianoPitchDrops);
+            EXPECT_EQ(orch, 0);             // nothing written for them
+            EXPECT_TRUE(rig.played.empty());
+            for (size_t i = 1; i < dropped.size(); ++i)
+                EXPECT_GT(dropped[i], dropped[i - 1]); // each next plain onset strictly later
+        } else {
+            EXPECT_EQ(rig.engine.stats().pianoPitchDrops, 0);
+            EXPECT_GE(orch, 1);
+            EXPECT_FALSE(rig.played.empty());
+        }
+    }
+}
+
+// No plain orchestra note at T after a chord block at T (only its leftover sits there) or after a piano group of 2+
+// notes at T. The scripted model wants exactly that onset; the engine never writes a plain quad there.
+TEST(ChordTokenEngine, NoPlainNoteAtTheOnsetOfAChordBlockOrOfASeveralNotePianoGroup) {
+    const auto plainAt = [](const std::vector<int32_t> &toks, int32_t onset) {
+        int n = 0;
+        bool afterPiano = false;
+        for (size_t i = 0; i + 3 < toks.size(); i += 4) {
+            if (toks[i] >= Engine::kDur0)
+                break; // past the quads (a WAIT / block token): this helper is used on quad-only stretches
+            if (toks[i] == onset && toks[i + 2] >= Engine::kPiano0 && toks[i + 2] < Engine::kOrch0)
+                afterPiano = true;
+            if (toks[i] == onset && afterPiano && toks[i + 2] >= Engine::kOrch0 && toks[i + 2] < Engine::kVel0)
+                ++n;
+        }
+        return n;
+    };
+    {
+        // a two-note piano group at 40, the model wanting onset 40 for its plain notes
+        ChordRig rig(false);
+        rig.model.waitD = 0;
+        rig.engine.noteOn(0, 60, 80);
+        rig.run(0, 39);
+        rig.model.onsetRel = 40; // from the group on, the model wants its onset
+        const size_t before = rig.played.size();
+        rig.engine.noteOn(40, 60, 80);
+        rig.engine.noteOn(40, 64, 80);
+        rig.run(40, 80);
+        EXPECT_EQ(plainAt(rig.engine.tokens(), 40), 0);
+        for (size_t i = before; i < rig.played.size(); ++i)
+            EXPECT_GT(rig.played[i].onsetCs, 40);
+    }
+    {
+        // a fired chord block at 30 (no leftover), the model then wanting onset 30
+        ChordRig rig;
+        rig.engine.noteOn(0, 60, 80);
+        rig.run(0, 22);
+        rig.model.waitD = 0;
+        rig.model.onsetRel = 30;
+        rig.engine.noteOn(30, 60, 80);
+        rig.run(30, 60);
+        const auto toks = rig.engine.tokens();
+        ASSERT_GE(toks.size(), 14u);
+        EXPECT_EQ(toks[10], kCMajor3);
+        for (size_t i = 14; i + 3 < toks.size(); i += 4)
+            EXPECT_GT(toks[i], 30) << "a plain quad at the block's onset";
+    }
 }

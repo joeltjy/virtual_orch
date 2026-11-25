@@ -145,6 +145,13 @@ public:
         float removeP = OrchestrationModel::kEnsembleRemovePDefault;
     };
 
+    /**
+     * The UserSettings switches (OT: outer voices only shift outward, one instrument per octave shift; score viewer:
+     * key signature) from / to settings.xml ("userSettings"). Loaded once at startup, saved on every change.
+     */
+    auto loadUserSettings() -> void;
+    auto saveUserSettings() -> void;
+
     [[nodiscard]] auto getVocsepEnsembleSettings() -> VocsepEnsembleSettings;
 
     /** Persist the settings and push them to the current orchestration model. */

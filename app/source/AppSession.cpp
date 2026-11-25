@@ -1,4 +1,5 @@
 #include "VirtualOrch/AppSession.h"
+#include "VirtualOrch/UserSettings.h"
 #include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/AppTime.h"
 #include "VirtualOrch/widgets/ActiveInstrumentsView.h"
@@ -549,6 +550,24 @@ auto AppSession::setOrchestrationModel(const juce::String &name) -> bool {
 
     applyVocsepEnsembleSettings();
     return true;
+}
+
+auto AppSession::loadUserSettings() -> void {
+    const auto u = presetStore.settings.getChildWithName("userSettings");
+    const auto flag = [&](const char *key, bool fallback) {
+        return u.isValid() && u.hasProperty(key) ? static_cast<bool>(u.getProperty(key)) : fallback;
+    };
+    UserSettings::setOuterVoicesOutward(flag("outerVoicesOutward", UserSettings::kOuterVoicesOutwardDefault));
+    UserSettings::setOneInstrumentPerOctave(flag("oneInstrumentPerOctave", UserSettings::kOneInstrumentPerOctaveDefault));
+    UserSettings::setShowKeySignature(flag("showKeySignature", UserSettings::kShowKeySignatureDefault));
+}
+
+auto AppSession::saveUserSettings() -> void {
+    auto u = presetStore.settings.getOrCreateChildWithName("userSettings", nullptr);
+    u.setProperty("outerVoicesOutward", UserSettings::outerVoicesOutward(), nullptr);
+    u.setProperty("oneInstrumentPerOctave", UserSettings::oneInstrumentPerOctave(), nullptr);
+    u.setProperty("showKeySignature", UserSettings::showKeySignature(), nullptr);
+    presetStore.saveSettings();
 }
 
 auto AppSession::getVocsepEnsembleSettings() -> VocsepEnsembleSettings {

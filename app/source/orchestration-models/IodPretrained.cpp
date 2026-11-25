@@ -536,7 +536,7 @@ auto IodPretrained::ensembleComboB(size_t listIdx, size_t windowBase, const std:
     const int32_t dur = std::max(1, cur.token.getRealDuration());
     const int32_t pitch = cur.token.getPitch();
     OuterVoiceDeltaAllows role;
-    for (size_t i = windowBase; i < inputNotes.size(); ++i) {
+    for (size_t i = windowBase; i < inputNotes.size() && UserSettings::outerVoicesOutward(); ++i) {
         if (i == listIdx)
             continue;
         const auto &other = inputNotes[i].token;

@@ -1,4 +1,5 @@
 #include "VirtualOrch/widgets/ScoreWidget.h"
+#include "VirtualOrch/UserSettings.h"
 
 #include "VirtualOrch/AppSession.h"
 #include "VirtualOrch/ChordNaming.h"
@@ -215,8 +216,14 @@ ScoreWidget::ScoreWidget(AppSession &sessionIn)
     : WorkspaceWidget(UiConstants::workspaceScoreTitle, UiConstants::workspaceWidgetTypeScore),
       session(sessionIn) {
     getContentComponent().addAndMakeVisible(view);
-    keySignatureToggle.setToggleState(false, juce::dontSendNotification);
-    keySignatureToggle.onClick = [this] { view.setShowKeySignature(keySignatureToggle.getToggleState()); };
+    // the key signature is a saved setting (UserSettings, also in the Settings widget)
+    keySignatureToggle.setToggleState(UserSettings::showKeySignature(), juce::dontSendNotification);
+    view.setShowKeySignature(UserSettings::showKeySignature());
+    keySignatureToggle.onClick = [this] {
+        UserSettings::setShowKeySignature(keySignatureToggle.getToggleState());
+        view.setShowKeySignature(keySignatureToggle.getToggleState());
+        session.saveUserSettings();
+    };
     getContentComponent().addAndMakeVisible(keySignatureToggle);
     startTimerHz(30);
 }
@@ -243,6 +250,11 @@ auto ScoreWidget::nameFor(const std::vector<int> &pitches) -> const std::string 
 }
 
 auto ScoreWidget::timerCallback() -> void {
+    // follow the saved setting when it changes elsewhere (the Settings widget)
+    if (keySignatureToggle.getToggleState() != UserSettings::showKeySignature()) {
+        keySignatureToggle.setToggleState(UserSettings::showKeySignature(), juce::dontSendNotification);
+        view.setShowKeySignature(UserSettings::showKeySignature());
+    }
     // Chord labels show only changes, so they are worked out from kLookBackCs before the window:
     // a name stays put while earlier chords scroll out.
     constexpr int32_t kLookBackCs = 600;

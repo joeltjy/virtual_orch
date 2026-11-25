@@ -12,6 +12,7 @@
 #include "VirtualOrch/InstrumentConstants.h"
 #include "VirtualOrch/MusicToken.h"
 #include "VirtualOrch/orchestration-models/OrchestrationModel.h"
+#include "VirtualOrch/UserSettings.h"
 
 /** Compact IODP combo vocab (instrument × Δ∈{-1,0,+1} bits; not ICE-20). */
 namespace IodPretrainedTypes {
@@ -253,6 +254,8 @@ struct OuterVoiceDeltaAllows {
     OuterVoiceDeltaAllows allows;
     if (onsetCs == nullptr || basePitch == nullptr || noteIdx < 0 || noteIdx >= nNotes)
         return allows;
+    if (! UserSettings::outerVoicesOutward())
+        return allows; // the rule is off (Settings): every note may shift either way
 
     const int32_t onset = onsetCs[static_cast<size_t>(noteIdx)];
     const int32_t dur =
@@ -356,6 +359,8 @@ inline auto applyOuterVoiceDeltaForbid(ForbidBits &forbid,
         return false;
     if (family == nullptr)
         return true;
+    if (! UserSettings::oneInstrumentPerOctave())
+        return true; // the rule is off (Settings): instruments may share an octave shift
     if (familyMaskHasSharedOctave(*family, bitMask))
         return false;
     const int32_t used = deltasUsedByFamilyMask(*family, bitMask);
@@ -513,8 +518,8 @@ struct EncoderWindow {
             const int32_t gm = pd->first;
             const int32_t delta = pd->second;
             const int32_t deltaBit = 1 << (delta + 1);
-            // Different instruments may not share an octave; same instr × multi-Δ is ok.
-            if ((claimedDeltas & deltaBit) != 0)
+            // Different instruments may not share an octave; same instr × multi-Δ is ok (unless the rule is off).
+            if ((claimedDeltas & deltaBit) != 0 && UserSettings::oneInstrumentPerOctave())
                 continue;
             const int32_t outPitch = basePitch + 12 * delta;
             if (outPitch < 0 || outPitch > 127)
@@ -555,6 +560,8 @@ struct EncoderWindow {
  */
 [[nodiscard]] inline auto filterPairsUniqueOctave(const std::vector<int32_t> &pairs)
     -> std::vector<int32_t> {
+    if (! UserSettings::oneInstrumentPerOctave())
+        return pairs; // the rule is off (Settings)
     std::vector<int32_t> out;
     out.reserve(pairs.size());
     int32_t claimedDeltas = 0; // bit0/1/2 ↔ Δ −1/0/+1

@@ -68,6 +68,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
         savePresetButton.setEnabled(false);
     });
     session.presetStore.loadSettings();
+    session.loadUserSettings(); // the Settings widget's switches (OT rules, key signature)
 
     // Get displays (used to place Transport on an external display when available)
     auto const &displays = Desktop::getInstance().getDisplays().displays;

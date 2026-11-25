@@ -2,6 +2,9 @@
 
 #include <VirtualOrch/GeneralMidiPitchRanges.h>
 #include <VirtualOrch/orchestration-models/IodPretrainedTypes.h>
+#include <VirtualOrch/UserSettings.h>
+
+#include <array>
 
 namespace virtual_orch_test {
 namespace {
@@ -185,6 +188,53 @@ TEST(IodPretrainedForbid, ApplyOuterVoiceForbidMasksPlusMinusBits) {
     EXPECT_TRUE(isLegalFamilyMask(1 << iodBit(0, 0), ww, &familySpecs[1], 0));
     EXPECT_FALSE(isLegalFamilyMask(1 << iodBit(0, 1), ww, &familySpecs[1], 0));
     EXPECT_FALSE(isLegalFamilyMask(1 << iodBit(0, -1), ww, &familySpecs[1], 0));
+}
+
+
+// The Settings switches (UserSettings, Nov 25 2026): off, the rules stop applying; on (the default), as above.
+struct RulesGuard {
+    ~RulesGuard() { UserSettings::resetToDefaults(); }
+};
+
+TEST(IodPretrainedForbid, OneInstrumentPerOctaveCanBeSwitchedOff) {
+    using namespace IodPretrainedTypes;
+    RulesGuard guard;
+    const auto &ww = familySpecs[1];
+    const int32_t fluteAndOboeD0 = (1 << iodBit(0, 0)) | (1 << iodBit(1, 0));
+    const int32_t claimedDelta0 = 1 << (0 + 1);
+    const int32_t flute0 = packProgramDelta(73, 0);
+    const int32_t oboe0 = packProgramDelta(68, 0);
+    ASSERT_TRUE(UserSettings::oneInstrumentPerOctave());
+    EXPECT_FALSE(isLegalFamilyMask(fluteAndOboeD0, 0, &ww, 0));
+    EXPECT_EQ(filterPairsUniqueOctave({flute0, oboe0}).size(), 1u);
+
+    UserSettings::setOneInstrumentPerOctave(false);
+    EXPECT_TRUE(isLegalFamilyMask(fluteAndOboeD0, 0, &ww, 0)) << "two instruments on one octave shift";
+    EXPECT_TRUE(isLegalFamilyMask(1 << iodBit(0, 0), 0, &ww, claimedDelta0)) << "a shift another family used";
+    EXPECT_EQ(filterPairsUniqueOctave({flute0, oboe0}).size(), 2u);
+    // decoding keeps both instruments on the shared octave
+    std::array<int32_t, comboLen> combo{};
+    combo.fill(endNote);
+    combo[0] = groupsTokenForMask(1 << 1); // woodwinds only
+    combo[1] = familyTokenForMask(ww, fluteAndOboeD0);
+    const auto notes = decodeComboToNotes(100, encoderDurOffset + 50, 72, 80, combo);
+    EXPECT_EQ(notes.size(), 2u);
+    UserSettings::setOneInstrumentPerOctave(true);
+    EXPECT_EQ(decodeComboToNotes(100, encoderDurOffset + 50, 72, 80, combo).size(), 1u);
+}
+
+TEST(IodPretrainedForbid, OuterVoicesOutwardCanBeSwitchedOff) {
+    using namespace IodPretrainedTypes;
+    RulesGuard guard;
+    const int32_t onset[] = {100, 100, 100};
+    const int32_t durTok[] = {encoderDurOffset + 50, encoderDurOffset + 50, encoderDurOffset + 50};
+    const int32_t pitch[] = {48, 60, 72};
+    ASSERT_TRUE(UserSettings::outerVoicesOutward());
+    EXPECT_FALSE(outerVoiceDeltaAllows(onset, durTok, pitch, 3, 1).allowPlus1);
+    UserSettings::setOuterVoicesOutward(false);
+    const auto inner = outerVoiceDeltaAllows(onset, durTok, pitch, 3, 1);
+    EXPECT_TRUE(inner.allowMinus1);
+    EXPECT_TRUE(inner.allowPlus1) << "an inner note may shift either way";
 }
 
 } // namespace

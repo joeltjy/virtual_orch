@@ -21,6 +21,7 @@
 #include "VirtualOrch/widgets/DurationLogitsWidget.h"
 #include "VirtualOrch/widgets/InstrumentLogitsWidget.h"
 #include "VirtualOrch/widgets/LogitAdjustmentsWidget.h"
+#include "VirtualOrch/widgets/SettingsWidget.h"
 #include "VirtualOrch/widgets/OctaveDeltaWidget.h"
 #include "VirtualOrch/widgets/ReductionTemperatureWidget.h"
 #include "VirtualOrch/widgets/ReductionTauWidget.h"
@@ -311,6 +312,11 @@ auto WorkspaceCanvas::createWidgetForType(const juce::String &type) const
         if (session == nullptr)
             return nullptr;
         return std::make_unique<LogitAdjustmentsWidget>(*session);
+    }
+    if (type == UiConstants::workspaceWidgetTypeSettings) {
+        if (session == nullptr)
+            return nullptr;
+        return std::make_unique<SettingsWidget>(*session);
     }
 
     if (type == UiConstants::workspaceWidgetTypeReductionTemperature) {

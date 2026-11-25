@@ -64,6 +64,7 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
                      UiConstants::workspaceAddMenuReductionTauItem);
         menu.addItem(UiConstants::workspaceAddMenuOctaveDeltaItemId,
                      UiConstants::workspaceAddMenuOctaveDeltaItem);
+        menu.addItem(UiConstants::workspaceAddMenuSettingsItemId, UiConstants::workspaceAddMenuSettingsItem);
         menu.addItem(UiConstants::workspaceAddMenuLogitAdjustmentsItemId,
                      UiConstants::workspaceAddMenuLogitAdjustmentsItem);
         menu.addItem(UiConstants::workspaceAddMenuInstrumentActiveLightItemId,
@@ -160,6 +161,8 @@ WorkspacePage::WorkspacePage(AppSession &sessionIn) : session(sessionIn) {
                                    canvas.addWidgetByType(UiConstants::workspaceWidgetTypeTdControl);
                                else if (result == UiConstants::workspaceAddMenuWaitVisualizerItemId)
                                    canvas.addWidgetByType(UiConstants::workspaceWidgetTypeWaitVisualizer);
+                               else if (result == UiConstants::workspaceAddMenuSettingsItemId)
+                                   canvas.addWidgetByType(UiConstants::workspaceWidgetTypeSettings);
                            });
     };
     newViewButton.onClick = [this] { promptNewView(); };

@@ -560,7 +560,7 @@ auto IodPretrained::getOutput(const std::vector<Token> &incomingTokens,
     -> std::vector<OrchestrationNote> {
     juce::ignoreUnused(conditioningSignal);
 
-    if (incomingTokens.empty() || session == nullptr)
+    if (incomingTokens.empty() || ! isModelLoaded())
         return {};
 
     if (getOutputTimings != nullptr)

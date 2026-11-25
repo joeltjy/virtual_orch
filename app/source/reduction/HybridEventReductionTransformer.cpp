@@ -80,6 +80,14 @@ auto HybridEventReductionTransformer::applySettings() -> void {
         s.maxSounding = getMaxPolyphony();
         s.forceAfterCs = std::max(1, forceAfterMs.load() / 10);
         s.maxHoldCs = kMaxNoteDurationCs;
+        // the logit adjustments (biasesActiveNow: the global switch and the piano-silence gate, as v1.1 / v1.2)
+        const bool biases = biasesActiveNow();
+        const bool silentSide = e == &silentEngine;
+        s.pitchBias = biases && (silentSide ? hybridV1PitchBias.load() : isPitchBiasEnabled());
+        s.onsetGapBias = biases && (silentSide ? hybridV1OnsetGapBias.load() : isOnsetGapBiasEnabled());
+        s.pitchTau = silentSide ? DensePitchBias::TauBase : getPitchTauBase();
+        s.pitchTauPrime = silentSide ? DensePitchBias::TauBase : getPitchTauPrimeBase();
+        s.onsetGapTau = silentSide ? DenseOnsetGapBias::TauBase : getOnsetGapTauBase();
         if (e == &silentEngine) {
             s.off0 = EventEngine::kM1eOff0;
             s.vocab = EventEngine::kM1eVocab;

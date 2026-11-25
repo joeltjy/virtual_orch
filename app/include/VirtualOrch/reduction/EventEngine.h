@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "VirtualOrch/reduction/DensePitchBias.h"
 #include "VirtualOrch/reduction/StreamingKvCache.h"
 #include "VirtualOrch/reduction/VoicingBank.h"
 
@@ -82,6 +83,21 @@ public:
         int32_t maxSpanCs = 9000;
         /** ... keeping about this many of its newest tokens. */
         size_t keepTokens = 384;
+        /**
+         * Joel's logit adjustments (as v1.1 / v1.2, Nov 25 2026; set by the transformer from RtLogitAdjustments), on
+         * the orchestra's ON history (own and mirrored notes):
+         *   onsetGapBias: -tau log s_gap(t - last orchestra ON) on the drawn time tokens (only the time range, not the
+         *     WAIT family), as DenseOnsetGapBias on the dense models;
+         *   pitchBias: -tau log pi(p) - tau' log s(p - last pitch) on the orchestra ON pitches of the "what happens"
+         *     pick, then a constant so their total probability is unchanged: the bias picks which pitch, not whether
+         *     an ON, an OFF or a piano no-op happens. The chord block's BASS and leftover picks are not biased.
+         * The event models have no duration token: no duration bias.
+         */
+        bool pitchBias = false;
+        bool onsetGapBias = false;
+        float pitchTau = DensePitchBias::TauBase;
+        float pitchTauPrime = DensePitchBias::TauBase;
+        float onsetGapTau = 0.5f; // DenseOnsetGapBias::TauBase
     };
 
     enum class Kind : uint8_t { PianoOn, PianoOff, OrchOn, OrchOff, StackOff, Special };
@@ -229,6 +245,11 @@ private:
     [[nodiscard]] auto chordRanges(int32_t k) const -> std::vector<std::pair<int32_t, int32_t>>;
     [[nodiscard]] auto waitRanges(int32_t refCs, int32_t nowCs) const -> std::vector<std::pair<int32_t, int32_t>>;
     [[nodiscard]] auto soundingAll() const -> std::vector<int32_t>;
+    /** The orchestra ONs (own and mirrored) as dense quads (onset, dur, note, vel) for the logit adjustments. */
+    [[nodiscard]] auto orchestraQuads() const -> std::vector<int32_t>;
+    /** cfg.pitchBias on the orchestra ON ids of `logits` among `ranges`, their total mass kept (see Settings). */
+    auto applyPitchBias(std::vector<float> &logits, const std::vector<std::pair<int32_t, int32_t>> &ranges,
+                        int32_t timeCs) -> void;
 
     Settings cfg;
     StreamingKv::Backend *backend = nullptr;
@@ -244,4 +265,5 @@ private:
     std::optional<Fire> fire;
     std::vector<Stack> stacks;
     Stats st;
+    DensePitchBias::PitchTauScheduler pitchScheduler;
 };

@@ -796,6 +796,7 @@ auto AppSession::activeAnticipated() -> RtLogitAdjustments * {
         case MusicModelArch::DenseAnticipatedWait: return &reductionTransformerWait;
         case MusicModelArch::DenseHybrid: return &reductionTransformerHybrid;
         case MusicModelArch::DenseHybridInformativeWait: return &reductionTransformerHybridIW;
+        case MusicModelArch::DenseHybridEvent: return &reductionTransformerHybridEvent;
         default: return nullptr;
     }
 }

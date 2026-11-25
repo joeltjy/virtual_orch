@@ -1,4 +1,6 @@
 #include "VirtualOrch/reduction/EventEngine.h"
+#include "VirtualOrch/reduction/DenseOnsetGapBias.h"
+#include "VirtualOrch/reduction/DenseTypes.h"
 
 #include <algorithm>
 #include <cmath>
@@ -53,6 +55,7 @@ auto EventEngine::reset(int32_t now) -> void {
     fire.reset();
     stacks.clear();
     st = {};
+    pitchScheduler.reset();
     rng.seed(cfg.seed);
     if (cache != nullptr)
         cache->reset();
@@ -456,6 +459,54 @@ auto EventEngine::writeBlock(int32_t /*now*/) -> std::vector<Out> {
 
 // ---------------------------------------------------------------- drawing
 
+auto EventEngine::orchestraQuads() const -> std::vector<int32_t> {
+    // the bias windows read onsets and pitches only; the duration is a placeholder (events carry none)
+    std::vector<int32_t> quads;
+    quads.reserve(items.size() * 4);
+    for (const auto &e: items)
+        if (e.kind == Kind::OrchOn) {
+            quads.push_back(e.timeCs);
+            quads.push_back(static_cast<int32_t>(DenseVocab::DurOffset) + 1);
+            quads.push_back(kOrch0 + std::clamp(e.pitch, 0, 127));
+            quads.push_back(static_cast<int32_t>(DenseVocab::VelocityOffset) + std::clamp(e.velocity, 0, 127));
+        }
+    return quads;
+}
+
+auto EventEngine::applyPitchBias(std::vector<float> &logits, const std::vector<std::pair<int32_t, int32_t>> &ranges,
+                                 int32_t timeCs) -> void {
+    const auto history = orchestraQuads();
+    const auto window = DensePitchBias::collectPitchWindowAt(history, timeCs, -1);
+    if (window.noteCount <= 0)
+        return;
+    const auto taus = pitchScheduler.evaluate(timeCs, window.uniquePitches, window.uniqueDeltas, cfg.pitchTau,
+                                              cfg.pitchTauPrime, true);
+    // the orchestra ON ids the pick allows
+    std::vector<int32_t> ons;
+    for (const auto &[lo, hi]: ranges)
+        for (int32_t id = std::max(lo, kOrch0); id < std::min(hi, kOrch0 + 128); ++id)
+            if (static_cast<size_t>(id) < logits.size() && std::isfinite(logits[static_cast<size_t>(id)]))
+                ons.push_back(id);
+    if (ons.empty())
+        return;
+    const float temp = std::max(cfg.otherTemperature, 1e-4f);
+    const auto lse = [&](const std::vector<float> &l) {
+        float peak = -std::numeric_limits<float>::infinity();
+        for (const int32_t id: ons)
+            peak = std::max(peak, l[static_cast<size_t>(id)]);
+        double sum = 0.0;
+        for (const int32_t id: ons)
+            sum += std::exp(static_cast<double>((l[static_cast<size_t>(id)] - peak) / temp));
+        return peak / temp + static_cast<float>(std::log(sum));
+    };
+    std::vector<float> biased = logits;
+    DensePitchBias::applyNoteLogitsBias(biased, window, taus.tau, taus.tauPrime);
+    // keep the ONs' total mass at the temperature: only which pitch changes, not ON vs OFF vs a piano no-op
+    const float restore = temp * (lse(logits) - lse(biased));
+    for (const int32_t id: ons)
+        logits[static_cast<size_t>(id)] = biased[static_cast<size_t>(id)] + restore;
+}
+
 auto EventEngine::draw(int32_t now) -> void {
     const int32_t floor = std::max({lastTime(), now, floorCs});
     maybeRebuild(floor);
@@ -475,6 +526,14 @@ auto EventEngine::draw(int32_t now) -> void {
     }
     if (first.empty())
         return;
+    std::vector<float> timeBiased;
+    if (cfg.onsetGapBias) {
+        // the orchestra's onset gaps on the time tokens (DenseOnsetGapBias touches only 0..9999, not the WAIT family)
+        timeBiased = *l;
+        const auto window = DenseOnsetGapBias::collectOnsetGapWindow(orchestraQuads(), now, -1);
+        DenseOnsetGapBias::applyOnsetLogitsBias(timeBiased, window, cfg.onsetGapTau, baseCs);
+        l = &timeBiased;
+    }
     const int32_t firstTok = pick(*l, first, cfg.onsetTemperature);
     if (firstTok < 0)
         return;
@@ -525,6 +584,12 @@ auto EventEngine::draw(int32_t now) -> void {
     const auto *l2 = logitsFor(desired);
     if (l2 == nullptr)
         return;
+    std::vector<float> whatBiased;
+    if (cfg.pitchBias && orchRanges > 0) {
+        whatBiased = *l2;
+        applyPitchBias(whatBiased, ranges, t);
+        l2 = &whatBiased;
+    }
     const int32_t what = ranges.empty() ? -1 : pick(*l2, ranges, cfg.otherTemperature);
     const bool piano = (what >= kNote0 && what < kOrch0) || (what >= cfg.off0 && what < cfg.off0 + (kOrch0 - kNote0));
     if (what < 0 || piano) {

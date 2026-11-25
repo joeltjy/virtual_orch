@@ -8,6 +8,7 @@
 
 #include "VirtualOrch/reduction/EventEngine.h"
 #include "VirtualOrch/reduction/EventReductionTransformer.h"
+#include "VirtualOrch/reduction/RtLogitAdjustments.h"
 #include "VirtualOrch/reduction/StreamingKvCache.h"
 
 /**
@@ -25,8 +26,17 @@
  * preset's voicing bank), STACK_OFF, [LATE d] / [EXPIRED] at a close, then a re-wait or a give-up. Model 2 draws
  * nothing for the first startDelayMs of a performance, as v1.2's.
  */
-class HybridEventReductionTransformer : public EventReductionTransformer {
+class HybridEventReductionTransformer : public EventReductionTransformer, public RtLogitAdjustments {
 public:
+    /**
+     * Logit adjustments (Nov 25 2026, Joel: pitch and onset gap on by default for v1.3, both models, the same
+     * toggles as v1.2): model 1 event takes the hybridV1* switches, model 2 event the "model" ones (presets,
+     * Settings / Logit Adjustments widgets). Pitch and onset gap only: the event models have no duration token,
+     * and short-gap / LogitTD are not wired into the event engine yet.
+     */
+    [[nodiscard]] auto hasSilentSide() const -> bool override { return true; }
+    [[nodiscard]] auto usesWaitMinPlay() const -> bool override { return false; }
+
     static constexpr int64_t kPlayToWaitMs = 1000;
     static constexpr int64_t kStopMs = 500;
     static constexpr int32_t kSimultaneousVelocityBoost = 16;

@@ -204,6 +204,50 @@ TEST(EventEngine, TheContextIsRebuiltBeforeTimesPass9999) {
 
 // Opt-in (IW_M1E=1): the real m1e export (continuation_events_m1e_r1_kv.onnx) on sample_01's piano for 6 s, then
 // silence for 9 s (the spec-8 test setup); prints notes/s and the rule's counts.
+namespace {
+/** noOff mode: every pitch equally likely at each ON (and never released), so only a bias can prefer one. */
+auto pitchesWith(bool pitchBias, bool onsetGapBias) -> std::vector<std::pair<int32_t, int32_t>> {
+    Rig rig(100000, 100000);
+    rig.model.noOff = true;
+    auto s = rig.engine.settings();
+    s.seed = 7;
+    s.pitchBias = pitchBias;
+    s.onsetGapBias = onsetGapBias;
+    rig.engine.setSettings(s);
+    rig.engine.reset(0);
+    rig.engine.pianoOn(0, 48, 70);
+    rig.run(0, 400);
+    std::vector<std::pair<int32_t, int32_t>> out; // (time, pitch) of the ONs
+    for (const auto &[at, o]: rig.outs)
+        if (o.on)
+            out.emplace_back(o.timeCs, o.pitch);
+    return out;
+}
+} // namespace
+
+TEST(EventEngine, LogitAdjustmentsOffChangeNothing) {
+    // the switches default off; on with nothing to act on (a deterministic time) the times stay the model's
+    const auto plain = pitchesWith(false, false);
+    ASSERT_FALSE(plain.empty());
+    EXPECT_EQ(pitchesWith(false, false), plain) << "same seed, same draws";
+    const auto gapOn = pitchesWith(false, true);
+    ASSERT_EQ(gapOn.size(), plain.size());
+    for (size_t i = 0; i < plain.size(); ++i)
+        EXPECT_EQ(gapOn[i].first, plain[i].first) << "a time with all the mass keeps it";
+}
+
+TEST(EventEngine, PitchBiasChangesWhichPitchNotWhen) {
+    const auto plain = pitchesWith(false, false);
+    const auto biased = pitchesWith(true, false);
+    ASSERT_EQ(biased.size(), plain.size()) << "the bias keeps the ONs' total mass: the same number of ONs";
+    bool differs = false;
+    for (size_t i = 0; i < plain.size(); ++i) {
+        EXPECT_EQ(biased[i].first, plain[i].first) << "times are not touched by the pitch bias";
+        differs = differs || biased[i].second != plain[i].second;
+    }
+    EXPECT_TRUE(differs) << "with every pitch equally likely, the pitch bias decides";
+}
+
 TEST(EventEngine, RealM1eSmoke) {
     if (juce::SystemStats::getEnvironmentVariable("IW_M1E", "") != "1")
         GTEST_SKIP() << "set IW_M1E=1";

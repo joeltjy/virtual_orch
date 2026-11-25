@@ -8,7 +8,8 @@
   "onnx": "simultaneous_events_chordtokens_m2e_r1_kv",
   "silentOnnx": "continuation_events_m1e_r1_kv",
   "reductionType": 11,
+  "voicingBank": "voicing_bank_m2c.json",
   "startDelayMs": 3000,
   "forceAfterMs": 2000,
-  "notes": "Hybrid v1.3: the event-tokenized pair (orchestration/docs/model_specs/event_pair_proposal.txt). Model 1 event (continuation_events_m1e_r1_kv, vocab 12024: ON = time, note, vel; OFF = time, 11768 + note) while the piano is silent; model 2 event (simultaneous_events_chordtokens_m2e_r1_kv, vocab 14328, OFF0 14071, STACK_OFF 14327) while it plays; v1.1's switching rules. Piano key-down / key-up are ON / OFF events at once (no duration estimates). Sampling rule (spec 8): a piano token after a drawn time is a no-op and the next time is later; after forceAfterMs of orchestra silence the piano tokens are masked. Model 2 draws nothing for the first startDelayMs. First version: model 2 draws ON / OFF events only (its WAIT / chord tokens are masked)."
+  "notes": "Hybrid v1.3: the event-tokenized pair (orchestration/docs/model_specs/event_pair_proposal.txt). Model 1 event (continuation_events_m1e_r1_kv, vocab 12024: ON = time, note, vel; OFF = time, 11768 + note) while the piano is silent; model 2 event (simultaneous_events_chordtokens_m2e_r1_kv, vocab 14328, OFF0 14071, STACK_OFF 14327) while it plays; v1.1's switching rules. Piano key-down / key-up are ON / OFF events at once (no duration estimates). Sampling rule (spec 8): a piano token after a drawn time is a no-op and the next time is later; after forceAfterMs of orchestra silence the piano tokens are masked. Model 2 draws nothing for the first startDelayMs. Model 2: [WAIT d][K k,+1] at strong chords; at a fire the piano ONs of the onset, then [CHORD][BASS][SVEL] decoded with the voicing bank (voicing_bank_m2c.json) and the leftover ON; (time, STACK_OFF) releases the block; [LATE d] / [EXPIRED] at a close, then a re-wait or a give-up."
 }

@@ -53,6 +53,19 @@ auto HybridEventReductionTransformer::initWithBackends(std::unique_ptr<Streaming
     streamsStarted = false;
 }
 
+auto HybridEventReductionTransformer::loadVoicingBank(const std::string &path) -> bool {
+    auto bank = std::make_shared<VoicingBank>();
+    std::string error;
+    const auto text = juce::File(path).loadFileAsString().toStdString();
+    if (text.empty() || ! bank->loadJson(text, error)) {
+        SessionLog::add("HYBRID13", "voicing bank not loaded: " + juce::String(path) + " " + juce::String(error));
+        voicings = nullptr;
+        return false;
+    }
+    voicings = std::move(bank);
+    return true;
+}
+
 auto HybridEventReductionTransformer::wallMs() const -> int64_t {
     return wallMsProvider ? wallMsProvider() : juce::Time::currentTimeMillis();
 }
@@ -75,6 +88,10 @@ auto HybridEventReductionTransformer::applySettings() -> void {
             s.off0 = kM2eOff0;
             s.vocab = kM2eVocab;
             s.seed = waitSeed;
+            s.chordTokens = true;
+            s.stackOff = kM2eStackOff;
+            s.voicings = voicings;
+            s.maxLates = 2;
         }
         e->setSettings(s);
     }

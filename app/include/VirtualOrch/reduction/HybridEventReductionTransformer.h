@@ -21,9 +21,9 @@
  * (v1.1's "2 s of predicted silence" rule is left out: a v1.3 note's length is only known at its OFF.)
  * Both engines get every piano event and each other's orchestra events, so both see the same music.
  *
- * Model 2's first version draws ON / OFF events only (its WAIT / K / CHORD tokens are masked): the WAIT logic for
- * the event tokens (section 4) is the next step. Model 2 draws nothing for the first startDelayMs of a performance,
- * as v1.2's.
+ * Model 2 runs EventEngine::Settings::chordTokens: [WAIT d][K k,+1], the chord block at a fire (decoded with the
+ * preset's voicing bank), STACK_OFF, [LATE d] / [EXPIRED] at a close, then a re-wait or a give-up. Model 2 draws
+ * nothing for the first startDelayMs of a performance, as v1.2's.
  */
 class HybridEventReductionTransformer : public EventReductionTransformer {
 public:
@@ -48,6 +48,9 @@ public:
     std::string lastInitError;
     [[nodiscard]] auto isModelLoaded() const -> bool override { return silentBackend != nullptr && waitBackend != nullptr; }
 
+    /** Model 2's voicing bank (CHORD blocks -> band notes); false if unreadable (the chord tones are stacked). */
+    auto loadVoicingBank(const std::string &path) -> bool;
+    auto setVoicingBank(std::shared_ptr<const VoicingBank> bank) -> void { voicings = std::move(bank); }
     /** Model 2's start delay (ms). */
     auto setStartDelayMs(int32_t ms) -> void { startDelayMs.store(ms); }
     /** Orchestra silent this long: the model's piano tokens are masked (spec section 8). */
@@ -87,6 +90,7 @@ private:
     std::atomic<bool> pedalReleased{false};
     std::atomic<int32_t> startDelayMs{3000};
     std::atomic<int32_t> forceAfterMs{2000};
+    std::shared_ptr<const VoicingBank> voicings;
     int64_t playingSinceMs = -1;
     int32_t startedAtCs = 0;
     uint64_t silentSeed = 1;

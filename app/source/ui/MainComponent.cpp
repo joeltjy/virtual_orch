@@ -1415,6 +1415,13 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
                 auto &hy = session.reductionTransformerHybridEvent;
                 hy.setStartDelayMs(static_cast<int32_t>(parsedJson.getProperty("startDelayMs", 3000)));
                 hy.setForceAfterMs(static_cast<int32_t>(parsedJson.getProperty("forceAfterMs", 2000)));
+                hy.setVoicingBank(nullptr);
+                if (const juce::String bankPath = parsedJson.getProperty("voicingBank", {}).toString().trim(); bankPath.isNotEmpty()) {
+                    juce::File bank = juce::File::isAbsolutePath(bankPath) ? juce::File(bankPath) : modelsDir().getChildFile(bankPath);
+                    if (! bank.existsAsFile())
+                        bank = checkpoint->jsonFile.getSiblingFile(juce::File(bankPath).getFileName());
+                    hy.loadVoicingBank(bank.getFullPathName().toStdString());
+                }
                 if (! silentFile.existsAsFile()
                     || ! hy.init(silentFile.getFullPathName().toRawUTF8(), modelPathStr.toRawUTF8())) {
                     juce::AlertWindow::showMessageBoxAsync(

@@ -10,7 +10,26 @@ constexpr float kNegInf = -std::numeric_limits<float>::infinity();
 
 auto isOn(EventEngine::Kind k) -> bool { return k == EventEngine::Kind::PianoOn || k == EventEngine::Kind::OrchOn; }
 auto isOrch(EventEngine::Kind k) -> bool { return k == EventEngine::Kind::OrchOn || k == EventEngine::Kind::OrchOff; }
-auto width(EventEngine::Kind k) -> size_t { return isOn(k) ? 3 : 2; }
+auto widthOf(const EventEngine::Event &e) -> size_t {
+    if (e.kind == EventEngine::Kind::Special)
+        return e.toks.size();
+    return isOn(e.kind) ? 3 : 2;
+}
+auto qd(int32_t d, int32_t hi) -> int32_t {
+    const int32_t g = EventEngine::kGrid;
+    return std::clamp(g * static_cast<int32_t>(std::lround(static_cast<double>(d) / g)), g, hi);
+}
+auto pcMask(int type, int root) -> uint16_t {
+    static const std::vector<std::vector<int>> iv = {{0},          {0, 1},       {0, 2},       {0, 3},       {0, 4},
+                                                     {0, 5},       {0, 6},       {0, 4, 7},    {0, 3, 7},    {0, 3, 6},
+                                                     {0, 4, 8},    {0, 4, 7, 10}, {0, 3, 7, 10}, {0, 4, 7, 11}, {0, 3, 7, 11},
+                                                     {0, 3, 6, 10}, {0, 3, 6, 9}, {0, 4, 8, 11}};
+    uint16_t m = 0;
+    if (type >= 0 && type < static_cast<int>(iv.size()))
+        for (const int i: iv[static_cast<size_t>(type)])
+            m = static_cast<uint16_t>(m | (1u << ((root + i) % 12)));
+    return m;
+}
 
 } // namespace
 
@@ -30,6 +49,9 @@ auto EventEngine::reset(int32_t now) -> void {
     floorCs = INT32_MIN;
     lastOrchCs = now; // the force-after-hold timer starts at the reset
     pending.reset();
+    wait.reset();
+    fire.reset();
+    stacks.clear();
     st = {};
     rng.seed(cfg.seed);
     if (cache != nullptr)
@@ -37,6 +59,8 @@ auto EventEngine::reset(int32_t now) -> void {
 }
 
 auto EventEngine::noteToken(Kind kind, int32_t pitch) const -> int32_t {
+    if (kind == Kind::StackOff)
+        return cfg.stackOff;
     const int32_t note = (isOrch(kind) ? kOrch0 : kNote0) + std::clamp(pitch, 0, 127);
     return isOn(kind) ? note : cfg.off0 + (note - kNote0);
 }
@@ -45,6 +69,10 @@ auto EventEngine::tokens() const -> std::vector<int32_t> {
     std::vector<int32_t> out;
     out.reserve(items.size() * 3);
     for (const auto &e: items) {
+        if (e.kind == Kind::Special) {
+            out.insert(out.end(), e.toks.begin(), e.toks.end());
+            continue;
+        }
         out.push_back(std::clamp(timeToken(e.timeCs), 0, kMaxTime));
         out.push_back(noteToken(e.kind, e.pitch));
         if (isOn(e.kind))
@@ -68,7 +96,25 @@ auto EventEngine::sounding() const -> std::vector<std::pair<int32_t, int32_t>> {
     return open;
 }
 
+auto EventEngine::soundingAll() const -> std::vector<int32_t> {
+    std::vector<int32_t> out;
+    for (const auto &[onset, p]: sounding())
+        out.push_back(p);
+    for (const auto &s: stacks)
+        out.insert(out.end(), s.pitches.begin(), s.pitches.end());
+    return out;
+}
+
 auto EventEngine::append(const Event &e) -> void { items.push_back(e); }
+
+auto EventEngine::special(int32_t timeCs, std::vector<int32_t> toks) -> void {
+    Event e;
+    e.kind = Kind::Special;
+    e.timeCs = std::max(timeCs, lastTime());
+    e.generated = true;
+    e.toks = std::move(toks);
+    append(e);
+}
 
 auto EventEngine::insertInput(Event e) -> void {
     // Live input is never ahead of the clock; a drawn event not yet due is drawn again after it. Input that comes
@@ -80,44 +126,50 @@ auto EventEngine::insertInput(Event e) -> void {
     }
     e.timeCs = std::max(e.timeCs, lastTime());
     maybeRebuild(e.timeCs);
+    if (chordMode() && e.kind == Kind::PianoOn)
+        onPianoOnChord(e);
     append(e);
 }
 
 auto EventEngine::pianoOn(int32_t timeCs, int32_t pitch, int32_t velocity) -> void {
-    insertInput({Kind::PianoOn, timeCs, std::clamp(pitch, kPianoLow, kPianoHigh), std::clamp(velocity, 1, 127), false});
+    insertInput({Kind::PianoOn, timeCs, std::clamp(pitch, kPianoLow, kPianoHigh), std::clamp(velocity, 1, 127), false, {}});
 }
 
 auto EventEngine::pianoOff(int32_t timeCs, int32_t pitch) -> void {
-    insertInput({Kind::PianoOff, timeCs, std::clamp(pitch, kPianoLow, kPianoHigh), 0, false});
+    insertInput({Kind::PianoOff, timeCs, std::clamp(pitch, kPianoLow, kPianoHigh), 0, false, {}});
 }
 
 auto EventEngine::mirrorOn(int32_t timeCs, int32_t pitch, int32_t velocity) -> void {
-    insertInput({Kind::OrchOn, timeCs, pitch, velocity, false});
+    insertInput({Kind::OrchOn, timeCs, pitch, velocity, false, {}});
     lastOrchCs = std::max(lastOrchCs, timeCs);
 }
 
 auto EventEngine::mirrorOff(int32_t timeCs, int32_t pitch) -> void {
-    insertInput({Kind::OrchOff, timeCs, pitch, 0, false});
+    insertInput({Kind::OrchOff, timeCs, pitch, 0, false, {}});
 }
 
 auto EventEngine::dropGeneratedFrom(int32_t cutCs) -> void {
     pending.reset();
+    wait.reset();
+    fire.reset();
     items.erase(std::remove_if(items.begin(), items.end(), [&](const Event &e) { return e.generated && e.timeCs >= cutCs; }),
                 items.end());
+    stacks.erase(std::remove_if(stacks.begin(), stacks.end(), [&](const Stack &s) { return s.onsetCs >= cutCs; }),
+                 stacks.end());
     floorCs = std::min(floorCs, cutCs);
 }
 
 auto EventEngine::maybeRebuild(int32_t floor) -> void {
-    if (floor - baseCs <= cfg.maxSpanCs)
-        return;
+    if (floor - baseCs <= cfg.maxSpanCs || wait.has_value() || fire.has_value())
+        return; // (not in the middle of a WAIT: its reference is in the context)
     // keep the newest events: at most keepTokens tokens, and a span that leaves room for the next draws
     size_t tokensKept = 0;
     size_t first = items.size();
     while (first > 0) {
         const auto &e = items[first - 1];
-        if (tokensKept + width(e.kind) > cfg.keepTokens || floor - e.timeCs > cfg.maxSpanCs / 2)
+        if (tokensKept + widthOf(e) > cfg.keepTokens || floor - e.timeCs > cfg.maxSpanCs / 2)
             break;
-        tokensKept += width(e.kind);
+        tokensKept += widthOf(e);
         --first;
     }
     items.erase(items.begin(), items.begin() + static_cast<std::ptrdiff_t>(first));
@@ -172,48 +224,301 @@ auto EventEngine::pick(const std::vector<float> &logits, const std::vector<std::
     return p.back().second;
 }
 
+// ---------------------------------------------------------------- model 2 event: WAIT family and chord blocks
+
+auto EventEngine::waitRanges(int32_t refCs, int32_t now) const -> std::vector<std::pair<int32_t, int32_t>> {
+    // WAIT d: d = 3 .. 300 on the 3 cs grid, at least the 6 cs floor, and a target still ahead of the clock
+    const int32_t dMin = std::max(kFloor, now + 1 - refCs);
+    const int32_t first = std::max(1, (dMin + kGrid - 1) / kGrid - 1);
+    const int32_t last = kMaxWait / kGrid - 1;
+    if (first > last)
+        return {};
+    return {{kWait0 + first, kWait0 + last + 1}};
+}
+
+auto EventEngine::chordRanges(int32_t k) const -> std::vector<std::pair<int32_t, int32_t>> {
+    std::vector<std::pair<int32_t, int32_t>> r;
+    for (int32_t type = 0; type < 18; ++type)
+        if (VoicingBank::pitchClassCount(type) == k)
+            r.push_back({kChord0 + type * 120, kChord0 + (type + 1) * 120}); // the type's 12 roots x 10 n
+    if (r.empty())
+        r.push_back({kChord0, kChordEnd});
+    return r;
+}
+
+auto EventEngine::drawWaitK(std::vector<int32_t> desired, int32_t waitTok, int32_t refCs, int32_t sameKTok) -> bool {
+    const int32_t d = (waitTok - kWait0 + 1) * kGrid;
+    int32_t kTok = sameKTok;
+    if (kTok < 0) {
+        desired.push_back(waitTok);
+        const auto *l = logitsFor(desired);
+        if (l == nullptr)
+            return false;
+        std::vector<std::pair<int32_t, int32_t>> ranges;
+        for (int32_t i = 0; i < 8; ++i)
+            if (i % 2 == 0 || d >= kFloorPlus) // +1 only from 12 cs
+                ranges.push_back({kK0 + i, kK0 + i + 1});
+        kTok = pick(*l, ranges, cfg.otherTemperature);
+        if (kTok < 0)
+            return false;
+    }
+    special(refCs, {waitTok, kTok});
+    Wait w;
+    w.refCs = refCs;
+    w.d = d;
+    w.kTok = kTok;
+    w.k = (kTok - kK0) / 2 + 1;
+    w.plus = (kTok - kK0) % 2 == 1;
+    w.closeCs = refCs + d + kEps;
+    wait = w;
+    ++st.waits;
+    return true;
+}
+
+auto EventEngine::onPianoOnChord(Event &e) -> void {
+    if (fire.has_value()) {
+        if (! fire->noPiano && e.timeCs <= fire->onsetCs + kMergeCs)
+            e.timeCs = fire->onsetCs; // a piano ON of the fired onset: written at its time, before the block
+        return;
+    }
+    if (! wait.has_value() || e.timeCs < wait->refCs + wait->d - kWinEarly)
+        return; // no WAIT, or before its window: ordinary input
+    if (e.timeCs > wait->closeCs && wait->lates < cfg.maxLates) {
+        // the piano came after the close before the engine closed it: the LATE it came at
+        const int32_t dl = std::clamp(qd(e.timeCs - wait->closeCs, kLateMax), kGrid, kLateMax);
+        special(wait->closeCs, {kLate0 + dl / kGrid - 1});
+        ++wait->lates;
+        ++st.lates;
+        ++st.latesForced;
+    }
+    Fire f;
+    f.onsetCs = e.timeCs;
+    f.readyCs = e.timeCs + kMergeCs;
+    f.k = wait->k;
+    f.plus = wait->plus;
+    fire = f;
+    wait.reset();
+    ++st.fires;
+}
+
+auto EventEngine::closeWindow(int32_t now) -> void {
+    auto &w = *wait;
+    auto desired = tokens();
+    const auto *l = logitsFor(desired);
+    if (l == nullptr) {
+        wait.reset();
+        return;
+    }
+    std::vector<std::pair<int32_t, int32_t>> ranges{{kExpired, kExpired + 1}};
+    if (w.lates < cfg.maxLates)
+        ranges.push_back({kLate0, kLate0 + kLateMax / kGrid});
+    const int32_t tok = pick(*l, ranges, cfg.otherTemperature);
+    if (tok >= kLate0 && tok < kLate0 + kLateMax / kGrid) {
+        const int32_t dl = (tok - kLate0 + 1) * kGrid;
+        special(w.closeCs, {tok});
+        w.closeCs += qd(dl, kLateMax) + kEps;
+        ++w.lates;
+        ++st.lates;
+        return;
+    }
+    const int32_t close = w.closeCs;
+    special(close, {kExpired});
+    ++st.expired;
+    desired = tokens();
+    const auto *l2 = logitsFor(desired);
+    const Wait was = w;
+    wait.reset();
+    if (l2 == nullptr)
+        return;
+    auto next = waitRanges(close, now);
+    const auto chords = chordRanges(was.k);
+    next.insert(next.end(), chords.begin(), chords.end());
+    const int32_t t2 = pick(*l2, next, cfg.otherTemperature);
+    if (t2 >= kWait0 && t2 < kK0) {
+        if (drawWaitK(desired, t2, close, was.kTok)) // re-wait with the same K
+            ++st.reWaits;
+        return;
+    }
+    if (t2 >= kChord0 && t2 < kChordEnd) {
+        Fire f; // give up: the block plays alone at the close
+        f.onsetCs = close;
+        f.readyCs = now;
+        f.noPiano = true;
+        f.firstChord = t2;
+        f.k = was.k;
+        f.plus = was.plus;
+        fire = f;
+        ++st.giveUps;
+    }
+}
+
+auto EventEngine::writeBlock(int32_t /*now*/) -> std::vector<Out> {
+    std::vector<Out> out;
+    const Fire f = *fire;
+    fire.reset();
+    const int32_t t = std::max(f.onsetCs, lastTime());
+    auto desired = tokens();
+    int32_t chord = f.firstChord;
+    if (chord < 0) {
+        const auto *l = logitsFor(desired);
+        if (l == nullptr)
+            return out;
+        chord = pick(*l, chordRanges(f.k), cfg.otherTemperature);
+        if (chord < 0)
+            return out;
+    }
+    desired.push_back(chord);
+    const int32_t ci = chord - kChord0;
+    const int type = ci / 120;
+    const int root = (ci / 10) % 12;
+    const int n = ci % 10 + 1;
+    const uint16_t mask = pcMask(type, root);
+    // BASS: a chord tone in the register
+    const auto *lb = logitsFor(desired);
+    if (lb == nullptr)
+        return out;
+    std::vector<std::pair<int32_t, int32_t>> bassR;
+    for (int32_t p = std::max(cfg.pitchLow, 0); p <= std::min(cfg.pitchHigh, 127); ++p)
+        if ((mask >> (p % 12)) & 1u)
+            bassR.push_back({kOrch0 + p, kOrch0 + p + 1});
+    if (bassR.empty())
+        bassR.push_back({kOrch0 + std::max(cfg.pitchLow, 0), kOrch0 + std::min(cfg.pitchHigh, 127) + 1});
+    const int32_t bassTok = pick(*lb, bassR, cfg.otherTemperature);
+    if (bassTok < 0)
+        return out;
+    desired.push_back(bassTok);
+    const auto *lv = logitsFor(desired);
+    if (lv == nullptr)
+        return out;
+    const int32_t svel = pick(*lv, {{kVel0 + 1, kVel0 + 128}}, cfg.otherTemperature);
+    if (svel < 0)
+        return out;
+    special(t, {chord, bassTok, svel});
+    // the band notes: the voicing bank (an empty bank stacks the chord tones), folded into the register
+    const int32_t bass = bassTok - kOrch0;
+    VoicingBank::Decoded dec;
+    if (cfg.voicings != nullptr && ! cfg.voicings->empty()) {
+        dec = cfg.voicings->decode(type, root, n, bass, rng);
+    } else {
+        static const VoicingBank none;
+        dec = none.decode(type, root, n, bass, rng);
+    }
+    if (dec.source != VoicingBank::Decoded::Source::Bank)
+        ++st.voicingFallbacks;
+    const auto busy = soundingAll();
+    std::vector<int32_t> pitches;
+    for (int32_t p: dec.pitches) {
+        while (p > cfg.pitchHigh && p - 12 >= bass)
+            p -= 12;
+        if (p <= cfg.pitchHigh && p >= 0 && std::find(pitches.begin(), pitches.end(), p) == pitches.end()
+            && std::find(busy.begin(), busy.end(), p) == busy.end())
+            pitches.push_back(p);
+    }
+    std::sort(pitches.begin(), pitches.end());
+    if (cfg.maxSounding > 0) {
+        const auto room = static_cast<size_t>(std::max<int32_t>(0, cfg.maxSounding - static_cast<int32_t>(busy.size())));
+        if (pitches.size() > room)
+            pitches.resize(room); // the polyphony cap (Mono: the bass)
+    }
+    if (! pitches.empty())
+        stacks.push_back({t, pitches});
+    for (const int32_t p: pitches)
+        out.push_back(Out{true, t, p, svel - kVel0, false, true});
+    lastOrchCs = std::max(lastOrchCs, t);
+    floorCs = std::max(floorCs, t);
+    // the leftover ON: at the block's onset
+    if (f.plus) {
+        desired = tokens();
+        desired.push_back(timeToken(t));
+        const auto *lo = logitsFor(desired);
+        if (lo == nullptr)
+            return out;
+        const auto busyNow = soundingAll();
+        std::vector<std::pair<int32_t, int32_t>> r;
+        if (cfg.maxSounding <= 0 || static_cast<int32_t>(busyNow.size()) < cfg.maxSounding)
+            for (int32_t p = std::max(cfg.pitchLow, 0); p <= std::min(cfg.pitchHigh, 127); ++p)
+                if (std::find(busyNow.begin(), busyNow.end(), p) == busyNow.end())
+                    r.push_back({kOrch0 + p, kOrch0 + p + 1});
+        const int32_t note = r.empty() ? -1 : pick(*lo, r, cfg.otherTemperature);
+        if (note >= 0) {
+            desired.push_back(note);
+            const auto *lv2 = logitsFor(desired);
+            const int32_t vel = lv2 == nullptr ? -1 : pick(*lv2, {{kVel0 + 1, kVel0 + 128}}, cfg.otherTemperature);
+            if (vel >= 0) {
+                append({Kind::OrchOn, t, note - kOrch0, vel - kVel0, true, {}});
+                ++st.ons;
+                out.push_back(Out{true, t, note - kOrch0, vel - kVel0, false, true});
+            }
+        }
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------- drawing
+
 auto EventEngine::draw(int32_t now) -> void {
     const int32_t floor = std::max({lastTime(), now, floorCs});
     maybeRebuild(floor);
-    const int32_t hiTime = std::min(floor + cfg.maxAheadCs, baseCs + kMaxTime);
-    if (hiTime < floor)
-        return;
+    int32_t hiTime = std::min(floor + cfg.maxAheadCs, baseCs + kMaxTime);
+    if (wait.has_value())
+        hiTime = std::min(hiTime, wait->refCs + wait->d - 1); // releases only, before the target (Q9)
     auto desired = tokens();
     const auto *l = logitsFor(desired);
     if (l == nullptr)
         return;
-    const int32_t timeTok = pick(*l, {{timeToken(floor), timeToken(hiTime) + 1}}, cfg.onsetTemperature);
-    if (timeTok < 0)
+    std::vector<std::pair<int32_t, int32_t>> first;
+    if (hiTime >= floor)
+        first.push_back({timeToken(floor), timeToken(hiTime) + 1});
+    if (chordMode() && ! wait.has_value()) {
+        const auto w = waitRanges(lastTime(), now);
+        first.insert(first.end(), w.begin(), w.end());
+    }
+    if (first.empty())
         return;
+    const int32_t firstTok = pick(*l, first, cfg.onsetTemperature);
+    if (firstTok < 0)
+        return;
+    if (chordMode() && firstTok >= kWait0 && firstTok < kK0) {
+        drawWaitK(desired, firstTok, lastTime(), -1);
+        return;
+    }
+    const int32_t timeTok = firstTok;
     const int32_t t = baseCs + timeTok;
 
-    // what happens at t: an orchestra ON / OFF, or a piano event (the model expects the pianist)
+    // what happens at t: an orchestra ON / OFF (STACK_OFF), or a piano event (the model expects the pianist)
     const auto open = sounding();
+    const auto busy = soundingAll();
     const Event *last = items.empty() ? nullptr : &items.back();
-    const bool sameTime = last != nullptr && last->timeCs == t;
+    const bool sameTime = last != nullptr && last->kind != Kind::Special && last->timeCs == t;
     const int32_t lastId = sameTime ? noteToken(last->kind, last->pitch) : -1;
     std::vector<std::pair<int32_t, int32_t>> ranges;
-    const bool onsAllowed = t >= cfg.minOnsetCs && (cfg.maxSounding <= 0 || static_cast<int32_t>(open.size()) < cfg.maxSounding);
+    const bool onsAllowed = ! wait.has_value() && t >= cfg.minOnsetCs
+                            && (cfg.maxSounding <= 0 || static_cast<int32_t>(busy.size()) < cfg.maxSounding);
     if (onsAllowed) {
         int32_t lo = kOrch0 + std::max(cfg.pitchLow, 0);
         if (sameTime && isOn(last->kind))
             lo = std::max(lo, lastId + 1); // at one time: ONs by note id
         for (int32_t id = lo; id <= kOrch0 + std::min(cfg.pitchHigh, 127); ++id) {
             const int32_t p = id - kOrch0;
-            if (std::none_of(open.begin(), open.end(), [p](const auto &o) { return o.second == p; }))
+            if (std::find(busy.begin(), busy.end(), p) == busy.end())
                 ranges.push_back({id, id + 1});
         }
     }
-    if (! sameTime || ! isOn(last->kind)) // at one time every OFF comes before every ON
+    const bool offsAllowed = ! sameTime || ! isOn(last->kind); // at one time every OFF comes before every ON
+    if (offsAllowed) {
         for (const auto &[onset, p]: open) {
             const int32_t id = noteToken(Kind::OrchOff, p);
-            if (onset < t && (! sameTime || id > lastId))
+            if (onset < t && (! sameTime || last->kind == Kind::StackOff || id > lastId))
                 ranges.push_back({id, id + 1});
         }
-    const bool forced = t - lastOrchCs >= cfg.forceAfterCs;
+        if (chordMode() && cfg.stackOff >= 0 && ! stacks.empty() && stacks.front().onsetCs < t
+            && ! (sameTime && last->kind == Kind::StackOff))
+            ranges.push_back({cfg.stackOff, cfg.stackOff + 1});
+    }
+    const bool forced = t - lastOrchCs >= cfg.forceAfterCs && ! wait.has_value();
     const size_t orchRanges = ranges.size();
     if (! forced) {
-        ranges.push_back({kNote0, kOrch0});                    // piano ONs
+        ranges.push_back({kNote0, kOrch0});                         // piano ONs
         ranges.push_back({cfg.off0, cfg.off0 + (kOrch0 - kNote0)}); // piano OFFs
     }
     desired.push_back(timeTok);
@@ -245,6 +550,9 @@ auto EventEngine::draw(int32_t now) -> void {
             return;
         pd.velocity = vel - kVel0;
         pd.toks.push_back(vel);
+    } else if (chordMode() && what == cfg.stackOff) {
+        pd.on = false;
+        pd.pitch = -1; // the oldest sounding chord block
     } else {
         pd.on = false;
         pd.pitch = what - cfg.off0 - (kOrch0 - kNote0);
@@ -252,34 +560,57 @@ auto EventEngine::draw(int32_t now) -> void {
     pending = pd;
 }
 
-auto EventEngine::commitPending() -> Out {
+auto EventEngine::commitPending() -> std::vector<Out> {
     const auto pd = *pending;
     pending.reset();
-    append({pd.on ? Kind::OrchOn : Kind::OrchOff, pd.timeCs, pd.pitch, pd.velocity, true});
     lastOrchCs = std::max(lastOrchCs, pd.timeCs);
     floorCs = std::max(floorCs, pd.timeCs);
+    if (pd.pitch < 0) { // STACK_OFF: every band note of the oldest block
+        std::vector<Out> out;
+        append({Kind::StackOff, pd.timeCs, 0, 0, true, {}});
+        ++st.stackOffs;
+        if (! stacks.empty()) {
+            for (const int32_t p: stacks.front().pitches)
+                out.push_back(Out{false, pd.timeCs, p, 0, false, true});
+            stacks.erase(stacks.begin());
+        }
+        return out;
+    }
+    append({pd.on ? Kind::OrchOn : Kind::OrchOff, pd.timeCs, pd.pitch, pd.velocity, true, {}});
     if (pd.on)
         ++st.ons;
     else
         ++st.offs;
-    return Out{pd.on, pd.timeCs, pd.pitch, pd.velocity, false};
+    return {Out{pd.on, pd.timeCs, pd.pitch, pd.velocity, false, false}};
 }
 
 auto EventEngine::releaseLongHolds(int32_t now) -> std::vector<Out> {
     std::vector<Out> out;
     if (cfg.maxHoldCs <= 0)
         return out;
-    for (const auto &[onset, p]: sounding()) {
-        if (now - onset < cfg.maxHoldCs)
-            continue;
+    const auto dropPending = [&] {
         if (pending.has_value()) {
             pending.reset();
             ++st.discarded;
         }
+    };
+    for (const auto &[onset, p]: sounding()) {
+        if (now - onset < cfg.maxHoldCs)
+            continue;
+        dropPending();
         const int32_t t = std::max(onset + cfg.maxHoldCs, lastTime());
-        append({Kind::OrchOff, t, p, 0, true});
+        append({Kind::OrchOff, t, p, 0, true, {}});
         ++st.forcedReleases;
-        out.push_back(Out{false, t, p, 0, true});
+        out.push_back(Out{false, t, p, 0, true, false});
+    }
+    while (! stacks.empty() && now - stacks.front().onsetCs >= cfg.maxHoldCs && cfg.stackOff >= 0) {
+        dropPending();
+        const int32_t t = std::max(stacks.front().onsetCs + cfg.maxHoldCs, lastTime());
+        append({Kind::StackOff, t, 0, 0, true, {}});
+        ++st.forcedReleases;
+        for (const int32_t p: stacks.front().pitches)
+            out.push_back(Out{false, t, p, 0, true, true});
+        stacks.erase(stacks.begin());
     }
     return out;
 }
@@ -289,9 +620,29 @@ auto EventEngine::step(int32_t now) -> std::vector<Out> {
     auto out = releaseLongHolds(now);
     if (backend == nullptr)
         return out;
+    if (chordMode()) {
+        if (fire.has_value() && now >= fire->readyCs) {
+            auto b = writeBlock(now);
+            out.insert(out.end(), b.begin(), b.end());
+            return out;
+        }
+        if (fire.has_value())
+            return out; // the onset's piano notes are still coming
+        if (wait.has_value() && now > wait->closeCs + cfg.expiryGraceCs) {
+            pending.reset();
+            closeWindow(now);
+            if (fire.has_value()) {
+                auto b = writeBlock(now);
+                out.insert(out.end(), b.begin(), b.end());
+            }
+            return out;
+        }
+    }
     if (! pending.has_value())
         draw(now);
-    if (pending.has_value() && pending->timeCs <= now)
-        out.push_back(commitPending());
+    if (pending.has_value() && pending->timeCs <= now) {
+        auto c = commitPending();
+        out.insert(out.end(), c.begin(), c.end());
+    }
     return out;
 }

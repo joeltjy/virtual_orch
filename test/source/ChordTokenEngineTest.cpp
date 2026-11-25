@@ -15,7 +15,7 @@
 /**
  * Hybrid v1.2: the chord-token model 2 (m2c, vocab 14071; orchestration/overnight/pkg/wait3.py, spec B3f) in
  * InformativeWaitEngine's chordTokens mode, against a scripted backend: [WAIT d][K k,+1], the CHORD block at a fire
- * (precomputed or decoded), the leftover quad, [LATE d], giving up, the WAIT-300 chain, the 6 / 12 cs floors and the
+ * (precomputed or decoded), the leftover quad, [LATE d] or [EXPIRED] at a close, then a re-wait or a give-up, the 6 / 12 cs floors and the
  * [DUR?] rule; and the voicing bank.
  */
 namespace {
@@ -47,13 +47,20 @@ public:
         const bool velocity = t >= Engine::kVel0 && t < Engine::kWait0;
         const bool kTok = t >= Engine::kK0 && t < Engine::kChordExpired;
         const bool late = t >= Engine::kLate0 && t < Engine::kDurUnknown;
-        if (velocity || kTok || t == Engine::kChordExpired || late) {
-            // the onset step (a WAIT or an onset), a CHORD (after the target piano quad) or a LATE (at a close)
+        if (t == Engine::kChordExpired) {
+            // after [EXPIRED]: a re-wait (WAIT) or a give-up (CHORD)
+            if (expiredThenWait)
+                set(Engine::waitToken(waitD), 20.0f);
+            else
+                set(chordTok, 20.0f);
+        } else if (velocity || kTok || late) {
+            // the onset step (a WAIT or an onset), a CHORD (after the target piano quad), or at a close: LATE or EXPIRED
             if (waitD > 0)
                 set(Engine::waitToken(waitD), 20.0f);
             set(onsetRel, 15.0f);
             set(chordTok, 20.0f);
             set(Engine::lateToken(lateD), 20.0f);
+            set(Engine::kChordExpired, late ? expiredAfterLate : expiredAfterWait);
         } else if (t >= Engine::kWait0 && t < Engine::kK0) {
             set(Engine::kToken(k, plus), 20.0f);
             set(Engine::kToken(k, ! plus), 10.0f);
@@ -115,6 +122,9 @@ public:
     bool plus = false;
     int32_t chordTok = kCMajor3;
     int32_t lateD = 12;
+    float expiredAfterWait = 0.0f; // the [EXPIRED] logit at a WAIT's close (LATE d has 20)
+    float expiredAfterLate = 0.0f; // ... at a LATE's close
+    bool expiredThenWait = false;  // after [EXPIRED]: WAIT (re-wait) instead of CHORD (give up)
     int calls = 0;
     int batchedCalls = 0;
 };
@@ -347,12 +357,13 @@ TEST(ChordTokenEngine, ALatePianistGetsALateTokenAndStillFires) {
     expectBlockAfterPianoQuad(toks, 7, 62);
 }
 
-TEST(ChordTokenEngine, AfterTwoLatesTheEngineGivesUpAndTheChordPlaysAlone) {
+TEST(ChordTokenEngine, AfterTwoLatesExpiredIsForcedAndACHORDGivesUp) {
     ChordRig rig;
     rig.engine.noteOn(0, 60, 80);
-    rig.run(0, 74); // closes at 36 (LATE 12), 54 (LATE 12), 72: [EXPIRED], then the block
+    rig.run(0, 74); // closes at 36 (LATE 12), 54 (LATE 12), 72: [EXPIRED] forced, the model's CHORD, the block
     EXPECT_EQ(rig.engine.stats().lates, 2);
     EXPECT_EQ(rig.engine.stats().giveUps, 1);
+    EXPECT_EQ(rig.engine.stats().expiredChosen, 0);
     ASSERT_GE(rig.played.size(), 3u);
     std::vector<Engine::OutNote> chord(rig.played.begin(), rig.played.begin() + 3);
     EXPECT_EQ(pitchesOf(chord), (std::vector<int32_t>{48, 52, 55}));
@@ -365,6 +376,58 @@ TEST(ChordTokenEngine, AfterTwoLatesTheEngineGivesUpAndTheChordPlaysAlone) {
     EXPECT_EQ(toks[8], Engine::kChordExpired);
     EXPECT_EQ(toks[9], kCMajor3); // the block right after EXPIRED, no piano quad
     EXPECT_EQ(toks[11], Engine::kOrch0 + kBass);
+}
+
+TEST(ChordTokenEngine, TheModelMayDrawExpiredAtAWaitCloseAndThePianoNeverComes) {
+    ChordRig rig;
+    rig.model.expiredAfterWait = 30.0f; // never comes: [EXPIRED] over [LATE 12]
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 38); // the window [24, 36] closes empty: [EXPIRED], then the model's CHORD and the block, now
+    EXPECT_EQ(rig.engine.stats().lates, 0);
+    EXPECT_EQ(rig.engine.stats().expiredChosen, 1);
+    EXPECT_EQ(rig.engine.stats().giveUps, 1);
+    ASSERT_GE(rig.played.size(), 3u);
+    std::vector<Engine::OutNote> chord(rig.played.begin(), rig.played.begin() + 3);
+    EXPECT_EQ(pitchesOf(chord), (std::vector<int32_t>{48, 52, 55}));
+    for (const auto &n: chord)
+        EXPECT_GE(n.onsetCs, 36);
+    const auto toks = rig.engine.tokens();
+    ASSERT_GE(toks.size(), 11u);
+    EXPECT_EQ(toks[4], Engine::waitToken(30));
+    EXPECT_EQ(toks[6], Engine::kChordExpired);
+    EXPECT_EQ(toks[7], kCMajor3);
+    EXPECT_EQ(toks[8], Engine::kDur0 + 80);
+    EXPECT_EQ(toks[9], Engine::kOrch0 + kBass);
+}
+
+TEST(ChordTokenEngine, TheModelMayDrawExpiredAtALateClose) {
+    ChordRig rig;
+    rig.model.expiredAfterLate = 30.0f; // one LATE, then it gives up before the second
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 56); // closes at 36 (LATE 12) and 54: [EXPIRED], CHORD, the block
+    EXPECT_EQ(rig.engine.stats().lates, 1);
+    EXPECT_EQ(rig.engine.stats().expiredChosen, 1);
+    EXPECT_EQ(rig.engine.stats().giveUps, 1);
+    EXPECT_EQ(rig.played.size(), 3u);
+    const auto toks = rig.engine.tokens();
+    ASSERT_GE(toks.size(), 9u);
+    EXPECT_EQ(toks[6], Engine::lateToken(12));
+    EXPECT_EQ(toks[7], Engine::kChordExpired);
+    EXPECT_EQ(toks[8], kCMajor3);
+}
+
+TEST(ChordTokenEngine, NoLatesAllowedForcesExpired) {
+    ChordRig rig;
+    Engine::Settings s = rig.engine.settings();
+    s.maxLates = 0;
+    rig.engine.setSettings(s);
+    rig.engine.reset(0);
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 38);
+    EXPECT_EQ(rig.engine.stats().lates, 0);
+    EXPECT_EQ(rig.engine.stats().expiredChosen, 0); // forced, not drawn
+    EXPECT_EQ(rig.engine.stats().giveUps, 1);
+    EXPECT_EQ(rig.find(Engine::kChordExpired), 6);
 }
 
 TEST(ChordTokenEngine, APianoOnsetAlreadyPastTheCloseSetsTheLateValue) {
@@ -382,12 +445,14 @@ TEST(ChordTokenEngine, APianoOnsetAlreadyPastTheCloseSetsTheLateValue) {
     expectBlockAfterPianoQuad(rig.engine.tokens(), 7, 64);
 }
 
-TEST(ChordTokenEngine, AWait300ThatClosesIsChainedWithTheSameK) {
+TEST(ChordTokenEngine, ExpiredThenAWaitReWaitsWithTheSameK) {
     ChordRig rig(false);
     rig.model.waitD = 300;
     rig.model.k = 2;
+    rig.model.expiredAfterWait = 30.0f;
+    rig.model.expiredThenWait = true;
     rig.engine.noteOn(0, 60, 80);
-    rig.run(0, 310); // [WAIT 300][K 2] expires at 306: [EXPIRED], then a WAIT (never an onset) with the same K
+    rig.run(0, 310); // [WAIT 300][K 2] closes at 306: [EXPIRED], then the model's WAIT with the same K
     EXPECT_EQ(rig.engine.stats().chains, 1);
     EXPECT_EQ(rig.engine.stats().lates, 0);
     EXPECT_EQ(rig.count("orch"), 0);

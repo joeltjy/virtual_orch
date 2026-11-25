@@ -23,7 +23,8 @@ If an absolute path is missing on this machine, the same file name is tried in `
 | Fire | The target piano quad is written with `[DUR?]`. Then CHORD is drawn, masked to the types with k pitch classes, followed by SDUR, BASS and SVEL. If plus, the leftover quad follows with its onset forced to T. |
 | Precompute | The top-5 branches decode these 4 tokens, or 7 with the leftover, instead of 1 + 3k. |
 | OT notes | Only the OT gets the block as notes: one bank voicing at random, on BASS, all with duration q and velocity v. The context keeps the 4 tokens. Notes above the register drop an octave while they stay above the bass. The polyphony cap keeps the lowest notes. |
-| Window close | WAIT < 300: `[LATE d]`, with d sampled and masked to the LATE values whose window has not passed. The new window is [close + d − 6, close + d + 6], starting no earlier than close. After `maxLates` (2) LATEs: `[EXPIRED]`, then the block (+ leftover) is decoded at once and plays now. WAIT 300: `[EXPIRED]`, then the next draw is a WAIT with the same K (the chain). |
+| Window close | At every close, of a WAIT (any d, 300 included) or of a LATE, the model draws `[LATE d]` or `[EXPIRED]`. The LATE values are masked to those whose window has not passed. LATE opens a new window [close + d − 6, close + d + 6], starting no earlier than close. After `maxLates` (2) LATEs, `[EXPIRED]` is forced. |
+| After `[EXPIRED]` | The model draws a WAIT or a CHORD masked to the pending k. WAIT: a re-wait, and the next draw is a WAIT with the same K (training's > 300 cs chain). CHORD: give up. The rest of the block (+ leftover) is decoded at once and plays now with no piano. |
 | `[DUR?]` | Written at key-down. A release writes the real duration only while no orchestra quad, WAIT/K, chord block or LATE follows the quad. The median-of-16 estimate and the hold commit are not used. |
 | After a piano onset | The orchestra may share the onset (B3f 1g): no 5 cs block. |
 
@@ -32,14 +33,17 @@ Decisions taken while Joel was away (each one easy to change):
 1. **Known arrival sets LATE d.** Sometimes a piano onset that is already past the close is what shows the window
    closed (input lag, `expiryGraceCs` 20). Then LATE d = arrival − close (3 cs grid, ≤ 99) and the note fires.
    Training's LATE value is exactly this true delay, so sampling a d that cannot match would be worse.
-2. **The chain repeats K without sampling** and forces the next token to be a WAIT. Training always has the same K
-   there. A piano onset in between ends the chain.
+2. **A re-wait repeats K without sampling.** Training always has the same K there, since the same stack is still
+   pending. A piano onset in between ends the re-wait. The choice after `[EXPIRED]` is drawn over WAIT ∪ CHORD at
+   the close; on a WAIT, the WAIT value itself is then drawn by the next onset step from the same logits, within the
+   WAIT range. Given a WAIT, that is the same distribution, and the WAITs whose window has passed by then are masked.
 3. **Temperatures.** CHORD, SDUR, BASS and SVEL use the duration/pitch/velocity settings (temperature 0.5, min-p
-   0.25), since the block mirrors a quad. K and LATE use the onset temperature (1.0), as COUNT and WAIT do.
+   0.25), since the block mirrors a quad. K, LATE-or-EXPIRED and WAIT-or-CHORD use the onset temperature (1.0), as
+   COUNT and WAIT do. A give-up's CHORD is the one drawn at 1.0 in that choice; SDUR, BASS and SVEL follow at 0.5.
 4. **BASS is masked to the Launchpad register.** The voicing then goes upward from the bass.
 5. **The target piano quad is always `[DUR?]`.** In training it still sounds at its own chord block. This holds
    even when the key is up before the block is decoded.
-6. **`noWaitAfterExpiry` is kept** (as v1.1) after a give-up. It does not apply to the chain.
+6. **`noWaitAfterExpiry` is kept** (as v1.1) after a give-up. It does not apply to a re-wait.
 7. **Monophonic cap.** Under the polyphony cap, the leftover is still written to the context, because K said +1,
    but it is not played.
 
@@ -52,6 +56,23 @@ chord block as plain quads without any change. Model 1's piano durations come fr
 the release rewrite), so it never sees `[DUR?]`. Model 1's notes mirrored into model 2 are plain orchestra quads,
 which m2c's training data has too. No new design decision was needed.
 
+## LATE or EXPIRED is the model's choice (2026-11-24, Joel's "option 3")
+
+Until then, the engine always wrote a LATE first and wrote `[EXPIRED]` only after the last LATE. Now the model chooses
+at every close, matching the training data from `ovn_m2c_r2` on (`wait3.py`: `[EXPIRED]` carries loss, and 20 % of
+synthetic late lines end in `LATE … [EXPIRED]` followed by the chord block alone):
+
+- at a WAIT close: LATE (late pianist) or EXPIRED (never comes);
+- at a LATE close: LATE (second late) or EXPIRED (gave up); after 2 LATEs, EXPIRED is forced;
+- after EXPIRED: WAIT (re-wait) or CHORD (give up: the stack plays now).
+
+A piano onset already known to be past the close still forces LATE d = its true delay, while a LATE is allowed.
+`maxLates = 0` forces EXPIRED at every close. Stats: `expiredChosen` counts EXPIREDs the model drew where a LATE
+was allowed; `giveUps` counts EXPIRED → CHORD; `chains` counts EXPIRED → WAIT.
+
+**Use an export of `ovn_m2c_r2` or later.** `ovn_m2c_r1` was trained without loss on `[EXPIRED]`, so its
+LATE-or-EXPIRED and WAIT-or-CHORD choices are untrained and will not behave well.
+
 ## Open points for Joel
 
 - **Root-field offset: fixed (2026-11-24).** The first m2c tokenizer named CHORD roots from the token
@@ -60,8 +81,6 @@ which m2c's training data has too. No new design decision was needed.
   root-position C major is `maj|3|0`), and the m2c run was restarted on the fixed tokenizer. The engine and
   `VoicingBank` now take the CHORD root as the true pitch class, with no offset. An ONNX from the first
   (pre-fix) run would decode every chord 4 semitones off with this engine, so don't use one.
-- **The engine never writes a never-comes `[EXPIRED]` right after a WAIT.** Training's never-comes lines
-  (q ≈ 3%) have that, while the engine always tries a LATE first. To match those lines, set `maxLates = 0`.
 - **Order versus time in the `[DUR?]` rule.** The engine rule goes by order: a model unit written after the quad
   freezes `[DUR?]`. The training rule goes by time: is the note still sounding at the next model unit's onset?
   They differ when the orchestra note is scheduled in the future and the key goes up before it starts. This was

@@ -413,7 +413,7 @@ auto InformativeWaitEngine::reappend(std::vector<Item> tail) -> void {
             cur.chordCount = 0;
             cur.lastPianoCs = std::max(cur.lastPianoCs, it.onsetCs);
             cur.afterExpired = false;
-            cur.chainK = 0; // a piano onset ends a WAIT-300 chain
+            cur.chainK = 0; // a piano onset ends a re-wait chain
         } else if (it.kind == Kind::Chord) {
             // a chord block: nothing else is drawn at its onset (its notes are all in the block)
             append(it);
@@ -671,7 +671,7 @@ auto InformativeWaitEngine::closeGroup() -> std::vector<OutNote> {
     cur.chordCount = 0;
     cur.lastPianoCs = g.headCs;
     cur.afterExpired = false;
-    cur.chainK = 0; // a piano onset ends a WAIT-300 chain
+    cur.chainK = 0; // a piano onset ends a re-wait chain
     reappend(later);
     event("piano", g.headCs, static_cast<int32_t>(notes.size()));
     // A pending WAIT's anticipation is NOT restarted by this (early) piano group: live, restarting on every
@@ -762,7 +762,7 @@ auto InformativeWaitEngine::fire(const PianoNote &head) -> std::vector<OutNote> 
     cur.lastOrchPitch = out.empty() ? -1 : out.back().pitch;
     cur.lastPianoCs = head.onsetCs;
     cur.afterExpired = false;
-    cur.chainK = 0; // a piano onset ends a WAIT-300 chain
+    cur.chainK = 0; // a piano onset ends a re-wait chain
     pending.reset();
     pre.reset();
     return out;
@@ -950,7 +950,7 @@ auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
                          && cur.chordCount < std::min(cfg.maxChordNotes, kMaxChord);
     if (chordOk)
         ranges.push_back({rel(cur.chordOnCs), rel(cur.chordOnCs) + 1});
-    // chord mode: a [WAIT 300] closed, so the next token is the chained WAIT (training: always, with the same K)
+    // chord mode: [EXPIRED] then a WAIT was drawn, so the next token is that WAIT (with the same K, as in training)
     bool chain = chordMode() && cur.chainK != 0;
     const bool waitOk = cfg.mode != Mode::LineLegato && ! cfg.continuation
                         && (chain || ! (cfg.noWaitAfterExpiry && cur.afterExpired));
@@ -958,7 +958,7 @@ auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
         // only WAITs whose window has not already passed: ref + d + 6 > now (chord mode: and >= the 6 cs floor)
         int32_t dMin = std::max(kGrid, nowCs + 1 - cur.clockCs - cfg.fireWindowCs);
         if (chordMode())
-            dMin = std::max(dMin, kWaitFloor);
+            dMin = std::max(dMin, chain && plusOf(cur.chainK) ? kWaitFloorPlus : kWaitFloor);
         if (dMin <= kMaxWait) {
             if (chain)
                 ranges.clear(); // the chain: a WAIT only
@@ -1146,8 +1146,13 @@ auto InformativeWaitEngine::chordRanges(int32_t k) -> std::vector<std::pair<int3
     return r;
 }
 
-auto InformativeWaitEngine::decodeBlock(std::vector<int32_t> desired, int32_t k) -> std::vector<int32_t> {
+auto InformativeWaitEngine::decodeBlock(std::vector<int32_t> desired, int32_t k, int32_t firstChord)
+    -> std::vector<int32_t> {
     std::vector<int32_t> block;
+    if (firstChord >= 0) {
+        block.push_back(firstChord); // already in the context (a give-up's CHORD, drawn after [EXPIRED])
+        desired.push_back(firstChord);
+    }
     const auto next = [&](const std::vector<std::pair<int32_t, int32_t>> &ranges, int32_t step) -> bool {
         const auto *l = logitsFor(desired);
         if (l == nullptr)
@@ -1163,7 +1168,7 @@ auto InformativeWaitEngine::decodeBlock(std::vector<int32_t> desired, int32_t k)
     int32_t hi = kPianoHigh;
     clampToRegister(lo, hi);
     lo = std::min(lo, hi);
-    if (! next(chordRanges(k), 1) || ! next({{kDur0 + cfg.minDurationCs, kDur0 + cfg.maxDurationCs + 1}}, 5)
+    if ((firstChord < 0 && ! next(chordRanges(k), 1)) || ! next({{kDur0 + cfg.minDurationCs, kDur0 + cfg.maxDurationCs + 1}}, 5)
         || ! next({{kOrch0 + lo, kOrch0 + hi + 1}}, 1) || ! next({{kVel0 + 8, kVel0 + 121}}, 8))
         return {};
     return block;
@@ -1314,7 +1319,7 @@ auto InformativeWaitEngine::fireChordStep() -> std::vector<OutNote> {
     const int32_t playCs = f.noPiano ? std::max(nowCs, f.onsetCs) : f.onsetCs;
     bool failed = false;
     if (f.needBlock) {
-        const auto block = decodeBlock(tokens(), f.k);
+        const auto block = decodeBlock(tokens(), f.k, f.firstChord);
         if (block.empty()) {
             failed = true;
         } else {
@@ -1372,65 +1377,78 @@ auto InformativeWaitEngine::closeChordWindow(std::optional<int32_t> arrivalCs) -
         cur.chordOnCs = INT32_MIN;
         cur.freeFloorCs = close;
     };
-    if (! p.isLate && p.d >= kMaxWait) {
-        // the chain (B3b): [WAIT 300][K][EXPIRED], then a WAIT from the close with the same K
-        pending.reset();
-        pre.reset();
-        writeExpired();
-        cur.chainK = p.kToken;
-        event("expired", close, p.d, p.k, "WAIT 300: chained");
-        return out;
-    }
+    // 1. [LATE d] or [EXPIRED], drawn by the model (no LATE after maxLates). LATE d = the time from the close to the
+    // piano's arrival: a piano onset already known to be past the close sets it (as training's true remaining
+    // delay); otherwise the LATEs whose window has not passed yet (close + d + win > now) are allowed.
+    int32_t tok = kChordExpired;
+    bool forced = false;
+    bool chose = false;
     if (p.lates < cfg.maxLates) {
-        // [LATE d]: d = the time from the close to the piano's arrival. A piano onset already known to be past the
-        // close sets it (as training's true remaining delay); otherwise the model samples it, among the LATEs whose
-        // window has not passed yet (close + d + win > now).
-        int32_t tok = -1;
-        bool forced = false;
         if (arrivalCs.has_value() && *arrivalCs - close <= kLateMax + p.win) {
             tok = lateToken(std::max(kGrid, *arrivalCs - close));
             forced = true;
         } else {
+            std::vector<std::pair<int32_t, int32_t>> ranges{{kChordExpired, kChordExpired + 1}};
             const int32_t dMin = std::max(kGrid, nowCs + 1 - close - p.win);
-            if (dMin <= kLateMax) {
-                const auto *l = logitsFor(tokens());
-                if (l == nullptr)
-                    return out;
-                tok = pick(*l, {{lateToken(((dMin + kGrid - 1) / kGrid) * kGrid), kLate0 + kLateMax / kGrid}},
-                           cfg.onsetTemperature, 0.0f);
-            }
-        }
-        if (tok >= 0) {
-            pre.reset();
-            Item it;
-            it.kind = Kind::Late;
-            it.onsetCs = close;
-            it.token = tok;
-            append(it);
-            ++st.lates;
-            st.lateForced += forced ? 1 : 0;
-            p.refCs = close;
-            p.d = lateValue(tok);
-            p.alts.clear();
-            p.lates += 1;
-            p.isLate = true;
-            p.floorLo = close; // the window starts no earlier than the close
-            pending = p;
-            event("late", close, p.d, p.k, forced ? "d from the piano onset already in" : "d sampled");
-            startPrecompute(); // the context gained the LATE and the target moved
-            return out;
+            if (dMin <= kLateMax)
+                ranges.push_back({lateToken(((dMin + kGrid - 1) / kGrid) * kGrid), kLate0 + kLateMax / kGrid});
+            const auto *l = logitsFor(tokens());
+            if (l == nullptr)
+                return out;
+            tok = pick(*l, ranges, cfg.onsetTemperature, 0.0f);
+            if (tok < 0)
+                tok = kChordExpired;
+            chose = true;
         }
     }
-    // give up: [EXPIRED], then the chord block (+ leftover) decoded at once, played now with no piano (B3f 2e)
+    if (tok != kChordExpired) {
+        pre.reset();
+        Item it;
+        it.kind = Kind::Late;
+        it.onsetCs = close;
+        it.token = tok;
+        append(it);
+        ++st.lates;
+        st.lateForced += forced ? 1 : 0;
+        p.refCs = close;
+        p.d = lateValue(tok);
+        p.alts.clear();
+        p.lates += 1;
+        p.isLate = true;
+        p.floorLo = close; // the window starts no earlier than the close
+        pending = p;
+        event("late", close, p.d, p.k, forced ? "d from the piano onset already in" : "d sampled");
+        startPrecompute(); // the context gained the LATE and the target moved
+        return out;
+    }
     pending.reset();
     pre.reset();
     writeExpired();
+    st.expiredChosen += chose ? 1 : 0;
+    // 2. after [EXPIRED]: a WAIT (re-wait, same K) or a CHORD masked to k (give up, B3f 2e). Only the choice is
+    // taken here: on a WAIT, drawEvent draws the WAIT from the same logits within the WAIT range (the same
+    // distribution as this draw given a WAIT), with the WAITs whose window has passed by then masked.
+    auto ranges = chordRanges(p.k);
+    const int32_t waitFloor = p.plus ? kWaitFloorPlus : kWaitFloor;
+    const int32_t wMin = std::max({kGrid, waitFloor, nowCs + 1 - close - cfg.fireWindowCs});
+    if (wMin <= kMaxWait)
+        ranges.push_back({waitToken(((wMin + kGrid - 1) / kGrid) * kGrid), kCount0});
+    int32_t next = -1;
+    if (const auto *l = logitsFor(tokens()); l != nullptr)
+        next = pick(*l, ranges, cfg.onsetTemperature, 0.0f);
+    if (next >= kWait0 && next < kCount0) {
+        cur.chainK = p.kToken;
+        event("expired", close, p.d, p.k,
+              "after " + std::to_string(p.lates) + " LATE: WAIT drawn, re-wait with the same K");
+        return out;
+    }
+    // give up: the CHORD drawn (or, if the draw failed, drawn again by decodeBlock), then SDUR/BASS/SVEL (+ leftover)
     cur.afterExpired = true;
     ++st.giveUps;
-    event("expired", close, p.d, p.k, "gave up after " + std::to_string(p.lates) + " LATE: the chord plays alone");
+    event("expired", close, p.d, p.k, "after " + std::to_string(p.lates) + " LATE: CHORD drawn, the chord plays alone");
     fireNotesOut = 0;
     firePlaced = 0;
-    fireLeft = FireLeft{close, 0, kPianoLow, true, true, p.plus, p.k, true};
+    fireLeft = FireLeft{close, 0, kPianoLow, true, true, p.plus, p.k, true, next >= kChord0 ? next : -1};
     return out;
 }
 

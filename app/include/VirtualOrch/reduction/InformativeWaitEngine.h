@@ -64,10 +64,11 @@
  *     plus][other piano quads of T]. The CHORD logits are masked to the chord types with k pitch classes. The
  *     context keeps these tokens; the OT gets the block decoded into notes (VoicingBank, duration q, velocity v).
  *     The precompute branches decode CHORD/SDUR/BASS/SVEL (+ the leftover's duration/pitch/velocity).
- *   - Window close: a WAIT < 300 (or a LATE, at most maxLates in a row) writes [LATE d] (d sampled, masked to the
- *     LATE range; window [close + d - 6, close + d + 6], from the close on); after the last LATE: [EXPIRED] =
- *     give up, the chord block (+ leftover) is decoded at once and plays now with no piano. A WAIT 300 that
- *     closes writes [EXPIRED] and the next draw is a WAIT with the same K (the chain).
+ *   - Window close (a WAIT's, any d, or a LATE's): the model draws [LATE d] or [EXPIRED] (LATE masked to the values
+ *     whose window has not passed; window [close + d - 6, close + d + 6], from the close on; no LATE after
+ *     maxLates of them). A piano onset already known to be past the close forces LATE d = its true delay.
+ *     After [EXPIRED] the model draws a WAIT (a re-wait: the next draw is a WAIT with the same K) or a CHORD masked
+ *     to k (give up: the rest of the block (+ leftover) is decoded at once and plays now with no piano).
  *   - Piano quads are written with [DUR?] at key-down; the release writes the real duration only while no
  *     model-written unit (orchestra quad, WAIT/K, chord block, LATE) follows the quad.
  *   - After a piano onset the orchestra may share it (no 5 cs block, B3f 1g).
@@ -308,8 +309,9 @@ public:
         // chord-token mode
         int lates = 0;       // [LATE d] written
         int lateForced = 0;  // ... with d set from a piano onset already known to be past the close
-        int giveUps = 0;     // [EXPIRED] after the last LATE: the chord played with no piano
-        int chains = 0;      // [WAIT 300] closed: [EXPIRED], then a chained WAIT
+        int giveUps = 0;     // [EXPIRED] then a CHORD: the chord played with no piano
+        int chains = 0;      // [EXPIRED] then a WAIT: a re-wait with the same K
+        int expiredChosen = 0; // [EXPIRED] drawn by the model at a close where a LATE was still allowed
         int chordBlocks = 0; // CHORD blocks written (fires and give-ups)
         int voicingFallbacks = 0; // blocks decoded without an exact bank key
     };
@@ -414,7 +416,7 @@ private:
         int32_t lastPianoCs = INT32_MIN;
         int32_t freeFloorCs = INT32_MIN; // line B: next free onset >= this
         bool afterExpired = false;       // an EXPIRED since the last piano onset
-        int32_t chainK = 0;              // chord mode: a [WAIT 300] closed; the next draw is a WAIT with this K
+        int32_t chainK = 0;              // chord mode: [EXPIRED] then a WAIT was drawn; the next draw is that WAIT, this K
     };
     struct Pending {
         int32_t refCs = 0;
@@ -582,20 +584,21 @@ private:
         bool needLeftover = false;
         int32_t k = 1;
         bool noPiano = false; // a give-up: the notes play at the step's now (the context's onset is the close)
+        int32_t firstChord = -1; // a give-up: the CHORD token already drawn after [EXPIRED]
     };
     auto chordMode() const -> bool { return cfg.chordTokens; }
     auto expiredToken() const -> int32_t { return chordMode() ? kChordExpired : kExpired; }
     /** CHORD ids whose type has k pitch classes, as pick ranges. */
     static auto chordRanges(int32_t k) -> std::vector<std::pair<int32_t, int32_t>>;
     /** The block tokens on top of `desired` (CHORD masked to k, SDUR, BASS, SVEL); empty on a model failure. */
-    auto decodeBlock(std::vector<int32_t> desired, int32_t k) -> std::vector<int32_t>;
+    auto decodeBlock(std::vector<int32_t> desired, int32_t k, int32_t firstChord = -1) -> std::vector<int32_t>;
     /** Append a block item and return its notes for the OT (at `playCs`), capped by maxFireNotes - `already`. */
     auto writeBlock(const std::vector<int32_t> &block, int32_t onsetCs, int32_t playCs, int32_t already, bool precomputed)
         -> std::vector<OutNote>;
     auto fireChord(const PianoNote &head) -> std::vector<OutNote>;
     /** The next part of a chord-mode fireLeft (the block, then the leftover). */
     auto fireChordStep() -> std::vector<OutNote>;
-    /** Chord mode, a window closed: LATE, give up, or the WAIT-300 chain. `arrivalCs`: a piano onset known past it. */
+    /** Chord mode, a window closed: [LATE] or [EXPIRED], then a re-wait or a give-up. `arrivalCs`: a piano onset known past it. */
     auto closeChordWindow(std::optional<int32_t> arrivalCs) -> std::vector<OutNote>;
     /** Chord mode: piano quads still showing a replaceable [DUR?] are frozen (a model-written unit follows them). */
     auto freezeUnknownDurations() -> void;

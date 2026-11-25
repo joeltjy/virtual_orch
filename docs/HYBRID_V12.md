@@ -227,6 +227,21 @@ What the numbers say:
 - **The full Hybrid (model 1 + model 2) could not be run here:** `rt_continuation_latest.onnx` is not on this
   Mac. `InformativeWaitOnnx.HybridV12LoadsTheChordModel` checks that load where both exports exist.
 
+## Model 2 start delay, r3b, and more v1.1 commits (2026-11-25)
+
+- **Start delay.** For the first `startDelayMs` of a performance (preset field; `hybrid_v12.json` sets 3000),
+  model 2 draws nothing: no orchestra note and no WAIT. The piano still goes into its context. The model never saw a
+  context without orchestra, and in tests this cut free-note clusters a lot. The delay counts from the engine's reset
+  (performance start or restart), not from each model 1 -> 2 switch. A preset without the field defaults to 3000 ms
+  when it names a `voicingBank` (v1.2), else 0, so v1.1 presets are unchanged.
+  Engine: `Settings::startDelayCs`; test `ChordTokenEngine.NothingIsDrawnDuringTheStartDelay`.
+- **Piano pitch at a plain note** (the sampler's rule): already in since b947e2f, see above.
+- **Model 2 = r3b.** `simultaneous_chordtokens_m2c_r3b_kv` (run ovn_m2c_r3b): the same tokens as r2b, trained with
+  all piano notes first at every joint onset, which is the order the engine writes them live.
+- **Brought in from origin/informative-wait:** 7ee0e89 + 6e15984 (split OT export: backbone once per note, decoder
+  per step) and ededfdf + b045041 (Mono pad fixes). Still not taken: fae4bd7, d59171a; 9342c57 (logs) waits for
+  Joel's confirmation.
+
 ## Open points for Joel
 
 - **Root-field offset: fixed (2026-11-24).** The first m2c tokenizer named CHORD roots from the token

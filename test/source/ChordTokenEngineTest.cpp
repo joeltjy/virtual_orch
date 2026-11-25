@@ -864,3 +864,25 @@ TEST(ChordTokenEngine, NoPlainNoteAtTheOnsetOfAChordBlockOrOfASeveralNotePianoGr
             EXPECT_GT(toks[i], 30) << "a plain quad at the block's onset";
     }
 }
+
+// The v1.2 start delay: for the first startDelayCs after reset() the piano goes into the context but nothing is
+// drawn (no orchestra note, no WAIT); afterwards the engine plays as before.
+TEST(ChordTokenEngine, NothingIsDrawnDuringTheStartDelay) {
+    ChordRig rig(false);
+    auto s = rig.engine.settings();
+    s.startDelayCs = 300;
+    rig.engine.setSettings(s);
+    rig.engine.reset(0);
+    rig.engine.noteOn(0, 60, 80);
+    rig.engine.noteOn(100, 64, 80);
+    rig.run(0, 299);
+    EXPECT_TRUE(rig.played.empty());
+    EXPECT_EQ(rig.engine.stats().waitsDrawn, 0);
+    const auto toks = rig.engine.tokens();
+    for (size_t i = 0; i + 3 < toks.size(); i += 4)
+        EXPECT_FALSE(toks[i + 2] >= Engine::kOrch0 && toks[i + 2] < Engine::kVel0);
+    rig.run(300, 400);
+    EXPECT_FALSE(rig.played.empty() && rig.engine.stats().waitsDrawn == 0);
+    for (const auto &n: rig.played)
+        EXPECT_GE(n.onsetCs, 300);
+}

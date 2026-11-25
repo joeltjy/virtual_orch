@@ -182,6 +182,7 @@ auto HybridInformativeWaitReductionTransformer::applySettings() -> void {
     w.fireWindowCs = 6;         // +-6 cs, as in training
     w.waitTopK = 3;             // a piano onset at any of the model's 3 most likely WAIT lengths fires
     w.minWaitCs = minWaitCs.load(); // the checkpoint JSON's "minWaitCs" (0 = any length)
+    w.startDelayCs = startDelayMs.load() / 10; // ... and "startDelayMs" (v1.2 default 3000)
     w.shortWaitRedraw = shortWaitRedraw.load(); // ... and "shortWaitRedraw"
     w.expiryGraceCs = 20;       // live input arrives ~12 cs late (p90 ~15): wait for it before expiring
     // a pitch outside the anticipated top 5 is decoded for the note played (not the rank-1 branch's):

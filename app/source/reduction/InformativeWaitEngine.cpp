@@ -82,6 +82,7 @@ auto InformativeWaitEngine::reset(int32_t startCs) -> void {
     cur = {};
     baseCs = 0;
     nowCs = startCs;
+    startedAtCs = startCs;
     started = true;
     pending.reset();
     group.reset();
@@ -2153,6 +2154,8 @@ auto InformativeWaitEngine::step(int32_t stepNowCs) -> std::vector<OutNote> {
         return out; // a piano group is still being collected / no context yet
     if (! isLine() && cur.clockCs > nowCs + cfg.drawAheadCs)
         return out; // far enough ahead
+    if (cfg.startDelayCs > 0 && nowCs < startedAtCs + cfg.startDelayCs)
+        return out; // the start delay: the piano only, nothing drawn yet
     out = drawEvent();
     maybeShrinkContext();
     return out;

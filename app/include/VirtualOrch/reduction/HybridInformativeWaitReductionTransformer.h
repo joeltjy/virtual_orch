@@ -90,6 +90,8 @@ public:
     auto setPrecompute(bool on) -> void { precompute.store(on); }
     /** Model 2's shortest allowed WAIT (cs; 0 = any): InformativeWaitEngine::Settings::minWaitCs. */
     auto setMinWaitCs(int32_t cs) -> void { minWaitCs.store(cs); }
+    /** Model 2's start delay (ms; 0 = none): InformativeWaitEngine::Settings::startDelayCs. */
+    auto setStartDelayMs(int32_t ms) -> void { startDelayMs.store(ms); }
     /** A short WAIT's orchestra note: at its predicted onset (false) or at a redrawn onset (true). */
     auto setShortWaitRedraw(bool on) -> void { shortWaitRedraw.store(on); }
     [[nodiscard]] auto usesSilentModel() const -> bool { return silentActive.load(); }
@@ -165,6 +167,7 @@ private:
     std::atomic<int> waitMode{0};
     std::atomic<bool> precompute{true};
     std::atomic<int32_t> minWaitCs{0};
+    std::atomic<int32_t> startDelayMs{0};
     std::atomic<bool> shortWaitRedraw{false};
     std::atomic<bool> chordModel{false};
     std::shared_ptr<const VoicingBank> voicings;

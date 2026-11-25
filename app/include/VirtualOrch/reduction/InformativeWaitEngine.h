@@ -169,6 +169,11 @@ public:
          * 0 = the model's full range.
          */
         int32_t minWaitCs = 0;
+        /**
+         * No orchestra and no WAIT drawn for the first startDelayCs after reset() (the piano still goes into the
+         * context): the model has never seen a context without orchestra (Hybrid v1.2 preset "startDelayMs").
+         */
+        int32_t startDelayCs = 0;
         /** A WAIT under minWaitCs: false = the orchestra note at the WAIT's predicted onset, true = an onset redrawn. */
         bool shortWaitRedraw = false;
         /**
@@ -591,6 +596,7 @@ private:
     Cursor cur;
     int32_t baseCs = 0;
     int32_t nowCs = 0;
+    int32_t startedAtCs = 0; // reset() time (cfg.startDelayCs)
     bool started = false;
     std::optional<Pending> pending;
     std::optional<OpenGroup> group;

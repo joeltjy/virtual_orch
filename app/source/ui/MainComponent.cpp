@@ -1413,6 +1413,9 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
                 hy.setPrecompute(static_cast<bool>(parsedJson.getProperty("precompute", true)));
                 hy.setMinWaitCs(static_cast<int32_t>(parsedJson.getProperty("minWaitCs", 0)));
                 hy.setShortWaitRedraw(static_cast<bool>(parsedJson.getProperty("shortWaitRedraw", false)));
+                // model 2's start delay: v1.2 presets (a voicing bank) default to 3000 ms, v1.1 presets to none
+                hy.setStartDelayMs(static_cast<int32_t>(parsedJson.getProperty(
+                    "startDelayMs", parsedJson.hasProperty("voicingBank") ? 3000 : 0)));
                 // v1.2 (chord-token model 2): the voicing bank that decodes CHORD blocks for the OT. An absolute
                 // path, or a file name looked up next to the ONNX exports, then next to the JSON.
                 hy.setVoicingBank(nullptr);

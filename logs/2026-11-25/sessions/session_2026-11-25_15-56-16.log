@@ -1,0 +1,53 @@
+0.1 | clock - | SESSION | start 25 Nov 2026 15:56:16
+0.2 | clock - | SESSION | launchpad layout 2
+5786.0 | clock 0 | HYBRID | loaded hybrid_v11
+5804.9 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+6886.3 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | F0 00 20 29 02 0D 00 7F F7 (f0 00 20 29 02 0d 00 7f f7)
+6913.5 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+6915.0 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+8743.8 | clock 0 | HYBRID | loaded hybrid_v11_fast
+8743.9 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+11311.4 | clock 0 | MODE | Jam
+36377.5 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+36557.1 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+37433.9 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 41 7F (Note on F3 Velocity 127 Channel 1)
+37434.0 | clock 0 | LAUNCHPAD | Model: Str Ens on
+37441.0 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 42 7F (Note on F#3 Velocity 127 Channel 1)
+37441.1 | clock 0 | LAUNCHPAD | Model: Pizz on
+37448.8 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 43 7F (Note on G3 Velocity 127 Channel 1)
+37449.0 | clock 0 | LAUNCHPAD | Model: Tremolo on
+37563.2 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 41 00 (Note off F3 Velocity 0 Channel 1)
+37588.3 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 42 00 (Note off F#3 Velocity 0 Channel 1)
+37594.2 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 43 00 (Note off G3 Velocity 0 Channel 1)
+37675.0 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 38 7F (Note on G#2 Velocity 127 Channel 1)
+37675.1 | clock 0 | LAUNCHPAD | Model: Oboe on
+37678.4 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 39 7F (Note on A2 Velocity 127 Channel 1)
+37678.5 | clock 0 | LAUNCHPAD | Model: Clarinet on
+37680.7 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 37 7F (Note on G2 Velocity 127 Channel 1)
+37680.8 | clock 0 | LAUNCHPAD | Model: Flute on
+37777.1 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 37 00 (Note off G2 Velocity 0 Channel 1)
+37797.9 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 38 00 (Note off G#2 Velocity 0 Channel 1)
+37808.1 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 39 00 (Note off A2 Velocity 0 Channel 1)
+37878.0 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2F 7F (Note on B1 Velocity 127 Channel 1)
+37878.2 | clock 0 | LAUNCHPAD | Model: Trombone on
+37878.7 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2E 7F (Note on A#1 Velocity 127 Channel 1)
+37878.8 | clock 0 | LAUNCHPAD | Model: Trumpet on
+37879.5 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2D 7F (Note on A1 Velocity 127 Channel 1)
+37879.6 | clock 0 | LAUNCHPAD | Model: Horn on
+37972.2 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2D 00 (Note off A1 Velocity 0 Channel 1)
+37989.3 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2E 00 (Note off A#1 Velocity 0 Channel 1)
+38005.9 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2F 00 (Note off B1 Velocity 0 Channel 1)
+38601.8 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+44298.2 | clock 0 | UI | Preset applied: {"model": "hybrid_v11_fast", "orchestrationModel": "IodPretrained", "orchestrationMode": "jam", "reduction": "hybridInformativeWait", "inputMode": "direct", "directInputWindowLength": 0, "directInputSendNoteOffs": true, "directInputStartOnInput": false, "directInputStartDelay": 0, "directInputHoldBass": false, "directInputBassLow": 24, "directInputBassHigh": 36, "directInputInitialBass": -1, "inputInstrument": 0, "inputLow": 36, "inputHigh": 120, "inputDuration": 400, "inputInitialData": "", "contextNotes": 40, "outputMinimumDuration": 10, "outputMaximumDuration": 999, "outputTemperatures": [0.5, 0.5, 0.5], "outputStartTime": 0, "outputForceStartTime": false, "outputMaxAheadSeconds": 5, "outputAheadThrottleSeconds": 2, "outputInstruments": [{"id": 1, "active": false, "monophony": false, "low": 36, "high": 120}], "logitAdjustments": {"biasesOn": true, "biasesOnlyWhenPianoSilent": false, "presetRegisterMix": false, "logitTdStrength": 6.0, "model": {"pitchBias": true, "durationBias": true, "onsetGapBias": true, "shortGapPenalty": true, "logitTd": true, "pitchTau": 0.2000000029802322, "pitchTauPrime": 0.2000000029802322, "durationTau": 0.5, "durationTauPrime": 0.300000011920929, "onsetGapTau": 0.5, "waitMinPlay": 0.300000011920929}, "hybridV1": {"pitchBias": true, "durationBias": true, "onsetGapBias": true, "shortGapPenalty": true, "logitTd": true}}}
+44298.5 | clock 0 | HYBRID | rt_continuation_latest from 0 (start)
+64751.8 | clock 2046 | MIDI_OUT | clear: note off on every channel and pitch
+64905.8 | clock 2046 | MIDI_OUT | clear: note off on every channel and pitch
+65075.0 | clock 2046 | MIDI_OUT | clear: note off on every channel and pitch
+65248.6 | clock 2046 | MIDI_OUT | clear: note off on every channel and pitch
+77457.6 | clock 2046 | MIDI_OUT | clear: note off on every channel and pitch
+77581.4 | clock 2046 | MIDI_OUT | clear: note off on every channel and pitch
+78504.2 | clock 0 | UI | Preset applied: {"model": "hybrid_v11_fast", "orchestrationModel": "IodPretrained", "orchestrationMode": "jam", "reduction": "hybridInformativeWait", "inputMode": "direct", "directInputWindowLength": 0, "directInputSendNoteOffs": true, "directInputStartOnInput": false, "directInputStartDelay": 0, "directInputHoldBass": false, "directInputBassLow": 24, "directInputBassHigh": 36, "directInputInitialBass": -1, "inputInstrument": 0, "inputLow": 36, "inputHigh": 120, "inputDuration": 400, "inputInitialData": "", "contextNotes": 40, "outputMinimumDuration": 10, "outputMaximumDuration": 999, "outputTemperatures": [0.5, 0.5, 0.5], "outputStartTime": 0, "outputForceStartTime": false, "outputMaxAheadSeconds": 5, "outputAheadThrottleSeconds": 2, "outputInstruments": [{"id": 1, "active": false, "monophony": false, "low": 36, "high": 120}], "logitAdjustments": {"biasesOn": true, "biasesOnlyWhenPianoSilent": false, "presetRegisterMix": false, "logitTdStrength": 6.0, "model": {"pitchBias": true, "durationBias": true, "onsetGapBias": true, "shortGapPenalty": true, "logitTd": true, "pitchTau": 0.2000000029802322, "pitchTauPrime": 0.2000000029802322, "durationTau": 0.5, "durationTauPrime": 0.300000011920929, "onsetGapTau": 0.5, "waitMinPlay": 0.300000011920929}, "hybridV1": {"pitchBias": true, "durationBias": true, "onsetGapBias": true, "shortGapPenalty": true, "logitTd": true}}}
+78504.5 | clock 0 | HYBRID | rt_continuation_latest from 0 (start)
+93548.9 | clock - | MIDI_OUT | clear: note off on every channel and pitch
+93684.4 | clock - | MIDI_OUT | clear: note off on every channel and pitch
+95722.5 | clock - | SESSION | stop

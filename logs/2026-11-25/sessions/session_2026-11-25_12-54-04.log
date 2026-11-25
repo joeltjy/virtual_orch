@@ -1,0 +1,8 @@
+0.1 | clock - | SESSION | start 25 Nov 2026 12:54:04
+0.2 | clock - | SESSION | launchpad layout 2
+5050.2 | clock 0 | HYBRID | loaded hybrid_v11
+5067.7 | clock 0 | PEDAL | pedal device selected: orchestra silent until pedal down
+5067.7 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+6232.6 | clock - | MIDI_OUT | clear: note off on every channel and pitch
+6346.7 | clock - | MIDI_OUT | clear: note off on every channel and pitch
+8377.3 | clock - | SESSION | stop

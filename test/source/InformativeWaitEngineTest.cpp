@@ -324,6 +324,45 @@ TEST(InformativeWaitEngine, NoPianoWritesExpired) {
     EXPECT_EQ(rig.engine.stats().waitsDrawn, 2);
 }
 
+TEST(InformativeWaitEngine, AnOpenEndedWaitNeverExpiresAndFiresOnALateKey) {
+    Rig rig(Engine::Mode::Unconstrained);
+    auto s = rig.engine.settings();
+    s.openEndedWait = true;
+    s.expiryGraceCs = 20;
+    rig.engine.setSettings(s);
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 200); // [WAIT 30]: its window [24, 36] closed long ago
+    EXPECT_TRUE(rig.engine.hasPendingWait()) << "waits for the pianist";
+    EXPECT_EQ(rig.engine.stats().expired, 0);
+    EXPECT_TRUE(rig.played.empty());
+    rig.engine.noteOn(201, 60, 80);
+    const auto out = rig.engine.step(201);
+    ASSERT_EQ(out.size(), 2u);
+    for (const auto &n: out) {
+        EXPECT_EQ(n.onsetCs, 201);
+        EXPECT_TRUE(n.precomputed);
+    }
+    EXPECT_EQ(rig.engine.stats().fires, 1);
+    EXPECT_FALSE(rig.engine.hasPendingWait());
+    const auto toks = rig.engine.tokens();
+    EXPECT_EQ(toks[4], Engine::waitToken(201)) << "the WAIT says how long it was";
+    EXPECT_EQ(std::find(toks.begin(), toks.end(), Engine::kExpired), toks.end());
+}
+
+TEST(InformativeWaitEngine, AnOpenEndedWaitStillTakesAnEarlyKeyAsInput) {
+    Rig rig(Engine::Mode::Unconstrained);
+    auto s = rig.engine.settings();
+    s.openEndedWait = true;
+    rig.engine.setSettings(s);
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 15); // [WAIT 30] drawn at 5: window from 29
+    ASSERT_TRUE(rig.engine.hasPendingWait());
+    rig.engine.noteOn(16, 62, 80); // before t - 6: early, ordinary input
+    rig.run(16, 16);
+    EXPECT_EQ(rig.engine.stats().earlyPiano, 1);
+    EXPECT_EQ(rig.engine.stats().fires, 0);
+}
+
 TEST(InformativeWaitEngine, AWiderWindowExpiresLater) {
     Rig rig(Engine::Mode::Unconstrained);
     auto s = rig.engine.settings();

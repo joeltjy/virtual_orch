@@ -64,6 +64,8 @@ public:
     static constexpr int32_t kExpired = 11878;
     static constexpr int32_t kVocab = 11879;
     static constexpr int32_t kGrid = 3;
+    /** An open-ended WAIT's hi(): never reached (and safe to add a grace to). */
+    static constexpr int32_t kNeverCs = 1 << 29;
     // The default fire window around a WAIT's predicted onset (Settings::fireWindowCs): +-kEps.
     static constexpr int32_t kEps = 6;
     static constexpr int32_t kMaxWait = 300;
@@ -123,6 +125,13 @@ public:
          * at once (it shows the window closed empty).
          */
         int32_t expiryGraceCs = 0;
+        /**
+         * One-sided window: a model WAIT never expires; it waits for the pianist. A piano onset at or after
+         * the earliest window's start (t - fireWindowCs over the top-K lengths) fires: within a length's
+         * window as before, later (or between two windows) with the WAIT rewritten to the time that passed
+         * (capped at 300 cs, the longest WAIT token). Line modes' provisional WAITs are unchanged. Nov 24 2026.
+         */
+        bool openEndedWait = false;
         float otherTemperature = 0.5f; // duration / pitch / velocity
         float minP = 0.25f;            // duration / pitch / velocity (0 = off)
         float topP = 0.98f;
@@ -357,6 +366,7 @@ private:
         size_t waitItem = 0;      // index of the WAIT item
         std::vector<int32_t> alts; // other WAIT lengths that also count (the model's most likely ones)
         int32_t win = kEps;        // the fire window: +-win cs around each length
+        bool openEnded = false;    // never expires: any onset from lo() on fires (Settings::openEndedWait)
         [[nodiscard]] auto lowest() const -> int32_t {
             int32_t m = d;
             for (const int32_t a: alts)
@@ -371,7 +381,11 @@ private:
         }
         /** Before this, a piano onset is early; after hi, the WAIT has expired (over all the lengths). */
         [[nodiscard]] auto lo() const -> int32_t { return refCs + lowest() - win; }
-        [[nodiscard]] auto hi(bool line) const -> int32_t { return line ? refCs + d : refCs + highest() + win; }
+        [[nodiscard]] auto hi(bool line) const -> int32_t {
+            if (line)
+                return refCs + d;
+            return openEnded ? kNeverCs : refCs + highest() + win;
+        }
         /** The length whose window holds this onset (the drawn one first, then the nearest), if any. */
         [[nodiscard]] auto match(int32_t onsetCs) const -> std::optional<int32_t> {
             const auto in = [&](int32_t x) { return onsetCs >= refCs + x - win && onsetCs <= refCs + x + win; };
@@ -381,6 +395,8 @@ private:
             for (const int32_t a: alts)
                 if (in(a) && (! best || std::abs(onsetCs - refCs - a) < std::abs(onsetCs - refCs - *best)))
                     best = a;
+            if (! best && openEnded && onsetCs >= lo()) // later than every window, or between two: what passed
+                best = std::clamp(onsetCs - refCs, 3, 300);
             return best;
         }
     };

@@ -584,9 +584,12 @@ auto InformativeWaitEngine::onGroupHead(const PianoNote &head) -> std::vector<Ou
         } else {
             if (*length != pending->d) {
                 // one of the model's most likely lengths: the WAIT is rewritten to it, then fires
-                event("snap", head.onsetCs, pending->d, *length, "WAIT rewritten to a top-" + std::to_string(cfg.waitTopK) + " length");
+                const bool inAWindow = std::abs(head.onsetCs - pending->refCs - *length) <= pending->win;
+                event("snap", head.onsetCs, pending->d, *length,
+                      inAWindow ? "WAIT rewritten to a top-" + std::to_string(cfg.waitTopK) + " length"
+                                : "WAIT rewritten to the time that passed (open-ended: no expiry)");
                 items[pending->waitItem].token = waitToken(*length);
-                pending->d = *length;
+                pending->d = waitValue(waitToken(*length));
                 ++st.waitSnaps;
             }
             group->fired = true;
@@ -1035,6 +1038,7 @@ auto InformativeWaitEngine::drawEvent() -> std::vector<OutNote> {
         pending = Pending{cur.clockCs, d, k, false, at};
         pending->alts = std::move(alts);
         pending->win = cfg.fireWindowCs;
+        pending->openEnded = cfg.openEndedWait;
         ++st.waitsDrawn;
         if (d >= 10)
             ++st.waitsGe10;

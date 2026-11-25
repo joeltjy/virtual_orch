@@ -1,0 +1,469 @@
+0.1 | clock - | SESSION | start 24 Nov 2026 12:08:06
+0.2 | clock - | SESSION | launchpad layout 2
+5183.3 | clock 0 | HYBRID | loaded hybrid_v11
+5206.0 | clock 0 | PEDAL | pedal device selected: orchestra silent until pedal down
+5206.5 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+6287.4 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | F0 00 20 29 02 0D 00 7F F7 (f0 00 20 29 02 0d 00 7f f7)
+6847.1 | clock 0 | MODE | Jam
+15738.5 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 41 7F (Note on F3 Velocity 127 Channel 1)
+15739.0 | clock 0 | LAUNCHPAD | Model: Str Ens on
+15739.1 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 42 7F (Note on F#3 Velocity 127 Channel 1)
+15739.3 | clock 0 | LAUNCHPAD | Model: Pizz on
+15749.0 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 43 7F (Note on G3 Velocity 127 Channel 1)
+15749.2 | clock 0 | LAUNCHPAD | Model: Tremolo on
+15820.8 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 41 00 (Note off F3 Velocity 0 Channel 1)
+15838.5 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 42 00 (Note off F#3 Velocity 0 Channel 1)
+15839.5 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 43 00 (Note off G3 Velocity 0 Channel 1)
+15967.3 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 37 7F (Note on G2 Velocity 127 Channel 1)
+15967.5 | clock 0 | LAUNCHPAD | Model: Flute on
+16031.7 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 37 00 (Note off G2 Velocity 0 Channel 1)
+16216.0 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2E 7F (Note on A#1 Velocity 127 Channel 1)
+16216.1 | clock 0 | LAUNCHPAD | Model: Trumpet on
+16217.7 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2F 7F (Note on B1 Velocity 127 Channel 1)
+16217.9 | clock 0 | LAUNCHPAD | Model: Trombone on
+16218.2 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2D 7F (Note on A1 Velocity 127 Channel 1)
+16218.3 | clock 0 | LAUNCHPAD | Model: Horn on
+16305.7 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2D 00 (Note off A1 Velocity 0 Channel 1)
+16320.8 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2E 00 (Note off A#1 Velocity 0 Channel 1)
+16334.7 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 2F 00 (Note off B1 Velocity 0 Channel 1)
+26415.4 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+26417.5 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+29137.2 | clock 0 | HYBRID | loaded hybrid_v11_minwait250_redraw
+29137.2 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+40134.1 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 38 7F (Note on G#2 Velocity 127 Channel 1)
+40134.2 | clock 0 | LAUNCHPAD | Model: Oboe on
+40140.7 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 39 7F (Note on A2 Velocity 127 Channel 1)
+40140.8 | clock 0 | LAUNCHPAD | Model: Clarinet on
+40255.2 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 38 00 (Note off G#2 Velocity 0 Channel 1)
+40262.2 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 39 00 (Note off A2 Velocity 0 Channel 1)
+40807.4 | clock 0 | UI | Preset applied: {"model": "hybrid_v11_minwait250_redraw", "orchestrationModel": "IodPretrained", "orchestrationMode": "jam", "reduction": "hybridInformativeWait", "inputMode": "direct", "directInputWindowLength": 10, "directInputSendNoteOffs": true, "directInputStartOnInput": false, "directInputStartDelay": 0, "directInputHoldBass": false, "directInputBassLow": 24, "directInputBassHigh": 36, "directInputInitialBass": -1, "inputInstrument": 0, "inputLow": 36, "inputHigh": 120, "inputDuration": 400, "inputInitialData": "", "contextNotes": 40, "outputMinimumDuration": 1, "outputMaximumDuration": 200, "outputTemperatures": [0.2, 0.2, 0.2], "outputStartTime": 0, "outputForceStartTime": false, "outputMaxAheadSeconds": 5, "outputAheadThrottleSeconds": 2, "outputInstruments": [{"id": 1, "active": false, "monophony": false, "low": 36, "high": 120}], "logitAdjustments": {"biasesOn": true, "biasesOnlyWhenPianoSilent": false, "logitTdStrength": 6.0, "model": {"pitchBias": false, "durationBias": false, "onsetGapBias": false, "shortGapPenalty": false, "logitTd": false, "pitchTau": 0.2000000029802322, "pitchTauPrime": 0.2000000029802322, "durationTau": 0.5, "durationTauPrime": 0.0, "onsetGapTau": 0.5, "waitMinPlay": 0.300000011920929}, "hybridV1": {"pitchBias": true, "durationBias": true, "onsetGapBias": true, "shortGapPenalty": true, "logitTd": true}}}
+40807.7 | clock 0 | HYBRID | rt_continuation_latest from 0 (start)
+44696.3 | clock 389 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 40 45 (Note on E3 Velocity 69 Channel 1)
+44696.4 | clock 389 | MIDI_OUT | thru | 9F 40 45 (Note on E3 Velocity 69 Channel 16)
+44697.2 | clock 389 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3C 3F (Note on C3 Velocity 63 Channel 1)
+44697.2 | clock 389 | MIDI_OUT | thru | 9F 3C 3F (Note on C3 Velocity 63 Channel 16)
+44698.0 | clock 389 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 4F 4C (Note on G4 Velocity 76 Channel 1)
+44698.0 | clock 389 | MIDI_OUT | thru | 9F 4F 4C (Note on G4 Velocity 76 Channel 16)
+44701.2 | clock 389 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 43 38 (Note on G3 Velocity 56 Channel 1)
+44701.3 | clock 389 | MIDI_OUT | thru | 9F 43 38 (Note on G3 Velocity 56 Channel 16)
+44701.8 | clock 389 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 4C 50 (Note on E4 Velocity 80 Channel 1)
+44701.9 | clock 389 | MIDI_OUT | thru | 9F 4C 50 (Note on E4 Velocity 80 Channel 16)
+44704.6 | clock 390 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 48 43 (Note on C4 Velocity 67 Channel 1)
+44704.7 | clock 390 | MIDI_OUT | thru | 9F 48 43 (Note on C4 Velocity 67 Channel 16)
+44818.6 | clock 401 | IWAIT | m1 | piano @389 6 0
+44818.6 | clock 401 | IWAIT | m2 | piano @389 6 0
+45232.3 | clock 442 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 48 00 (Note off C4 Velocity 0 Channel 1)
+45232.3 | clock 442 | MIDI_OUT | thru | 8F 48 00 (Note off C4 Velocity 0 Channel 16)
+45353.6 | clock 454 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 4C 00 (Note off E4 Velocity 0 Channel 1)
+45353.7 | clock 454 | MIDI_OUT | thru | 8F 4C 00 (Note off E4 Velocity 0 Channel 16)
+45403.7 | clock 459 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 40 00 (Note off E3 Velocity 0 Channel 1)
+45403.7 | clock 459 | MIDI_OUT | thru | 8F 40 00 (Note off E3 Velocity 0 Channel 16)
+45403.7 | clock 459 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 4F 00 (Note off G4 Velocity 0 Channel 1)
+45403.7 | clock 459 | MIDI_OUT | thru | 8F 4F 00 (Note off G4 Velocity 0 Channel 16)
+45427.0 | clock 462 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3C 00 (Note off C3 Velocity 0 Channel 1)
+45427.0 | clock 462 | MIDI_OUT | thru | 8F 3C 00 (Note off C3 Velocity 0 Channel 16)
+45443.4 | clock 463 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 43 00 (Note off G3 Velocity 0 Channel 1)
+45443.4 | clock 463 | MIDI_OUT | thru | 8F 43 00 (Note off G3 Velocity 0 Channel 16)
+45686.2 | clock 488 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 4F 4E (Note on G4 Velocity 78 Channel 1)
+45686.2 | clock 488 | MIDI_OUT | thru | 9F 4F 4E (Note on G4 Velocity 78 Channel 16)
+45689.4 | clock 488 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 4C 55 (Note on E4 Velocity 85 Channel 1)
+45689.4 | clock 488 | MIDI_OUT | thru | 9F 4C 55 (Note on E4 Velocity 85 Channel 16)
+45690.7 | clock 488 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 48 43 (Note on C4 Velocity 67 Channel 1)
+45690.7 | clock 488 | MIDI_OUT | thru | 9F 48 43 (Note on C4 Velocity 67 Channel 16)
+45703.5 | clock 489 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 43 38 (Note on G3 Velocity 56 Channel 1)
+45703.5 | clock 489 | MIDI_OUT | thru | 9F 43 38 (Note on G3 Velocity 56 Channel 16)
+45703.8 | clock 489 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 40 48 (Note on E3 Velocity 72 Channel 1)
+45703.8 | clock 489 | MIDI_OUT | thru | 9F 40 48 (Note on E3 Velocity 72 Channel 16)
+45710.3 | clock 490 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3C 44 (Note on C3 Velocity 68 Channel 1)
+45710.3 | clock 490 | MIDI_OUT | thru | 9F 3C 44 (Note on C3 Velocity 68 Channel 16)
+45831.2 | clock 502 | IWAIT | m1 | piano @488 6 0
+45831.2 | clock 502 | IWAIT | m2 | piano @488 6 0
+46333.9 | clock 552 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 40 00 (Note off E3 Velocity 0 Channel 1)
+46334.0 | clock 552 | MIDI_OUT | thru | 8F 40 00 (Note off E3 Velocity 0 Channel 16)
+46341.8 | clock 553 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3C 00 (Note off C3 Velocity 0 Channel 1)
+46341.9 | clock 553 | MIDI_OUT | thru | 8F 3C 00 (Note off C3 Velocity 0 Channel 16)
+46347.7 | clock 554 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 4C 00 (Note off E4 Velocity 0 Channel 1)
+46347.7 | clock 554 | MIDI_OUT | thru | 8F 4C 00 (Note off E4 Velocity 0 Channel 16)
+46359.4 | clock 555 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 48 00 (Note off C4 Velocity 0 Channel 1)
+46359.4 | clock 555 | MIDI_OUT | thru | 8F 48 00 (Note off C4 Velocity 0 Channel 16)
+46370.7 | clock 556 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 4F 00 (Note off G4 Velocity 0 Channel 1)
+46370.7 | clock 556 | MIDI_OUT | thru | 8F 4F 00 (Note off G4 Velocity 0 Channel 16)
+46371.9 | clock 556 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 43 00 (Note off G3 Velocity 0 Channel 1)
+46372.0 | clock 556 | MIDI_OUT | thru | 8F 43 00 (Note off G3 Velocity 0 Channel 16)
+46502.9 | clock 569 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 48 45 (Note on C4 Velocity 69 Channel 1)
+46503.0 | clock 569 | MIDI_OUT | thru | 9F 48 45 (Note on C4 Velocity 69 Channel 16)
+46506.3 | clock 570 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 4F 50 (Note on G4 Velocity 80 Channel 1)
+46506.4 | clock 570 | MIDI_OUT | thru | 9F 4F 50 (Note on G4 Velocity 80 Channel 16)
+46507.9 | clock 570 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 4C 53 (Note on E4 Velocity 83 Channel 1)
+46508.0 | clock 570 | MIDI_OUT | thru | 9F 4C 53 (Note on E4 Velocity 83 Channel 16)
+46530.0 | clock 572 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 40 53 (Note on E3 Velocity 83 Channel 1)
+46530.1 | clock 572 | MIDI_OUT | thru | 9F 40 53 (Note on E3 Velocity 83 Channel 16)
+46530.1 | clock 572 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3C 48 (Note on C3 Velocity 72 Channel 1)
+46530.1 | clock 572 | MIDI_OUT | thru | 9F 3C 48 (Note on C3 Velocity 72 Channel 16)
+46530.6 | clock 572 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 43 43 (Note on G3 Velocity 67 Channel 1)
+46530.6 | clock 572 | MIDI_OUT | thru | 9F 43 43 (Note on G3 Velocity 67 Channel 16)
+46585.7 | clock 578 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 4C 00 (Note off E4 Velocity 0 Channel 1)
+46585.7 | clock 578 | MIDI_OUT | thru | 8F 4C 00 (Note off E4 Velocity 0 Channel 16)
+46589.0 | clock 578 | IWAIT | m1 | piano @570 1 0
+46589.0 | clock 578 | IWAIT | m2 | piano @570 1 0
+46610.3 | clock 580 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 48 00 (Note off C4 Velocity 0 Channel 1)
+46610.3 | clock 580 | MIDI_OUT | thru | 8F 48 00 (Note off C4 Velocity 0 Channel 16)
+46614.9 | clock 581 | IWAIT | m1 | piano @569 1 0
+46614.9 | clock 581 | IWAIT | m2 | piano @569 1 0
+46615.6 | clock 581 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 40 00 (Note off E3 Velocity 0 Channel 1)
+46615.6 | clock 581 | MIDI_OUT | thru | 8F 40 00 (Note off E3 Velocity 0 Channel 16)
+46619.4 | clock 581 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 43 00 (Note off G3 Velocity 0 Channel 1)
+46619.5 | clock 581 | MIDI_OUT | thru | 8F 43 00 (Note off G3 Velocity 0 Channel 16)
+46620.1 | clock 581 | IWAIT | m1 | piano @572 2 0
+46620.1 | clock 581 | IWAIT | m2 | piano @572 2 0
+46624.1 | clock 581 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3C 00 (Note off C3 Velocity 0 Channel 1)
+46624.1 | clock 581 | MIDI_OUT | thru | 8F 3C 00 (Note off C3 Velocity 0 Channel 16)
+46625.3 | clock 582 | IWAIT | m1 | piano @572 1 0
+46625.3 | clock 582 | IWAIT | m2 | piano @572 1 0
+46627.1 | clock 582 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 4F 00 (Note off G4 Velocity 0 Channel 1)
+46627.1 | clock 582 | MIDI_OUT | thru | 8F 4F 00 (Note off G4 Velocity 0 Channel 16)
+46630.5 | clock 582 | IWAIT | m1 | piano @570 1 0
+46630.5 | clock 582 | IWAIT | m2 | piano @570 1 0
+46906.7 | clock 610 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 48 37 (Note on C4 Velocity 55 Channel 1)
+46906.7 | clock 610 | MIDI_OUT | thru | 9F 48 37 (Note on C4 Velocity 55 Channel 16)
+46908.4 | clock 610 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 51 50 (Note on A4 Velocity 80 Channel 1)
+46908.4 | clock 610 | MIDI_OUT | thru | 9F 51 50 (Note on A4 Velocity 80 Channel 16)
+46913.2 | clock 610 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 4D 44 (Note on F4 Velocity 68 Channel 1)
+46913.2 | clock 610 | MIDI_OUT | thru | 9F 4D 44 (Note on F4 Velocity 68 Channel 16)
+46931.9 | clock 612 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 41 50 (Note on F3 Velocity 80 Channel 1)
+46931.9 | clock 612 | MIDI_OUT | thru | 9F 41 50 (Note on F3 Velocity 80 Channel 16)
+46933.6 | clock 612 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3C 3D (Note on C3 Velocity 61 Channel 1)
+46933.6 | clock 612 | MIDI_OUT | thru | 9F 3C 3D (Note on C3 Velocity 61 Channel 16)
+46936.6 | clock 613 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 45 3B (Note on A3 Velocity 59 Channel 1)
+46936.6 | clock 613 | MIDI_OUT | thru | 9F 45 3B (Note on A3 Velocity 59 Channel 16)
+47051.8 | clock 624 | IWAIT | m1 | piano @610 6 0
+47051.8 | clock 624 | IWAIT | m2 | piano @610 6 0
+47707.2 | clock 690 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 45 00 (Note off A3 Velocity 0 Channel 1)
+47707.2 | clock 690 | MIDI_OUT | thru | 8F 45 00 (Note off A3 Velocity 0 Channel 16)
+47712.3 | clock 690 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 4D 00 (Note off F4 Velocity 0 Channel 1)
+47712.4 | clock 690 | MIDI_OUT | thru | 8F 4D 00 (Note off F4 Velocity 0 Channel 16)
+47722.0 | clock 691 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3C 00 (Note off C3 Velocity 0 Channel 1)
+47722.1 | clock 691 | MIDI_OUT | thru | 8F 3C 00 (Note off C3 Velocity 0 Channel 16)
+47725.9 | clock 692 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 51 00 (Note off A4 Velocity 0 Channel 1)
+47726.0 | clock 692 | MIDI_OUT | thru | 8F 51 00 (Note off A4 Velocity 0 Channel 16)
+47728.1 | clock 692 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 41 00 (Note off F3 Velocity 0 Channel 1)
+47728.1 | clock 692 | MIDI_OUT | thru | 8F 41 00 (Note off F3 Velocity 0 Channel 16)
+47729.4 | clock 692 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 48 00 (Note off C4 Velocity 0 Channel 1)
+47729.4 | clock 692 | MIDI_OUT | thru | 8F 48 00 (Note off C4 Velocity 0 Channel 16)
+47880.6 | clock 707 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 48 47 (Note on C4 Velocity 71 Channel 1)
+47880.7 | clock 707 | MIDI_OUT | thru | 9F 48 47 (Note on C4 Velocity 71 Channel 16)
+47886.3 | clock 708 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 4D 4C (Note on F4 Velocity 76 Channel 1)
+47886.3 | clock 708 | MIDI_OUT | thru | 9F 4D 4C (Note on F4 Velocity 76 Channel 16)
+47891.0 | clock 708 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 51 4D (Note on A4 Velocity 77 Channel 1)
+47891.1 | clock 708 | MIDI_OUT | thru | 9F 51 4D (Note on A4 Velocity 77 Channel 16)
+47893.1 | clock 708 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 45 37 (Note on A3 Velocity 55 Channel 1)
+47893.1 | clock 708 | MIDI_OUT | thru | 9F 45 37 (Note on A3 Velocity 55 Channel 16)
+47893.7 | clock 708 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 41 4B (Note on F3 Velocity 75 Channel 1)
+47893.7 | clock 708 | MIDI_OUT | thru | 9F 41 4B (Note on F3 Velocity 75 Channel 16)
+47897.4 | clock 709 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3C 41 (Note on C3 Velocity 65 Channel 1)
+47897.4 | clock 709 | MIDI_OUT | thru | 9F 3C 41 (Note on C3 Velocity 65 Channel 16)
+48008.0 | clock 720 | IWAIT | m1 | piano @707 6 0
+48008.0 | clock 720 | IWAIT | m2 | piano @707 6 0
+48529.0 | clock 772 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 51 00 (Note off A4 Velocity 0 Channel 1)
+48529.0 | clock 772 | MIDI_OUT | thru | 8F 51 00 (Note off A4 Velocity 0 Channel 16)
+48535.9 | clock 773 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 4D 00 (Note off F4 Velocity 0 Channel 1)
+48535.9 | clock 773 | MIDI_OUT | thru | 8F 4D 00 (Note off F4 Velocity 0 Channel 16)
+48545.7 | clock 774 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 48 00 (Note off C4 Velocity 0 Channel 1)
+48545.7 | clock 774 | MIDI_OUT | thru | 8F 48 00 (Note off C4 Velocity 0 Channel 16)
+48546.7 | clock 774 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 45 00 (Note off A3 Velocity 0 Channel 1)
+48546.7 | clock 774 | MIDI_OUT | thru | 8F 45 00 (Note off A3 Velocity 0 Channel 16)
+48548.4 | clock 774 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3C 00 (Note off C3 Velocity 0 Channel 1)
+48548.5 | clock 774 | MIDI_OUT | thru | 8F 3C 00 (Note off C3 Velocity 0 Channel 16)
+48562.7 | clock 775 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 41 00 (Note off F3 Velocity 0 Channel 1)
+48562.7 | clock 775 | MIDI_OUT | thru | 8F 41 00 (Note off F3 Velocity 0 Channel 16)
+48678.9 | clock 787 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 48 33 (Note on C4 Velocity 51 Channel 1)
+48678.9 | clock 787 | MIDI_OUT | thru | 9F 48 33 (Note on C4 Velocity 51 Channel 16)
+48686.4 | clock 788 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 4D 43 (Note on F4 Velocity 67 Channel 1)
+48686.5 | clock 788 | MIDI_OUT | thru | 9F 4D 43 (Note on F4 Velocity 67 Channel 16)
+48698.8 | clock 789 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 51 4F (Note on A4 Velocity 79 Channel 1)
+48698.9 | clock 789 | MIDI_OUT | thru | 9F 51 4F (Note on A4 Velocity 79 Channel 16)
+48703.7 | clock 789 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 45 40 (Note on A3 Velocity 64 Channel 1)
+48703.7 | clock 789 | MIDI_OUT | thru | 9F 45 40 (Note on A3 Velocity 64 Channel 16)
+48708.8 | clock 790 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 41 4C (Note on F3 Velocity 76 Channel 1)
+48708.8 | clock 790 | MIDI_OUT | thru | 9F 41 4C (Note on F3 Velocity 76 Channel 16)
+48710.3 | clock 790 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3C 46 (Note on C3 Velocity 70 Channel 1)
+48710.3 | clock 790 | MIDI_OUT | thru | 9F 3C 46 (Note on C3 Velocity 70 Channel 16)
+48789.0 | clock 798 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 45 00 (Note off A3 Velocity 0 Channel 1)
+48789.0 | clock 798 | MIDI_OUT | thru | 8F 45 00 (Note off A3 Velocity 0 Channel 16)
+48790.5 | clock 798 | IWAIT | m1 | piano @789 1 0
+48790.5 | clock 798 | IWAIT | m2 | piano @789 1 0
+48791.7 | clock 798 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 4D 00 (Note off F4 Velocity 0 Channel 1)
+48791.7 | clock 798 | MIDI_OUT | thru | 8F 4D 00 (Note off F4 Velocity 0 Channel 16)
+48795.8 | clock 799 | IWAIT | m1 | piano @788 1 0
+48795.8 | clock 799 | IWAIT | m2 | piano @788 1 0
+48807.7 | clock 800 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 48 00 (Note off C4 Velocity 0 Channel 1)
+48807.7 | clock 800 | MIDI_OUT | thru | 8F 48 00 (Note off C4 Velocity 0 Channel 16)
+48807.9 | clock 800 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 41 00 (Note off F3 Velocity 0 Channel 1)
+48807.9 | clock 800 | MIDI_OUT | thru | 8F 41 00 (Note off F3 Velocity 0 Channel 16)
+48811.2 | clock 800 | IWAIT | m1 | piano @787 2 0
+48811.2 | clock 800 | IWAIT | m2 | piano @787 2 0
+48812.2 | clock 800 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3C 00 (Note off C3 Velocity 0 Channel 1)
+48812.3 | clock 800 | MIDI_OUT | thru | 8F 3C 00 (Note off C3 Velocity 0 Channel 16)
+48816.4 | clock 801 | IWAIT | m1 | piano @790 1 0
+48816.5 | clock 801 | IWAIT | m2 | piano @790 1 0
+48821.7 | clock 801 | IWAIT | m1 | piano @789 1 0
+48821.7 | clock 801 | IWAIT | m2 | piano @789 1 0
+48824.4 | clock 801 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 51 00 (Note off A4 Velocity 0 Channel 1)
+48824.5 | clock 801 | MIDI_OUT | thru | 8F 51 00 (Note off A4 Velocity 0 Channel 16)
+49026.8 | clock 822 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3C 41 (Note on C3 Velocity 65 Channel 1)
+49026.8 | clock 822 | MIDI_OUT | thru | 9F 3C 41 (Note on C3 Velocity 65 Channel 16)
+49028.1 | clock 822 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 48 48 (Note on C4 Velocity 72 Channel 1)
+49028.2 | clock 822 | MIDI_OUT | thru | 9F 48 48 (Note on C4 Velocity 72 Channel 16)
+49030.5 | clock 822 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 4F 51 (Note on G4 Velocity 81 Channel 1)
+49030.6 | clock 822 | MIDI_OUT | thru | 9F 4F 51 (Note on G4 Velocity 81 Channel 16)
+49031.3 | clock 822 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 40 50 (Note on E3 Velocity 80 Channel 1)
+49031.4 | clock 822 | MIDI_OUT | thru | 9F 40 50 (Note on E3 Velocity 80 Channel 16)
+49031.5 | clock 822 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 4C 53 (Note on E4 Velocity 83 Channel 1)
+49031.6 | clock 822 | MIDI_OUT | thru | 9F 4C 53 (Note on E4 Velocity 83 Channel 16)
+49033.9 | clock 822 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 43 42 (Note on G3 Velocity 66 Channel 1)
+49034.0 | clock 822 | MIDI_OUT | thru | 9F 43 42 (Note on G3 Velocity 66 Channel 16)
+49147.8 | clock 834 | IWAIT | m1 | piano @822 6 0
+49147.9 | clock 834 | IWAIT | m2 | piano @822 6 0
+50799.8 | clock 999 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 4C 00 (Note off E4 Velocity 0 Channel 1)
+50799.8 | clock 999 | MIDI_OUT | thru | 8F 4C 00 (Note off E4 Velocity 0 Channel 16)
+50808.9 | clock 1000 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 4F 00 (Note off G4 Velocity 0 Channel 1)
+50808.9 | clock 1000 | MIDI_OUT | thru | 8F 4F 00 (Note off G4 Velocity 0 Channel 16)
+50822.4 | clock 1001 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3C 00 (Note off C3 Velocity 0 Channel 1)
+50822.5 | clock 1001 | MIDI_OUT | thru | 8F 3C 00 (Note off C3 Velocity 0 Channel 16)
+50823.2 | clock 1001 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 48 00 (Note off C4 Velocity 0 Channel 1)
+50823.2 | clock 1001 | MIDI_OUT | thru | 8F 48 00 (Note off C4 Velocity 0 Channel 16)
+50838.3 | clock 1003 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 40 00 (Note off E3 Velocity 0 Channel 1)
+50838.3 | clock 1003 | MIDI_OUT | thru | 8F 40 00 (Note off E3 Velocity 0 Channel 16)
+50851.6 | clock 1004 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 43 00 (Note off G3 Velocity 0 Channel 1)
+50851.6 | clock 1004 | MIDI_OUT | thru | 8F 43 00 (Note off G3 Velocity 0 Channel 16)
+52030.4 | clock 1122 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 4F 3F (Note on G4 Velocity 63 Channel 1)
+52030.4 | clock 1122 | MIDI_OUT | thru | 9F 4F 3F (Note on G4 Velocity 63 Channel 16)
+52037.5 | clock 1123 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 48 3C (Note on C4 Velocity 60 Channel 1)
+52037.6 | clock 1123 | MIDI_OUT | thru | 9F 48 3C (Note on C4 Velocity 60 Channel 16)
+52039.1 | clock 1123 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 4C 4B (Note on E4 Velocity 75 Channel 1)
+52039.2 | clock 1123 | MIDI_OUT | thru | 9F 4C 4B (Note on E4 Velocity 75 Channel 16)
+52046.9 | clock 1124 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3C 40 (Note on C3 Velocity 64 Channel 1)
+52047.0 | clock 1124 | MIDI_OUT | thru | 9F 3C 40 (Note on C3 Velocity 64 Channel 16)
+52053.9 | clock 1124 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 43 43 (Note on G3 Velocity 67 Channel 1)
+52054.0 | clock 1124 | MIDI_OUT | thru | 9F 43 43 (Note on G3 Velocity 67 Channel 16)
+52059.4 | clock 1125 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 40 45 (Note on E3 Velocity 69 Channel 1)
+52059.4 | clock 1125 | MIDI_OUT | thru | 9F 40 45 (Note on E3 Velocity 69 Channel 16)
+52174.7 | clock 1137 | IWAIT | m1 | piano @1122 6 0
+52174.7 | clock 1137 | IWAIT | m2 | piano @1122 6 0
+52823.6 | clock 1201 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 40 00 (Note off E3 Velocity 0 Channel 1)
+52823.6 | clock 1201 | MIDI_OUT | thru | 8F 40 00 (Note off E3 Velocity 0 Channel 16)
+52832.7 | clock 1202 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 43 00 (Note off G3 Velocity 0 Channel 1)
+52832.8 | clock 1202 | MIDI_OUT | thru | 8F 43 00 (Note off G3 Velocity 0 Channel 16)
+52862.0 | clock 1205 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3C 00 (Note off C3 Velocity 0 Channel 1)
+52862.0 | clock 1205 | MIDI_OUT | thru | 8F 3C 00 (Note off C3 Velocity 0 Channel 16)
+52941.9 | clock 1213 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 4C 00 (Note off E4 Velocity 0 Channel 1)
+52941.9 | clock 1213 | MIDI_OUT | thru | 8F 4C 00 (Note off E4 Velocity 0 Channel 16)
+52945.0 | clock 1214 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 48 00 (Note off C4 Velocity 0 Channel 1)
+52945.1 | clock 1214 | MIDI_OUT | thru | 8F 48 00 (Note off C4 Velocity 0 Channel 16)
+52947.9 | clock 1214 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 4F 00 (Note off G4 Velocity 0 Channel 1)
+52947.9 | clock 1214 | MIDI_OUT | thru | 8F 4F 00 (Note off G4 Velocity 0 Channel 16)
+57290.4 | clock 1648 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3C 4C (Note on C3 Velocity 76 Channel 1)
+57290.5 | clock 1648 | MIDI_OUT | thru | 9F 3C 4C (Note on C3 Velocity 76 Channel 16)
+57401.9 | clock 1659 | IWAIT | m1 | piano @1648 1 0
+57402.0 | clock 1659 | IWAIT | m2 | piano @1648 1 0
+57430.9 | clock 1662 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3E 47 (Note on D3 Velocity 71 Channel 1)
+57431.0 | clock 1662 | MIDI_OUT | thru | 9F 3E 47 (Note on D3 Velocity 71 Channel 16)
+57541.1 | clock 1673 | IWAIT | m1 | piano @1662 1 0
+57541.1 | clock 1673 | IWAIT | m2 | piano @1662 1 0
+57557.9 | clock 1675 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3C 00 (Note off C3 Velocity 0 Channel 1)
+57558.0 | clock 1675 | MIDI_OUT | thru | 8F 3C 00 (Note off C3 Velocity 0 Channel 16)
+57560.2 | clock 1675 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 40 4E (Note on E3 Velocity 78 Channel 1)
+57560.3 | clock 1675 | MIDI_OUT | thru | 9F 40 4E (Note on E3 Velocity 78 Channel 16)
+57610.5 | clock 1680 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3E 00 (Note off D3 Velocity 0 Channel 1)
+57610.5 | clock 1680 | MIDI_OUT | thru | 8F 3E 00 (Note off D3 Velocity 0 Channel 16)
+57670.5 | clock 1686 | IWAIT | m1 | piano @1675 1 0
+57670.5 | clock 1686 | IWAIT | m2 | piano @1675 1 0
+57702.8 | clock 1689 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 41 55 (Note on F3 Velocity 85 Channel 1)
+57702.8 | clock 1689 | MIDI_OUT | thru | 9F 41 55 (Note on F3 Velocity 85 Channel 16)
+57747.1 | clock 1694 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 40 00 (Note off E3 Velocity 0 Channel 1)
+57747.2 | clock 1694 | MIDI_OUT | thru | 8F 40 00 (Note off E3 Velocity 0 Channel 16)
+57813.8 | clock 1700 | IWAIT | m1 | piano @1689 1 0
+57813.8 | clock 1700 | IWAIT | m2 | piano @1689 1 0
+57826.4 | clock 1702 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 43 50 (Note on G3 Velocity 80 Channel 1)
+57826.5 | clock 1702 | MIDI_OUT | thru | 9F 43 50 (Note on G3 Velocity 80 Channel 16)
+57885.4 | clock 1708 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 41 00 (Note off F3 Velocity 0 Channel 1)
+57885.5 | clock 1708 | MIDI_OUT | thru | 8F 41 00 (Note off F3 Velocity 0 Channel 16)
+57942.1 | clock 1713 | IWAIT | m1 | piano @1702 1 0
+57942.1 | clock 1713 | IWAIT | m2 | piano @1702 1 0
+59396.8 | clock 1859 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 43 00 (Note off G3 Velocity 0 Channel 1)
+59396.9 | clock 1859 | MIDI_OUT | thru | 8F 43 00 (Note off G3 Velocity 0 Channel 16)
+59794.6 | clock 1899 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 43 3B (Note on G3 Velocity 59 Channel 1)
+59794.6 | clock 1899 | MIDI_OUT | thru | 9F 43 3B (Note on G3 Velocity 59 Channel 16)
+59802.0 | clock 1899 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 40 3E (Note on E3 Velocity 62 Channel 1)
+59802.0 | clock 1899 | MIDI_OUT | thru | 9F 40 3E (Note on E3 Velocity 62 Channel 16)
+59814.1 | clock 1900 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3C 36 (Note on C3 Velocity 54 Channel 1)
+59814.1 | clock 1900 | MIDI_OUT | thru | 9F 3C 36 (Note on C3 Velocity 54 Channel 16)
+59921.1 | clock 1911 | IWAIT | m1 | piano @1899 3 0
+59921.2 | clock 1911 | IWAIT | m2 | piano @1899 3 0
+62038.9 | clock 2123 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 40 00 (Note off E3 Velocity 0 Channel 1)
+62038.9 | clock 2123 | MIDI_OUT | thru | 8F 40 00 (Note off E3 Velocity 0 Channel 16)
+62055.6 | clock 2125 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3C 00 (Note off C3 Velocity 0 Channel 1)
+62055.6 | clock 2125 | MIDI_OUT | thru | 8F 3C 00 (Note off C3 Velocity 0 Channel 16)
+62057.0 | clock 2125 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 43 00 (Note off G3 Velocity 0 Channel 1)
+62057.1 | clock 2125 | MIDI_OUT | thru | 8F 43 00 (Note off G3 Velocity 0 Channel 16)
+63128.8 | clock 2232 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 43 3D (Note on G3 Velocity 61 Channel 1)
+63128.8 | clock 2232 | MIDI_OUT | thru | 9F 43 3D (Note on G3 Velocity 61 Channel 16)
+63139.9 | clock 2233 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 40 4A (Note on E3 Velocity 74 Channel 1)
+63139.9 | clock 2233 | MIDI_OUT | thru | 9F 40 4A (Note on E3 Velocity 74 Channel 16)
+63144.4 | clock 2233 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3C 3D (Note on C3 Velocity 61 Channel 1)
+63144.4 | clock 2233 | MIDI_OUT | thru | 9F 3C 3D (Note on C3 Velocity 61 Channel 16)
+63227.8 | clock 2242 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 40 00 (Note off E3 Velocity 0 Channel 1)
+63227.9 | clock 2242 | MIDI_OUT | thru | 8F 40 00 (Note off E3 Velocity 0 Channel 16)
+63231.7 | clock 2242 | IWAIT | m1 | piano @2233 1 0
+63231.8 | clock 2242 | IWAIT | m2 | piano @2233 1 0
+63238.2 | clock 2243 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3C 00 (Note off C3 Velocity 0 Channel 1)
+63238.2 | clock 2243 | MIDI_OUT | thru | 8F 3C 00 (Note off C3 Velocity 0 Channel 16)
+63241.9 | clock 2243 | IWAIT | m1 | piano @2233 1 0
+63242.0 | clock 2243 | IWAIT | m2 | piano @2233 1 0
+63244.4 | clock 2243 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 43 00 (Note off G3 Velocity 0 Channel 1)
+63244.4 | clock 2243 | MIDI_OUT | thru | 8F 43 00 (Note off G3 Velocity 0 Channel 16)
+63247.1 | clock 2244 | IWAIT | m1 | piano @2232 1 0
+63247.1 | clock 2244 | IWAIT | m2 | piano @2232 1 0
+63404.7 | clock 2260 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3C 41 (Note on C3 Velocity 65 Channel 1)
+63404.7 | clock 2260 | MIDI_OUT | thru | 9F 3C 41 (Note on C3 Velocity 65 Channel 16)
+63406.2 | clock 2260 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 40 3E (Note on E3 Velocity 62 Channel 1)
+63406.2 | clock 2260 | MIDI_OUT | thru | 9F 40 3E (Note on E3 Velocity 62 Channel 16)
+63411.9 | clock 2260 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 43 3B (Note on G3 Velocity 59 Channel 1)
+63412.0 | clock 2260 | MIDI_OUT | thru | 9F 43 3B (Note on G3 Velocity 59 Channel 16)
+63487.9 | clock 2268 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 40 00 (Note off E3 Velocity 0 Channel 1)
+63487.9 | clock 2268 | MIDI_OUT | thru | 8F 40 00 (Note off E3 Velocity 0 Channel 16)
+63488.9 | clock 2268 | IWAIT | m1 | piano @2260 1 0
+63488.9 | clock 2268 | IWAIT | m2 | piano @2260 1 0
+63496.5 | clock 2269 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3C 00 (Note off C3 Velocity 0 Channel 1)
+63496.5 | clock 2269 | MIDI_OUT | thru | 8F 3C 00 (Note off C3 Velocity 0 Channel 16)
+63499.2 | clock 2269 | IWAIT | m1 | piano @2260 1 0
+63499.3 | clock 2269 | IWAIT | m2 | piano @2260 1 0
+63509.2 | clock 2270 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 43 00 (Note off G3 Velocity 0 Channel 1)
+63509.3 | clock 2270 | MIDI_OUT | thru | 8F 43 00 (Note off G3 Velocity 0 Channel 16)
+63509.6 | clock 2270 | IWAIT | m1 | piano @2260 1 0
+63509.6 | clock 2270 | IWAIT | m2 | piano @2260 1 0
+63675.5 | clock 2287 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 40 46 (Note on E3 Velocity 70 Channel 1)
+63675.5 | clock 2287 | MIDI_OUT | thru | 9F 40 46 (Note on E3 Velocity 70 Channel 16)
+63678.2 | clock 2287 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3C 43 (Note on C3 Velocity 67 Channel 1)
+63678.2 | clock 2287 | MIDI_OUT | thru | 9F 3C 43 (Note on C3 Velocity 67 Channel 16)
+63681.5 | clock 2287 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 43 41 (Note on G3 Velocity 65 Channel 1)
+63681.5 | clock 2287 | MIDI_OUT | thru | 9F 43 41 (Note on G3 Velocity 65 Channel 16)
+63768.2 | clock 2296 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 40 00 (Note off E3 Velocity 0 Channel 1)
+63768.3 | clock 2296 | MIDI_OUT | thru | 8F 40 00 (Note off E3 Velocity 0 Channel 16)
+63770.6 | clock 2296 | IWAIT | m1 | piano @2287 1 0
+63770.6 | clock 2296 | IWAIT | m2 | piano @2287 1 0
+63776.3 | clock 2297 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3C 00 (Note off C3 Velocity 0 Channel 1)
+63776.3 | clock 2297 | MIDI_OUT | thru | 8F 3C 00 (Note off C3 Velocity 0 Channel 16)
+63780.8 | clock 2297 | IWAIT | m1 | piano @2287 1 0
+63780.8 | clock 2297 | IWAIT | m2 | piano @2287 1 0
+63786.2 | clock 2298 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 43 00 (Note off G3 Velocity 0 Channel 1)
+63786.2 | clock 2298 | MIDI_OUT | thru | 8F 43 00 (Note off G3 Velocity 0 Channel 16)
+63791.1 | clock 2298 | IWAIT | m1 | piano @2287 1 0
+63791.1 | clock 2298 | IWAIT | m2 | piano @2287 1 0
+63957.3 | clock 2315 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3C 3C (Note on C3 Velocity 60 Channel 1)
+63957.4 | clock 2315 | MIDI_OUT | thru | 9F 3C 3C (Note on C3 Velocity 60 Channel 16)
+63957.4 | clock 2315 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 40 41 (Note on E3 Velocity 65 Channel 1)
+63957.4 | clock 2315 | MIDI_OUT | thru | 9F 40 41 (Note on E3 Velocity 65 Channel 16)
+63968.2 | clock 2316 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 43 3A (Note on G3 Velocity 58 Channel 1)
+63968.2 | clock 2316 | MIDI_OUT | thru | 9F 43 3A (Note on G3 Velocity 58 Channel 16)
+64082.8 | clock 2327 | IWAIT | m1 | piano @2315 3 0
+64082.8 | clock 2327 | IWAIT | m2 | piano @2315 3 0
+65514.5 | clock 2470 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 40 00 (Note off E3 Velocity 0 Channel 1)
+65514.6 | clock 2470 | MIDI_OUT | thru | 8F 40 00 (Note off E3 Velocity 0 Channel 16)
+65514.6 | clock 2471 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 43 00 (Note off G3 Velocity 0 Channel 1)
+65514.6 | clock 2471 | MIDI_OUT | thru | 8F 43 00 (Note off G3 Velocity 0 Channel 16)
+65533.0 | clock 2472 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3C 00 (Note off C3 Velocity 0 Channel 1)
+65533.1 | clock 2472 | MIDI_OUT | thru | 8F 3C 00 (Note off C3 Velocity 0 Channel 16)
+65705.7 | clock 2490 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 41 45 (Note on F3 Velocity 69 Channel 1)
+65705.8 | clock 2490 | MIDI_OUT | thru | 9F 41 45 (Note on F3 Velocity 69 Channel 16)
+65712.2 | clock 2490 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3C 3F (Note on C3 Velocity 63 Channel 1)
+65712.2 | clock 2490 | MIDI_OUT | thru | 9F 3C 3F (Note on C3 Velocity 63 Channel 16)
+65721.0 | clock 2491 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 45 4B (Note on A3 Velocity 75 Channel 1)
+65721.1 | clock 2491 | MIDI_OUT | thru | 9F 45 4B (Note on A3 Velocity 75 Channel 16)
+65830.0 | clock 2502 | IWAIT | m1 | piano @2490 3 0
+65830.0 | clock 2502 | IWAIT | m2 | piano @2490 3 0
+66675.3 | clock 2587 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 40 39 (Note on E3 Velocity 57 Channel 1)
+66675.3 | clock 2587 | MIDI_OUT | thru | 9F 40 39 (Note on E3 Velocity 57 Channel 16)
+66677.8 | clock 2587 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 43 48 (Note on G3 Velocity 72 Channel 1)
+66677.9 | clock 2587 | MIDI_OUT | thru | 9F 43 48 (Note on G3 Velocity 72 Channel 16)
+66683.1 | clock 2587 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 45 00 (Note off A3 Velocity 0 Channel 1)
+66683.1 | clock 2587 | MIDI_OUT | thru | 8F 45 00 (Note off A3 Velocity 0 Channel 16)
+66734.3 | clock 2592 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 41 00 (Note off F3 Velocity 0 Channel 1)
+66734.4 | clock 2592 | MIDI_OUT | thru | 8F 41 00 (Note off F3 Velocity 0 Channel 16)
+66794.3 | clock 2598 | IWAIT | m1 | piano @2587 2 0
+66794.3 | clock 2598 | IWAIT | m2 | piano @2587 2 0
+69403.9 | clock 2859 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3C 00 (Note off C3 Velocity 0 Channel 1)
+69403.9 | clock 2859 | MIDI_OUT | thru | 8F 3C 00 (Note off C3 Velocity 0 Channel 16)
+69405.4 | clock 2860 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 40 00 (Note off E3 Velocity 0 Channel 1)
+69405.5 | clock 2860 | MIDI_OUT | thru | 8F 40 00 (Note off E3 Velocity 0 Channel 16)
+69413.4 | clock 2860 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 43 00 (Note off G3 Velocity 0 Channel 1)
+69413.5 | clock 2860 | MIDI_OUT | thru | 8F 43 00 (Note off G3 Velocity 0 Channel 16)
+70038.3 | clock 2923 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 39 37 (Note on A2 Velocity 55 Channel 1)
+70038.4 | clock 2923 | MIDI_OUT | thru | 9F 39 37 (Note on A2 Velocity 55 Channel 16)
+70045.9 | clock 2924 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3C 43 (Note on C3 Velocity 67 Channel 1)
+70045.9 | clock 2924 | MIDI_OUT | thru | 9F 3C 43 (Note on C3 Velocity 67 Channel 16)
+70165.4 | clock 2936 | IWAIT | m1 | piano @2923 2 0
+70165.4 | clock 2936 | IWAIT | m2 | piano @2923 2 0
+71823.6 | clock 3101 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3E 27 (Note on D3 Velocity 39 Channel 1)
+71823.7 | clock 3101 | MIDI_OUT | thru | 9F 3E 27 (Note on D3 Velocity 39 Channel 16)
+71857.5 | clock 3105 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 39 00 (Note off A2 Velocity 0 Channel 1)
+71857.5 | clock 3105 | MIDI_OUT | thru | 8F 39 00 (Note off A2 Velocity 0 Channel 16)
+71927.6 | clock 3112 | IWAIT | m1 | piano @3101 1 0
+71927.7 | clock 3112 | IWAIT | m2 | piano @3101 1 0
+72125.1 | clock 3132 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 40 37 (Note on E3 Velocity 55 Channel 1)
+72125.1 | clock 3132 | MIDI_OUT | thru | 9F 40 37 (Note on E3 Velocity 55 Channel 16)
+72180.4 | clock 3137 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 37 26 (Note on G2 Velocity 38 Channel 1)
+72180.5 | clock 3137 | MIDI_OUT | thru | 9F 37 26 (Note on G2 Velocity 38 Channel 16)
+72233.6 | clock 3142 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3E 00 (Note off D3 Velocity 0 Channel 1)
+72233.7 | clock 3142 | MIDI_OUT | thru | 8F 3E 00 (Note off D3 Velocity 0 Channel 16)
+72293.1 | clock 3148 | IWAIT | m1 | piano @3132 2 0
+72293.1 | clock 3148 | IWAIT | m2 | piano @3132 2 0
+72821.6 | clock 3201 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 40 00 (Note off E3 Velocity 0 Channel 1)
+72821.6 | clock 3201 | MIDI_OUT | thru | 8F 40 00 (Note off E3 Velocity 0 Channel 16)
+72852.9 | clock 3204 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3C 00 (Note off C3 Velocity 0 Channel 1)
+72853.0 | clock 3204 | MIDI_OUT | thru | 8F 3C 00 (Note off C3 Velocity 0 Channel 16)
+72898.2 | clock 3209 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 37 00 (Note off G2 Velocity 0 Channel 1)
+72898.2 | clock 3209 | MIDI_OUT | thru | 8F 37 00 (Note off G2 Velocity 0 Channel 16)
+79329.4 | clock 3852 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 53 7F (Note on B4 Velocity 127 Channel 1)
+79329.4 | clock 3852 | MODE | Accompaniment
+79443.5 | clock 3863 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 53 00 (Note off B4 Velocity 0 Channel 1)
+79626.3 | clock 3882 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 52 7F (Note on A#4 Velocity 127 Channel 1)
+79626.3 | clock 3882 | MODE | Jam
+79627.1 | clock 3882 | CUT | left Accompaniment: future removed from 3882
+79630.4 | clock 3882 | RT | Reduction Transformer Hybrid v1.1 | (3882, Clear Queue) voice -1 noteId -1 | TD 4 LogitTD on s 6.0
+79630.4 | clock 3882 | HYBRID | mode cut at 3882: generated notes from it removed, context kept
+79630.4 | clock 3882 | OT | (3882, Clear Queue) instr 15 vel 0 voice -1
+79733.6 | clock 3892 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | 90 52 00 (Note off A#4 Velocity 0 Channel 1)
+81117.9 | clock 4031 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3C 41 (Note on C3 Velocity 65 Channel 1)
+81118.0 | clock 4031 | MIDI_OUT | thru | 9F 3C 41 (Note on C3 Velocity 65 Channel 16)
+81235.7 | clock 4043 | IWAIT | m1 | piano @4031 1 0
+81235.7 | clock 4043 | IWAIT | m2 | piano @4031 1 0
+81269.1 | clock 4046 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3E 4E (Note on D3 Velocity 78 Channel 1)
+81269.2 | clock 4046 | MIDI_OUT | thru | 9F 3E 4E (Note on D3 Velocity 78 Channel 16)
+81353.0 | clock 4054 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3C 00 (Note off C3 Velocity 0 Channel 1)
+81353.1 | clock 4054 | MIDI_OUT | thru | 8F 3C 00 (Note off C3 Velocity 0 Channel 16)
+81379.8 | clock 4057 | IWAIT | m1 | piano @4046 1 0
+81379.8 | clock 4057 | IWAIT | m2 | piano @4046 1 0
+81406.8 | clock 4060 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 40 55 (Note on E3 Velocity 85 Channel 1)
+81406.9 | clock 4060 | MIDI_OUT | thru | 9F 40 55 (Note on E3 Velocity 85 Channel 16)
+81457.9 | clock 4065 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3E 00 (Note off D3 Velocity 0 Channel 1)
+81458.0 | clock 4065 | MIDI_OUT | thru | 8F 3E 00 (Note off D3 Velocity 0 Channel 16)
+81518.1 | clock 4071 | IWAIT | m1 | piano @4060 1 0
+81518.1 | clock 4071 | IWAIT | m2 | piano @4060 1 0
+81538.7 | clock 4073 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 41 58 (Note on F3 Velocity 88 Channel 1)
+81538.8 | clock 4073 | MIDI_OUT | thru | 9F 41 58 (Note on F3 Velocity 88 Channel 16)
+81577.0 | clock 4077 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 40 00 (Note off E3 Velocity 0 Channel 1)
+81577.1 | clock 4077 | MIDI_OUT | thru | 8F 40 00 (Note off E3 Velocity 0 Channel 16)
+81656.7 | clock 4085 | IWAIT | m1 | piano @4073 1 0
+81656.7 | clock 4085 | IWAIT | m2 | piano @4073 1 0
+81667.2 | clock 4086 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 43 58 (Note on G3 Velocity 88 Channel 1)
+81667.3 | clock 4086 | MIDI_OUT | thru | 9F 43 58 (Note on G3 Velocity 88 Channel 16)
+81717.2 | clock 4091 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 41 00 (Note off F3 Velocity 0 Channel 1)
+81717.3 | clock 4091 | MIDI_OUT | thru | 8F 41 00 (Note off F3 Velocity 0 Channel 16)
+81779.1 | clock 4097 | IWAIT | m1 | piano @4086 1 0
+81779.1 | clock 4097 | IWAIT | m2 | piano @4086 1 0
+82695.6 | clock 4189 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 43 00 (Note off G3 Velocity 0 Channel 1)
+82695.7 | clock 4189 | MIDI_OUT | thru | 8F 43 00 (Note off G3 Velocity 0 Channel 16)
+85227.5 | clock - | MIDI_OUT | clear: note off on every channel and pitch
+85372.4 | clock - | MIDI_OUT | clear: note off on every channel and pitch
+87409.3 | clock - | SESSION | stop

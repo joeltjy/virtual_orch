@@ -1,0 +1,216 @@
+0.1 | clock - | SESSION | start 24 Nov 2026 12:12:27
+0.2 | clock - | SESSION | launchpad layout 2
+4963.9 | clock 0 | HYBRID | loaded hybrid_v11
+4970.4 | clock 0 | PEDAL | pedal device selected: orchestra silent until pedal down
+4970.8 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+6051.9 | clock 0 | MIDI_IN | Launchpad Mini MK3 LPMiniMK3 MI [launchpad] | F0 00 20 29 02 0D 00 7F F7 (f0 00 20 29 02 0d 00 7f f7)
+6694.7 | clock 0 | MODE | Jam
+11232.1 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+11241.8 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+13870.4 | clock 0 | HYBRID | loaded hybrid_v11_minwait250_redraw
+13870.4 | clock 0 | MIDI_OUT | clear: note off on every channel and pitch
+19712.0 | clock 0 | UI | Preset applied: {"model": "hybrid_v11_minwait250_redraw", "orchestrationModel": "IodPretrained", "orchestrationMode": "jam", "reduction": "hybridInformativeWait", "inputMode": "direct", "directInputWindowLength": 10, "directInputSendNoteOffs": true, "directInputStartOnInput": false, "directInputStartDelay": 0, "directInputHoldBass": false, "directInputBassLow": 24, "directInputBassHigh": 36, "directInputInitialBass": -1, "inputInstrument": 0, "inputLow": 36, "inputHigh": 120, "inputDuration": 400, "inputInitialData": "", "contextNotes": 40, "outputMinimumDuration": 1, "outputMaximumDuration": 200, "outputTemperatures": [0.2, 0.2, 0.2], "outputStartTime": 0, "outputForceStartTime": false, "outputMaxAheadSeconds": 5, "outputAheadThrottleSeconds": 2, "outputInstruments": [{"id": 1, "active": false, "monophony": false, "low": 36, "high": 120}], "logitAdjustments": {"biasesOn": true, "biasesOnlyWhenPianoSilent": false, "logitTdStrength": 6.0, "model": {"pitchBias": false, "durationBias": false, "onsetGapBias": false, "shortGapPenalty": false, "logitTd": false, "pitchTau": 0.2000000029802322, "pitchTauPrime": 0.2000000029802322, "durationTau": 0.5, "durationTauPrime": 0.0, "onsetGapTau": 0.5, "waitMinPlay": 0.300000011920929}, "hybridV1": {"pitchBias": true, "durationBias": true, "onsetGapBias": true, "shortGapPenalty": true, "logitTd": true}}}
+19712.2 | clock 0 | HYBRID | rt_continuation_latest from 0 (start)
+21244.4 | clock 153 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 43 3E (Note on G3 Velocity 62 Channel 1)
+21244.4 | clock 153 | MIDI_OUT | thru | 9F 43 3E (Note on G3 Velocity 62 Channel 16)
+21253.1 | clock 154 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 40 37 (Note on E3 Velocity 55 Channel 1)
+21253.2 | clock 154 | MIDI_OUT | thru | 9F 40 37 (Note on E3 Velocity 55 Channel 16)
+21269.4 | clock 155 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 37 2D (Note on G2 Velocity 45 Channel 1)
+21269.4 | clock 155 | MIDI_OUT | thru | 9F 37 2D (Note on G2 Velocity 45 Channel 16)
+21278.4 | clock 156 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 34 3B (Note on E2 Velocity 59 Channel 1)
+21278.4 | clock 156 | MIDI_OUT | thru | 9F 34 3B (Note on E2 Velocity 59 Channel 16)
+21386.9 | clock 167 | IWAIT | m1 | piano @153 4 0
+21386.9 | clock 167 | IWAIT | m2 | piano @153 4 0
+22661.5 | clock 295 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 40 00 (Note off E3 Velocity 0 Channel 1)
+22661.5 | clock 295 | MIDI_OUT | thru | 8F 40 00 (Note off E3 Velocity 0 Channel 16)
+22930.0 | clock 322 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 40 2B (Note on E3 Velocity 43 Channel 1)
+22930.0 | clock 322 | MIDI_OUT | thru | 9F 40 2B (Note on E3 Velocity 43 Channel 16)
+22943.1 | clock 323 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3C 2D (Note on C3 Velocity 45 Channel 1)
+22943.1 | clock 323 | MIDI_OUT | thru | 9F 3C 2D (Note on C3 Velocity 45 Channel 16)
+22950.0 | clock 324 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 30 2B (Note on C2 Velocity 43 Channel 1)
+22950.0 | clock 324 | MIDI_OUT | thru | 9F 30 2B (Note on C2 Velocity 43 Channel 16)
+23072.9 | clock 336 | IWAIT | m1 | piano @322 3 0
+23073.0 | clock 336 | IWAIT | m2 | piano @322 3 0
+23076.5 | clock 336 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 43 00 (Note off G3 Velocity 0 Channel 1)
+23076.5 | clock 336 | MIDI_OUT | thru | 8F 43 00 (Note off G3 Velocity 0 Channel 16)
+23282.5 | clock 357 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 37 00 (Note off G2 Velocity 0 Channel 1)
+23282.5 | clock 357 | MIDI_OUT | thru | 8F 37 00 (Note off G2 Velocity 0 Channel 16)
+23608.9 | clock 389 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 41 3E (Note on F3 Velocity 62 Channel 1)
+23609.0 | clock 389 | MIDI_OUT | thru | 9F 41 3E (Note on F3 Velocity 62 Channel 16)
+23622.4 | clock 391 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3E 29 (Note on D3 Velocity 41 Channel 1)
+23622.5 | clock 391 | MIDI_OUT | thru | 9F 3E 29 (Note on D3 Velocity 41 Channel 16)
+23638.6 | clock 392 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 35 31 (Note on F2 Velocity 49 Channel 1)
+23638.7 | clock 392 | MIDI_OUT | thru | 9F 35 31 (Note on F2 Velocity 49 Channel 16)
+23647.3 | clock 393 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 32 3B (Note on D2 Velocity 59 Channel 1)
+23647.3 | clock 393 | MIDI_OUT | thru | 9F 32 3B (Note on D2 Velocity 59 Channel 16)
+23670.9 | clock 396 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 40 00 (Note off E3 Velocity 0 Channel 1)
+23671.0 | clock 396 | MIDI_OUT | thru | 8F 40 00 (Note off E3 Velocity 0 Channel 16)
+23691.4 | clock 398 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 34 00 (Note off E2 Velocity 0 Channel 1)
+23691.5 | clock 398 | MIDI_OUT | thru | 8F 34 00 (Note off E2 Velocity 0 Channel 16)
+23713.2 | clock 400 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 30 00 (Note off C2 Velocity 0 Channel 1)
+23713.3 | clock 400 | MIDI_OUT | thru | 8F 30 00 (Note off C2 Velocity 0 Channel 16)
+23761.1 | clock 405 | IWAIT | m1 | piano @389 4 0
+23761.1 | clock 405 | IWAIT | m2 | piano @389 4 0
+23790.6 | clock 408 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3C 00 (Note off C3 Velocity 0 Channel 1)
+23790.7 | clock 408 | MIDI_OUT | thru | 8F 3C 00 (Note off C3 Velocity 0 Channel 16)
+24037.9 | clock 432 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3E 00 (Note off D3 Velocity 0 Channel 1)
+24038.0 | clock 432 | MIDI_OUT | thru | 8F 3E 00 (Note off D3 Velocity 0 Channel 16)
+24153.8 | clock 444 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 32 00 (Note off D2 Velocity 0 Channel 1)
+24153.8 | clock 444 | MIDI_OUT | thru | 8F 32 00 (Note off D2 Velocity 0 Channel 16)
+24176.0 | clock 446 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 41 00 (Note off F3 Velocity 0 Channel 1)
+24176.0 | clock 446 | MIDI_OUT | thru | 8F 41 00 (Note off F3 Velocity 0 Channel 16)
+24216.5 | clock 450 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 34 37 (Note on E2 Velocity 55 Channel 1)
+24216.5 | clock 450 | MIDI_OUT | thru | 9F 34 37 (Note on E2 Velocity 55 Channel 16)
+24217.6 | clock 450 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 43 40 (Note on G3 Velocity 64 Channel 1)
+24217.7 | clock 450 | MIDI_OUT | thru | 9F 43 40 (Note on G3 Velocity 64 Channel 16)
+24227.4 | clock 451 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 40 2C (Note on E3 Velocity 44 Channel 1)
+24227.5 | clock 451 | MIDI_OUT | thru | 9F 40 2C (Note on E3 Velocity 44 Channel 16)
+24246.2 | clock 453 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 37 28 (Note on G2 Velocity 40 Channel 1)
+24246.3 | clock 453 | MIDI_OUT | thru | 9F 37 28 (Note on G2 Velocity 40 Channel 16)
+24258.0 | clock 454 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 35 00 (Note off F2 Velocity 0 Channel 1)
+24258.1 | clock 454 | MIDI_OUT | thru | 8F 35 00 (Note off F2 Velocity 0 Channel 16)
+24337.9 | clock 462 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 40 00 (Note off E3 Velocity 0 Channel 1)
+24338.0 | clock 462 | MIDI_OUT | thru | 8F 40 00 (Note off E3 Velocity 0 Channel 16)
+24341.0 | clock 463 | IWAIT | m1 | piano @451 1 0
+24341.0 | clock 463 | IWAIT | m2 | piano @451 1 0
+24351.3 | clock 464 | IWAIT | m1 | piano @450 3 0
+24351.3 | clock 464 | IWAIT | m2 | piano @450 3 0
+24571.6 | clock 486 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 37 00 (Note off G2 Velocity 0 Channel 1)
+24571.6 | clock 486 | MIDI_OUT | thru | 8F 37 00 (Note off G2 Velocity 0 Channel 16)
+24775.6 | clock 506 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 34 00 (Note off E2 Velocity 0 Channel 1)
+24775.6 | clock 506 | MIDI_OUT | thru | 8F 34 00 (Note off E2 Velocity 0 Channel 16)
+24830.6 | clock 512 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 43 00 (Note off G3 Velocity 0 Channel 1)
+24830.6 | clock 512 | MIDI_OUT | thru | 8F 43 00 (Note off G3 Velocity 0 Channel 16)
+24862.1 | clock 515 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 39 2F (Note on A2 Velocity 47 Channel 1)
+24862.2 | clock 515 | MIDI_OUT | thru | 9F 39 2F (Note on A2 Velocity 47 Channel 16)
+24872.1 | clock 516 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 35 32 (Note on F2 Velocity 50 Channel 1)
+24872.1 | clock 516 | MIDI_OUT | thru | 9F 35 32 (Note on F2 Velocity 50 Channel 16)
+24884.8 | clock 517 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 45 40 (Note on A3 Velocity 64 Channel 1)
+24884.8 | clock 517 | MIDI_OUT | thru | 9F 45 40 (Note on A3 Velocity 64 Channel 16)
+24890.9 | clock 518 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 41 41 (Note on F3 Velocity 65 Channel 1)
+24890.9 | clock 518 | MIDI_OUT | thru | 9F 41 41 (Note on F3 Velocity 65 Channel 16)
+24908.7 | clock 519 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 90 3C 34 (Note on C3 Velocity 52 Channel 1)
+24908.7 | clock 519 | MIDI_OUT | thru | 9F 3C 34 (Note on C3 Velocity 52 Channel 16)
+25015.1 | clock 530 | IWAIT | m1 | piano @515 5 0
+25015.1 | clock 530 | IWAIT | m2 | piano @515 5 0
+25411.9 | clock 570 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 39 00 (Note off A2 Velocity 0 Channel 1)
+25412.0 | clock 570 | MIDI_OUT | thru | 8F 39 00 (Note off A2 Velocity 0 Channel 16)
+25438.7 | clock 572 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 35 00 (Note off F2 Velocity 0 Channel 1)
+25438.8 | clock 572 | MIDI_OUT | thru | 8F 35 00 (Note off F2 Velocity 0 Channel 16)
+25439.8 | clock 573 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 3C 00 (Note off C3 Velocity 0 Channel 1)
+25439.8 | clock 573 | MIDI_OUT | thru | 8F 3C 00 (Note off C3 Velocity 0 Channel 16)
+25451.7 | clock 574 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 41 00 (Note off F3 Velocity 0 Channel 1)
+25451.7 | clock 574 | MIDI_OUT | thru | 8F 41 00 (Note off F3 Velocity 0 Channel 16)
+25465.2 | clock 575 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | 80 45 00 (Note off A3 Velocity 0 Channel 1)
+25465.3 | clock 575 | MIDI_OUT | thru | 8F 45 00 (Note off A3 Velocity 0 Channel 16)
+25496.7 | clock 578 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | B0 40 7F (Controller Hold Pedal (on/off): 127 Channel 1)
+25496.7 | clock 578 | MIDI_OUT | thru | BF 40 7F (Controller Hold Pedal (on/off): 127 Channel 16)
+25645.7 | clock 593 | IWAIT | m1 | orch @585 48 50
+25645.8 | clock 593 | RT | Reduction Transformer Hybrid v1.1 | (585, 50, 0 - 48, vel 120) voice 0 noteId 0 | TD 4 LogitTD on s 6.0
+25686.6 | clock 597 | IWAIT | m1 | orch @641 52 45
+25712.4 | clock 600 | RT | Reduction Transformer Hybrid v1.1 | (641, 45, 0 - 52, vel 120) voice 0 noteId 1 | TD 4 LogitTD on s 6.0
+25750.2 | clock 604 | IWAIT | m1 | orch @696 55 45
+25753.6 | clock 604 | RT | Reduction Transformer Hybrid v1.1 | (696, 45, 0 - 55, vel 120) voice 0 noteId 2 | TD 4 LogitTD on s 6.0
+25789.5 | clock 607 | IWAIT | m1 | orch @746 60 10
+25792.8 | clock 608 | RT | Reduction Transformer Hybrid v1.1 | (746, 10, 0 - 60, vel 120) voice 0 noteId 3 | TD 4 LogitTD on s 6.0
+25830.5 | clock 612 | IWAIT | m1 | orch @746 64 55
+25834.0 | clock 612 | RT | Reduction Transformer Hybrid v1.1 | (746, 55, 0 - 64, vel 120) voice 1 noteId 4 | TD 4 LogitTD on s 6.0
+25871.1 | clock 616 | IWAIT | m1 | orch @757 58 20
+25874.8 | clock 616 | RT | Reduction Transformer Hybrid v1.1 | (757, 20, 0 - 58, vel 120) voice 0 noteId 5 | TD 4 LogitTD on s 6.0
+25910.2 | clock 620 | IWAIT | m1 | orch @777 57 30
+25913.4 | clock 620 | RT | Reduction Transformer Hybrid v1.1 | (777, 30, 0 - 57, vel 120) voice 0 noteId 6 | TD 4 LogitTD on s 6.0
+25950.0 | clock 624 | IWAIT | m1 | orch @809 58 25
+25953.8 | clock 624 | RT | Reduction Transformer Hybrid v1.1 | (809, 25, 0 - 58, vel 120) voice 0 noteId 7 | TD 4 LogitTD on s 6.0
+25990.3 | clock 628 | IWAIT | m1 | orch @809 62 60
+25993.5 | clock 628 | RT | Reduction Transformer Hybrid v1.1 | (809, 60, 0 - 62, vel 120) voice 1 noteId 8 | TD 4 LogitTD on s 6.0
+26030.4 | clock 632 | IWAIT | m1 | orch @838 55 35
+26034.6 | clock 632 | RT | Reduction Transformer Hybrid v1.1 | (838, 35, 0 - 55, vel 120) voice 0 noteId 9 | TD 4 LogitTD on s 6.0
+26071.6 | clock 636 | IWAIT | m1 | orch @872 57 25
+26074.9 | clock 636 | RT | Reduction Transformer Hybrid v1.1 | (872, 25, 0 - 57, vel 120) voice 0 noteId 10 | TD 4 LogitTD on s 6.0
+26110.9 | clock 640 | IWAIT | m1 | orch @872 60 65
+26114.2 | clock 640 | RT | Reduction Transformer Hybrid v1.1 | (872, 65, 0 - 60, vel 120) voice 1 noteId 11 | TD 4 LogitTD on s 6.0
+26152.5 | clock 644 | IWAIT | m1 | orch @905 53 30
+26155.9 | clock 644 | RT | Reduction Transformer Hybrid v1.1 | (905, 30, 0 - 53, vel 120) voice 0 noteId 12 | TD 4 LogitTD on s 6.0
+26193.4 | clock 648 | IWAIT | m1 | orch @945 46 95
+26196.0 | clock 648 | RT | Reduction Transformer Hybrid v1.1 | (945, 95, 0 - 46, vel 120) voice 0 noteId 13 | TD 4 LogitTD on s 6.0
+26223.8 | clock 651 | IWAIT | m1 | orch @945 52 125
+26226.3 | clock 651 | RT | Reduction Transformer Hybrid v1.1 | (945, 125, 0 - 52, vel 120) voice 0 noteId 14 | TD 4 LogitTD on s 6.0
+26257.2 | clock 654 | IWAIT | m1 | orch @945 55 125
+26259.6 | clock 654 | RT | Reduction Transformer Hybrid v1.1 | (945, 125, 0 - 55, vel 120) voice 3 noteId 15 | TD 4 LogitTD on s 6.0
+26289.4 | clock 657 | IWAIT | m1 | orch @945 60 270
+26292.0 | clock 658 | RT | Reduction Transformer Hybrid v1.1 | (945, 270, 0 - 60, vel 120) voice 1 noteId 16 | TD 4 LogitTD on s 6.0
+26324.9 | clock 661 | IWAIT | m1 | orch @1014 48 60
+26327.6 | clock 661 | RT | Reduction Transformer Hybrid v1.1 | (1014, 60, 0 - 48, vel 120) voice 0 noteId 17 | TD 4 LogitTD on s 6.0
+26356.0 | clock 664 | IWAIT | m1 | orch @1075 45 120
+26359.7 | clock 664 | RT | Reduction Transformer Hybrid v1.1 | (1075, 120, 0 - 45, vel 120) voice 0 noteId 18 | TD 4 LogitTD on s 6.0
+26397.5 | clock 668 | IWAIT | m1 | orch @1075 53 205
+26399.8 | clock 669 | RT | Reduction Transformer Hybrid v1.1 | (1075, 205, 0 - 53, vel 120) voice 3 noteId 19 | TD 4 LogitTD on s 6.0
+26427.9 | clock 671 | IWAIT | m1 | orch @1175 46 70
+26430.3 | clock 672 | RT | Reduction Transformer Hybrid v1.1 | (1175, 70, 0 - 46, vel 120) voice 0 noteId 20 | TD 4 LogitTD on s 6.0
+28472.9 | clock 876 | IWAIT | m1 | orch @1216 62 40
+28475.5 | clock 876 | RT | Reduction Transformer Hybrid v1.1 | (1216, 40, 0 - 62, vel 120) voice 4 noteId 21 | TD 4 LogitTD on s 6.0
+28511.6 | clock 880 | IWAIT | m1 | orch @1257 48 50
+28514.2 | clock 880 | RT | Reduction Transformer Hybrid v1.1 | (1257, 50, 0 - 48, vel 120) voice 0 noteId 22 | TD 4 LogitTD on s 6.0
+28548.8 | clock 883 | IWAIT | m1 | orch @1257 60 45
+28552.4 | clock 884 | RT | Reduction Transformer Hybrid v1.1 | (1257, 45, 0 - 60, vel 120) voice 4 noteId 23 | TD 4 LogitTD on s 6.0
+28588.6 | clock 887 | IWAIT | m1 | orch @1302 59 15
+28591.1 | clock 888 | RT | Reduction Transformer Hybrid v1.1 | (1302, 15, 0 - 59, vel 120) voice 4 noteId 24 | TD 4 LogitTD on s 6.0
+28626.2 | clock 891 | IWAIT | m1 | orch @1317 50 55
+28628.8 | clock 891 | RT | Reduction Transformer Hybrid v1.1 | (1317, 55, 0 - 50, vel 120) voice 4 noteId 25 | TD 4 LogitTD on s 6.0
+28663.2 | clock 895 | IWAIT | m1 | orch @1317 53 55
+28667.0 | clock 895 | RT | Reduction Transformer Hybrid v1.1 | (1317, 55, 0 - 53, vel 120) voice 3 noteId 26 | TD 4 LogitTD on s 6.0
+28700.9 | clock 899 | IWAIT | m1 | orch @1317 58 40
+28703.5 | clock 899 | RT | Reduction Transformer Hybrid v1.1 | (1317, 40, 0 - 58, vel 120) voice 4 noteId 27 | TD 4 LogitTD on s 6.0
+28734.1 | clock 902 | IWAIT | m1 | orch @1356 57 20
+28736.8 | clock 902 | RT | Reduction Transformer Hybrid v1.1 | (1356, 20, 0 - 57, vel 120) voice 6 noteId 28 | TD 4 LogitTD on s 6.0
+28769.8 | clock 906 | IWAIT | m1 | orch @1383 46 115
+28772.5 | clock 906 | RT | Reduction Transformer Hybrid v1.1 | (1383, 115, 0 - 46, vel 120) voice 6 noteId 29 | TD 4 LogitTD on s 6.0
+28802.7 | clock 909 | IWAIT | m1 | orch @1383 48 250
+28805.5 | clock 909 | RT | Reduction Transformer Hybrid v1.1 | (1383, 250, 0 - 48, vel 120) voice 7 noteId 30 | TD 4 LogitTD on s 6.0
+28837.7 | clock 912 | IWAIT | m1 | orch @1383 52 65
+28840.5 | clock 913 | RT | Reduction Transformer Hybrid v1.1 | (1383, 65, 0 - 52, vel 120) voice 3 noteId 31 | TD 4 LogitTD on s 6.0
+28869.8 | clock 916 | IWAIT | m1 | orch @1383 55 65
+28873.1 | clock 916 | RT | Reduction Transformer Hybrid v1.1 | (1383, 65, 0 - 55, vel 120) voice 4 noteId 32 | TD 4 LogitTD on s 6.0
+28902.4 | clock 919 | IWAIT | m1 | orch @1445 53 125
+28905.8 | clock 919 | RT | Reduction Transformer Hybrid v1.1 | (1445, 125, 0 - 53, vel 120) voice 3 noteId 33 | TD 4 LogitTD on s 6.0
+30950.6 | clock 1124 | IWAIT | m1 | orch @1445 57 125
+30953.6 | clock 1124 | RT | Reduction Transformer Hybrid v1.1 | (1445, 125, 0 - 57, vel 120) voice 4 noteId 34 | TD 4 LogitTD on s 6.0
+30992.2 | clock 1128 | IWAIT | m1 | orch @1505 41 110
+30995.2 | clock 1128 | RT | Reduction Transformer Hybrid v1.1 | (1505, 110, 0 - 41, vel 120) voice 6 noteId 35 | TD 4 LogitTD on s 6.0
+31036.5 | clock 1132 | IWAIT | m1 | orch @1584 45 50
+31039.5 | clock 1132 | RT | Reduction Transformer Hybrid v1.1 | (1584, 50, 0 - 45, vel 120) voice 8 noteId 36 | TD 4 LogitTD on s 6.0
+31080.0 | clock 1137 | IWAIT | m1 | orch @1584 51 60
+31084.5 | clock 1137 | RT | Reduction Transformer Hybrid v1.1 | (1584, 60, 0 - 51, vel 120) voice 3 noteId 37 | TD 4 LogitTD on s 6.0
+31123.3 | clock 1141 | IWAIT | m1 | orch @1584 60 60
+31126.8 | clock 1141 | RT | Reduction Transformer Hybrid v1.1 | (1584, 60, 0 - 60, vel 120) voice 4 noteId 38 | TD 4 LogitTD on s 6.0
+31160.4 | clock 1145 | IWAIT | m1 | orch @1645 43 105
+31163.6 | clock 1145 | RT | Reduction Transformer Hybrid v1.1 | (1645, 105, 0 - 43, vel 120) voice 6 noteId 39 | TD 4 LogitTD on s 6.0
+31196.6 | clock 1148 | IWAIT | m1 | orch @1645 46 120
+31199.9 | clock 1149 | RT | Reduction Transformer Hybrid v1.1 | (1645, 120, 0 - 46, vel 120) voice 9 noteId 40 | TD 4 LogitTD on s 6.0
+31232.4 | clock 1152 | IWAIT | m1 | orch @1645 51 180
+31235.9 | clock 1152 | RT | Reduction Transformer Hybrid v1.1 | (1645, 180, 0 - 51, vel 120) voice 3 noteId 41 | TD 4 LogitTD on s 6.0
+31267.6 | clock 1155 | IWAIT | m1 | orch @1645 58 60
+31271.0 | clock 1156 | RT | Reduction Transformer Hybrid v1.1 | (1645, 60, 0 - 58, vel 120) voice 4 noteId 42 | TD 4 LogitTD on s 6.0
+31304.1 | clock 1159 | IWAIT | m1 | orch @1708 55 60
+31307.5 | clock 1159 | RT | Reduction Transformer Hybrid v1.1 | (1708, 60, 0 - 55, vel 120) voice 4 noteId 43 | TD 4 LogitTD on s 6.0
+33346.0 | clock 1363 | IWAIT | m1 | orch @1767 45 95
+33349.7 | clock 1364 | RT | Reduction Transformer Hybrid v1.1 | (1767, 95, 0 - 45, vel 120) voice 6 noteId 44 | TD 4 LogitTD on s 6.0
+33387.1 | clock 1367 | IWAIT | m1 | orch @1767 53 90
+33390.0 | clock 1368 | RT | Reduction Transformer Hybrid v1.1 | (1767, 90, 0 - 53, vel 120) voice 4 noteId 45 | TD 4 LogitTD on s 6.0
+33426.1 | clock 1371 | IWAIT | m1 | orch @1861 48 25
+33429.7 | clock 1372 | RT | Reduction Transformer Hybrid v1.1 | (1861, 25, 0 - 48, vel 120) voice 4 noteId 46 | TD 4 LogitTD on s 6.0
+33467.0 | clock 1375 | IWAIT | m1 | orch @1861 54 30
+33470.0 | clock 1376 | RT | Reduction Transformer Hybrid v1.1 | (1861, 30, 0 - 54, vel 120) voice 4 noteId 47 | TD 4 LogitTD on s 6.0
+33507.4 | clock 1379 | IWAIT | m1 | orch @1890 46 115
+33510.2 | clock 1380 | RT | Reduction Transformer Hybrid v1.1 | (1890, 115, 0 - 46, vel 120) voice 10 noteId 48 | TD 4 LogitTD on s 6.0
+35480.1 | clock 1577 | MIDI_IN | Keystation 88 MK3(USB MIDI) [piano,pedal] | B0 40 00 (Controller Hold Pedal (on/off): 0 Channel 1)
+35480.1 | clock 1577 | CUT | pedal up: future removed from 1577
+35480.1 | clock 1577 | MIDI_OUT | thru | BF 40 00 (Controller Hold Pedal (on/off): 0 Channel 16)
+35484.6 | clock 1577 | RT | Reduction Transformer Hybrid v1.1 | (1577, Clear Queue) voice -1 noteId -1 | TD 4 LogitTD on s 6.0
+35484.6 | clock 1577 | HYBRID | mode cut at 1577: generated notes from it removed, context kept
+35484.6 | clock 1577 | OT | (1577, Clear Queue) instr 15 vel 0 voice -1
+35484.6 | clock 1577 | RT | Reduction Transformer Hybrid v1.1 | (1577, Clear Queue) voice -1 noteId -1 | TD 4 LogitTD on s 6.0
+35484.7 | clock 1577 | OT | (1577, Clear Queue) instr 15 vel 0 voice -1
+36688.8 | clock - | MIDI_OUT | clear: note off on every channel and pitch
+36835.0 | clock - | MIDI_OUT | clear: note off on every channel and pitch
+38871.4 | clock - | SESSION | stop

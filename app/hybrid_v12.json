@@ -5,11 +5,11 @@
     1
   ],
   "defaultPreset": {},
-  "onnx": "rt_simultaneous_chord_latest",
+  "onnx": "simultaneous_chordtokens_m2c_r2b_kv",
   "silentOnnx": "rt_continuation_latest",
   "reductionType": 10,
   "iwMode": "unconstrained",
   "precompute": true,
-  "voicingBank": "/Users/Joel/orchestration/overnight/results/voicing_bank_m2c.json",
-  "notes": "Hybrid v1.2: model 1 (rt_continuation_latest.onnx, as v1.1) while the piano is silent; the CHORD-TOKEN model 2 (m2c, run ovn_m2c_r2 or later, vocab 14071; rt_simultaneous_chord_latest.onnx is a PLACEHOLDER until the export) while it plays. Same switching rules as v1.1. Model 2: WAITs only on strong chords ([WAIT d >= 6][K k,+1]); at a fire one CHORD block [CHORD][SDUR][BASS][SVEL] (+ one leftover quad) decoded into notes for the OT with the voicing bank (an absolute path; elsewhere the same file name in virtual_orch_models); at every window close the model draws [LATE d] (at most 2) or [EXPIRED]; after [EXPIRED] it draws a WAIT (re-wait, same K) or a CHORD (give up: the chord plays alone); piano durations are [DUR?] until known. Spec: orchestration/docs/model_specs/expressified_simultaneous.txt B3f; tokens: overnight/pkg/wait3.py."
+  "voicingBank": "voicing_bank_m2c.json",
+  "notes": "Hybrid v1.2: model 1 (rt_continuation_latest.onnx, as v1.1) while the piano is silent; the CHORD-TOKEN model 2 (m2c, simultaneous_chordtokens_m2c_r2b_kv.onnx = run ovn_m2c_r2b step 2500, vocab 14071) while it plays. Same switching rules as v1.1. Model 2: WAITs only on strong chords ([WAIT d >= 6][K k,+1]); at a fire one CHORD block [CHORD][SDUR][BASS][SVEL] (+ one leftover quad) decoded into notes for the OT with the voicing bank (voicing_bank_m2c.json in virtual_orch_models); at every window close the model draws [LATE d] (at most 2) or [EXPIRED]; after [EXPIRED] it draws a WAIT (re-wait, same K) or a CHORD (give up: the chord plays alone); piano durations are [DUR?] until known. Spec: orchestration/docs/model_specs/expressified_simultaneous.txt B3f; tokens: overnight/pkg/wait3.py."
 }

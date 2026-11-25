@@ -6,7 +6,8 @@ Model 1 (continuation, `rt_continuation_latest`) is unchanged.
 
 - Spec: `orchestration/docs/model_specs/expressified_simultaneous.txt` B3f.
 - Token layout: `orchestration/overnight/pkg/wait3.py`.
-- Preset: `app/hybrid_v12.json`. Its ONNX name `rt_simultaneous_chord_latest` is a placeholder until the export exists.
+- Preset: `app/hybrid_v12.json`. Model 2 = `simultaneous_chordtokens_m2c_r2b_kv.onnx` (run `ovn_m2c_r2b`, step 2500;
+  verification report next to it), voicing bank `voicing_bank_m2c.json`, both in `virtual_orch_models`.
 
 ## How it is wired
 
@@ -122,6 +123,24 @@ Decisions taken for this part (each easy to change):
     duration (capped at 800). A `[DUR?]` note counts with the time it has been held so far. A chord block adds its
     chord's pitch classes with its SDUR. All-zero weights give C major.
 
+## BASS is a chord tone (2026-11-25 fix)
+
+BASS is masked to the CHORD's pitch classes (`bassRanges`) wherever a block is decoded: precomputed candidates,
+the live decode after an inference, and a give-up. In training BASS is the lowest band note, so it is always a chord
+tone. Without the mask the model often repeated the previous bass, e.g. B2 under E♭ dim. The voicing was then
+stacked on a non-chord-tone bass, and the bank key's `bass_iv` was not a chord position. Joel heard this as an
+"E♭ half-diminished over a dominant 7th".
+
+Two edge cases:
+- **No chord tone in the register.** If the register holds no chord tone at all, any pitch in the register is
+  allowed rather than none.
+- **Missing bank key.** If `type|n|bass_iv` is missing and no other n exists for that bass position, the chord
+  tones are stacked upward from the bass, n notes. This was already the case, and it is now tested.
+
+The match rule still accepts a candidate that is the upper structure of the piano's chord: E♭ dim with piano
+B–E♭–A forms B7. With the bass masked to E♭ dim's tones, the block voices E♭ dim on one of its own tones, and together with the
+piano's B it sounds as B7.
+
 ## Joel's v1.1 evening commits brought in (2026-11-24)
 
 Only c9f419d and 3931ecd were taken from `origin/informative-wait`, as Joel asked. fae4bd7 (branches by pitch
@@ -162,4 +181,3 @@ because v1.2 keeps LATE / EXPIRED.
   never biased. Is that what you want for v1.2?
 - **Coarse bins on SDUR.** The bins (10–320 cs) were tuned on v1.1's Mono durations. Stack durations are longer on
   average, so the bins may be worth re-checking once r2 plays.
-- **Placeholder ONNX name.** `rt_simultaneous_chord_latest` has to match the export.

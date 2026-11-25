@@ -972,6 +972,22 @@ TEST(InformativeWaitOnnx, HybridV11LoadsBothModels) {
     EXPECT_FALSE(wrong.init(m2.c_str(), m1.c_str()));
 }
 
+TEST(InformativeWaitOnnx, HybridV12LoadsTheChordModel) {
+    const auto dir = home() + "/Documents/virtual_orch_models/";
+    const auto m1 = dir + "rt_continuation_latest.onnx";
+    const auto m2 = dir + "simultaneous_chordtokens_m2c_r2b_kv.onnx";
+    const auto bank = dir + "voicing_bank_m2c.json";
+    if (! juce::File(m1).existsAsFile() || ! juce::File(m2).existsAsFile() || ! juce::File(bank).existsAsFile())
+        GTEST_SKIP() << "rt_continuation_latest / simultaneous_chordtokens_m2c_r2b_kv / voicing_bank_m2c not on this machine";
+    ModelConfig config;
+    HybridInformativeWaitReductionTransformer hy(config);
+    hy.loadVoicingBank(bank);
+    ASSERT_TRUE(hy.init(m1.c_str(), m2.c_str())) << hy.lastInitError;
+    EXPECT_TRUE(hy.isModelLoaded());
+    EXPECT_TRUE(hy.isChordModel()); // vocab 14071
+    EXPECT_STREQ(hy.label(), "Hybrid v1.2");
+}
+
 TEST(InformativeWaitOnnx, MatchesPythonSampler) {
     // The Python sampler's trace: for each pick, the top-25 raw probabilities after tokens[:pos].
     const auto tracePath = home() + "/orchestration/samples/overnight_112226/v2/m2_r10_p30_q03__unconstrained/sample_00/trace.json.gz";

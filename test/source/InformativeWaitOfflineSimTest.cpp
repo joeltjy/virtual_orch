@@ -9,6 +9,7 @@
 
 #include <VirtualOrch/reduction/InformativeWaitEngine.h>
 #include <VirtualOrch/reduction/StreamingKvCache.h>
+#include <VirtualOrch/reduction/VoicingBank.h>
 
 /**
  * Offline simulation of the informative-WAIT engine on the MAESTRO fixtures (input.mid, first 15 s),
@@ -20,6 +21,10 @@
  *   IW_FIXTURES=~/orchestration/samples/maestro_fixtures_10 IW_OUT=/tmp/iw_sim \
  *   [IW_MODEL=...onnx] [IW_MODES=unconstrained,monophonic_A,monophonic_B] [IW_SECONDS=15] \
  *   ./VirtualOrchTest --gtest_filter='InformativeWaitOfflineSim.*'
+ *
+ * Hybrid v1.2's chord-token model 2: IW_CHORD=1 (with IW_MODES=unconstrained) applies the hybrid's model-2 settings,
+ * chordTokens on and the voicing bank IW_BANK (default ~/Documents/virtual_orch_models/voicing_bank_m2c.json):
+ *   IW_CHORD=1 IW_MODEL=~/Documents/virtual_orch_models/simultaneous_chordtokens_m2c_r2b_kv.onnx IW_MODES=unconstrained ...
  */
 namespace {
 
@@ -142,6 +147,15 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
     const int only = envOr("IW_ONLY", "-1").getIntValue();
     backend.verbose = envOr("IW_TRACE", "0") == "1";
 
+    const bool chord = envOr("IW_CHORD", "0") == "1";
+    std::shared_ptr<VoicingBank> bank;
+    if (chord) {
+        const juce::File bankFile(envOr("IW_BANK", juce::File::getSpecialLocation(juce::File::userHomeDirectory)
+                                                       .getChildFile("Documents/virtual_orch_models/voicing_bank_m2c.json")
+                                                       .getFullPathName()));
+        bank = std::make_shared<VoicingBank>();
+        ASSERT_TRUE(bank->loadJson(bankFile.loadFileAsString().toStdString(), err)) << err;
+    }
     juce::StringArray modes;
     modes.addTokens(envOr("IW_MODES", "unconstrained,monophonic_A,monophonic_B"), ",", "");
     const std::map<juce::String, Engine::Mode> modeOf{{"unconstrained", Engine::Mode::Unconstrained},
@@ -173,6 +187,27 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
             s.mode = modeOf.at(modeName);
             s.seed = static_cast<uint64_t>(fi);
             s.precompute = precompute;
+            if (chord) {
+                // HybridInformativeWaitReductionTransformer::applySettings, model 2 (logit adjustments off)
+                s.rewriteHeldDurations = true;
+                s.holdCommitCs = 1000;
+                s.minDurationCs = 10;
+                s.maxDurationCs = 500;
+                s.maxChordNotes = 10;
+                s.chordLateCs = 0;
+                s.drawAheadCs = 1 << 20;
+                s.noWaitAfterExpiry = true;
+                s.fireWindowCs = 6;
+                s.waitTopK = 3;
+                s.expiryGraceCs = 20;
+                s.outsideTopFiveAsRankOne = false;
+                s.ascendingChords = true;
+                s.maxAheadCs = 300;
+                s.coarseDurationBins = true;
+                s.chordTokens = true;
+                s.voicings = bank;
+                s.maxLates = 2;
+            }
             engine.setSettings(s);
             std::vector<int32_t> fireLate;      // first stacked note
             std::vector<int32_t> fireLateAll;   // last stacked note
@@ -186,7 +221,7 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
                 if (e.what == "fire") {
                     lastFireOnset = e.atCs;
                     openFire = e.atCs;
-                    openLeft = e.a; // k
+                    openLeft = chord ? 1 : e.a; // k (chord mode: k is pitch classes; the first note is timed)
                     firstSeen = false;
                 }
                 if (trace)
@@ -291,6 +326,26 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
             }
             o->setProperty("fire_latency_all_notes_cs", latesAll);
             o->setProperty("context_rebuilds", stt.contextRebuilds);
+            if (chord) {
+                o->setProperty("chord_blocks", stt.chordBlocks);
+                o->setProperty("chord_matched", stt.chordMatched);
+                juce::Array<juce::var> steps;
+                for (int i = 1; i <= 4; ++i)
+                    steps.add(stt.inferSteps[static_cast<size_t>(i)]);
+                o->setProperty("chord_inferred_by_step", steps);
+                o->setProperty("lates", stt.lates);
+                o->setProperty("lates_forced", stt.lateForced);
+                o->setProperty("expired_chosen", stt.expiredChosen);
+                o->setProperty("give_ups", stt.giveUps);
+                o->setProperty("re_waits", stt.chains);
+                o->setProperty("voicing_fallbacks", stt.voicingFallbacks);
+                std::cout << "[iw-sim] chord: blocks " << stt.chordBlocks << ", matched " << stt.chordMatched
+                          << ", inferred " << stt.inferSteps[1] << "/" << stt.inferSteps[2] << "/" << stt.inferSteps[3]
+                          << "/" << stt.inferSteps[4] << ", LATE " << stt.lates << " (forced " << stt.lateForced
+                          << "), EXPIRED " << stt.expired << " (chosen " << stt.expiredChosen << "), give-ups "
+                          << stt.giveUps << ", re-waits " << stt.chains << ", early " << stt.earlyPiano
+                          << ", voicing fallbacks " << stt.voicingFallbacks << std::endl;
+            }
             o->setProperty("lag_skips", stt.lagSkips);
             o->setProperty("model_calls", static_cast<int>(backend.calls - calls0));
             o->setProperty("batched_calls", static_cast<int>(backend.batchedCalls - batched0));

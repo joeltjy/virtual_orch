@@ -15,7 +15,7 @@
  *
  * Every tick (kTickMs):
  *   e     = clamp(log2(target / measured), -kMaxError, kMaxError)       (TD steps)
- *   gamma = gamma + clamp(K e, -kMaxStep, kMaxStep),
+ *   gamma = gamma + clamp(K e, -kMaxStep, kMaxStepUp),
  *            K = (kTickMs / kTauMs) / max(S, kMinSensitivity) x N / (N + kNoiseN) x m
  *
  *  - measured: the orchestra's onsets in the 3 s ending at its newest generated note, in TD units
@@ -30,8 +30,11 @@
  *  - gamma stays in [kMinGamma, kMaxGamma] and does not integrate further into a limit.
  *  - Frozen (gamma kept, not updated) at TD AUTO, while the clock is stopped, while the model
  *    waits (W2/W3 WAIT), and in a tick in which it drew nothing. A new target resets m.
- *  - reset() on a stream restart and a pedal release: a gamma learnt before must not carry over
- *    (frozen, it would otherwise stay until the model draws enough to undo it).
+ *  - A new TD level starts from startGamma(level) (warm start), not from wherever gamma was.
+ *  - reset() on a stream restart: back to startGamma(target). A pedal press only softReset()s: a NEGATIVE gamma
+ *    learnt before is dropped (frozen, it would otherwise stay until the model draws enough to undo it), a positive
+ *    one is kept. Until Nov 25 2026 every pedal press reset gamma to 0, and with the pianist pedalling every 2-5 s
+ *    the controller never got past ~5 (TD stayed ~4 at TD 16 / 32 / 64).
  */
 class TdController {
 public:
@@ -42,8 +45,22 @@ public:
      */
     static constexpr double kTickMs = 2000.0;
     static constexpr double kTauMs = 20000.0; // gain per update kTickMs / kTauMs = 0.1, as before
-    /** The largest change of gamma in one update. */
+    /** The largest DECREASE of gamma in one update (thinning out stays slow: the Nov 23 burst, below). */
     static constexpr double kMaxStep = 0.25;
+    /**
+     * The largest INCREASE of gamma in one update. At 0.25 per 2 s, TD 16 (gamma ~2-5 for model 1 in the Nov 25 2026
+     * sweep) took 16-40 s of uninterrupted drawing; the pedal reset it every few seconds.
+     */
+    static constexpr double kMaxStepUp = 1.0;
+    /**
+     * Warm start: startGamma(level) = kStartGammaPerStep x log2(level / 4), 0 at TD <= 4. Offline (Nov 25 2026, model 1
+     * continuing its own orchestration with a fixed gamma): TD 16 gamma 2 -> 25, TD 64 gamma 2 -> 39 onsets per 2 s;
+     * model 1 live (sparser context) needs more, so 1 per TD step above 4 is a cautious start the controller refines.
+     */
+    static constexpr double kStartGammaPerStep = 1.0;
+    [[nodiscard]] static auto startGamma(int32_t target) -> double {
+        return target > 4 ? kStartGammaPerStep * std::log2(static_cast<double>(target) / 4.0) : 0.0;
+    }
     /** A low sensitivity estimate (as in a dense burst) must not inflate K: S is taken as at least this. */
     static constexpr double kMinSensitivity = 0.2;
     static constexpr double kNoiseN = 4.0;
@@ -90,6 +107,11 @@ public:
 
     auto tick(const Input &in) -> const State & {
         if (in.target != state.target) {
+            // a new TD level (not a return from AUTO to the same level) starts from its warm-start gamma
+            if (in.target != TemporalDensity::kAuto && in.target >= 1 && in.target != lastLevel) {
+                state.gamma = startGamma(in.target);
+                lastLevel = in.target;
+            }
             state.m = 1.0;
             checkCount = 0;
             lastCheckError.reset();
@@ -126,7 +148,7 @@ public:
             return state;
         }
         state.k = (kTickMs / kTauMs) / std::max(state.sensitivity, kMinSensitivity) * n / (n + kNoiseN) * state.m;
-        const double next = state.gamma + std::clamp(state.k * state.error, -kMaxStep, kMaxStep);
+        const double next = state.gamma + std::clamp(state.k * state.error, -kMaxStep, kMaxStepUp);
         if ((state.gamma >= kMaxGamma && state.error > 0) || (state.gamma <= kMinGamma && state.error < 0)) {
             state.why = "at limit"; // no further into the limit
         } else {
@@ -153,11 +175,26 @@ public:
 
     [[nodiscard]] auto current() const -> const State & { return state; }
 
-    /** Back to gamma 0 and m 1, as at launch (a restart, a pedal release). Keeps the TD target. */
+    /** Back to the target's warm-start gamma (0 at TD <= 4 / AUTO) and m 1, as at launch (a restart). Keeps the target. */
     auto reset() -> void {
         const int32_t target = state.target;
         *this = TdController{};
         state.target = target;
+        if (target != TemporalDensity::kAuto && target >= 1) {
+            state.gamma = startGamma(target);
+            lastLevel = target;
+        }
+    }
+
+    /** A pedal press: a negative gamma goes back to the warm start; a higher one is kept. m back to 1. */
+    auto softReset() -> void {
+        const double floor = state.target != TemporalDensity::kAuto && state.target >= 1 ? startGamma(state.target) : 0.0;
+        state.gamma = std::max(state.gamma < 0.0 ? floor : state.gamma, floor);
+        state.m = 1.0;
+        checkCount = 0;
+        lastCheckError.reset();
+        lastUpdateError.reset();
+        signChanged = false;
     }
 
 private:
@@ -167,4 +204,5 @@ private:
     std::optional<double> lastCheckError;
     std::optional<double> lastUpdateError;
     bool signChanged = false;
+    int32_t lastLevel = TemporalDensity::kAuto; // the last TD level warm-started (AUTO and back keeps gamma)
 };

@@ -155,6 +155,8 @@ auto HybridInformativeWaitReductionTransformer::applySettings() -> void {
     s.onsetGapBias = biases && hybridV1OnsetGapBias.load();
     s.shortGap = hybridV1ShortGapPenalty.load();
     s.logitTd = hybridV1LogitTd.load();
+    // a polyphony cap: the density follows the durations, so they get the TD taper too (Nov 25 2026)
+    s.tdDurationTaper = s.logitTd && getMaxPolyphony() > 0 && td > 4;
     s.pitchTau = DensePitchBias::TauBase;
     s.pitchTauPrime = DensePitchBias::TauBase;
     s.durationTau = DenseDurationBias::TauBase;
@@ -199,6 +201,7 @@ auto HybridInformativeWaitReductionTransformer::applySettings() -> void {
     w.onsetGapBias = biases && isOnsetGapBiasEnabled();
     w.shortGap = isShortGapPenaltyEnabled();
     w.logitTd = isLogitTdEnabled();
+    w.tdDurationTaper = w.logitTd && getMaxPolyphony() > 0 && td > 4;
     w.pitchTau = getPitchTauBase();
     w.pitchTauPrime = getPitchTauPrimeBase();
     w.durationTau = getDurationTauBase();
@@ -344,6 +347,13 @@ auto HybridInformativeWaitReductionTransformer::tickTdControl() -> void {
         if (OpLog::on())
             OpLog::emit(OpLog::Src::Rt, "TD_CTRL_RESET", {});
     }
+    if (tdSoftResetRequested.exchange(false)) {
+        tdControlSilent.softReset();
+        tdControlWait.softReset();
+        if (OpLog::on())
+            OpLog::emit(OpLog::Src::Rt, "TD_CTRL_SOFT_RESET",
+                        {{"gamma_m1", tdControlSilent.current().gamma}, {"gamma_m2", tdControlWait.current().gamma}});
+    }
     const int64_t nowMs = wallMs();
     if (lastTdTickMs >= 0 && static_cast<double>(nowMs - lastTdTickMs) < TdController::kTickMs)
         return;
@@ -368,6 +378,13 @@ auto HybridInformativeWaitReductionTransformer::tickTdControl() -> void {
             measured = TdController::measure(static_cast<int>(onsets.size()));
         }
     }
+    // the orchestra after the OT, when it has a fresh reading (tremolo counts 8 a second there)
+    bool measuredAfterOt = false;
+    if (measuredTdProvider)
+        if (const auto ot = measuredTdProvider()) {
+            measured = *ot;
+            measuredAfterOt = true;
+        }
     const int32_t td = tdValueProvider ? tdValueProvider() : TemporalDensity::kAuto;
     const bool clockRunning = clock == nullptr || clock->isRunning();
     std::vector<TdControlView> views;
@@ -380,7 +397,8 @@ auto HybridInformativeWaitReductionTransformer::tickTdControl() -> void {
         views.push_back({model, state});
         if (OpLog::on() && td != TemporalDensity::kAuto)
             OpLog::emit(OpLog::Src::Rt, "TD_CTRL",
-                        {{"model", model}, {"td", td}, {"measured", state.measured}, {"error", state.error},
+                        {{"model", model}, {"td", td}, {"measured", state.measured},
+                         {"measured_by", measuredAfterOt ? "ot" : "rt"}, {"error", state.error},
                          {"gamma", state.gamma}, {"k", state.k}, {"s_hat", state.sensitivity}, {"m", state.m},
                          {"frozen", state.frozen},
                          {"why", state.why.empty() ? OpLog::Value() : OpLog::Value(state.why)}});

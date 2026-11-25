@@ -180,4 +180,74 @@ TEST(TdController, silenceIsAFiniteError) {
     EXPECT_TRUE(std::isfinite(c.current().gamma));
 }
 
+
+TEST(TdController, aNewLevelStartsFromItsWarmStartGamma) {
+    EXPECT_DOUBLE_EQ(TdController::startGamma(4), 0.0);
+    EXPECT_DOUBLE_EQ(TdController::startGamma(2), 0.0);
+    EXPECT_DOUBLE_EQ(TdController::startGamma(16), 2.0);
+    EXPECT_DOUBLE_EQ(TdController::startGamma(64), 4.0);
+    TdController c;
+    c.tick({16, 16.0, 0.5, true, false}); // on target: dead zone, gamma stays at the warm start
+    EXPECT_DOUBLE_EQ(c.current().gamma, 2.0);
+    c.tick({64, 64.0, 0.5, true, false});
+    EXPECT_DOUBLE_EQ(c.current().gamma, 4.0);
+    c.tick({TemporalDensity::kAuto, 64.0, 0.5, true, false});
+    c.tick({64, 64.0, 0.5, true, false});
+    EXPECT_DOUBLE_EQ(c.current().gamma, 4.0) << "AUTO and back to the same level keeps gamma";
+}
+
+TEST(TdController, aPedalPressKeepsAPositiveGammaAndDropsANegativeOne) {
+    TdController c;
+    run(c, Plant{1.0, 0.3}, 16, 0.3, 20); // a sparse model: gamma climbs past the warm start
+    const double learnt = c.current().gamma;
+    ASSERT_GT(learnt, TdController::startGamma(16));
+    c.softReset();
+    EXPECT_DOUBLE_EQ(c.current().gamma, learnt);
+    EXPECT_DOUBLE_EQ(c.current().m, 1.0);
+
+    TdController busy;
+    run(busy, Plant{64.0, 0.5}, 4, 0.5, 40);
+    ASSERT_LT(busy.current().gamma, -1.0);
+    busy.softReset();
+    EXPECT_DOUBLE_EQ(busy.current().gamma, 0.0) << "a negative gamma does not survive the pedal";
+}
+
+TEST(TdController, gammaRisesFasterThanItFalls) {
+    TdController c;
+    c.tick({16, 1.0, 0.05, true, false}); // far too sparse (error +2), low sensitivity: K e = 0.86
+    EXPECT_GT(c.current().gamma - TdController::startGamma(16), 3 * TdController::kMaxStep) << "more than the old 0.25";
+    EXPECT_LE(c.current().gamma - TdController::startGamma(16), TdController::kMaxStepUp + 1e-12);
+    TdController d;
+    d.tick({4, 64.0, 0.05, true, false}); // far too dense
+    EXPECT_NEAR(d.current().gamma, -TdController::kMaxStep, 1e-12);
+}
+
+TEST(TdController, reachesTd16ThoughThePedalIsPressedEveryFourSeconds) {
+    // Nov 24 2026, 21:50: model 1 at ~4 onsets per 2 s, the pianist pedalling every 2-5 s. A model that needs
+    // gamma 5 for TD 16 (base 4, 0.4 TD steps per unit): before, every press went back to gamma 0 and 0.25 per tick
+    // never got there; with the warm start, the faster rise and the soft reset it does within ~10 s.
+    const Plant plant{4.0, 0.4};
+    TdController c;
+    double best = 0.0;
+    for (int i = 0; i < 30; ++i) {
+        const double d = plant.density(c.current().gamma);
+        c.tick({16, d, 0.4, true, false});
+        if (i % 2 == 1)
+            c.softReset(); // a pedal press every 2 ticks
+        if (i >= 5)
+            best = std::max(best, plant.density(c.current().gamma));
+    }
+    EXPECT_LT(std::abs(std::log2(16.0 / plant.density(c.current().gamma))), 0.35);
+
+    // the old behaviour for comparison: a full reset to 0 at every press, at most 0.25 per tick
+    double gamma = 0.0, oldBest = 0.0;
+    for (int i = 0; i < 30; ++i) {
+        gamma = std::min(gamma + 0.25, 20.0);
+        oldBest = std::max(oldBest, plant.density(gamma));
+        if (i % 2 == 1)
+            gamma = 0.0;
+    }
+    EXPECT_LT(oldBest, 6.0) << "the old controller stays near TD 4";
+}
+
 } // namespace virtual_orch_test

@@ -7,6 +7,7 @@
 #include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/OpLogDraw.h"
 #include "VirtualOrch/orchestration-models/VocsepEnsemble.h"
+#include "VirtualOrch/OrchestraTdMeter.h"
 
 #include <algorithm>
 #include <cmath>
@@ -387,6 +388,10 @@ auto IodPretrained::sampleComboForNote(IodPretrainedTypes::EncoderWindow &window
 
     window.comboIn[static_cast<size_t>(noteIdx)].fill(bos);
 
+    const float tremoloBonus = tremoloBias.load();
+    const bool tremoloOn = tremoloBonus > 0.0f
+                           && localIdIsActive(instruments, OrchestraTdMeter::kTremoloLocalId);
+
     {
         auto logits = runNoteLogits(window, noteIdx);
         if (logits.size() < static_cast<size_t>(comboVocabSize))
@@ -402,6 +407,11 @@ auto IodPretrained::sampleComboForNote(IodPretrainedTypes::EncoderWindow &window
             applyGroupsTokenLogitsBias(row, static_cast<size_t>(comboVocabSize), masks.data(),
                                        masks.size(), groupsBiasTau.load());
         }
+        // TD lever: tremolo strings (strings = family 0, tremolo = its instrument 0, bits 0-2) when the pad is on
+        if (tremoloOn && ! forced.has_value())
+            for (int32_t id = groupsOffset; id < groupsHi; ++id)
+                if ((maskFromGroupsToken(id) & 1) != 0 && std::isfinite(row[id]))
+                    row[id] += tremoloBonus;
         if (forced.has_value() && (*forced)[0] == endNote) {
             // The logged note had no orchestra notes: record the model's view of GROUPS, play nothing.
             sampleRange(row, groupsOffset, groupsHi, 0, forbid.fullyBannedFamilyBits, false, nullptr, 0,
@@ -441,6 +451,12 @@ auto IodPretrained::sampleComboForNote(IodPretrainedTypes::EncoderWindow &window
             break;
 
         const auto &family = familySpecs[static_cast<size_t>(familyIdx)];
+        if (familyIdx == 0 && tremoloOn && ! forced.has_value()) {
+            float *strings = logits.data() + stepAt;
+            for (int32_t mask = 1; mask < family.tokenSize; ++mask)
+                if ((mask & 0b111) != 0 && std::isfinite(strings[family.tokenOffset + mask]))
+                    strings[family.tokenOffset + mask] += tremoloBonus;
+        }
         const float *row = logits.data() + stepAt;
         static constexpr const char *kFamilyNames[] = {"strings", "woodwinds", "brass", "other"};
         const auto forcedFam = forced.has_value() && (*forced)[static_cast<size_t>(comboWrite)] != endNote

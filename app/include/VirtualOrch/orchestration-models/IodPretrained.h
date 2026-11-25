@@ -4,6 +4,7 @@
 #include <functional>
 #include <optional>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <deque>
@@ -68,6 +69,9 @@ public:
     }
 
     auto setGroupsBiasTau(float tau) -> void { groupsBiasTau.store(tau); }
+    /** The TD lever: + bonus on the GROUPS tokens with strings and the strings tokens with tremolo (if active). */
+    auto setTremoloBias(float bonus) -> void override { tremoloBias.store(std::max(0.0f, bonus)); }
+    [[nodiscard]] auto getTremoloBias() const -> float { return tremoloBias.load(); }
     [[nodiscard]] auto getGroupsBiasTau() const -> float { return groupsBiasTau.load(); }
 
 private:
@@ -116,6 +120,7 @@ public:
 private:
 
     std::atomic<float> groupsBiasTau{IodPretrainedTypes::groupsBiasTau};
+    std::atomic<float> tremoloBias{0.0f};
 
     std::unique_ptr<Ort::Session> session;
     Ort::MemoryInfo memoryInfo = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault);

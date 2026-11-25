@@ -258,6 +258,14 @@ public:
         int32_t tdLevel = 0;
         std::optional<float> tdGamma;
         /**
+         * Under a polyphony cap a new onset waits for a voice to end, so the density is ~200 / duration onsets per
+         * 2 s whatever the onset logits say (Max polyphony 1: ~6 per 2 s at any TD, Nov 25 2026). With this on (set
+         * by the transformer when a cap is active, LogitTD on and TD > 4) the duration logits get the onsets' fixed
+         * taper TdOnsetBias::shift(tdLevel, d): durations beyond the TD's mean gap 200 / tdLevel cs are discouraged,
+         * as dense passages in training have short notes (duration p50 40 cs at TD 4, 20 at 16, 15 at 32).
+         */
+        bool tdDurationTaper = false;
+        /**
          * The legacy Hybrid's logit adjustments (AnticipationSampler / TdOnsetBias), on the same dense
          * token layout. History: every orchestra note in the context (own and mirrored).
          *   pitch / duration / onsetGap: the dense biases with their tau (the scheduler ramps them);
@@ -533,6 +541,8 @@ private:
     auto samplingProbs(const std::vector<float> &scores, float temperature) const -> std::vector<float>;
     /** Dynamic LogitTD on the onsets loRel..hiRel of `logits` (cfg.tdGamma), and their sensitivity. */
     auto applyTdGamma(std::vector<float> &logits, int32_t loRel, int32_t hiRel) -> void;
+    /** The duration taper (cfg.tdDurationTaper) on the duration tokens of `logits`. */
+    auto applyTdDurationTaper(std::vector<float> &logits) const -> void;
     /** The orchestra notes in the context as dense quads (absolute onsets), for the biases. */
     [[nodiscard]] auto orchestraHistory() const -> std::vector<int32_t>;
     /** The register range applied to [lo, hi]; false if no pitch is left (a chord stacked past its top). */

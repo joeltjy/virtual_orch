@@ -18,6 +18,7 @@
 #include "VirtualOrch/OctaveDeltaTracker.h"
 #include "VirtualOrch/OrchestrationBalanceTracker.h"
 #include "VirtualOrch/OrchLoopProfile.h"
+#include "VirtualOrch/OrchestraTdMeter.h"
 #include "VirtualOrch/orchestration-models/OrchestrationModel.h"
 #include "VirtualOrch/vocsep/VoiceSeparation.h"
 
@@ -190,6 +191,15 @@ public:
 
     OrchestrationModel *orchestrationModel = nullptr;
 
+    /**
+     * The orchestra's TD after the OT (Nov 25 2026): the model-orchestrated notes as they will sound, tremolo
+     * counted at 8 events a second (OrchestraTdMeter). Empty when there is no note, or the newest is older than the
+     * 3 s before now has nothing starting or sounding (paused, silent). The Hybrid RT's TdController reads it instead of its own count.
+     */
+    [[nodiscard]] auto orchestraTd() const -> std::optional<OrchestraTdMeter::Reading>;
+    /** The tremolo bonus the OT gives the model now (TremoloBiasController). */
+    [[nodiscard]] auto getTremoloBias() const -> float { return tremoloBiasValue.load(); }
+
     [[nodiscard]] auto getMidiInputHistory() const -> const std::vector<Token> & {
         return midiInputHistory;
     }
@@ -251,6 +261,13 @@ private:
     std::vector<Token> conditioningHistory;
     std::vector<Token> reductionHistory;
     std::vector<OrchestrationNote> outputHistory;
+
+    OrchestraTdMeter tdMeter;
+    TremoloBiasController tremoloBias;
+    double lastTremoloTickMs = -1.0;
+    std::atomic<float> tremoloBiasValue{0.0f};
+    /** Every TremoloBiasController::kTickMs: the bonus from the TD target and tdMeter, handed to the model. */
+    auto tickTremoloBias() -> void;
 
     mutable juce::CriticalSection debugSnapshotLock;
     OrchestrationDebugSnapshot debugSnapshot;

@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <functional>
+#include <optional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -32,7 +33,7 @@
  * Dynamic LogitTD as in W3's Hybrid: one TdController per model ("m1", "m2"), ticked every TdController::kTickMs
  * from the orchestra's measured density, each updated only while its model draws (m2 frozen while it waits on a
  * WAIT); the gamma goes to that model's onset draws (InformativeWaitEngine::Settings::tdGamma). Both go back to
- * gamma 0 on a stream restart and a pedal release. TD AUTO: no shift.
+ * their warm-start gamma on a stream restart; a pedal press only drops a negative gamma. TD AUTO: no shift.
  *
  * Hybrid v1.2 (2026-11-24): the same, with the chord-token model 2 (m2c, vocab 14071; picked by the ONNX vocab): its
  * engine runs InformativeWaitEngine::Settings::chordTokens (CHORD blocks decoded for the OT with the preset's voicing
@@ -107,6 +108,12 @@ public:
     std::string silentName = "model 1";
     /** Launchpad TD value (TemporalDensity::kAuto or a level); tests replace it. */
     std::function<int32_t()> tdValueProvider;
+    /**
+     * The orchestra's TD measured AFTER the OT (OrchestrationTransformer::orchestraTd: model notes as they will sound,
+     * tremolo at 8 events a second), read at every TD tick; empty (or unset) = the RT's own count of its generated
+     * onsets, as before. Set by AppSession (Nov 25 2026).
+     */
+    std::function<std::optional<double>()> measuredTdProvider;
     /** Dynamic LogitTD, per model ("m1" silent side, "m2" playing side): what the TD widget shows. */
     struct TdControlView {
         std::string model;
@@ -131,7 +138,8 @@ private:
     auto onGenerationPauseChanged(bool paused) -> void override {
         if (! paused) {
             pedalReleased.store(true);
-            tdResetRequested.store(true);
+            // only drop a negative gamma: a full reset here zeroed it on every pedal press (Nov 25 2026)
+            tdSoftResetRequested.store(true);
         }
     }
     auto nowCs() const -> int32_t;
@@ -181,6 +189,7 @@ private:
     WaitTracker waitTracker;
     TdController tdControlSilent, tdControlWait;
     std::atomic<bool> tdResetRequested{false};
+    std::atomic<bool> tdSoftResetRequested{false};
     int64_t lastTdTickMs = -1;
     mutable std::mutex tdViewMutex;
     std::vector<TdControlView> tdViews;

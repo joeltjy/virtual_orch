@@ -90,6 +90,12 @@ public:
     /** Models that can smooth their per-note choice over a voice return true. */
     [[nodiscard]] virtual auto supportsVocsepEnsemble() const -> bool { return false; }
 
+    /**
+     * TD lever (Nov 25 2026): a logit bonus for tremolo strings, set every 2 s by the OrchestrationTransformer from the
+     * orchestra's measured TD (OrchestraTdMeter, TremoloBiasController). Models without tremolo ignore it.
+     */
+    virtual auto setTremoloBias(float bonus) -> void { (void) bonus; }
+
     auto setVocsepEnsembleEnabled(bool enabled) -> void { ensembleEnabled.store(enabled); }
     [[nodiscard]] auto getVocsepEnsembleEnabled() const -> bool { return ensembleEnabled.load(); }
     auto setVocsepEnsembleAddP(float p) -> void { ensembleAddP.store(p); }

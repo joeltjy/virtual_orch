@@ -351,6 +351,16 @@ auto InformativeWaitEngine::applyTdGamma(std::vector<float> &logits, int32_t loR
     }
 }
 
+auto InformativeWaitEngine::applyTdDurationTaper(std::vector<float> &logits) const -> void {
+    if (! cfg.tdDurationTaper || cfg.tdLevel <= 1)
+        return;
+    for (int32_t d = std::max(cfg.minDurationCs, 1); d <= cfg.maxDurationCs; ++d) {
+        const auto i = static_cast<size_t>(kDur0 + d);
+        if (i < logits.size() && std::isfinite(logits[i]))
+            logits[i] += TdOnsetBias::shift(cfg.tdLevel, d);
+    }
+}
+
 auto InformativeWaitEngine::orchestraHistory() const -> std::vector<int32_t> {
     std::vector<int32_t> quads;
     quads.reserve(items.size() * 4);
@@ -944,6 +954,12 @@ auto InformativeWaitEngine::drawBody(int32_t onsetCs, int32_t minPitch, bool pia
     if (cfg.durationBias) {
         biased = *l1;
         applyDurationBias(biased, history, onsetCs, durationScheduler);
+        l1 = &biased;
+    }
+    if (cfg.tdDurationTaper && cfg.tdLevel > 1) {
+        if (l1 != &biased)
+            biased = *l1;
+        applyTdDurationTaper(biased);
         l1 = &biased;
     }
     const int32_t dur = pick(*l1, {{kDur0 + cfg.minDurationCs, kDur0 + cfg.maxDurationCs + 1}}, cfg.otherTemperature, cfg.minP, 5);
@@ -1891,6 +1907,8 @@ auto InformativeWaitEngine::precomputeStep() -> void {
                 auto scheduler = pitchScheduler;
                 applyPitchBias(lg, history, pc.targetCs, scheduler);
             }
+            if (r == 0)
+                applyTdDurationTaper(lg);
             if (r == 0) {
                 const int32_t tok = pick(lg, {{kDur0 + cfg.minDurationCs, kDur0 + cfg.maxDurationCs + 1}}, cfg.otherTemperature, cfg.minP, 5);
                 br.notes.push_back({tok - kDur0, 0, 0});

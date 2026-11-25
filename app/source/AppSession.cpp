@@ -118,6 +118,12 @@ AppSession::AppSession()
     reductionTransformerHybrid.pianoSilentForMs = pianoSilent;
     reductionTransformerInformativeWait.pianoSilentForMs = pianoSilent;
     reductionTransformerHybridIW.pianoSilentForMs = pianoSilent;
+    // Hybrid v1.1's TD controller steers on the orchestra as it will sound (after the OT, tremolo 8 a second)
+    reductionTransformerHybridIW.measuredTdProvider = [this]() -> std::optional<double> {
+        if (const auto r = orchestrationTransformer.orchestraTd())
+            return r->td;
+        return std::nullopt;
+    };
     reductionTransformerMelodyFirst.pianoSilentForMs = pianoSilent;
     midiInputProcess.activityLog = &activityLog;
     SessionLog::setClock(&clock);

@@ -1,4 +1,5 @@
 #include "VirtualOrch/OrchestrationTransformer.h"
+#include "VirtualOrch/TemporalDensity.h"
 #include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/AppTime.h"
 #include "VirtualOrch/PedalClear.h"
@@ -487,6 +488,12 @@ auto OrchestrationTransformer::deliverOutputNote(const OrchestrationNote &noteIn
             OpLog::emit(OpLog::Src::Ot, "Q_PUSH", {{"queue", "ot→play"}, {"item", o}});
         }
     }
+    // the orchestra's TD after the OT: the model's notes only (keyId < 0), not the pianist's orchestrated keys
+    if (note.token.note == static_cast<int32_t>(Vocab::ClearQueue))
+        tdMeter.clearFrom(note.token.time);
+    else if (note.token.keyId < 0)
+        tdMeter.add(note.token.time, note.token.getRealDuration(),
+                    note.localInstrumentId == OrchestraTdMeter::kTremoloLocalId);
     currentOTTime = note.token.time;
     SessionLog::add("OT", juce::String(note.token.toUnderstandableString()) + " instr "
                               + juce::String(note.localInstrumentId) + " vel "
@@ -503,6 +510,39 @@ auto OrchestrationTransformer::clearOutputNotes() -> void {
     }
     outputHistory.clear();
     currentOTTime = 0;
+    tdMeter.clear();
+    tremoloBias.reset();
+    tremoloBiasValue.store(0.0f);
+    if (orchestrationModel != nullptr)
+        orchestrationModel->setTremoloBias(0.0f);
+}
+
+auto OrchestrationTransformer::orchestraTd() const -> std::optional<OrchestraTdMeter::Reading> {
+    const auto nowCs = clock != nullptr ? std::optional<int32_t>(static_cast<int32_t>(clock->getTime())) : std::nullopt;
+    auto r = tdMeter.read(nowCs);
+    if (! r.has_value() || r->events <= 0.0)
+        return std::nullopt; // nothing sounding or starting in the last 3 s (paused, silent): the RT counts itself
+    return r;
+}
+
+auto OrchestrationTransformer::tickTremoloBias() -> void {
+    const double nowMs = juce::Time::getMillisecondCounterHiRes();
+    if (lastTremoloTickMs >= 0.0 && nowMs - lastTremoloTickMs < TremoloBiasController::kTickMs)
+        return;
+    lastTremoloTickMs = nowMs;
+    const bool running = ! paused.get() && (clock == nullptr || clock->isRunning());
+    const auto reading = running ? orchestraTd() : std::nullopt;
+    const int32_t target = TemporalDensity::get();
+    const double bonus = tremoloBias.tick(target, reading.has_value() ? std::optional<double>(reading->td) : std::nullopt);
+    tremoloBiasValue.store(static_cast<float>(bonus));
+    if (orchestrationModel != nullptr)
+        orchestrationModel->setTremoloBias(static_cast<float>(bonus));
+    if (OpLog::on() && target != TemporalDensity::kAuto)
+        OpLog::emit(OpLog::Src::Ot, "OT_TD",
+                    {{"td", target}, {"measured", reading.has_value() ? reading->td : -1.0},
+                     {"events", reading.has_value() ? reading->events : 0.0},
+                     {"tremolo_events", reading.has_value() ? reading->tremoloEvents : 0.0},
+                     {"tremolo_bias", bonus}});
 }
 
 void OrchestrationTransformer::threadRun() {
@@ -561,6 +601,7 @@ auto OrchestrationTransformer::stepOnce() -> void {
     getOutputAccum = {};
 
     applyInstrumentUpdates();
+    tickTremoloBias();
 
     std::vector<Token> midiUpdate;
     std::vector<Token> conditioningUpdate;

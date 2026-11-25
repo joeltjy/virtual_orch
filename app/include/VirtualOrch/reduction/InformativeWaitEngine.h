@@ -285,6 +285,7 @@ public:
         int32_t pitch = 60;
         int32_t velocity = 64;
         bool precomputed = false; // a fire served from the anticipation branches
+        bool fromChord = false;   // chord mode: a CHORD block's note or its leftover (fire or give-up)
         /** The draws that made this note (onset, dur, pitch, vel), when draw logging is on (logDraws). */
         std::vector<OpLogDraw::Draw> draws;
     };

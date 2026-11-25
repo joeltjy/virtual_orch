@@ -12,6 +12,13 @@
 
 namespace {
 
+auto markChord(std::vector<InformativeWaitEngine::OutNote> notes) -> std::vector<InformativeWaitEngine::OutNote> {
+    for (auto &n: notes)
+        n.fromChord = true;
+    return notes;
+}
+
+
 constexpr float kNegInf = -std::numeric_limits<float>::infinity();
 constexpr int32_t kPianoLow = 21;
 constexpr int32_t kPianoHigh = 108;
@@ -589,7 +596,7 @@ auto InformativeWaitEngine::applyInput() -> std::vector<OutNote> {
             continue;
         }
         if (group.has_value() && group->firePending) {
-            auto f = fireChord(); // chord mode: every piano note of the onset that came in is written first
+            auto f = markChord(fireChord()); // chord mode: every piano note of the onset that came in is written first
             out.insert(out.end(), f.begin(), f.end());
         }
         if (fireLeft.has_value()) {
@@ -604,7 +611,7 @@ auto InformativeWaitEngine::applyInput() -> std::vector<OutNote> {
         out.insert(out.end(), fired.begin(), fired.end());
     }
     if (group.has_value() && group->firePending) {
-        auto f = fireChord();
+        auto f = markChord(fireChord());
         out.insert(out.end(), f.begin(), f.end());
     }
     return out;
@@ -2087,7 +2094,7 @@ auto InformativeWaitEngine::step(int32_t stepNowCs) -> std::vector<OutNote> {
     applyMirrored();
     commitLongHolds();
     if (fireLeft.has_value() && fireLeft->chord && out.empty())
-        return fireChordStep(); // the chord block, then the leftover, of a fire or a give-up
+        return markChord(fireChordStep()); // the chord block, then the leftover, of a fire or a give-up
     if (fireLeft.has_value() && out.empty()) {
         // the next stacked note of a fire
         const auto t0 = std::chrono::steady_clock::now();
@@ -2127,7 +2134,7 @@ auto InformativeWaitEngine::step(int32_t stepNowCs) -> std::vector<OutNote> {
         out.insert(out.end(), e.begin(), e.end());
         if (fireLeft.has_value() && fireLeft->chord) {
             // chord mode, given up: the chord block (and leftover) right away, before anything else is drawn
-            auto c = fireChordStep();
+            auto c = markChord(fireChordStep());
             out.insert(out.end(), c.begin(), c.end());
             maybeShrinkContext();
             return out;

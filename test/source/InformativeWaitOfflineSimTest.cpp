@@ -97,27 +97,39 @@ auto loadPiano(const juce::File &mid, int32_t endCs) -> std::vector<PianoNote> {
 }
 
 auto writeMidi(const juce::File &path, const std::vector<PianoNote> &piano,
-               const std::vector<std::pair<Engine::OutNote, int32_t>> &orch) -> void {
+               const std::vector<std::pair<Engine::OutNote, int32_t>> &orch, bool splitChords) -> void {
     juce::MidiFile file;
     file.setTicksPerQuarterNote(480); // 120 bpm: 1 s = 960 ticks
     const auto ticks = [](int32_t cs) { return cs * 9.6; };
-    juce::MidiMessageSequence p, o;
+    juce::MidiMessageSequence p, o, c;
+    if (splitChords) {
+        p.addEvent(juce::MidiMessage::textMetaEvent(3, "piano (given)"), 0);
+        o.addEvent(juce::MidiMessage::textMetaEvent(3, "orchestra: free notes"), 0);
+        c.addEvent(juce::MidiMessage::textMetaEvent(3, "orchestra: WAIT chords"), 0);
+    }
     p.addEvent(juce::MidiMessage::programChange(1, 0), 0);
     for (const auto &n: piano) {
         p.addEvent(juce::MidiMessage::noteOn(1, n.pitch, static_cast<juce::uint8>(n.velocity)), ticks(n.onset));
         p.addEvent(juce::MidiMessage::noteOff(1, n.pitch), ticks(n.onset + n.duration));
     }
     o.addEvent(juce::MidiMessage::programChange(2, 48), 0);
+    c.addEvent(juce::MidiMessage::programChange(3, 48), 0);
     for (const auto &[n, playedAt]: orch) {
         const int32_t start = std::max(n.onsetCs, playedAt); // a late note sounds when it was produced
-        o.addEvent(juce::MidiMessage::noteOn(2, n.pitch, static_cast<juce::uint8>(std::max(1, n.velocity))), ticks(start));
-        o.addEvent(juce::MidiMessage::noteOff(2, n.pitch), ticks(start + std::max(1, n.durationCs)));
+        auto &seq = splitChords && n.fromChord ? c : o;
+        const int ch = splitChords && n.fromChord ? 3 : 2;
+        seq.addEvent(juce::MidiMessage::noteOn(ch, n.pitch, static_cast<juce::uint8>(std::max(1, n.velocity))), ticks(start));
+        seq.addEvent(juce::MidiMessage::noteOff(ch, n.pitch), ticks(start + std::max(1, n.durationCs)));
     }
     p.updateMatchedPairs();
     o.sort();
     o.updateMatchedPairs();
+    c.sort();
+    c.updateMatchedPairs();
     file.addTrack(p);
     file.addTrack(o);
+    if (splitChords)
+        file.addTrack(c);
     path.deleteFile();
     juce::FileOutputStream out(path);
     file.writeTo(out);
@@ -160,7 +172,12 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
     modes.addTokens(envOr("IW_MODES", "unconstrained,monophonic_A,monophonic_B"), ",", "");
     const std::map<juce::String, Engine::Mode> modeOf{{"unconstrained", Engine::Mode::Unconstrained},
                                                       {"monophonic_A", Engine::Mode::LineLegato},
-                                                      {"monophonic_B", Engine::Mode::LineRests}};
+                                                      {"monophonic_B", Engine::Mode::LineRests},
+                                                      {"mono", Engine::Mode::Unconstrained}};
+    // IW_LOGIT_ADJ=1: the version1.1 preset's logit adjustments on model 2 (pitch / duration / onset-gap biases,
+    // short-gap penalty, LogitTD; the default taus). IW_RUN_PREFIX: prepended to the mode's output folder.
+    const bool logitAdj = envOr("IW_LOGIT_ADJ", "0") == "1";
+    const auto runPrefix = envOr("IW_RUN_PREFIX", {});
     auto dirs = juce::File(fixtures).findChildFiles(juce::File::findDirectories, false, "sample_*");
     dirs.sort();
     for (const auto &modeName: modes) {
@@ -208,6 +225,25 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
                 s.voicings = bank;
                 s.maxLates = 2;
             }
+            if (logitAdj) {
+                s.pitchBias = true;
+                s.durationBias = true;
+                s.onsetGapBias = true;
+                s.shortGap = true;
+                s.logitTd = true;
+                s.pitchTau = DensePitchBias::TauBase;           // 0.2
+                s.pitchTauPrime = DensePitchBias::TauBase;      // 0.2
+                s.durationTau = DenseDurationBias::TauBase;     // 0.5
+                s.durationTauPrime = DenseDurationBias::TauPrimeBase; // 0
+                s.onsetGapTau = DenseOnsetGapBias::TauBase;     // 0.5
+            }
+            // "mono": Hybrid v1.1/v1.2 with the polyphony cap 1 (Mono): a fire places one note (chord mode: the
+            // block's lowest voicing note, the bass), pitches above C4, and no onset before the sounding note ends
+            const bool mono = modeName == "mono";
+            if (mono) {
+                s.maxFireNotes = 1;
+                s.pitchLow = 61;
+            }
             engine.setSettings(s);
             std::vector<int32_t> fireLate;      // first stacked note
             std::vector<int32_t> fireLateAll;   // last stacked note
@@ -217,7 +253,10 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
             bool firstSeen = false;
             const bool trace = envOr("IW_TRACE", "0") == "1";
             int32_t traceNow = 0;
+            std::string events; // the engine's event log, one line per event
             engine.onEvent = [&](const Engine::Event &e) {
+                events += "t=" + std::to_string(traceNow) + " " + e.what + " @" + std::to_string(e.atCs) + " "
+                          + std::to_string(e.a) + " " + std::to_string(e.b) + " " + e.text + "\n";
                 if (e.what == "fire") {
                     lastFireOnset = e.atCs;
                     openFire = e.atCs;
@@ -247,6 +286,19 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
                         it = offs.erase(it);
                     } else {
                         ++it;
+                    }
+                }
+                if (mono) { // PolyphonyCap cap 1, as the hybrid sets minOnsetCs
+                    int32_t floor = now;
+                    for (auto it = orch.rbegin(); it != orch.rend() && it - orch.rbegin() < 8; ++it) {
+                        const int32_t st0 = std::max(it->first.onsetCs, it->second);
+                        if (st0 <= now && now < st0 + it->first.durationCs)
+                            floor = std::max(floor, st0 + it->first.durationCs);
+                    }
+                    if (floor != engine.settings().minOnsetCs) {
+                        auto ms = engine.settings();
+                        ms.minOnsetCs = floor;
+                        engine.setSettings(ms);
                     }
                 }
                 lastFireOnset = INT32_MIN;
@@ -280,19 +332,27 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
                     }
                 now += cost;
             }
-            const auto dir = juce::File(outRoot).getChildFile(modeName).getChildFile(dirs[fi].getFileName());
+            const auto dir = juce::File(outRoot).getChildFile(runPrefix + modeName).getChildFile(dirs[fi].getFileName());
             dir.createDirectory();
-            writeMidi(dir.getChildFile("generated.mid"), piano, orch);
+            writeMidi(dir.getChildFile("generated.mid"), piano, orch, chord);
             juce::String toks;
             for (const auto t: engine.tokens())
                 toks << t << " ";
             dir.getChildFile("tokens.txt").replaceWithText(toks.trimEnd() + "\n");
+            dir.getChildFile("events.txt").replaceWithText(juce::String(events));
 
             const auto &stt = engine.stats();
             auto *o = new juce::DynamicObject();
             o->setProperty("fixture", dirs[fi].getFileName());
             o->setProperty("piano_notes", static_cast<int>(piano.size()));
             o->setProperty("orchestra_notes", static_cast<int>(orch.size()));
+            {
+                const auto fromChord = std::count_if(orch.begin(), orch.end(), [](const auto &e) { return e.first.fromChord; });
+                o->setProperty("notes_piano_given", static_cast<int>(piano.size()));
+                o->setProperty("notes_orchestra_free", static_cast<int>(orch.size() - static_cast<size_t>(fromChord)));
+                o->setProperty("notes_orchestra_wait_chords", static_cast<int>(fromChord));
+            }
+            o->setProperty("logit_adjustments", logitAdj);
             o->setProperty("waits_drawn", stt.waitsDrawn);
             o->setProperty("waits_ge_10cs", stt.waitsGe10);
             o->setProperty("waits_provisional", stt.waitsProvisional);
@@ -390,7 +450,7 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
         all->setProperty("precompute_partial", total.precomputePartial);
         all->setProperty("mean_precompute_ms", total.precomputeCompleted > 0 ? total.precomputeMsTotal / total.precomputeCompleted : 0.0);
         all->setProperty("mean_fire_decode_ms", total.fireDecoded > 0 ? total.fireDecodeMsTotal / total.fireDecoded : 0.0);
-        juce::File(outRoot).getChildFile(modeName).getChildFile("summary.json").replaceWithText(juce::JSON::toString(juce::var(all)));
+        juce::File(outRoot).getChildFile(runPrefix + modeName).getChildFile("summary.json").replaceWithText(juce::JSON::toString(juce::var(all)));
         std::cout << "[iw-sim] " << modeName << " TOTAL fires " << total.fires << ", precompute hits "
                   << total.precomputeHits << ", top1 " << total.antTop1 << ", top5 " << total.antTop5 << "/"
                   << total.anticipated << ", mean fire latency " << (lateN > 0 ? lateSum / lateN : 0.0) << " cs" << std::endl;

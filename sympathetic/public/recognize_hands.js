@@ -36,15 +36,15 @@ window.sharedData = {
 document.addEventListener("DOMContentLoaded", () => {
   let gestureRecognizer;
   let handLandmarker;
-  let webcamRunning = false;
-  // I think that setting this to the same size as the p5js canvas makes the tracking better...
-  const videoHeight = "1440px";
-  const videoWidth = "900px";
+  let cameraTimer;
+  let lastVideoTime = -1;
 
   const video = document.getElementById("webcam");
   const enableCameraButton = document.getElementById("enableCameraButton");
   const cameraPreviewButton = document.getElementById("cameraPreviewButton");
   const videoContainer = document.getElementById("videoContainer");
+  const cameraSelect = document.getElementById("cameraSelect");
+  const cameraStatus = document.getElementById("cameraStatus");
   let cameraPreviewVisible = false;
 
   // Initialize the gesture recognizer
@@ -67,7 +67,11 @@ document.addEventListener("DOMContentLoaded", () => {
       enableCameraButton.disabled = false;
     }
   };
-  createGestureRecognizer();
+  const reportModelError = (error) => {
+    enableCameraButton.innerText = "Hand models unavailable";
+    console.error(error);
+  };
+  createGestureRecognizer().catch(reportModelError);
 
   // Initialize the hand landmarker
   const createHandLandmarker = async () => {
@@ -88,7 +92,7 @@ document.addEventListener("DOMContentLoaded", () => {
       enableCameraButton.disabled = false;
     }
   };
-  createHandLandmarker();
+  createHandLandmarker().catch(reportModelError);
   
   // Camera Preview toggle functionality
   cameraPreviewButton.addEventListener("click", () => {
@@ -102,65 +106,88 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // Webcam functionality
-  const hasGetUserMedia = () =>
-    !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  const reportCameraStatus = (text) => {
+    if (cameraStatus) cameraStatus.textContent = text;
+    else if (text) console.warn(text);
+  };
 
-  const enableCam = async () => {
-    if (!gestureRecognizer || !handLandmarker) {
-      console.log("Models are still loading, please wait...");
-      enableCameraButton.innerText = "Loading Models...";
-      enableCameraButton.disabled = true;
+  const refreshCameras = async () => {
+    if (!cameraSelect || !navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const devices = (await navigator.mediaDevices.enumerateDevices())
+        .filter(({ kind, deviceId }) => kind === "videoinput" && deviceId);
+      const selected = video.srcObject?.getVideoTracks()[0]?.getSettings().deviceId ?? cameraSelect.value;
+      cameraSelect.replaceChildren(new Option("Default camera", ""));
+      devices.forEach((device, i) => {
+        cameraSelect.add(new Option(device.label || `Camera ${i + 1}`, device.deviceId));
+      });
+      cameraSelect.value = devices.some(({ deviceId }) => deviceId === selected) ? selected : "";
+    } catch (error) {
+      console.warn("Could not list conducting cameras", error);
+    }
+  };
+  refreshCameras();
+  navigator.mediaDevices?.addEventListener("devicechange", refreshCameras);
+
+  const stopCamera = () => {
+    clearInterval(cameraTimer);
+    video.srcObject?.getTracks().forEach((track) => track.stop());
+    video.srcObject = null;
+    window.sharedData.leftSeenMs = window.sharedData.rightSeenMs = -1;
+    if (cameraSelect) cameraSelect.disabled = false;
+    enableCameraButton.innerText = "Enable Camera";
+    window.onConductingCameraStopped?.();
+  };
+
+  enableCameraButton.addEventListener("click", async () => {
+    reportCameraStatus("");
+    if (video.srcObject) {
+      stopCamera();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      reportCameraStatus("Camera access is unavailable in this web view.");
       return;
     }
 
-    if (webcamRunning) {
-      webcamRunning = false;
-      enableCameraButton.innerText = "Enable Camera";
-      const stream = video.srcObject;
-      const tracks = stream.getTracks();
-      tracks.forEach((track) => track.stop());
-      video.srcObject = null;
-    } else {
-      webcamRunning = true;
-      enableCameraButton.innerText = "Disable Camera";
-
-      const constraints = {
-        video: true,
-      };
-
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      video.srcObject = stream;
-      
-      // Adjust video size based on actual camera dimensions
-      video.addEventListener("loadedmetadata", () => {
-        const videoWidth = video.videoWidth;
-        const videoHeight = video.videoHeight;
-        const targetWidth = 200;
-        const aspectRatio = videoHeight / videoWidth;
-        const targetHeight = Math.round(targetWidth * aspectRatio);
-        
-        video.style.width = targetWidth + 'px';
-        video.style.height = targetHeight + 'px';
+    enableCameraButton.disabled = true;
+    if (cameraSelect) cameraSelect.disabled = true;
+    try {
+      const selected = cameraSelect?.value;
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: selected ? { deviceId: { exact: selected } } : true,
       });
-      
-      video.addEventListener("loadeddata", predictWebcam);
+      video.srcObject = stream;
+      video.muted = true;
+      await video.play();
+      lastVideoTime = -1;
+      enableCameraButton.innerText = "Disable Camera";
+      stream.getVideoTracks()[0].addEventListener("ended", () => {
+        if (video.srcObject !== stream) return;
+        stopCamera();
+        reportCameraStatus("Camera disconnected. Select a camera and try again.");
+        refreshCameras();
+      });
+      // Capture and gesture dispatch continue even when the drawing surface is hidden.
+      cameraTimer = setInterval(predictWebcam, 33);
+      refreshCameras();
+    } catch (error) {
+      stopCamera();
+      reportCameraStatus(error.name === "NotAllowedError" ? "Allow camera access and try again."
+        : "Could not open this camera. Choose a different camera and try again.");
+      refreshCameras();
+    } finally {
+      enableCameraButton.disabled = false;
     }
-  };
+  });
 
-  enableCameraButton.addEventListener("click", enableCam);
-
-  let lastVideoTime = -1;
-  let results = undefined;
-
-  const predictWebcam = async () => {
-    if (!webcamRunning) return;
-
-    const nowInMs = Date.now();
-    if (video.currentTime !== lastVideoTime) {
-      lastVideoTime = video.currentTime;
-      results = gestureRecognizer.recognizeForVideo(video, nowInMs);
-      const handLandmarkerResults = await handLandmarker.detectForVideo(
+  const predictWebcam = () => {
+    if (video.readyState < 2 || video.currentTime === lastVideoTime) return;
+    const nowInMs = performance.now();
+    lastVideoTime = video.currentTime;
+    try {
+      const results = gestureRecognizer.recognizeForVideo(video, nowInMs);
+      const handLandmarkerResults = handLandmarker.detectForVideo(
         video,
         nowInMs
       );
@@ -205,10 +232,11 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         });
       }
-    }
-
-    if (webcamRunning === true) {
-      window.requestAnimationFrame(predictWebcam);
+      window.onConductingHands?.(nowInMs);
+    } catch (error) {
+      stopCamera();
+      reportCameraStatus("Hand tracking stopped. Enable the camera to retry.");
+      console.error(error);
     }
   };
 });

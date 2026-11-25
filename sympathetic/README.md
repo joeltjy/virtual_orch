@@ -8,14 +8,17 @@ In Virtual Orchestra, open **Workspace → PerformanceView → Orchestra**.
 
 - **Orchestra** shows the existing seating plan.
 - **Conducting** launches the local gesture relay when the tab opens. It uses Node.js and loads the
-  original camera models from the web. **Open in Browser** provides the same controls in a regular
+  original camera models from the web. Pick its camera from the menu, then click **Enable Camera**.
+  Device names appear after the web view has camera permission. **Open in Browser** provides the same controls in a regular
   browser if the embedded view or camera is unavailable. On Linux the embedded view requires
   WebKitGTK 4.0 and GTK 3 with X11 support.
 - **Tangible** lists cameras by name. Choose a camera and click **Start Camera**. A detected ArUco
   marker enables its orchestra part. Removing it releases any notes still sounding for that part.
   The list beside the preview shows each visible marker's angle and whether a hand appears to
   point at it or hold it. Keep the marker pattern visible. MediaPipe processes the same camera feed locally.
-  The camera remains active when you switch to the seating plan in the same panel. **Stop Camera**
+  Both cameras keep running when you switch tabs in the Orchestra panel. Use different devices for
+  overhead markers and front-facing gestures. With both active, Tangible determines which parts
+  can play and Conducting controls tempo, dynamics, and stop/play. **Stop Camera**
   restores manual instrument control. The PDF button prints IDs 1–14 with their assigned names.
   Print at actual size and leave the white margin around each marker.
 

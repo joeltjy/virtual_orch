@@ -80,54 +80,74 @@ public:
     explicit ConductingPage(AppSession &sessionIn) : session(sessionIn) {
         prepareStatus(status);
         addAndMakeVisible(status);
-        addAndMakeVisible(openBrowser);
-        openBrowser.onClick = [this] {
-            if (page.isNotEmpty())
-                juce::URL(page).launchInDefaultBrowser();
-        };
+        addChildComponent(openBrowser);
+        openBrowser.onClick = [this] { openInBrowser(); };
     }
 
-    ~ConductingPage() override { setActive(false); }
+    ~ConductingPage() override { stop(); }
 
-    void setActive(bool active) {
-        if (active == requested)
-            return;
-        requested = active;
-        if (active)
+    void setSelected(bool selected) {
+        const bool entered = selected && ! wasSelected;
+        wasSelected = selected;
+        if (entered && ! isTimerRunning())
             start();
-        else
-            stop();
     }
 
     void resized() override {
         auto area = getLocalBounds();
-        auto bar = area.removeFromTop(34).reduced(8, 4);
-        openBrowser.setBounds(bar.removeFromRight(126));
-        status.setBounds(bar);
 #if JUCE_WEB_BROWSER
-        if (browser != nullptr)
+        if (browser != nullptr) {
             browser->setBounds(area);
+            return;
+        }
 #endif
+        area = area.reduced(8);
+        status.setBounds(area.removeFromTop(28));
+        if (openBrowser.isVisible())
+            openBrowser.setBounds(area.removeFromTop(26).removeFromLeft(126));
     }
 
 private:
 #if JUCE_WEB_BROWSER
     class Browser final : public juce::WebBrowserComponent {
     public:
-        explicit Browser(String allowed) : allowedUrl(std::move(allowed)) {}
+        Browser(String allowed, String open, std::function<void()> onOpen)
+            : juce::WebBrowserComponent(Options{}.withKeepPageLoadedWhenBrowserIsHidden()),
+              allowedUrl(std::move(allowed)),
+              openUrl(std::move(open)),
+              openExternally(std::move(onOpen)) {}
 
         bool pageAboutToLoad(const String &url) override {
+            if (url == openUrl) {
+                juce::MessageManager::callAsync(openExternally);
+                return false;
+            }
             return url == allowedUrl || url == "about:blank";
         }
 
     private:
-        const String allowedUrl;
+        const String allowedUrl, openUrl;
+        const std::function<void()> openExternally;
     };
 #endif
 
+    void openInBrowser() {
+        if (page.isEmpty())
+            return;
+#if JUCE_WEB_BROWSER
+        browser.reset();
+#endif
+        status.setVisible(true);
+        status.setText("Conducting is open in your browser.", juce::dontSendNotification);
+        openBrowser.setVisible(true);
+        resized();
+        juce::URL(page).launchInDefaultBrowser();
+    }
+
     void start() {
         status.setText("Starting Conducting…", juce::dontSendNotification);
-        openBrowser.setEnabled(false);
+        status.setVisible(true);
+        openBrowser.setVisible(false);
         scratch.directory.createDirectory();
         ready.deleteFile();
 
@@ -176,7 +196,9 @@ private:
         ready.deleteFile();
         ready.withFileExtension(".port.tmp").deleteFile();
         page.clear();
-        openBrowser.setEnabled(false);
+        openBrowser.setVisible(false);
+        status.setVisible(true);
+        resized();
         if (stoppedByGesture)
             session.midiInputProcess.setPedal(false, "Conducting closed");
         if (receivedGesture) {
@@ -203,21 +225,22 @@ private:
             return;
 
         page = "http://127.0.0.1:" + String(port) + "/" + token + "/conduct.html";
-        openBrowser.setEnabled(true);
 #if JUCE_WEB_BROWSER
-        // Stop the previous page's camera before handing it to a regular browser.
-        openBrowser.onClick = [this] {
-            browser.reset();
-            juce::URL(page).launchInDefaultBrowser();
-            status.setText("Conducting is open in your browser.", juce::dontSendNotification);
-        };
-        browser = std::make_unique<Browser>(page);
+        const auto embeddedPage = page + "?embedded=1";
+        const auto openUrl = page.upToLastOccurrenceOf("/", true, false) + "open-in-browser";
+        const juce::Component::SafePointer<ConductingPage> safe(this);
+        browser = std::make_unique<Browser>(embeddedPage, openUrl, [safe] {
+            if (safe != nullptr)
+                safe->openInBrowser();
+        });
+        status.setVisible(false);
         addAndMakeVisible(*browser);
         resized();
-        browser->goToURL(page);
-        status.setText("Conducting", juce::dontSendNotification);
+        browser->goToURL(embeddedPage);
 #else
         status.setText("Use a browser for Conducting on this build.", juce::dontSendNotification);
+        openBrowser.setVisible(true);
+        resized();
 #endif
     }
 
@@ -234,7 +257,7 @@ private:
     juce::TextButton openBrowser{"Open in Browser"};
     String token, page;
     uint32_t startTime = 0;
-    bool requested = false;
+    bool wasSelected = false;
     bool receivedGesture = false;
     bool stoppedByGesture = false;
 };
@@ -623,9 +646,6 @@ void OrchestraControls::currentTabChanged(int, const String &) {
 
 void OrchestraControls::updateVisibility() {
     const bool shown = isShowing();
-    const bool conductingSelected = getCurrentTabIndex() == 1;
-    if (! shown || conductingSelected)
-        tangible->stopTracking();
-    conducting->setActive(shown && conductingSelected);
+    conducting->setSelected(shown && getCurrentTabIndex() == 1);
     tangible->setSelected(shown && getCurrentTabIndex() == 2);
 }

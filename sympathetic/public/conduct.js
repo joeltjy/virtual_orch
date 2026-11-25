@@ -115,6 +115,11 @@ function setup() {
   interpreter = new ConductLogic.GestureInterpreter(partAt, onEvent);
   const reset = document.getElementById("resetButton");
   if (reset) reset.addEventListener("click", () => onEvent("reset"));
+  const openBrowser = document.getElementById("openBrowserButton");
+  if (openBrowser && new URLSearchParams(window.location.search).has("embedded")) {
+    openBrowser.hidden = false;
+    openBrowser.addEventListener("click", () => { window.location.href = "open-in-browser"; });
+  }
 }
 
 function windowResized() {
@@ -144,13 +149,21 @@ function conductingY(hands) {
   return null;
 }
 
+window.onConductingHands = (nowMs) => {
+  const hands = [handFrame("left", nowMs), handFrame("right", nowMs)];
+  interpreter?.update({ nowMs, hands, conductY: conductingY(hands) });
+};
+
+window.onConductingCameraStopped = () => {
+  if (interpreter?.stopped) onEvent("play");
+  if (mirror.selected !== null) onEvent("release");
+  interpreter = new ConductLogic.GestureInterpreter(partAt, onEvent);
+};
+
 function draw() {
   const nowMs = performance.now();
   background(200);
-
   const hands = [handFrame("left", nowMs), handFrame("right", nowMs)];
-  interpreter.update({ nowMs, hands, conductY: conductingY(hands) });
-
   drawParts();
   drawHands(hands);
   drawStatus(nowMs);

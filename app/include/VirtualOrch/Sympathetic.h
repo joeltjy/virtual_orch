@@ -315,8 +315,7 @@ struct State {
     /** Playback velocity for a note (unchanged while disabled). */
     [[nodiscard]] auto playbackVelocity(int32_t velocity, int32_t localId, int32_t pitch) const
         -> int32_t {
-        if (tangibleMask.load(std::memory_order_relaxed) != kTangibleInactive
-            || ! enabled.load(std::memory_order_relaxed))
+        if (! enabled.load(std::memory_order_relaxed))
             return velocity;
         return velocityFor(velocity, soundingLocalId(localId, pitch),
                            selectedPart.load(std::memory_order_relaxed),
@@ -335,9 +334,7 @@ struct State {
     }
 
     [[nodiscard]] auto currentWarp() const -> float {
-        return tangibleMask.load(std::memory_order_relaxed) == kTangibleInactive
-                   && enabled.load(std::memory_order_relaxed)
-            ? warp.load(std::memory_order_relaxed) : 1.0f;
+        return enabled.load(std::memory_order_relaxed) ? warp.load(std::memory_order_relaxed) : 1.0f;
     }
 };
 

@@ -180,6 +180,7 @@ auto HybridInformativeWaitReductionTransformer::applySettings() -> void {
     w.pitchTauPrime = getPitchTauPrimeBase();
     w.durationTau = getDurationTauBase();
     w.durationTauPrime = getDurationTauPrimeBase();
+    w.coarseDurationBins = true; // model 2 only: durations biased in coarse bins (τ′ = the preset's durationTauPrime)
     w.onsetGapTau = getOnsetGapTauBase();
     w.pitchLow = low;
     w.pitchHigh = high;

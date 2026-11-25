@@ -194,6 +194,60 @@ TEST(InformativeWaitEngine, FireServedFromPrecomputedBranch) {
     EXPECT_GE(toks[12], Engine::kOrch0);
 }
 
+// The duration and pitch biases reach the precomputed branches, from the committed orchestra notes only.
+// The scripted model wants duration 50 and pitches 60 / 64 / 67; a strong τ makes the bias decisive.
+TEST(InformativeWaitEngine, PrecomputedBranchesAreBiasedByCommittedNotesOnly) {
+    Rig rig(Engine::Mode::Unconstrained);
+    auto s = rig.engine.settings();
+    s.durationBias = true;
+    s.pitchBias = true;
+    s.durationTau = 20.0f;
+    s.durationTauPrime = 0.0f;
+    s.pitchTau = 20.0f;
+    s.pitchTauPrime = 0.0f;
+    rig.engine.setSettings(s);
+    rig.engine.noteOn(0, 60, 80);
+    rig.run(0, 22); // [WAIT 30][COUNT 2], precomputed with no orchestra note committed yet
+    ASSERT_TRUE(rig.engine.precomputeComplete());
+    rig.engine.noteOn(30, 60, 80);
+    const auto first = rig.engine.step(30);
+    ASSERT_EQ(first.size(), 2u);
+    for (const auto &n: first) {
+        EXPECT_TRUE(n.precomputed);
+        // nothing committed: no bias, so the branch's 2nd note keeps duration 50 although its 1st note
+        // (uncommitted while it was drawn) has it
+        EXPECT_EQ(n.durationCs, 50);
+    }
+
+    // the fire committed both notes (duration 50): the next precompute's branches avoid their durations
+    // and pitches (the model's pitches 60 / 64 / 67 are close, so which two were played is sampled)
+    rig.run(31, 59);
+    ASSERT_TRUE(rig.engine.hasPendingWait());
+    ASSERT_TRUE(rig.engine.precomputeComplete());
+    rig.engine.noteOn(60, 60, 80);
+    const auto second = rig.engine.step(60);
+    ASSERT_EQ(second.size(), 2u);
+    for (const auto &n: second) {
+        EXPECT_TRUE(n.precomputed);
+        EXPECT_NE(n.durationCs, 50);
+        EXPECT_NE(n.pitch, first[0].pitch);
+        EXPECT_NE(n.pitch, first[1].pitch);
+    }
+
+    // the same run without the biases plays the model's choices
+    Rig plain(Engine::Mode::Unconstrained);
+    plain.engine.noteOn(0, 60, 80);
+    plain.run(0, 29);
+    plain.engine.noteOn(30, 60, 80);
+    (void) plain.engine.step(30);
+    plain.run(31, 59);
+    plain.engine.noteOn(60, 60, 80);
+    const auto unbiased = plain.engine.step(60);
+    ASSERT_EQ(unbiased.size(), 2u);
+    for (const auto &n: unbiased)
+        EXPECT_EQ(n.durationCs, 50);
+}
+
 TEST(InformativeWaitEngine, AFireIsTimedFromTheKeyLandingToTheLastOrchestraNote) {
     Rig rig(Engine::Mode::Unconstrained);
     rig.engine.noteOn(0, 60, 80);

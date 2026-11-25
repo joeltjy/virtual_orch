@@ -110,13 +110,13 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
         savePresetButton.setEnabled(false);
     };
     presetList.setSelectedId(1, juce::dontSendNotification);
-    // Default preset: version1.1 (Hybrid v1.1 + IodPretrained with ot_robust), loaded once the window exists,
-    // through the same path as picking it in the list.
+    // Default preset: version1.1_fast (Hybrid v1.1 with the fp16 simultaneous model + IodPretrained with
+    // ot_robust), loaded once the window exists, through the same path as picking it in the list.
     juce::MessageManager::callAsync([safe = juce::Component::SafePointer<MainComponent>(this)] {
         if (safe == nullptr)
             return;
         for (int i = 0; i < safe->presetList.getNumItems(); ++i)
-            if (safe->presetList.getItemText(i) == "version1.1") {
+            if (safe->presetList.getItemText(i) == "version1.1_fast") {
                 safe->presetList.setSelectedId(safe->presetList.getItemId(i), juce::sendNotification);
                 break;
             }

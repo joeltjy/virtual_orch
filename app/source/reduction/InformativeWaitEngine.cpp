@@ -16,6 +16,14 @@ constexpr int32_t kPianoLow = 21;
 constexpr int32_t kPianoHigh = 108;
 constexpr int32_t kMaxChord = 12;
 
+/** The 88 piano-key probabilities summed by pitch class (C = 0). */
+auto pitchClassProbs(const std::vector<float> &piano) -> std::array<float, 12> {
+    std::array<float, 12> out{};
+    for (size_t i = 0; i < piano.size(); ++i)
+        out[(i + static_cast<size_t>(kPianoLow)) % 12] += piano[i];
+    return out;
+}
+
 struct Range {
     int32_t lo;
     int32_t hi; // exclusive
@@ -668,6 +676,10 @@ auto InformativeWaitEngine::fire(const PianoNote &head) -> std::vector<OutNote> 
         for (const auto &b: pre->branches)
             if (b.pitch == head.pitch)
                 branch = &b;
+        if (branch == nullptr && cfg.pitchClassBranches)
+            for (const auto &b: pre->branches)
+                if (b.pitch % 12 == head.pitch % 12)
+                    branch = &b;
         if (branch == nullptr && cfg.outsideTopFiveAsRankOne && ! pre->branches.empty()) {
             branch = &pre->branches.front();
             substituted = true;
@@ -699,7 +711,9 @@ auto InformativeWaitEngine::fire(const PianoNote &head) -> std::vector<OutNote> 
         ++st.precomputeHits;
         event("hit", head.onsetCs, head.pitch, p.k,
               substituted ? "not in the top 5: the rank-1 branch (" + std::to_string(branch->pitch) + ") played"
-                          : "precomputed branch played");
+              : branch->pitch != head.pitch
+                  ? "precomputed branch played (pitch class: drawn after " + std::to_string(branch->pitch) + ")"
+                  : "precomputed branch played");
     } else {
         if (ready > 0)
             ++st.precomputePartial;
@@ -1080,10 +1094,17 @@ auto InformativeWaitEngine::anticipatedPitches() const -> std::vector<int32_t> {
 auto InformativeWaitEngine::scoreAnticipation(int32_t pitch) -> void {
     if (! pre.has_value() || pre->pianoProbs.size() != 88 || pitch < kPianoLow || pitch > kPianoHigh)
         return;
-    const float pa = pre->pianoProbs[static_cast<size_t>(pitch - kPianoLow)];
     int rank = 1;
-    for (const float x: pre->pianoProbs)
-        rank += x > pa ? 1 : 0;
+    if (cfg.pitchClassBranches) { // ranked among the 12 pitch classes, as the branches are
+        const auto classes = pitchClassProbs(pre->pianoProbs);
+        const float pa = classes[static_cast<size_t>(pitch % 12)];
+        for (const float x: classes)
+            rank += x > pa ? 1 : 0;
+    } else {
+        const float pa = pre->pianoProbs[static_cast<size_t>(pitch - kPianoLow)];
+        for (const float x: pre->pianoProbs)
+            rank += x > pa ? 1 : 0;
+    }
     ++st.anticipated;
     st.antTop1 += rank == 1 ? 1 : 0;
     st.antTop5 += rank <= 5 ? 1 : 0;
@@ -1143,16 +1164,36 @@ auto InformativeWaitEngine::precomputeStep() -> void {
             x = static_cast<float>(x / total);
         std::vector<int32_t> order(88);
         std::iota(order.begin(), order.end(), 0);
-        std::partial_sort(order.begin(), order.begin() + kBranches, order.end(), [&](int32_t a, int32_t b) {
+        std::sort(order.begin(), order.end(), [&](int32_t a, int32_t b) {
             return pc.pianoProbs[static_cast<size_t>(a)] > pc.pianoProbs[static_cast<size_t>(b)];
         });
+        std::vector<int32_t> picks; // piano pitches, rank order
+        if (cfg.pitchClassBranches) {
+            // the 5 likeliest pitch classes (summed over octaves), each at its likeliest pitch
+            const auto classes = pitchClassProbs(pc.pianoProbs);
+            std::array<int32_t, 12> byClass{};
+            std::iota(byClass.begin(), byClass.end(), 0);
+            std::sort(byClass.begin(), byClass.end(), [&](int32_t a, int32_t b) {
+                return classes[static_cast<size_t>(a)] > classes[static_cast<size_t>(b)];
+            });
+            for (int i = 0; i < kBranches; ++i)
+                for (const int32_t o: order) // order is by probability: the first of this class is its likeliest
+                    if ((kPianoLow + o) % 12 == byClass[static_cast<size_t>(i)]) {
+                        picks.push_back(kPianoLow + o);
+                        break;
+                    }
+        } else {
+            for (int i = 0; i < kBranches; ++i)
+                picks.push_back(kPianoLow + order[static_cast<size_t>(i)]);
+        }
         pc.branches.clear();
         std::string text;
-        for (int i = 0; i < kBranches; ++i) {
-            pc.branches.push_back(Branch{kPianoLow + order[static_cast<size_t>(i)], q8(lastPianoVelocity), {}});
-            text += std::to_string(pc.branches.back().pitch) + " ";
+        for (const int32_t pitch: picks) {
+            pc.branches.push_back(Branch{pitch, q8(lastPianoVelocity), {}});
+            text += std::to_string(pitch) + " ";
         }
-        event("anticipate", pc.targetCs, pc.durationCs, 0, "top 5: " + text);
+        event("anticipate", pc.targetCs, pc.durationCs, 0,
+              (cfg.pitchClassBranches ? "top 5 pitch classes: " : "top 5: ") + text);
         ++pc.phase;
         pc.ms += msSince(t0);
         if (! cfg.precompute)

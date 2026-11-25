@@ -129,6 +129,13 @@ public:
         bool precompute = true;
         /** A fired WAIT whose piano pitch is not in the anticipated top 5 plays the rank-1 branch's notes. */
         bool outsideTopFiveAsRankOne = true;
+        /**
+         * The 5 branches are the 5 likeliest pitch classes (each at its likeliest octave), and a fire takes the
+         * branch of the played note's pitch class in any octave (an exact pitch first). Off: the 5 likeliest
+         * pitches, matched exactly. The branch's notes were drawn after its own octave; the context gets the
+         * pitch played. Nov 24 2026.
+         */
+        bool pitchClassBranches = false;
         /** At most this many notes per fired WAIT, whatever its COUNT (0 = COUNT notes): the polyphony cap. */
         int32_t maxFireNotes = 0;
         /** A drawn orchestra onset is at most this far after now. */

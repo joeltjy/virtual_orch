@@ -1,6 +1,6 @@
 {
   "model": "hybrid_v12_r4",
-  "reduction": "hybridInformativeWait",
+  "reduction": "hybridChordToken",
   "orchestrationModel": "IodPretrained",
   "orchestrationMode": "jam",
   "inputMode": "direct",

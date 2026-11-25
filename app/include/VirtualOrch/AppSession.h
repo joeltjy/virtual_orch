@@ -27,6 +27,7 @@
 #include "VirtualOrch/reduction/TwoInstrumentAnticipatedReductionTransformer.h"
 #include "VirtualOrch/reduction/InformativeWaitReductionTransformer.h"
 #include "VirtualOrch/reduction/HybridInformativeWaitReductionTransformer.h"
+#include "VirtualOrch/reduction/HybridEventReductionTransformer.h"
 #include "VirtualOrch/orchestration-models/OrchestrationModel.h"
 #include "VirtualOrch/TestOrchestrationTransformerThread.h"
 #include "VirtualOrch/ui/ModelConfigurationComponent.h"
@@ -76,6 +77,7 @@ public:
     TwoInstrumentAnticipatedReductionTransformer reductionTransformerHybrid;
     InformativeWaitReductionTransformer reductionTransformerInformativeWait;
     HybridInformativeWaitReductionTransformer reductionTransformerHybridIW;
+    HybridEventReductionTransformer reductionTransformerHybridEvent; // Hybrid v1.3 (event models)
     MelodyFirstReductionTransformer reductionTransformerMelodyFirst;
     OrchestrationTransformer orchestrationTransformer;
     VoiceSeparation voiceSeparation;

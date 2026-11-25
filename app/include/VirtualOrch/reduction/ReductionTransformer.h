@@ -38,7 +38,9 @@ enum class MusicModelArch : uint8_t {
     /** Informative WAIT (overnight model 2): InformativeWaitReductionTransformer. */
     DenseInformativeWait,
     /** Hybrid v1.1 (model 1 silent / informative WAIT playing): HybridInformativeWaitReductionTransformer. */
-    DenseHybridInformativeWait
+    DenseHybridInformativeWait,
+    /** Hybrid v1.3 (event-tokenized model 1 / model 2): HybridEventReductionTransformer. */
+    DenseHybridEvent
 };
 
 [[nodiscard]] inline auto isDenseMusicArch(MusicModelArch arch) -> bool {
@@ -47,7 +49,8 @@ enum class MusicModelArch : uint8_t {
         || arch == MusicModelArch::DenseAnticipatedPiano
         || arch == MusicModelArch::DenseMelodyFirst
         || arch == MusicModelArch::DenseAnticipatedWait || arch == MusicModelArch::DenseHybrid
-        || arch == MusicModelArch::DenseInformativeWait || arch == MusicModelArch::DenseHybridInformativeWait;
+        || arch == MusicModelArch::DenseInformativeWait || arch == MusicModelArch::DenseHybridInformativeWait
+        || arch == MusicModelArch::DenseHybridEvent;
 }
 
 /**

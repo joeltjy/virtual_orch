@@ -5,7 +5,9 @@
 #include <algorithm>
 #include <vector>
 
+#include <VirtualOrch/reduction/DenseTypes.h>
 #include <VirtualOrch/reduction/EventEngine.h>
+#include <VirtualOrch/reduction/HybridEventReductionTransformer.h>
 #include <VirtualOrch/reduction/StreamingKvCache.h>
 
 /**
@@ -29,13 +31,15 @@ public:
     }
     [[nodiscard]] auto dims() const -> Dims override { return d; }
 
+    int32_t off0 = Engine::kM1eOff0;
+    int32_t vocab = Engine::kM1eVocab;
     int32_t gap = 30;          // the next time = the last event's time + gap
     int32_t pitch = 72;        // the orchestra note it plays (and releases)
     bool pianoMeant = false;   // after a time: a piano ON
     bool noOff = false;        // never release
 
     auto logitsAfter(const std::vector<int32_t> &seq) const -> std::vector<float> {
-        std::vector<float> l(Engine::kM1eVocab, 0.0f);
+        std::vector<float> l(static_cast<size_t>(vocab), 0.0f);
         const auto set = [&](int32_t id, float v) { l[static_cast<size_t>(id)] = v; };
         const int32_t last = seq.empty() ? -1 : seq.back();
         int32_t lastTime = 0;
@@ -44,12 +48,12 @@ public:
             if (seq[i] <= Engine::kMaxTime && i + 1 < seq.size()) {
                 if (seq[i + 1] >= Engine::kNote0 && seq[i + 1] < Engine::kVel0)
                     lastTime = seq[i];
-                else if (seq[i + 1] >= Engine::kM1eOff0)
+                else if (seq[i + 1] >= off0)
                     lastTime = seq[i];
             }
             if (seq[i] == Engine::kOrch0 + pitch)
                 open = true;
-            if (seq[i] == Engine::kM1eOff0 + 128 + pitch)
+            if (seq[i] == off0 + 128 + pitch)
                 open = false;
         }
         if (last >= 0 && last <= Engine::kMaxTime) {
@@ -59,7 +63,7 @@ public:
                 for (int32_t p = 21; p <= 108; ++p)
                     set(Engine::kOrch0 + p, 10.0f);
             else
-                set(open ? Engine::kM1eOff0 + 128 + pitch : Engine::kOrch0 + pitch, 20.0f);
+                set(open ? off0 + 128 + pitch : Engine::kOrch0 + pitch, 20.0f);
         } else if (last >= Engine::kNote0 && last < Engine::kVel0) {
             set(Engine::kVel0 + 80, 20.0f);
         } else {
@@ -266,4 +270,116 @@ TEST(EventEngine, RealM1eSmoke) {
                     stt.forcedReleases, stt.discarded, stt.rebuilds, engine.lastError.c_str());
         EXPECT_GT(ons, 0);
     }
+}
+
+// The v1.3 transformer: the piano's key-down / key-up reach both engines as ON / OFF events; model 1's ON goes out
+// with the provisional length and its OFF sends the real length downstream (a TokenUpdate); after 1 s of playing
+// model 2 takes over (after its start delay); silent 0.5 s: back to model 1.
+TEST(HybridEvent, OnsGoOutAtOnceAndOffsSendTheRealLength) {
+    ModelConfig config;
+    HybridEventReductionTransformer hy(config);
+    auto silent = std::make_unique<EventScript>();
+    auto wait = std::make_unique<EventScript>();
+    wait->off0 = HybridEventReductionTransformer::kM2eOff0;
+    wait->vocab = HybridEventReductionTransformer::kM2eVocab;
+    wait->pitch = 76;
+    hy.initWithBackends(std::move(silent), std::move(wait));
+    CircularFifo<TokenUpdate> updates;
+    hy.orchestrationUpdatesIncoming = &updates;
+    hy.setStartDelayMs(0);
+    int32_t now = 0;
+    int64_t wall = 0;
+    int64_t silentFor = INT64_MAX;
+    hy.nowCsProvider = [&] { return now; };
+    hy.wallMsProvider = [&] { return wall; };
+    hy.pianoSilentForMs = [&] { return silentFor; };
+    const auto runFor = [&](int cs) {
+        for (int i = 0; i < cs; ++i) {
+            hy.stepOnce();
+            now += 1;
+            wall += 10;
+        }
+    };
+    // a piano note (key-down and key-up known): ON now, OFF at 20
+    Token t{0, static_cast<int32_t>(DenseVocab::DurOffset) + 20, static_cast<int32_t>(DenseVocab::NoteOffset) + 48};
+    t.velocity = 70;
+    hy.inputTokenQueue.push(t);
+    runFor(70);
+    const auto &ev = hy.silentEngineForTest().events();
+    ASSERT_GE(ev.size(), 2u);
+    EXPECT_EQ(ev[0].kind, Engine::Kind::PianoOn);
+    EXPECT_TRUE(std::any_of(ev.begin(), ev.end(), [](const auto &e) { return e.kind == Engine::Kind::PianoOff && e.timeCs == 20; }));
+    // model 1: ON 72 at 50 (20 + 30), OFF at 80
+    auto out = hy.getOutputHistory();
+    ASSERT_EQ(out.size(), 1u);
+    EXPECT_EQ(out[0].time, 50);
+    EXPECT_EQ(out[0].getPitch(), 72);
+    EXPECT_EQ(out[0].getRealDuration(), ReductionTransformer::kMaxNoteDurationCs); // provisional
+    runFor(20);
+    TokenUpdate u{};
+    ASSERT_TRUE(updates.pull(u));
+    EXPECT_EQ(u.oldNote.time, 50);
+    EXPECT_EQ(u.newNote.getRealDuration(), 30);
+    out = hy.getOutputHistory();
+    EXPECT_EQ(out[0].getRealDuration(), 30);
+    // model 2's context has model 1's notes (mirrored)
+    EXPECT_TRUE(std::any_of(hy.waitEngineForTest().events().begin(), hy.waitEngineForTest().events().end(),
+                            [](const auto &e) { return e.kind == Engine::Kind::OrchOn && e.pitch == 72; }));
+    // the pianist plays for 1.2 s: model 2 (its own pitch, 76) takes over
+    silentFor = 0;
+    runFor(120);
+    EXPECT_FALSE(hy.usesSilentModel());
+    runFor(100);
+    out = hy.getOutputHistory();
+    EXPECT_TRUE(std::any_of(out.begin(), out.end(), [](const Token &k) { return k.getPitch() == 76; }));
+    // silent 0.6 s: back to model 1
+    silentFor = 600;
+    runFor(1);
+    EXPECT_TRUE(hy.usesSilentModel());
+    EXPECT_EQ(hy.reason(), HybridEventReductionTransformer::Reason::Stopped);
+}
+
+TEST(HybridEvent, ModelTwoDrawsNothingDuringTheStartDelay) {
+    ModelConfig config;
+    HybridEventReductionTransformer hy(config);
+    auto wait = std::make_unique<EventScript>();
+    wait->off0 = HybridEventReductionTransformer::kM2eOff0;
+    wait->vocab = HybridEventReductionTransformer::kM2eVocab;
+    hy.initWithBackends(std::make_unique<EventScript>(), std::move(wait));
+    hy.setStartDelayMs(3000);
+    int32_t now = 0;
+    int64_t wall = 0;
+    hy.nowCsProvider = [&] { return now; };
+    hy.wallMsProvider = [&] { return wall; };
+    hy.pianoSilentForMs = [] { return int64_t{0}; }; // playing all along
+    for (int i = 0; i < 400; ++i) {
+        if (i % 50 == 0) {
+            Token t{now, static_cast<int32_t>(DenseVocab::DurOffset) + 20, static_cast<int32_t>(DenseVocab::NoteOffset) + 60};
+            t.velocity = 80;
+            hy.inputTokenQueue.push(t);
+        }
+        hy.stepOnce();
+        if (now == 299)
+            EXPECT_FALSE(hy.usesSilentModel());
+        ++now;
+        wall += 10;
+    }
+    for (const auto &k: hy.getOutputHistory())
+        if (k.time >= 100) // model 1 played the first second; model 2 nothing before 300
+            EXPECT_GE(k.time, 300);
+}
+
+TEST(HybridEvent, LoadsTheRealExports) {
+    const auto dir = juce::File::getSpecialLocation(juce::File::userHomeDirectory).getChildFile("Documents/virtual_orch_models");
+    const auto m1 = dir.getChildFile("continuation_events_m1e_r1_kv.onnx");
+    const auto m2 = dir.getChildFile("simultaneous_events_chordtokens_m2e_r1_kv.onnx");
+    if (! m1.existsAsFile() || ! m2.existsAsFile())
+        GTEST_SKIP() << "v1.3 exports not in virtual_orch_models";
+    ModelConfig config;
+    HybridEventReductionTransformer hy(config);
+    EXPECT_TRUE(hy.init(m1.getFullPathName().toRawUTF8(), m2.getFullPathName().toRawUTF8())) << hy.lastInitError;
+    EXPECT_TRUE(hy.isModelLoaded());
+    // swapped: the vocab check refuses them
+    HybridEventReductionTransformer bad(config);
+    EXPECT_FALSE(bad.init(m2.getFullPathName().toRawUTF8(), m1.getFullPathName().toRawUTF8()));
 }

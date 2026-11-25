@@ -38,6 +38,8 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     session.presetStore.setLogitAdjustmentsProvider([this] { return session.logitAdjustmentsToVar(); });
     session.presetStore.setReductionTypeProvider([this]() -> juce::String {
         switch (reductionTypeList.getSelectedId()) {
+            case 11:
+                return "hybridEvent";
             case 10:
                 return "hybridInformativeWait";
             case 9:
@@ -526,6 +528,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     reductionTypeList.addItem("HybridTransformer (legacy: v1 silent / W3 playing)", 8);
     reductionTypeList.addItem("Informative WAIT (model 2: unconstrained / line A / line B)", 9);
     reductionTypeList.addItem("Hybrid v1.1 / v1.2 (model 1 silent / informative WAIT or chord-token playing)", 10);
+    reductionTypeList.addItem("Hybrid v1.3 (event models: m1e silent / m2e playing)", 11);
     reductionTypeList.setSelectedId(10, juce::dontSendNotification); // Hybrid v1.1
     reductionTypeList.onChange = [this] {
         stop();
@@ -1076,7 +1079,9 @@ void MainComponent::loadPresetFromName(const juce::String &presetName) {
     const juce::String reductionKey =
         preset.getProperty("reduction", checkpoint->isDense ? "v1" : "amt").toString().toLowerCase();
     int desiredReductionId = 1;
-    if (reductionKey == "hybridinformativewait")
+    if (reductionKey == "hybridevent")
+        desiredReductionId = 11;
+    else if (reductionKey == "hybridinformativewait")
         desiredReductionId = 10;
     else if (reductionKey == "informativewait")
         desiredReductionId = 9;
@@ -1207,7 +1212,7 @@ void MainComponent::clearModel() {
 
 auto MainComponent::selectedReductionIsDense() const -> bool {
     const auto id = reductionTypeList.getSelectedId();
-    return id >= 2 && id <= 10;
+    return id >= 2 && id <= 11;
 }
 
 auto MainComponent::selectedCheckpointName() const -> juce::String {
@@ -1400,6 +1405,27 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
                     checkpointList.setSelectedId(0, juce::dontSendNotification);
                     return;
                 }
+            } else if (reductionId == 11) {
+                session.setMusicModelArch(MusicModelArch::DenseHybridEvent);
+                // "onnx" = model 2 event (piano playing), "silentOnnx" = model 1 event (piano silent)
+                juce::String silentStem = parsedJson.getProperty("silentOnnx", {}).toString().trim();
+                if (silentStem.endsWithIgnoreCase(".onnx"))
+                    silentStem = silentStem.dropLastCharacters(5);
+                const auto silentFile = silentStem.isNotEmpty() ? modelsDir().getChildFile(silentStem + ".onnx") : juce::File();
+                auto &hy = session.reductionTransformerHybridEvent;
+                hy.setStartDelayMs(static_cast<int32_t>(parsedJson.getProperty("startDelayMs", 3000)));
+                hy.setForceAfterMs(static_cast<int32_t>(parsedJson.getProperty("forceAfterMs", 2000)));
+                if (! silentFile.existsAsFile()
+                    || ! hy.init(silentFile.getFullPathName().toRawUTF8(), modelPathStr.toRawUTF8())) {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::AlertWindow::WarningIcon, "Error",
+                        "Failed to load '" + modelName + "' for Hybrid v1.3: it needs model 1 event's export ('" + silentStem
+                            + "', vocab 12024) and model 2 event's export (vocab 14328) in virtual_orch_models. "
+                            + juce::String(hy.lastInitError));
+                    checkpointList.setSelectedId(0, juce::dontSendNotification);
+                    return;
+                }
+                SessionLog::add("HYBRID13", "loaded " + modelName);
             } else if (reductionId == 10) {
                 session.setMusicModelArch(MusicModelArch::DenseHybridInformativeWait);
                 // "onnx" = model 2 (piano playing), "silentOnnx" = model 1 (piano silent)

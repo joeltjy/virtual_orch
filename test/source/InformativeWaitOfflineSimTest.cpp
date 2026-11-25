@@ -23,8 +23,8 @@
  *   ./VirtualOrchTest --gtest_filter='InformativeWaitOfflineSim.*'
  *
  * Hybrid v1.2's chord-token model 2: IW_CHORD=1 (with IW_MODES=unconstrained) applies the hybrid's model-2 settings,
- * chordTokens on and the voicing bank IW_BANK (default ~/Documents/virtual_orch_models/voicing_bank_m2c.json):
- *   IW_CHORD=1 IW_MODEL=~/Documents/virtual_orch_models/simultaneous_chordtokens_m2c_r2b_kv.onnx IW_MODES=unconstrained ...
+ * chordTokens on and the voicing bank IW_BANK (default ~/Documents/virtual_orch_models/voicing_bank.json):
+ *   IW_CHORD=1 IW_MODEL=~/Documents/virtual_orch_models/v1.2_simultaneous.onnx IW_MODES=unconstrained ...
  */
 namespace {
 
@@ -163,7 +163,7 @@ TEST(InformativeWaitOfflineSim, Fixtures) {
     std::shared_ptr<VoicingBank> bank;
     if (chord) {
         const juce::File bankFile(envOr("IW_BANK", juce::File::getSpecialLocation(juce::File::userHomeDirectory)
-                                                       .getChildFile("Documents/virtual_orch_models/voicing_bank_m2c.json")
+                                                       .getChildFile("Documents/virtual_orch_models/voicing_bank.json")
                                                        .getFullPathName()));
         bank = std::make_shared<VoicingBank>();
         ASSERT_TRUE(bank->loadJson(bankFile.loadFileAsString().toStdString(), err)) << err;

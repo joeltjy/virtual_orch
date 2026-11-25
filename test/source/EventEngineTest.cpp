@@ -202,7 +202,7 @@ TEST(EventEngine, TheContextIsRebuiltBeforeTimesPass9999) {
     EXPECT_GT(rig.outs.size(), 300u); // it kept playing across the rebuild
 }
 
-// Opt-in (IW_M1E=1): the real m1e export (continuation_events_m1e_r1_kv.onnx) on sample_01's piano for 6 s, then
+// Opt-in (IW_M1E=1): the real m1e export (v1.3_continuation.onnx) on sample_01's piano for 6 s, then
 // silence for 9 s (the spec-8 test setup); prints notes/s and the rule's counts.
 namespace {
 /** noOff mode: every pitch equally likely at each ON (and never released), so only a bias can prefer one. */
@@ -254,7 +254,7 @@ TEST(EventEngine, RealM1eSmoke) {
     const auto home = juce::File::getSpecialLocation(juce::File::userHomeDirectory);
     StreamingKv::OnnxBackend onnx;
     std::string err;
-    ASSERT_TRUE(onnx.init(home.getChildFile("Documents/virtual_orch_models/continuation_events_m1e_r1_kv.onnx")
+    ASSERT_TRUE(onnx.init(home.getChildFile("Documents/virtual_orch_models/v1.3_continuation.onnx")
                               .getFullPathName().toRawUTF8(), err)) << err;
     ASSERT_EQ(onnx.vocabSize(), static_cast<size_t>(Engine::kM1eVocab));
     juce::FileInputStream in(home.getChildFile("orchestration/samples/maestro_fixtures_10/sample_01/input.mid"));
@@ -415,8 +415,8 @@ TEST(HybridEvent, ModelTwoDrawsNothingDuringTheStartDelay) {
 
 TEST(HybridEvent, LoadsTheRealExports) {
     const auto dir = juce::File::getSpecialLocation(juce::File::userHomeDirectory).getChildFile("Documents/virtual_orch_models");
-    const auto m1 = dir.getChildFile("continuation_events_m1e_r1_kv.onnx");
-    const auto m2 = dir.getChildFile("simultaneous_events_chordtokens_m2e_r1_kv.onnx");
+    const auto m1 = dir.getChildFile("v1.3_continuation.onnx");
+    const auto m2 = dir.getChildFile("v1.3_simultaneous.onnx");
     if (! m1.existsAsFile() || ! m2.existsAsFile())
         GTEST_SKIP() << "v1.3 exports not in virtual_orch_models";
     ModelConfig config;

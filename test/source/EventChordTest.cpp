@@ -217,9 +217,9 @@ TEST(EventChord, RealM2eSmoke) {
     const auto models = home.getChildFile("Documents/virtual_orch_models");
     StreamingKv::OnnxBackend onnx;
     std::string err;
-    ASSERT_TRUE(onnx.init(models.getChildFile("simultaneous_events_chordtokens_m2e_r1_kv.onnx").getFullPathName().toRawUTF8(), err)) << err;
+    ASSERT_TRUE(onnx.init(models.getChildFile("v1.3_simultaneous.onnx").getFullPathName().toRawUTF8(), err)) << err;
     auto bank = std::make_shared<VoicingBank>();
-    ASSERT_TRUE(bank->loadJson(models.getChildFile("voicing_bank_m2c.json").loadFileAsString().toStdString(), err)) << err;
+    ASSERT_TRUE(bank->loadJson(models.getChildFile("voicing_bank.json").loadFileAsString().toStdString(), err)) << err;
     juce::FileInputStream in(home.getChildFile("orchestration/samples/maestro_fixtures_10/sample_01/input.mid"));
     juce::MidiFile mf;
     ASSERT_TRUE(in.openedOk() && mf.readFrom(in));

@@ -11,8 +11,8 @@ context's base, events in time order, every OFF before every ON at one time, the
 
 | model | export | vocab | OFF0 | extra |
 |---|---|---|---|---|
-| model 1 event (silent side) | `continuation_events_m1e_r1_kv` | 12024 | 11768 | |
-| model 2 event (playing side) | `simultaneous_events_chordtokens_m2e_r1_kv` | 14328 | 14071 | STACK_OFF 14327, the wait3 ids |
+| model 1 event (silent side) | `v1.3_continuation` | 12024 | 11768 | |
+| model 2 event (playing side) | `v1.3_simultaneous` | 14328 | 14071 | STACK_OFF 14327, the wait3 ids |
 
 ## Classes
 

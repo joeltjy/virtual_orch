@@ -6,8 +6,10 @@ Model 1 (continuation, `rt_continuation_latest`) is unchanged.
 
 - Spec: `orchestration/docs/model_specs/expressified_simultaneous.txt` B3f.
 - Token layout: `orchestration/overnight/pkg/wait3.py`.
-- Preset: `app/hybrid_v12.json`. Model 2 = `simultaneous_chordtokens_m2c_r2b_kv.onnx` (run `ovn_m2c_r2b`, step 2500;
-  verification report next to it), voicing bank `voicing_bank_m2c.json`, both in `virtual_orch_models`.
+- Preset: `app/hybrid_v12.json`. Model 2 was first run `ovn_m2c_r2b` (step 2500; its export has since been removed
+  as legacy) and is now `v1.2_simultaneous.onnx` (run `ovn_m2c_r3b`, below); round 4 is `v1.2_r4_simultaneous.onnx`
+  (`app/hybrid_v12_r4.json`). Voicing bank `voicing_bank.json`. All in `virtual_orch_models`, each with its
+  verification report (`.onnx.json`) and description (`.md`).
 
 ## How it is wired
 
@@ -236,7 +238,7 @@ What the numbers say:
   when it names a `voicingBank` (v1.2), else 0, so v1.1 presets are unchanged.
   Engine: `Settings::startDelayCs`; test `ChordTokenEngine.NothingIsDrawnDuringTheStartDelay`.
 - **Piano pitch at a plain note** (the sampler's rule): already in since b947e2f, see above.
-- **Model 2 = r3b.** `simultaneous_chordtokens_m2c_r3b_kv` (run ovn_m2c_r3b): the same tokens as r2b, trained with
+- **Model 2 = r3b.** `v1.2_simultaneous` (run ovn_m2c_r3b): the same tokens as r2b, trained with
   all piano notes first at every joint onset, which is the order the engine writes them live.
 - **Brought in from origin/informative-wait:** 7ee0e89 + 6e15984 (split OT export: backbone once per note, decoder
   per step) and ededfdf + b045041 (Mono pad fixes). Still not taken: fae4bd7, d59171a; 9342c57 (logs) waits for

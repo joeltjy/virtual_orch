@@ -982,10 +982,10 @@ TEST(InformativeWaitOnnx, HybridV11LoadsBothModels) {
 TEST(InformativeWaitOnnx, HybridV12LoadsTheChordModel) {
     const auto dir = home() + "/Documents/virtual_orch_models/";
     const auto m1 = dir + "rt_continuation_latest.onnx";
-    const auto m2 = dir + "simultaneous_chordtokens_m2c_r2b_kv.onnx";
-    const auto bank = dir + "voicing_bank_m2c.json";
+    const auto m2 = dir + "v1.2_simultaneous.onnx";
+    const auto bank = dir + "voicing_bank.json";
     if (! juce::File(m1).existsAsFile() || ! juce::File(m2).existsAsFile() || ! juce::File(bank).existsAsFile())
-        GTEST_SKIP() << "rt_continuation_latest / simultaneous_chordtokens_m2c_r2b_kv / voicing_bank_m2c not on this machine";
+        GTEST_SKIP() << "rt_continuation_latest / v1.2_simultaneous / voicing_bank not on this machine";
     ModelConfig config;
     HybridInformativeWaitReductionTransformer hy(config);
     hy.loadVoicingBank(bank);

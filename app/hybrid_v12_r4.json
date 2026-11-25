@@ -5,12 +5,12 @@
     1
   ],
   "defaultPreset": {},
-  "onnx": "simultaneous_chordtokens_m2c_r4_kv",
+  "onnx": "v1.2_r4_simultaneous",
   "silentOnnx": "rt_continuation_latest",
   "reductionType": 10,
   "iwMode": "unconstrained",
   "precompute": true,
-  "voicingBank": "voicing_bank_m2c.json",
+  "voicingBank": "voicing_bank.json",
   "startDelayMs": 3000,
-  "notes": "Hybrid v1.2, round 4: identical to hybrid_v12.json (model 1 rt_continuation_latest while the piano is silent; v1.1's switching rules; model 2 starts after startDelayMs 3000; the chord-token engine and voicing_bank_m2c.json) except model 2 = simultaneous_chordtokens_m2c_r4_kv.onnx (run ovn_m2c_r4, loss on all piano tokens; same vocab 14071 and voicing bank as round 3b). Round 3b (hybrid_v12.json) stays the default v1.2: round 4 waited fewer chords and was too sparse on real concerto lines (docs/todo_2026-11-24.md, item 2)."
+  "notes": "Hybrid v1.2, round 4: identical to hybrid_v12.json (model 1 rt_continuation_latest while the piano is silent; v1.1's switching rules; model 2 starts after startDelayMs 3000; the chord-token engine and voicing_bank.json) except model 2 = v1.2_r4_simultaneous.onnx (run ovn_m2c_r4, loss on all piano tokens; same vocab 14071 and voicing bank as round 3b). Round 3b (hybrid_v12.json) stays the default v1.2: round 4 waited fewer chords and was too sparse on real concerto lines (docs/todo_2026-11-24.md, item 2)."
 }

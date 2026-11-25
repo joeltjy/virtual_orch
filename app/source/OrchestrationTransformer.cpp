@@ -2,6 +2,7 @@
 #include "VirtualOrch/TemporalDensity.h"
 #include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/AppTime.h"
+#include "VirtualOrch/Sympathetic.h"
 #include "VirtualOrch/PedalClear.h"
 #include "VirtualOrch/SessionLog.h"
 
@@ -84,9 +85,17 @@ auto OrchestrationTransformer::replaceInstrumentSets(std::set<int32_t> user,
 
 auto OrchestrationTransformer::copyInstrumentLists() const
     -> std::pair<std::vector<int32_t>, std::vector<int32_t>> {
-    const juce::ScopedLock lock(instrumentsLock);
-    return {{userInstruments.begin(), userInstruments.end()},
-            {modelInstruments.begin(), modelInstruments.end()}};
+    std::vector<int32_t> user;
+    std::vector<int32_t> model;
+    {
+        const juce::ScopedLock lock(instrumentsLock);
+        user.assign(userInstruments.begin(), userInstruments.end());
+        model.assign(modelInstruments.begin(), modelInstruments.end());
+    }
+    // Sympathetic cueing: only cued parts are offered to the model, so the forbid masks keep it
+    // from giving notes to the rest (no-op while the gesture layer is off).
+    const auto &sym = Sympathetic::state();
+    return {sym.filterAllowed(user), sym.tangibleInstruments(model)};
 }
 
 auto OrchestrationTransformer::applyVoiceRestamps(std::vector<Token> &reductionBatch) -> void {

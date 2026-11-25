@@ -19,14 +19,16 @@ WorkspaceWidget::WorkspaceWidget(juce::String titleText, juce::String type)
         UiConstants::workspaceWidgetMinVisibleEdge);
 
     titleLabel.setText(std::move(titleText), juce::dontSendNotification);
+    titleLabel.setFont(juce::Font(UiConstants::chromeTitleFontSize, juce::Font::bold));
     titleLabel.setJustificationType(juce::Justification::centredLeft);
     titleLabel.setColour(juce::Label::textColourId, UiConstants::workspaceWidgetTitleTextColour);
     titleLabel.setInterceptsMouseClicks(false, false);
     addAndMakeVisible(titleLabel);
 
     closeButton.setButtonText(UiConstants::workspaceWidgetCloseButtonText);
+    closeButton.setTitle("Close panel");
     closeButton.setColour(juce::TextButton::textColourOffId, UiConstants::workspaceWidgetCloseButtonColour);
-    closeButton.setColour(juce::TextButton::buttonColourId, UiConstants::workspaceWidgetTitleBarBackground);
+    closeButton.setColour(juce::TextButton::buttonColourId, UiConstants::controlBackground);
     closeButton.onClick = [this] {
         if (onCloseRequested != nullptr)
             onCloseRequested(this);
@@ -44,7 +46,7 @@ WorkspaceWidget::WorkspaceWidget(juce::String titleText, juce::String type)
 
 auto WorkspaceWidget::paint(juce::Graphics &g) -> void {
     const auto outer = getLocalBounds().toFloat();
-    const auto radius = UiConstants::workspaceWidgetCornerRadius;
+    const auto radius = UiConstants::chromeCornerRadius;
     const auto border = (float) UiConstants::workspaceWidgetBorderThickness;
 
     g.setColour(UiConstants::workspaceWidgetBorderColour);
@@ -72,21 +74,29 @@ auto WorkspaceWidget::paint(juce::Graphics &g) -> void {
     g.fillPath(titlePath);
 }
 
+auto WorkspaceWidget::clipContent(juce::Graphics &g, juce::Rectangle<int> bounds) -> void {
+    const auto area = bounds.toFloat();
+    const auto radius = UiConstants::chromeCornerRadius - UiConstants::workspaceWidgetBorderThickness;
+    juce::Path outline;
+    outline.addRoundedRectangle(area.getX(), area.getY(), area.getWidth(), area.getHeight(),
+                                radius, radius, false, false, true, true);
+    g.reduceClipRegion(outline);
+}
+
 auto WorkspaceWidget::hitTest(int x, int y) -> bool {
     juce::Path outline;
-    outline.addRoundedRectangle(getLocalBounds().toFloat(), UiConstants::workspaceWidgetCornerRadius);
+    outline.addRoundedRectangle(getLocalBounds().toFloat(), UiConstants::chromeCornerRadius);
     return outline.contains((float) x, (float) y);
 }
 
 auto WorkspaceWidget::titleBarHeight() const -> int {
-    return juce::roundToInt(static_cast<float>(UiConstants::workspaceWidgetTitleBarHeight) * textScale);
+    return UiConstants::workspaceWidgetTitleBarHeight;
 }
 
 auto WorkspaceWidget::setTextScale(float scale) -> void {
     if (scale == textScale)
         return;
     textScale = scale;
-    titleLabel.setFont(scale == 1.0f ? juce::Font(15.0f) : juce::Font(15.0f * scale, juce::Font::bold));
     textScaleChanged();
     resized();
     repaint();
@@ -105,7 +115,7 @@ auto WorkspaceWidget::resized() -> void {
     // Keep the outer resize-handle strip free so close stays clickable.
     titleBar.removeFromRight(UiConstants::workspaceWidgetResizeHandleThickness);
     const auto closeBounds = titleBar.removeFromRight(UiConstants::workspaceWidgetCloseButtonWidth);
-    closeButton.setBounds(closeBounds);
+    closeButton.setBounds(closeBounds.reduced(3, 4));
 
     titleLabel.setBounds(titleBar.withTrimmedLeft(UiConstants::workspaceWidgetTitlePaddingX));
 

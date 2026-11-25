@@ -16,7 +16,11 @@ AppRootComponent::AppRootComponent() {
                                   ? settingsPage->getHeight()
                                   : UiConstants::appRootSettingsContentHeight;
 
-    tabs.addTab("Settings", UiConstants::appRootTabColour, settingsPage.get(), false);
+    settingsViewport.setViewedComponent(settingsPage.get(), false);
+    settingsViewport.setScrollBarsShown(true, false);
+    tabs.setOutline(0);
+    tabs.setColour(juce::TabbedComponent::backgroundColourId, UiConstants::workspacePageBackground);
+    tabs.addTab("Settings", UiConstants::appRootTabColour, &settingsViewport, false);
     tabs.addTab("Workspace", UiConstants::appRootTabColour, workspacePage.get(), false);
     tabs.addTab("Replay", UiConstants::appRootTabColour, replayPage.get(), false);
     addAndMakeVisible(tabs);
@@ -52,4 +56,6 @@ auto AppRootComponent::paint(juce::Graphics &g) -> void {
 
 auto AppRootComponent::resized() -> void {
     tabs.setBounds(getLocalBounds());
+    settingsPage->setSize(settingsViewport.getMaximumVisibleWidth(),
+                          juce::jmax(UiConstants::appRootSettingsContentHeight, settingsViewport.getHeight()));
 }

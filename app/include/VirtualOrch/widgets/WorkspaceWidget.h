@@ -18,6 +18,8 @@ public:
 
     auto resized() -> void override;
 
+    static auto clipContent(juce::Graphics &g, juce::Rectangle<int> bounds) -> void;
+
     auto hitTest(int x, int y) -> bool override;
 
     auto mouseDown(const juce::MouseEvent &event) -> void override;
@@ -39,7 +41,7 @@ public:
 
     /**
      * Text size for an audience (the PerformanceView sets UiConstants::performanceTextScale):
-     * the title bar and title grow, and the widget scales its own text (textScaleChanged).
+     * the widget scales its content text (textScaleChanged).
      */
     auto setTextScale(float scale) -> void;
     [[nodiscard]] auto getTextScale() const -> float { return textScale; }

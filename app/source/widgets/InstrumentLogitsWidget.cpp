@@ -15,7 +15,8 @@ public:
     InstrumentLogitSnapshot snapshot;
 
     auto paint(juce::Graphics &g) -> void override {
-        g.fillAll(juce::Colour(0xff1a1a1a));
+        WorkspaceWidget::clipContent(g, getLocalBounds());
+        g.fillAll(UiConstants::workspaceWidgetContentBackground);
 
         auto area = getLocalBounds().toFloat().reduced(8.0f, 4.0f);
         if (area.getWidth() < 8.0f || area.getHeight() < 8.0f)
@@ -51,7 +52,7 @@ public:
         if (! any) {
             g.setColour(juce::Colours::grey);
             g.setFont(12.0f);
-            g.drawText("Waiting for orchestration…",
+            g.drawText("Waiting for orchestration...",
                        chart.toNearestIntEdges(),
                        juce::Justification::centred);
             return;

@@ -84,6 +84,13 @@ public:
     void pedalDeviceCleared();
 
     /**
+     * Pedal state from any source: `pause` stops the orchestra (pause + clear the future), false
+     * lets it play. CC64 (through the pedal polarity) and the Sympathetic Stop/Play gestures both
+     * come here. Safe from the MIDI and message threads.
+     */
+    auto setPedal(bool pause, const juce::String &source) -> void;
+
+    /**
      * Log replay of layout-1 sessions (before Nov 2026): the app's pedal had the old polarity,
      * pedal DOWN stopped the orchestra and pedal up let it play. Never set in the live app.
      */

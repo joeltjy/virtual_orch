@@ -426,39 +426,43 @@ void MidiInputProcess::handleSustainPedal(const juce::MidiMessage &message) {
     // selecting a pedal device starts paused (pedalDeviceSelected).
     const int value = message.getControllerValue();
     const bool pause = layout1PedalPolarity.load(std::memory_order_relaxed) ? value >= 64 : value < 64;
-    const bool wasSilenced = pedalSilenced.exchange(pause);
-    const bool stopped = pause && ! wasSilenced;
     if (OpLog::on()) {
         // state is the raw pedal position; effect is what it did, since "down" stopped the
         // orchestra in layout-1 sessions and plays it now (both only when it changes).
-        const bool changed = pause != wasSilenced;
+        const bool changed = pause != pedalSilenced.load();
         OpLog::emit(OpLog::Src::Midi, "PEDAL",
                     {{"cc", 64}, {"value", value},
                      {"state", changed ? OpLog::Value(std::string(value >= 64 ? "down" : "up")) : OpLog::Value()},
                      {"effect", changed ? OpLog::Value(std::string(pause ? "stop" : "play")) : OpLog::Value()},
                      {"app_pedal", true}});
     }
+    setPedal(pause, "CC64 value=" + juce::String(value) + (value >= 64 ? " down" : " up"));
+}
+
+auto MidiInputProcess::setPedal(bool pause, const juce::String &source) -> void {
+    const bool wasSilenced = pedalSilenced.exchange(pause);
+    const bool stopped = pause && ! wasSilenced;
     notePedalState(pause, AppTime::nowMs());
     juce::Logger::writeToLog(
-        "[pedal] CC64 value=" + juce::String(value)
-        + (pause ? " up→pause" : " down→resume")
+        "[pedal] " + source
+        + (pause ? "→pause" : "→resume")
         + " clockCs=" + juce::String(static_cast<int32_t>(clock.getTime()))
         + " wasPaused="
         + juce::String(activeReduction().generationPause.get() ? "true" : "false")
         + " wasOverflow="
         + juce::String(activeReduction().overflowPause.get() ? "true" : "false"));
     if (stopped) {
-        // Stamp the release with the clock now and clear the playback queue right away; the
+        // Stamp the stop with the clock now and clear the playback queue right away; the
         // upstream clear token carries the same time. Request before pausing so the reduction
         // thread sees it on the not-paused -> paused edge.
         const auto pedalTime = static_cast<int32_t>(clock.getTime());
         if (onPedalSilence)
             onPedalSilence(pedalTime);
         activeReduction().requestPedalClear(pedalTime);
-        // Playback drops every note from the release on, so the model forgets them too (the
-        // same cut as a TD press): when the pedal goes down again it continues from then.
-        activeReduction().requestModeCut(pedalTime, "pedal up");
-        SessionLog::add("CUT", "pedal up: future removed from " + juce::String(pedalTime));
+        // Playback drops every note from the stop on, so the model forgets them too (the
+        // same cut as a TD press): when the orchestra plays again it continues from then.
+        activeReduction().requestModeCut(pedalTime, "pedal stop");
+        SessionLog::add("CUT", source + ": future removed from " + juce::String(pedalTime));
     }
     activeReduction().setGenerationPause(pause, "pedal");
 }

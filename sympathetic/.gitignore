@@ -1,0 +1,9 @@
+public/images/.DS_Store
+.DS_Store
+node_modules
+package-lock.json
+package.json
+
+
+aruco/.venv/
+aruco/__pycache__/

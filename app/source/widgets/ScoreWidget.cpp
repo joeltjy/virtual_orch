@@ -39,7 +39,6 @@ auto musicTypeface() -> juce::Typeface::Ptr {
 } // namespace
 
 ScoreView::ScoreView() : musicFont(musicTypeface()) {
-    setOpaque(true);
     // The sign outlines at height 1, built once (scaled per frame).
     const auto outline = [&](juce::juce_wchar c) {
         juce::GlyphArrangement glyphs;
@@ -92,6 +91,7 @@ auto ScoreView::drawAccidental(juce::Graphics &g, int accidental, float headLeft
 }
 
 auto ScoreView::paint(juce::Graphics &g) -> void {
+    WorkspaceWidget::clipContent(g, getLocalBounds());
     g.fillAll(UiConstants::pianoRollBackground);
     const float w = static_cast<float>(getWidth());
     const float h = static_cast<float>(getHeight());
@@ -184,7 +184,7 @@ auto ScoreView::paint(juce::Graphics &g) -> void {
             continue;
         g.setFont(nameFont);
         const auto text = juce::String(nm.name);
-        const float textW = nameFont.getStringWidthFloat(text) + s * 0.6f;
+        const float textW = UiConstants::measureTextWidth(nameFont, text) + s * 0.6f;
         g.setColour(kInk.withMultipliedAlpha(nm.onsetCs < nowCs ? 0.6f : 1.0f));
         g.drawText(text, juce::Rectangle<float>(x - s * 0.5f, s * 0.6f, textW, s * nameRows),
                    juce::Justification::centredLeft, false);

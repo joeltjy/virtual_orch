@@ -14,6 +14,7 @@ auto TdBarView::setValue(int32_t next) -> void {
 }
 
 auto TdBarView::paint(juce::Graphics &g) -> void {
+    WorkspaceWidget::clipContent(g, getLocalBounds());
     g.fillAll(UiConstants::pianoRollBackground);
     const auto area = getLocalBounds().toFloat().reduced(10.0f);
     const auto fraction = PerformanceActivity::tdBarFraction(value);
@@ -36,7 +37,7 @@ auto TdBarView::paint(juce::Graphics &g) -> void {
         g.setColour(i < litSteps ? InstrumentUiColours::fromPalette(
                                        LaunchpadLighting::kTdGradient[static_cast<size_t>(i)])
                                  : juce::Colours::white.withAlpha(0.08f));
-        g.fillRoundedRectangle(cell, 3.0f);
+        g.fillRoundedRectangle(cell, UiConstants::chromeCornerRadius);
         g.setColour(UiConstants::workspaceWidgetTitleTextColour.withAlpha(0.8f));
         g.setFont(juce::Font(12.0f * ts, ts > 1.0f ? juce::Font::bold : juce::Font::plain));
         g.drawText(juce::String(TemporalDensity::kLevels[static_cast<size_t>(i)]),

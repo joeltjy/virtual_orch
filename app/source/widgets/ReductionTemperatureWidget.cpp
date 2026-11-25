@@ -162,8 +162,10 @@ auto ReductionTemperatureWidget::resized() -> void {
     auto area = getContentComponent().getLocalBounds().reduced(
         UiConstants::workspaceModeContentPadding);
 
-    const int rowH = UiConstants::workspaceModeRowHeight;
+    constexpr int rowCount = 6;
     const int gap = UiConstants::workspaceModeRowGap;
+    const int rowH = juce::jlimit(0, UiConstants::workspaceModeRowHeight,
+                                 (area.getHeight() - gap * (rowCount - 1)) / rowCount);
     const int labelW = 72;
 
     auto placeRow = [&](juce::Label &label, juce::Slider &slider) {

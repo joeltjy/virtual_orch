@@ -1,4 +1,6 @@
 #include "VirtualOrch/ui/MainComponent.h"
+#include "VirtualOrch/ui/UiConstants.h"
+
 
 #include "VirtualOrch/ScriptedInputPlayer.h"
 
@@ -88,7 +90,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     /* PRESET LIST */
     addAndMakeVisible(presetListLabel);
     presetListLabel.setText("Preset: ", juce::dontSendNotification);
-    presetListLabel.attachToComponent(&presetList, true);
+    presetList.setTitle(presetListLabel.getText().trim().trimCharactersAtEnd(":"));
 
     addAndMakeVisible(presetList);
     presetList.addItem("Empty", 1);
@@ -151,14 +153,21 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     /* CONFIG */
     /**********/
 
-    addAndMakeVisible(configLabel);
-    configLabel.setText("Configuration", juce::dontSendNotification);
-    configLabel.setFont(juce::Font(20.0f));
+    const auto addSectionHeading = [this](juce::Label &label, const char *title) {
+        label.setText(title, juce::dontSendNotification);
+        label.setFont(juce::Font(UiConstants::chromeTitleFontSize, juce::Font::bold));
+        addAndMakeVisible(label);
+    };
+    addSectionHeading(presetSection, "Preset");
+    addSectionHeading(configLabel, "Controller & Clock");
+    addSectionHeading(midiSection, "MIDI Input");
+    addSectionHeading(modelSection, "Models");
+    addSectionHeading(outputSection, "Output");
 
     /* PRESET CONTROLLER */
     addAndMakeVisible(controllerLabel);
     controllerLabel.setText("Controller: ", juce::dontSendNotification);
-    controllerLabel.attachToComponent(&controllerOscPort, true);
+    controllerOscPort.setTitle(controllerLabel.getText().trim().trimCharactersAtEnd(":"));
 
     addAndMakeVisible(controllerOscPort);
     juce::String savedControllerOscPort = session.presetStore.settings.getOrCreateChildWithName("controller", nullptr).
@@ -219,13 +228,17 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
             session.rebuildInputFilter();
         };
 
+        controller->onSympatheticPedal = [this](bool stop) {
+            session.midiInputProcess.setPedal(stop, stop ? "Sympathetic stop" : "Sympathetic play");
+        };
+
         controllerConnectButton.setEnabled(false);
     };
 
     /* MTC CLOCK */
     addAndMakeVisible(mtcClockLabel);
     mtcClockLabel.setText("MTC Clock: ", juce::dontSendNotification);
-    mtcClockLabel.attachToComponent(&mtcClock, true);
+    mtcClock.setTitle(mtcClockLabel.getText().trim().trimCharactersAtEnd(":"));
 
     addAndMakeVisible(mtcClock);
     mtcClock.onClick = [this] {
@@ -287,7 +300,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
 
     addAndMakeVisible(mtcClockOffsetLabel);
     mtcClockOffsetLabel.setText("Offset: ", juce::dontSendNotification);
-    mtcClockOffsetLabel.attachToComponent(&mtcClockOffset, true);
+    mtcClockOffset.setTitle(mtcClockOffsetLabel.getText().trim().trimCharactersAtEnd(":"));
 
     addAndMakeVisible(mtcClockOffset);
     juce::String savedMtcClockOffset = session.presetStore.settings.getOrCreateChildWithName("mtcClock", nullptr).
@@ -305,7 +318,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
 
     addAndMakeVisible(midiInputListLabel);
     midiInputListLabel.setText("MIDI Input: ", juce::dontSendNotification);
-    midiInputListLabel.attachToComponent(&midiInputList, true);
+    midiInputList.setTitle(midiInputListLabel.getText().trim().trimCharactersAtEnd(":"));
 
     addAndMakeVisible(midiInputList);
     midiInputList.setTextWhenNoChoicesAvailable("No MIDI Inputs Enabled");
@@ -365,7 +378,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
 
     addAndMakeVisible(additionalMidiListLabel);
     additionalMidiListLabel.setText("Additional MIDI: ", juce::dontSendNotification);
-    additionalMidiListLabel.attachToComponent(&additionalMidiList, true);
+    additionalMidiList.setTitle(additionalMidiListLabel.getText().trim().trimCharactersAtEnd(":"));
 
     addAndMakeVisible(additionalMidiList);
     additionalMidiList.setTextWhenNoChoicesAvailable("No MIDI Inputs Enabled");
@@ -405,7 +418,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
 
     addAndMakeVisible(pedalMidiListLabel);
     pedalMidiListLabel.setText("Pedal MIDI: ", juce::dontSendNotification);
-    pedalMidiListLabel.attachToComponent(&pedalMidiList, true);
+    pedalMidiList.setTitle(pedalMidiListLabel.getText().trim().trimCharactersAtEnd(":"));
 
     addAndMakeVisible(pedalMidiList);
     pedalMidiList.setTextWhenNoChoicesAvailable("No MIDI Inputs Enabled");
@@ -449,7 +462,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
 
     addAndMakeVisible(launchpadMidiListLabel);
     launchpadMidiListLabel.setText("Launchpad MIDI: ", juce::dontSendNotification);
-    launchpadMidiListLabel.attachToComponent(&launchpadMidiList, true);
+    launchpadMidiList.setTitle(launchpadMidiListLabel.getText().trim().trimCharactersAtEnd(":"));
 
     addAndMakeVisible(launchpadMidiList);
     launchpadMidiList.setTextWhenNoChoicesAvailable("No MIDI Inputs Enabled");
@@ -498,8 +511,15 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
 
     /* KEYBOARD AS LAUNCHPAD */
     addAndMakeVisible(keyboardLaunchpadToggle);
-    keyboardLaunchpadToggle.setButtonText(
-        "Keyboard as Launchpad (keys are shown on the Active Instruments widget)");
+    keyboardLaunchpadToggle.setButtonText("Keyboard as Launchpad");
+    keyboardLaunchpadHint.setText("(keys are shown on the Active Instruments widget)",
+                                  juce::dontSendNotification);
+    keyboardLaunchpadHint.setFont(juce::Font(13.0f));
+    keyboardLaunchpadHint.setColour(juce::Label::textColourId,
+                                    UiConstants::workspaceWidgetTitleTextColour.withMultipliedAlpha(0.72f));
+    keyboardLaunchpadHint.setMinimumHorizontalScale(1.0f);
+    keyboardLaunchpadHint.setJustificationType(juce::Justification::topLeft);
+    addAndMakeVisible(keyboardLaunchpadHint);
     {
         auto kbSettings = session.presetStore.settings.getOrCreateChildWithName("keyboardLaunchpad", nullptr);
         const bool on = static_cast<bool>(kbSettings.getProperty("enabled", false));
@@ -519,7 +539,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
 
     addAndMakeVisible(reductionTypeListLabel);
     reductionTypeListLabel.setText("Reduction: ", juce::dontSendNotification);
-    reductionTypeListLabel.attachToComponent(&reductionTypeList, true);
+    reductionTypeList.setTitle(reductionTypeListLabel.getText().trim().trimCharactersAtEnd(":"));
 
     addAndMakeVisible(reductionTypeList);
     reductionTypeList.addItem("MusicTransformer", 1);
@@ -545,7 +565,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
 
     addAndMakeVisible(checkpointListLabel);
     checkpointListLabel.setText("Checkpoint: ", juce::dontSendNotification);
-    checkpointListLabel.attachToComponent(&checkpointList, true);
+    checkpointList.setTitle(checkpointListLabel.getText().trim().trimCharactersAtEnd(":"));
 
     addAndMakeVisible(checkpointList);
     checkpointList.setTextWhenNoChoicesAvailable("No Checkpoints Available");
@@ -573,7 +593,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
 
     addAndMakeVisible(orchestrationModelListLabel);
     orchestrationModelListLabel.setText("Orchestration Model: ", juce::dontSendNotification);
-    orchestrationModelListLabel.attachToComponent(&orchestrationModelList, true);
+    orchestrationModelList.setTitle(orchestrationModelListLabel.getText().trim().trimCharactersAtEnd(":"));
 
     addAndMakeVisible(orchestrationModelList);
     orchestrationModelList.setTextWhenNoChoicesAvailable("No Orchestration Models Available");
@@ -610,7 +630,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     /* ORCHESTRATION PROPORTION BIAS */
     addAndMakeVisible(proportionBiasLabel);
     proportionBiasLabel.setText("Proportion Bias:", juce::dontSendNotification);
-    proportionBiasLabel.attachToComponent(&proportionBias, true);
+    proportionBias.setTitle(proportionBiasLabel.getText().trim().trimCharactersAtEnd(":"));
 
     addAndMakeVisible(proportionBias);
     auto orchestrationSettings =
@@ -634,7 +654,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     /* GLOBAL VOCSEP ENSEMBLE SWITCH (any orchestration model that supports it) */
     addAndMakeVisible(vocsepEnsembleLabel);
     vocsepEnsembleLabel.setText("Voice Ensemble:", juce::dontSendNotification);
-    vocsepEnsembleLabel.attachToComponent(&vocsepEnsemble, true);
+    vocsepEnsemble.setTitle(vocsepEnsembleLabel.getText().trim().trimCharactersAtEnd(":"));
 
     addAndMakeVisible(vocsepEnsemble);
     vocsepEnsemble.setToggleState(session.getVocsepEnsembleSettings().enabled,
@@ -649,7 +669,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     /* PIANO REDUCTION ANTI-REPETITION BIAS */
     addAndMakeVisible(pianoReductionBiasLabel);
     pianoReductionBiasLabel.setText("Reduction Bias:", juce::dontSendNotification);
-    pianoReductionBiasLabel.attachToComponent(&pianoReductionBias, true);
+    pianoReductionBias.setTitle(pianoReductionBiasLabel.getText().trim().trimCharactersAtEnd(":"));
 
     addAndMakeVisible(pianoReductionBias);
     auto pianoReductionSettings =
@@ -673,7 +693,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     /* LOGIT TD (TdOnsetBias: shorter onset gaps for higher Launchpad TD) */
     addAndMakeVisible(logitTdLabel);
     logitTdLabel.setText("LogitTD:", juce::dontSendNotification);
-    logitTdLabel.attachToComponent(&logitTd, true);
+    logitTd.setTitle(logitTdLabel.getText().trim().trimCharactersAtEnd(":"));
 
     addAndMakeVisible(logitTd);
     auto logitTdSettings =
@@ -695,7 +715,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     /* MIDI THROUGH */
     addAndMakeVisible(inputThruLabel);
     inputThruLabel.setText("Input Thru:", juce::dontSendNotification);
-    inputThruLabel.attachToComponent(&inputThru, true);
+    inputThru.setTitle(inputThruLabel.getText().trim().trimCharactersAtEnd(":"));
 
     addAndMakeVisible(inputThru);
     auto inputSettings =
@@ -718,7 +738,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
 
     addAndMakeVisible(outputListLabel);
     outputListLabel.setText("Output: ", juce::dontSendNotification);
-    outputListLabel.attachToComponent(&outputList, true);
+    outputList.setTitle(outputListLabel.getText().trim().trimCharactersAtEnd(":"));
 
     std::vector<juce::String> outputIdentifiers;
 
@@ -769,7 +789,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
 
     addAndMakeVisible(oscIpLabel);
     oscIpLabel.setText("OSC IP: ", juce::dontSendNotification);
-    oscIpLabel.attachToComponent(&oscIp, true);
+    oscIp.setTitle(oscIpLabel.getText().trim().trimCharactersAtEnd(":"));
 
     addAndMakeVisible(oscIp);
     juce::String savedOscIp = session.presetStore.settings.getOrCreateChildWithName("output", nullptr).getProperty("oscIp", "127.0.0.1");
@@ -783,8 +803,8 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     };
 
     addAndMakeVisible(oscPortLabel);
-    oscPortLabel.setText(": ", juce::dontSendNotification);
-    oscPortLabel.attachToComponent(&oscPort, true);
+    oscPortLabel.setText(":", juce::dontSendNotification);
+    oscPort.setTitle("OSC Port");
 
     addAndMakeVisible(oscPort);
     juce::String savedOscPort = session.presetStore.settings.getOrCreateChildWithName("output", nullptr).getProperty("oscPort", "9001");
@@ -811,7 +831,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
 
     addAndMakeVisible(bufferOutputOscIpLabel);
     bufferOutputOscIpLabel.setText("Buffer Output OSC IP: ", juce::dontSendNotification);
-    bufferOutputOscIpLabel.attachToComponent(&bufferOutputOscIp, true);
+    bufferOutputOscIp.setTitle(bufferOutputOscIpLabel.getText().trim().trimCharactersAtEnd(":"));
 
     addAndMakeVisible(bufferOutputOscIp);
     juce::String savedBufferOutputOscIp = session.presetStore.settings.getOrCreateChildWithName("bufferOutput", nullptr)
@@ -826,8 +846,8 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     };
 
     addAndMakeVisible(bufferOutputOscPortLabel);
-    bufferOutputOscPortLabel.setText(": ", juce::dontSendNotification);
-    bufferOutputOscPortLabel.attachToComponent(&bufferOutputOscPort, true);
+    bufferOutputOscPortLabel.setText(":", juce::dontSendNotification);
+    bufferOutputOscPort.setTitle("Buffer Output OSC Port");
 
     addAndMakeVisible(bufferOutputOscPort);
     juce::String savedBufferOutputOscPort = session.presetStore.settings.getOrCreateChildWithName("bufferOutput", nullptr).getProperty(
@@ -852,7 +872,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
 
     addAndMakeVisible(statusOutputOscIpLabel);
     statusOutputOscIpLabel.setText("Status Output OSC IP: ", juce::dontSendNotification);
-    statusOutputOscIpLabel.attachToComponent(&statusOutputOscIp, true);
+    statusOutputOscIp.setTitle(statusOutputOscIpLabel.getText().trim().trimCharactersAtEnd(":"));
 
     addAndMakeVisible(statusOutputOscIp);
     juce::String savedStatusOutputOscIp = session.presetStore.settings.getOrCreateChildWithName("statusOutput", nullptr)
@@ -867,8 +887,8 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     };
 
     addAndMakeVisible(statusOutputOscPortLabel);
-    statusOutputOscPortLabel.setText(": ", juce::dontSendNotification);
-    statusOutputOscPortLabel.attachToComponent(&statusOutputOscPort, true);
+    statusOutputOscPortLabel.setText(":", juce::dontSendNotification);
+    statusOutputOscPort.setTitle("Status Output OSC Port");
 
     addAndMakeVisible(statusOutputOscPort);
     juce::String savedStatusOutputOscPort = session.presetStore.settings.getOrCreateChildWithName("statusOutput", nullptr).getProperty(
@@ -893,9 +913,9 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     /* GENERATION */
     /**************/
 
-    addAndMakeVisible(generationLabel);
-    generationLabel.setText("Generation", juce::dontSendNotification);
-    generationLabel.setFont(juce::Font(20.0f));
+    addSectionHeading(generationLabel, "Generation");
+    startButton.setColour(juce::TextButton::buttonColourId,
+                          UiConstants::controlBackground.interpolatedWith(UiConstants::controlAccent, 0.25f));
 
     /* GENERATION STATUS PROGRESS BAR */
     generationStatusProgressBar = std::make_unique<juce::ProgressBar>(session.outputPlayback.progress);
@@ -903,7 +923,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     addAndMakeVisible(generationStatusProgressBar.get());
     addAndMakeVisible(generationStatusProgressBarLabel);
     generationStatusProgressBarLabel.setText("Generation Status:", juce::dontSendNotification);
-    generationStatusProgressBarLabel.attachToComponent(generationStatusProgressBar.get(), false);
+    generationStatusProgressBar->setTitle("Generation Status");
 
     /* START BUTTON */
     addAndMakeVisible(startButton);
@@ -995,7 +1015,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     // Visualization buffer size for SAM Hackathon
     addAndMakeVisible(visualizationBufferSizeLabel);
     visualizationBufferSizeLabel.setText("Visualization Buffer Size: ", juce::dontSendNotification);
-    visualizationBufferSizeLabel.attachToComponent(&visualizationBufferSizeEditor, true);
+    visualizationBufferSizeEditor.setTitle(visualizationBufferSizeLabel.getText().trim().trimCharactersAtEnd(":"));
 
     addAndMakeVisible(visualizationBufferSizeEditor);
     juce::String savedBufferSize = session.presetStore.settings.getOrCreateChildWithName("output", nullptr)
@@ -1021,7 +1041,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
             updateModel(true);
     }
 
-    setSize(700, 980); // +66: scripted-input row, Keyboard as Launchpad row
+    setSize(600, UiConstants::appRootSettingsContentHeight);
 
 }
 
@@ -1792,120 +1812,138 @@ void MainComponent::paint(juce::Graphics &g) {
 }
 
 void MainComponent::resized() {
-    /* Reset visibiliy of conditional input fields */
-    oscIp.setVisible(false);
-    oscPort.setVisible(false);
-    connectButton.setVisible(false);
+    oscIpLabel.setVisible(enableOscConfig);
+    oscIp.setVisible(enableOscConfig);
+    oscPortLabel.setVisible(enableOscConfig);
+    oscPort.setVisible(enableOscConfig);
+    connectButton.setVisible(enableOscConfig);
 
-    auto area = getLocalBounds();
+    constexpr int gap = 8;
+    constexpr int labelWidth = 180;
+    auto area = getLocalBounds().withSizeKeepingCentre(juce::jmin(getWidth(), 600), getHeight())
+                    .reduced(12, 8);
+    const auto row = [&area] {
+        return area.removeFromTop(28).reduced(0, 3);
+    };
+    const auto placeFieldLabel = [](juce::Label &label, juce::Rectangle<int> bounds) {
+        label.setJustificationType(juce::Justification::centredRight);
+        label.setBounds(bounds);
+    };
+    const auto field = [&row, &placeFieldLabel, labelWidth](juce::Label *label = nullptr) {
+        auto line = row();
+        const auto labelBounds = line.removeFromLeft(labelWidth);
+        if (label != nullptr)
+            placeFieldLabel(*label, labelBounds);
+        return line;
+    };
+    const auto section = [&area](juce::Label &heading) {
+        area.removeFromTop(18);
+        heading.setBounds(area.removeFromTop(20));
+    };
 
-    auto presetArea = area.removeFromTop(60).removeFromRight(getWidth() - 50).reduced(8);
-    presetList.setBounds(presetArea.removeFromLeft(getWidth() - 230).reduced(5));
-    leftPresetButton.setBounds(presetArea.removeFromLeft(40).reduced(5));
-    rightPresetButton.setBounds(presetArea.removeFromLeft(40).reduced(5));
-    savePresetButton.setBounds(presetArea.reduced(5));
+    presetSection.setBounds(area.removeFromTop(20));
+    auto presetArea = field(&presetListLabel);
+    savePresetButton.setBounds(presetArea.removeFromRight(68));
+    presetArea.removeFromRight(12);
+    rightPresetButton.setBounds(presetArea.removeFromRight(30));
+    presetArea.removeFromRight(4);
+    leftPresetButton.setBounds(presetArea.removeFromRight(30));
+    presetList.setBounds(presetArea.withTrimmedRight(gap));
 
-    configLabel.setBounds(area.removeFromTop(60).withTrimmedTop(20).reduced(8));
+    section(configLabel);
+    auto controller = field(&controllerLabel);
+    controllerOscPort.setBounds(controller.removeFromLeft(60));
+    controller.removeFromLeft(gap);
+    controllerConnectButton.setBounds(controller.removeFromLeft(90));
+    controller.removeFromLeft(12);
+    autoConnect.setBounds(controller);
 
-    auto controllerArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
-    controllerOscPort.setBounds(controllerArea.removeFromLeft(50));
-    controllerConnectButton.setBounds(controllerArea.removeFromLeft(120).withTrimmedLeft(20));
-    autoConnect.setBounds(controllerArea.removeFromRight(100));
+    auto mtc = field(&mtcClockLabel);
+    mtcClock.setBounds(mtc.removeFromLeft(22));
+    mtc.removeFromLeft(gap);
+    mtcClockOffset.setBounds(mtc.removeFromRight(58));
+    mtc.removeFromRight(4);
+    placeFieldLabel(mtcClockOffsetLabel, mtc.removeFromRight(48));
+    mtcClockList.setBounds(mtc.withTrimmedRight(gap));
 
-    auto mtcClockArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
-    mtcClock.setBounds(mtcClockArea.removeFromLeft(getWidth() - 600));
-    mtcClockList.setBounds(mtcClockArea.removeFromLeft(380).withTrimmedRight(80));
-    mtcClockOffset.setBounds(mtcClockArea);
-
-    auto midiInputArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
-    midiInputList.setBounds(midiInputArea.removeFromLeft(getWidth() - 300));
-    inputThru.setBounds(midiInputArea.withTrimmedLeft(80));
+    section(midiSection);
+    auto midi = field(&midiInputListLabel);
+    inputThru.setBounds(midi.removeFromRight(22));
+    midi.removeFromRight(4);
+    placeFieldLabel(inputThruLabel, midi.removeFromRight(70));
+    midiInputList.setBounds(midi.withTrimmedRight(gap));
 
     if (session.isScriptedInputSelected()) {
-        auto scriptArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
-        scriptLoadButton.setBounds(scriptArea.removeFromLeft(150).withTrimmedRight(8));
-        scriptPlayButton.setBounds(scriptArea.removeFromRight(90));
-        scriptStatusLabel.setBounds(scriptArea.removeFromRight(90));
-        scriptAutoStart.setBounds(scriptArea.removeFromRight(110));
-        scriptLoop.setBounds(scriptArea.removeFromRight(64));
-        scriptTrackList.setBounds(scriptArea.removeFromRight(juce::jmin(260, scriptArea.getWidth() / 2)).withTrimmedRight(8));
-        scriptFileLabel.setBounds(scriptArea);
+        auto script = field();
+        scriptLoadButton.setBounds(script.removeFromLeft(140));
+        scriptPlayButton.setBounds(script.removeFromRight(82));
+        scriptFileLabel.setBounds(script.reduced(6, 0));
+
+        script = field();
+        scriptLoop.setBounds(script.removeFromLeft(58));
+        scriptAutoStart.setBounds(script.removeFromLeft(108));
+        scriptStatusLabel.setBounds(script.removeFromRight(70));
+        scriptTrackList.setBounds(script);
     }
 
-    additionalMidiList.setBounds(area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8));
+    additionalMidiList.setBounds(field(&additionalMidiListLabel));
+    pedalMidiList.setBounds(field(&pedalMidiListLabel));
+    launchpadMidiList.setBounds(field(&launchpadMidiListLabel));
+    keyboardLaunchpadToggle.setBounds(field());
+    const int hintIndent = labelWidth + 22;
+    const int hintWidth = area.getWidth() - hintIndent
+                          - keyboardLaunchpadHint.getBorderSize().getLeftAndRight();
+    const auto hintTextWidth = UiConstants::measureTextWidth(
+        keyboardLaunchpadHint.getFont(), keyboardLaunchpadHint.getText());
+    keyboardLaunchpadHint.setBounds(area.removeFromTop(hintTextWidth > hintWidth ? 28 : 18)
+                                        .withTrimmedLeft(hintIndent));
 
-    auto pedalMidiArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
-    pedalMidiList.setBounds(pedalMidiArea);
+    section(modelSection);
+    reductionTypeList.setBounds(field(&reductionTypeListLabel));
 
-    auto launchpadMidiArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
-    launchpadMidiList.setBounds(launchpadMidiArea);
+    auto model = field(&checkpointListLabel);
+    modelConfigurationButton.setBounds(model.removeFromRight(152));
+    checkpointList.setBounds(model.withTrimmedRight(gap));
+    orchestrationModelList.setBounds(field(&orchestrationModelListLabel));
 
-    keyboardLaunchpadToggle.setBounds(area.removeFromTop(30).removeFromRight(getWidth() - 150).reduced(8, 2));
+    proportionBias.setBounds(field(&proportionBiasLabel).removeFromLeft(22));
+    vocsepEnsemble.setBounds(field(&vocsepEnsembleLabel).removeFromLeft(22));
+    pianoReductionBias.setBounds(field(&pianoReductionBiasLabel).removeFromLeft(22));
+    logitTd.setBounds(field(&logitTdLabel).removeFromLeft(22));
 
-    auto reductionTypeArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
-    reductionTypeList.setBounds(reductionTypeArea);
+    section(outputSection);
+    outputList.setBounds(field(&outputListLabel));
 
-    auto modelConfigArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
-    checkpointList.setBounds(modelConfigArea.removeFromLeft(getWidth() - 300).withTrimmedRight(20));
-    modelConfigurationButton.setBounds(modelConfigArea);
+    const auto oscRow = [&field, gap](juce::Label &label, auto &ip, juce::Label &separator,
+                                     auto &port, auto &button) {
+        auto bounds = field(&label);
+        button.setBounds(bounds.removeFromRight(90));
+        bounds.removeFromRight(gap);
+        port.setBounds(bounds.removeFromRight(60));
+        separator.setBounds(bounds.removeFromRight(18));
+        ip.setBounds(bounds);
+    };
+    if (enableOscConfig)
+        oscRow(oscIpLabel, oscIp, oscPortLabel, oscPort, connectButton);
+    oscRow(bufferOutputOscIpLabel, bufferOutputOscIp, bufferOutputOscPortLabel,
+           bufferOutputOscPort, bufferOutputConnectButton);
+    oscRow(statusOutputOscIpLabel, statusOutputOscIp, statusOutputOscPortLabel,
+           statusOutputOscPort, statusOutputConnectButton);
+    visualizationBufferSizeEditor.setBounds(field(&visualizationBufferSizeLabel).removeFromLeft(70));
 
-    orchestrationModelList.setBounds(area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8));
-
-    auto proportionBiasArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
-    proportionBias.setBounds(proportionBiasArea.withTrimmedLeft(80));
-
-    auto vocsepEnsembleArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
-    vocsepEnsemble.setBounds(vocsepEnsembleArea.withTrimmedLeft(80));
-
-    auto pianoReductionBiasArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
-    pianoReductionBias.setBounds(pianoReductionBiasArea.withTrimmedLeft(80));
-
-    auto logitTdArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
-    logitTd.setBounds(logitTdArea.withTrimmedLeft(80));
-
-    outputList.setBounds(area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8));
-
-    if (enableOscConfig) {
-        oscIp.setVisible(true);
-        oscPort.setVisible(true);
-        connectButton.setVisible(true);
-        auto oscConfigArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
-        oscIp.setBounds(oscConfigArea.removeFromLeft(getWidth() - 350).withTrimmedRight(20));
-        oscPort.setBounds(oscConfigArea.removeFromLeft(60).withTrimmedRight(10));
-        connectButton.setBounds(oscConfigArea);
-    }
-
-    auto bufferOutputOscConfigArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
-    bufferOutputOscIp.setBounds(bufferOutputOscConfigArea.removeFromLeft(getWidth() - 350).withTrimmedRight(20));
-    bufferOutputOscPort.setBounds(bufferOutputOscConfigArea.removeFromLeft(60).withTrimmedRight(10));
-    bufferOutputConnectButton.setBounds(bufferOutputOscConfigArea);
-
-    auto statusOutputOscConfigArea = area.removeFromTop(36).removeFromRight(getWidth() - 150).reduced(8);
-    statusOutputOscIp.setBounds(statusOutputOscConfigArea.removeFromLeft(getWidth() - 350).withTrimmedRight(20));
-    statusOutputOscPort.setBounds(statusOutputOscConfigArea.removeFromLeft(60).withTrimmedRight(10));
-    statusOutputConnectButton.setBounds(statusOutputOscConfigArea);
-
-    auto visBufArea = area.removeFromTop(48).removeFromRight(getWidth() - 150).reduced(8);
-    visualizationBufferSizeLabel.setBounds(visBufArea.removeFromLeft(getWidth() - 350).withTrimmedRight(20));
-    visualizationBufferSizeEditor.setBounds(visBufArea.removeFromLeft(60).withTrimmedRight(10));
-
-    generationLabel.setBounds(area.removeFromTop(60).withTrimmedTop(20).reduced(8));
-
+    section(generationLabel);
+    generationStatusProgressBarLabel.setBounds(area.removeFromTop(20));
     if (generationStatusProgressBar != nullptr)
-        generationStatusProgressBar->setBounds(area.removeFromTop(60).reduced(8).withTrimmedTop(20));
-    else
-        area.removeFromTop(60);
+        generationStatusProgressBar->setBounds(area.removeFromTop(26).reduced(0, 3));
 
-    auto transportButtonsArea = area.removeFromTop(80);
-    startButton.setBounds(transportButtonsArea.removeFromLeft(getWidth() / 2).reduced(20));
-    stopButton.setBounds(transportButtonsArea.removeFromLeft(getWidth() / 2).reduced(20));
+    auto transport = area.removeFromTop(32).reduced(0, 3);
+    startButton.setBounds(transport.removeFromLeft(transport.getWidth() / 2).withTrimmedRight(gap / 2));
+    stopButton.setBounds(transport.withTrimmedLeft(gap / 2));
 
-    auto extraButtonsArea = area.removeFromTop(80);
-    openTransport.setBounds(extraButtonsArea.removeFromLeft(getWidth() / 2).reduced(20));
-    openMetrics.setBounds(extraButtonsArea.removeFromLeft(getWidth() / 2).reduced(20));
-
-    saveLastGenButton.setBounds(area.removeFromBottom(40).reduced(8));
-
+    auto tools = row();
+    openTransport.setBounds(tools.removeFromLeft(tools.getWidth() / 3).withTrimmedRight(gap / 2));
+    openMetrics.setBounds(tools.removeFromLeft(tools.getWidth() / 2).reduced(gap / 2, 0));
+    saveLastGenButton.setBounds(tools.withTrimmedLeft(gap / 2));
 }
 
 void MainComponent::updateOutputProcessor() {

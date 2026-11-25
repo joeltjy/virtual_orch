@@ -22,7 +22,8 @@ public:
     juce::String statusText = "active for V2 / Piano Reduction";
 
     auto paint(juce::Graphics &g) -> void override {
-        g.fillAll(juce::Colour(0xff1a1a1a));
+        WorkspaceWidget::clipContent(g, getLocalBounds());
+        g.fillAll(UiConstants::workspaceWidgetContentBackground);
 
         auto area = getLocalBounds().toFloat().reduced(8.0f, 6.0f);
         if (area.getWidth() < 8.0f || area.getHeight() < 8.0f)

@@ -563,9 +563,11 @@ auto WorkspaceCanvas::addOrchestrationDebugViewWidgets() -> void {
 }
 
 auto WorkspaceCanvas::applyTextScale(WorkspaceWidget &widget) const -> void {
-    // The seating plan keeps its own size: it is a picture, not text.
-    widget.setTextScale(widget.getWidgetType() == UiConstants::workspaceWidgetTypeInstrumentActiveLight ? 1.0f
-                                                                                                        : textScale);
+    if (auto *orchestra = dynamic_cast<InstrumentActiveLightWidget *>(&widget)) {
+        orchestra->setPerformanceControls(performanceControlsEnabled);
+        return;
+    }
+    widget.setTextScale(textScale);
 }
 
 auto WorkspaceCanvas::setTextScale(float scale) -> void {
@@ -573,6 +575,13 @@ auto WorkspaceCanvas::setTextScale(float scale) -> void {
     for (auto &w: widgets)
         if (w != nullptr)
             applyTextScale(*w);
+}
+
+void WorkspaceCanvas::setPerformanceControlsEnabled(bool enabled) {
+    performanceControlsEnabled = enabled;
+    for (auto &widget: widgets)
+        if (auto *orchestra = dynamic_cast<InstrumentActiveLightWidget *>(widget.get()))
+            orchestra->setPerformanceControls(enabled);
 }
 
 auto WorkspaceCanvas::addPerformanceViewWidgets() -> void {

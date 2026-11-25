@@ -1,0 +1,51 @@
+<!-- Sympathetic Virtual Orchestra: conducting page -->
+<!-- Grid and hand tracking from Sympathetic Orchestra by Bob Tianqi Wei, Shm Garanganao Almeda,
+     Ethan Tam, Dor Abrahamson and Bjoern Hartmann (UC Berkeley, 2024). The music comes from
+     virtual_orch; see README.md at the repository root. -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sympathetic Virtual Orchestra</title>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #c8c8c8; }
+    * { font-family: 'Manrope', sans-serif; }
+    #title { position: absolute; top: 10px; left: 12px; font-size: 15px; font-weight: 500; color: #333; z-index: 1000; }
+    #buttonContainer { position: absolute; bottom: 10px; left: 10px; display: flex; flex-wrap: wrap; gap: 6px; z-index: 1000; }
+    .control-button { font-size: 12px; padding: 5px 10px; border-radius: 999px; background: white; color: black; border: none; cursor: pointer; }
+    .control-button:disabled { opacity: 0.6; cursor: default; }
+    #videoContainer { opacity: 0; pointer-events: none; position: absolute; top: 10px; right: 10px; z-index: 999; }
+    #videoContainer.visible { opacity: 1; }
+    #cameraSelect { max-width: 170px; }
+    #cameraStatus { position: absolute; top: 10px; right: 12px; font-size: 12px; color: #333; z-index: 1000; }
+    #help { position: absolute; bottom: 52px; right: 12px; font-size: 12px; color: #333; z-index: 1000; text-align: right; }
+    @media (max-width: 520px) { #help { bottom: 78px; } }
+  </style>
+</head>
+<body>
+  <div id="title">Sympathetic Virtual Orchestra</div>
+  <div id="buttonContainer">
+    <select id="cameraSelect" class="control-button" aria-label="Conducting camera">
+      <option value="">Default camera</option>
+    </select>
+    <button id="enableCameraButton" class="control-button" disabled>Loading Models...</button>
+    <button id="cameraPreviewButton" class="control-button">Camera Preview</button>
+    <button id="resetButton" class="control-button">Reset (uncue all)</button>
+    <button id="openBrowserButton" class="control-button" hidden>Open in Browser</button>
+  </div>
+  <div id="help">
+    point = cue, then select · open palm = expression · conduct = tempo · fist = stop · relax = play<br>
+    no camera: click a part · B/space beat · S stop · P play · R reset
+  </div>
+  <div id="cameraStatus" role="status"></div>
+  <div id="videoContainer">
+    <video id="webcam" style="width: 200px; border-radius: 10px; border: 3px solid white; transform: scaleX(-1);" autoplay muted playsinline></video>
+  </div>
+  <script src="conduct_logic.js"></script>
+  <script src="conduct.js"></script>
+  <script type="module" src="recognize_hands.js"></script>
+</body>
+</html>

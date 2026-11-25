@@ -112,7 +112,8 @@ private:
         TokenNoteOff
     };
 
-    void handleNoteForOutput(const OrchestrationNote &note, TokenNoteType tokenEventType);
+    bool handleNoteForOutput(const OrchestrationNote &note, TokenNoteType tokenEventType,
+                             bool reductionMonitor = false);
 
     auto recordNoteOn(const OrchestrationNote &note, int32_t channel) -> void;
 

@@ -4,6 +4,7 @@
 #include "VirtualOrch/PedalClear.h"
 #include "VirtualOrch/PolyphonyCap.h"
 #include "VirtualOrch/SessionLog.h"
+#include "VirtualOrch/Sympathetic.h"
 #include "VirtualOrch/TemporalDensity.h"
 #include "VirtualOrch/reduction/TdOnsetBias.h"
 
@@ -398,6 +399,31 @@ auto ReductionTransformer::generatedNotesAtOnset(int32_t onsetCs) const -> int32
             break; // generated onsets only move forward
     }
     return n;
+}
+
+auto ReductionTransformer::applySympatheticWarp(int32_t &onsetCs, int32_t &durationCs) const
+    -> void {
+    const float warp = Sympathetic::state().currentWarp();
+    if (warp == 1.0f || clock == nullptr)
+        return;
+    const auto nowCs = static_cast<int32_t>(clock->getTime());
+    const auto [onset, duration] = Sympathetic::warpNote(onsetCs, durationCs, nowCs, warp,
+                                                         currentTime, Config::MaxDur - 1);
+    onsetCs = onset;
+    durationCs = duration;
+}
+
+auto ReductionTransformer::applySympatheticWarp(Token &token) const -> void {
+    // Callers pass only notes just drawn by generateNewToken (AMT or dense note tokens).
+    if (token.time < 0 || token.note < static_cast<int32_t>(Vocab::NoteOffset))
+        return;
+    // Vocab::DurOffset == DenseVocab::DurOffset (both MaxTime = 10000), so this holds for both.
+    static_assert(static_cast<size_t>(Vocab::DurOffset) == DenseVocab::DurOffset);
+    int32_t onset = token.time;
+    int32_t duration = token.getRealDuration();
+    applySympatheticWarp(onset, duration);
+    token.time = onset;
+    token.duration = static_cast<int32_t>(Vocab::DurOffset) + duration;
 }
 
 auto ReductionTransformer::pushOutputToken(const Token &tokenIn) -> void {

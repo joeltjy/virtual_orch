@@ -1,4 +1,5 @@
 #include "VirtualOrch/widgets/InstrumentActiveLightWidget.h"
+#include "VirtualOrch/widgets/OrchestraControls.h"
 
 #include "VirtualOrch/AppSession.h"
 #include "VirtualOrch/ui/UiConstants.h"
@@ -16,8 +17,7 @@ constexpr float kDimmedBrightness = 0.35f;
 } // namespace
 
 SeatingPlanView::SeatingPlanView() {
-    setOpaque(true);
-    const auto plan = juce::ImageFileFormat::loadFrom(
+    auto plan = juce::ImageFileFormat::loadFrom(
                           VirtualOrchBinaryData::orch_seating_plan_no_perc_png,
                           static_cast<size_t>(VirtualOrchBinaryData::orch_seating_plan_no_perc_pngSize))
                           .convertedToFormat(juce::Image::ARGB);
@@ -26,12 +26,13 @@ SeatingPlanView::SeatingPlanView() {
         static_cast<size_t>(VirtualOrchBinaryData::orch_seating_plan_sectors_pngSize));
     if (! plan.isValid())
         return;
-    precomputeBlur(plan);
     sourceWidth = plan.getWidth();
     sourceHeight = plan.getHeight();
-    dimBase = plan.createCopy();
-    if (! mask.isValid() || mask.getWidth() != sourceWidth || mask.getHeight() != sourceHeight)
+    if (! mask.isValid() || mask.getWidth() != sourceWidth || mask.getHeight() != sourceHeight) {
+        dimBase = plan;
+        precomputeBlur(plan);
         return;
+    }
 
     // Section of every pixel (mask value = sector + 1) and each section's bounding box.
     std::vector<uint8_t> sectorOf(static_cast<size_t>(sourceWidth) * static_cast<size_t>(sourceHeight), 0);
@@ -42,11 +43,14 @@ SeatingPlanView::SeatingPlanView() {
     maxY.fill(-1);
     {
         const juce::Image::BitmapData m(mask, juce::Image::BitmapData::readOnly);
+        const juce::Image::BitmapData themed(plan, juce::Image::BitmapData::readWrite);
         for (int y = 0; y < sourceHeight; ++y)
             for (int x = 0; x < sourceWidth; ++x) {
                 const auto id = m.getPixelColour(x, y).getRed();
-                if (id == 0 || id > kSectors)
+                if (id == 0 || id > kSectors) {
+                    themed.setPixelColour(x, y, UiConstants::workspaceWidgetContentBackground);
                     continue;
+                }
                 sectorOf[static_cast<size_t>(y) * static_cast<size_t>(sourceWidth) + static_cast<size_t>(x)] = id;
                 const auto i = static_cast<size_t>(id - 1);
                 minX[i] = std::min(minX[i], x);
@@ -64,6 +68,8 @@ SeatingPlanView::SeatingPlanView() {
                                      patchBounds[i].getHeight(), true);
     }
 
+    precomputeBlur(plan);
+    dimBase = plan.createCopy();
     const juce::Image::BitmapData src(plan, juce::Image::BitmapData::readOnly);
     const juce::Image::BitmapData dim(dimBase, juce::Image::BitmapData::readWrite);
     std::array<std::unique_ptr<juce::Image::BitmapData>, kSectors> patchData;
@@ -226,7 +232,8 @@ auto SeatingPlanView::precomputeBlur(const juce::Image &plan) -> void {
 }
 
 auto SeatingPlanView::paint(juce::Graphics &g) -> void {
-    g.fillAll(juce::Colours::white);
+    WorkspaceWidget::clipContent(g, getLocalBounds());
+    g.fillAll(UiConstants::workspaceWidgetContentBackground);
     if (! scaledBase.isValid())
         return;
     g.drawImageAt(scaledBase, dest.getX(), dest.getY());
@@ -272,10 +279,28 @@ InstrumentActiveLightWidget::~InstrumentActiveLightWidget() {
 
 auto InstrumentActiveLightWidget::resized() -> void {
     WorkspaceWidget::resized();
-    view.setBounds(getContentComponent().getLocalBounds());
+    auto &content = getContentComponent();
+    (controls != nullptr ? static_cast<juce::Component &>(*controls)
+                         : static_cast<juce::Component &>(view)).setBounds(content.getLocalBounds());
+}
+
+void InstrumentActiveLightWidget::setPerformanceControls(bool enabled) {
+    if (enabled == (controls != nullptr))
+        return;
+
+    if (enabled) {
+        controls = std::make_unique<OrchestraControls>(session, view);
+        getContentComponent().addAndMakeVisible(*controls);
+    } else {
+        controls.reset();
+        getContentComponent().addAndMakeVisible(view);
+    }
+    resized();
 }
 
 auto InstrumentActiveLightWidget::timerCallback() -> void {
+    if (controls != nullptr)
+        controls->updateVisibility();
     const auto nowMs = juce::Time::currentTimeMillis();
     view.setActive(session.activityLog.activeSectors(nowMs));
     view.setFrozen(PerformanceActivity::pedalShowsFrozen(

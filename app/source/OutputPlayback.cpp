@@ -1,6 +1,7 @@
 #include "VirtualOrch/OutputPlayback.h"
 #include "VirtualOrch/AppTime.h"
 #include "VirtualOrch/OpLog.h"
+#include "VirtualOrch/Sympathetic.h"
 #include "VirtualOrch/PerformanceActivity.h"
 
 #include "VirtualOrch/InstrumentConstants.h"
@@ -88,13 +89,23 @@ OutputPlayback::OutputPlayback(Clock &clock,
       playbackSource(playbackSourceIn) {
 }
 
-void OutputPlayback::handleNoteForOutput(const OrchestrationNote &note, TokenNoteType tokenEventType) {
-    if (outputProcessor == nullptr) {
-        return;
-    }
+bool OutputPlayback::handleNoteForOutput(const OrchestrationNote &note, TokenNoteType tokenEventType,
+                                         bool reductionMonitor) {
+    if (outputProcessor == nullptr)
+        return false;
 
     const int32_t instrument = note.localInstrumentId;
     const int32_t pitch = note.token.getPitch();
+    // Sympathetic: uncued parts stay silent (safety net behind the model mask, e.g. a
+    // string-ensemble note routed to an uncued solo string); Select/Expression set the
+    // velocity. Both are no-ops while the gesture layer is off.
+    auto played = note;
+    if (tokenEventType == TokenNoteOn) {
+        const auto &sym = Sympathetic::state();
+        if (! sym.maySound(instrument, pitch, reductionMonitor))
+            return false;
+        played.velocity = sym.playbackVelocity(note.velocity > 0 ? note.velocity : 100, instrument, pitch);
+    }
     if (OpLog::on()) {
         const auto channel = outputProcessor->channelForInstrument(instrument, pitch);
         OpLog::emit(OpLog::Src::Play, "MIDI_OUT",
@@ -102,17 +113,16 @@ void OutputPlayback::handleNoteForOutput(const OrchestrationNote &note, TokenNot
                      {"instrument", instrument},
                      {"channel", channel.has_value() ? OpLog::Value(static_cast<int64_t>(*channel)) : OpLog::Value()},
                      {"pitch", pitch},
-                     {"vel", tokenEventType == TokenNoteOn ? OpLog::Value(static_cast<int64_t>(note.velocity > 0 ? note.velocity : 100)) : OpLog::Value()}});
+                     {"vel", tokenEventType == TokenNoteOn ? OpLog::Value(static_cast<int64_t>(played.velocity)) : OpLog::Value()}});
     }
     switch (tokenEventType) {
         case TokenNoteOn: {
-            const float midiVelocity =
-                note.velocity > 0 ? static_cast<float>(note.velocity) / 127.0f : 100.0f / 127.0f;
+            const float midiVelocity = static_cast<float>(played.velocity) / 127.0f;
             NoteOnEvent noteOnEvent = {
                 .instrument = instrument, .note = pitch, .velocity = midiVelocity};
             outputProcessor->send(noteOnEvent);
             if (const auto channel = outputProcessor->channelForInstrument(instrument, pitch))
-                recordNoteOn(note, *channel);
+                recordNoteOn(played, *channel);
             break;
         }
         case TokenNoteOff: {
@@ -121,6 +131,7 @@ void OutputPlayback::handleNoteForOutput(const OrchestrationNote &note, TokenNot
             break;
         }
     }
+    return true;
 }
 
 auto OutputPlayback::recordNoteOn(const OrchestrationNote &note, int32_t channel) -> void {
@@ -440,10 +451,23 @@ auto OutputPlayback::stepOnce() -> void {
         }
     }
 
+    const bool reductionMonitor = lastSource == PlaybackSource::Reduction;
+    const auto tangibleMask = Sympathetic::state().tangibleMask.load(std::memory_order_relaxed);
+    if (! reductionMonitor && tangibleMask != Sympathetic::kTangibleInactive) {
+        for (auto it = currentlyPlaying.begin(); it != currentlyPlaying.end();) {
+            if (Sympathetic::State::tangibleAllows(tangibleMask, it->localInstrumentId, it->token.getPitch())) {
+                ++it;
+            } else {
+                handleNoteForOutput(*it, TokenNoteType::TokenNoteOff);
+                it = currentlyPlaying.erase(it);
+            }
+        }
+    }
+
     for (auto it = nextTokens.begin(); it != nextTokens.end();) {
         if (it->token.time <= time) {
-            handleNoteForOutput(*it, TokenNoteType::TokenNoteOn);
-            currentlyPlaying.insert(*it);
+            if (handleNoteForOutput(*it, TokenNoteType::TokenNoteOn, reductionMonitor))
+                currentlyPlaying.insert(*it);
             it = nextTokens.erase(it);
         } else {
             break;

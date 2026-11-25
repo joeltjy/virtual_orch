@@ -25,6 +25,8 @@ private:
     auto refreshFromSession() -> void;
 
     AppSession &session;
+    juce::Component body;
+    juce::Viewport viewport;
     juce::TextButton editButton;
     juce::TextButton jamButton;
     juce::TextButton accompanimentButton;

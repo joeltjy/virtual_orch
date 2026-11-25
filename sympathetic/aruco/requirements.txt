@@ -1,0 +1,7 @@
+# requirements.txt developed by Bob Tianqi Wei
+opencv-contrib-python>=4.10,<4.12
+mediapipe==0.10.21
+reportlab>=4,<5
+pyobjc-framework-AVFoundation>=10; sys_platform == "darwin"
+pyobjc-framework-libdispatch>=10; sys_platform == "darwin"
+pyobjc-framework-Quartz>=10; sys_platform == "darwin"

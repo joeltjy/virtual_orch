@@ -8,9 +8,9 @@
 namespace UiConstants {
 
 // App root: tabs.
-inline const juce::Colour appRootTabColour{juce::Colours::darkgrey};
+inline const juce::Colour appRootTabColour{0xff242a33};
 inline constexpr int appRootSettingsContentWidth = 700;
-inline constexpr int appRootSettingsContentHeight = 800;
+inline constexpr int appRootSettingsContentHeight = 980;
 inline constexpr const char *workspaceViewsComboPlaceholder = "Views";
 inline constexpr const char *workspaceDefaultViewName = "Default";
 inline constexpr const char *workspaceWidgetTypeStub = "stub";
@@ -217,7 +217,7 @@ inline constexpr const char *workspaceInputViewName = "InputView";
 inline constexpr const char *workspaceOrchestrationDebugViewName = "OrchestrationDebug";
 inline constexpr const char *workspacePerformanceViewName = "PerformanceView";
 /** Text size of the PerformanceView's widgets (not the seating plan): read by an audience. */
-inline constexpr float performanceTextScale = 2.2f;
+inline constexpr float performanceTextScale = 1.2f;
 inline constexpr int workspaceInputViewTokenRollX = 40;
 inline constexpr int workspaceInputViewTokenRollY = 40;
 inline constexpr int workspaceInputViewConditioningRollX = 40;
@@ -230,31 +230,31 @@ inline constexpr int workspaceInputViewPianoRollWidth = 640;
 inline constexpr int workspaceInputViewPianoRollHeight = 280;
 
 /** PerformanceView: labelled Launchpad grid filling the top of the 1020 design canvas. */
-inline constexpr int workspacePerformanceViewLaunchpadX = 20;
+inline constexpr int workspacePerformanceViewLaunchpadX = 530;
 inline constexpr int workspacePerformanceViewLaunchpadY = 20;
-inline constexpr int workspacePerformanceViewLaunchpadWidth = 980;
-inline constexpr int workspacePerformanceViewLaunchpadHeight = 980;
+inline constexpr int workspacePerformanceViewLaunchpadWidth = 470;
+inline constexpr int workspacePerformanceViewLaunchpadHeight = 705;
 /** Below the Launchpad: seating plan (image aspect 1832:859), then bars + TD, then the console. */
 inline constexpr int workspacePerformanceViewScoreX = 20;
-inline constexpr int workspacePerformanceViewScoreY = 1020;
+inline constexpr int workspacePerformanceViewScoreY = 745;
 inline constexpr int workspacePerformanceViewScoreWidth = 980;
-inline constexpr int workspacePerformanceViewScoreHeight = 300;
+inline constexpr int workspacePerformanceViewScoreHeight = 400;
 inline constexpr int workspacePerformanceViewSeatingX = 20;
-inline constexpr int workspacePerformanceViewSeatingY = 1340;
-inline constexpr int workspacePerformanceViewSeatingWidth = 980;
-inline constexpr int workspacePerformanceViewSeatingHeight = 460;
+inline constexpr int workspacePerformanceViewSeatingY = 20;
+inline constexpr int workspacePerformanceViewSeatingWidth = 490;
+inline constexpr int workspacePerformanceViewSeatingHeight = 705;
 inline constexpr int workspacePerformanceViewGroupsX = 20;
-inline constexpr int workspacePerformanceViewGroupsY = 1820;
-inline constexpr int workspacePerformanceViewGroupsWidth = 480;
-inline constexpr int workspacePerformanceViewGroupsHeight = 160;
-inline constexpr int workspacePerformanceViewTdX = 520;
-inline constexpr int workspacePerformanceViewTdY = 1820;
-inline constexpr int workspacePerformanceViewTdWidth = 480;
-inline constexpr int workspacePerformanceViewTdHeight = 160;
-inline constexpr int workspacePerformanceViewConsoleX = 20;
-inline constexpr int workspacePerformanceViewConsoleY = 2000;
-inline constexpr int workspacePerformanceViewConsoleWidth = 980;
-inline constexpr int workspacePerformanceViewConsoleHeight = 160;
+inline constexpr int workspacePerformanceViewGroupsY = 1165;
+inline constexpr int workspacePerformanceViewGroupsWidth = 310;
+inline constexpr int workspacePerformanceViewGroupsHeight = 255;
+inline constexpr int workspacePerformanceViewTdX = 350;
+inline constexpr int workspacePerformanceViewTdY = 1165;
+inline constexpr int workspacePerformanceViewTdWidth = 310;
+inline constexpr int workspacePerformanceViewTdHeight = 255;
+inline constexpr int workspacePerformanceViewConsoleX = 680;
+inline constexpr int workspacePerformanceViewConsoleY = 1165;
+inline constexpr int workspacePerformanceViewConsoleWidth = 320;
+inline constexpr int workspacePerformanceViewConsoleHeight = 255;
 inline constexpr int workspaceOrchestrationDebugMidiX = 20;
 inline constexpr int workspaceOrchestrationDebugMidiY = 40;
 inline constexpr int workspaceOrchestrationDebugReductionX = 20;
@@ -265,7 +265,7 @@ inline constexpr int workspaceOrchestrationDebugRollHeight = 200;
 inline constexpr int workspaceOrchestrationDebugActiveInstrumentsX = 520;
 inline constexpr int workspaceOrchestrationDebugActiveInstrumentsY = 930;
 inline constexpr int workspaceOrchestrationDebugActiveInstrumentsWidth = 480;
-inline constexpr int workspaceOrchestrationDebugActiveInstrumentsHeight = 490;
+inline constexpr int workspaceOrchestrationDebugActiveInstrumentsHeight = 280;
 inline constexpr int workspaceOrchestrationDebugGenerationX = 520;
 inline constexpr int workspaceOrchestrationDebugGenerationY = 40;
 inline constexpr int workspaceOrchestrationDebugGenerationWidth = 230;
@@ -275,20 +275,20 @@ inline constexpr int workspaceOrchestrationDebugReductionTemperatureY = 40;
 inline constexpr int workspaceOrchestrationDebugReductionTemperatureWidth = 240;
 inline constexpr int workspaceOrchestrationDebugReductionTemperatureHeight = 280;
 inline constexpr int workspaceOrchestrationDebugModeX = 520;
-inline constexpr int workspaceOrchestrationDebugModeY = 220;
+inline constexpr int workspaceOrchestrationDebugModeY = 340;
 inline constexpr int workspaceOrchestrationDebugModeWidth = 480;
-inline constexpr int workspaceOrchestrationDebugModeHeight = 490;
+inline constexpr int workspaceOrchestrationDebugModeHeight = 370;
 inline constexpr int workspaceOrchestrationDebugDurationLogitsX = 520;
 inline constexpr int workspaceOrchestrationDebugDurationLogitsY = 720;
-inline constexpr int workspaceOrchestrationDebugDurationLogitsWidth = 200;
+inline constexpr int workspaceOrchestrationDebugDurationLogitsWidth = 150;
 inline constexpr int workspaceOrchestrationDebugDurationLogitsHeight = 200;
-inline constexpr int workspaceOrchestrationDebugOctaveDeltaX = 730;
+inline constexpr int workspaceOrchestrationDebugOctaveDeltaX = 690;
 inline constexpr int workspaceOrchestrationDebugOctaveDeltaY = 720;
 inline constexpr int workspaceOrchestrationDebugOctaveDeltaWidth = 160;
 inline constexpr int workspaceOrchestrationDebugOctaveDeltaHeight = 200;
-inline constexpr int workspaceOrchestrationDebugReductionTauX = 900;
+inline constexpr int workspaceOrchestrationDebugReductionTauX = 870;
 inline constexpr int workspaceOrchestrationDebugReductionTauY = 720;
-inline constexpr int workspaceOrchestrationDebugReductionTauWidth = 180;
+inline constexpr int workspaceOrchestrationDebugReductionTauWidth = 130;
 inline constexpr int workspaceOrchestrationDebugReductionTauHeight = 200;
 inline constexpr int workspaceOrchestrationDebugOutputVisualizerX = 20;
 inline constexpr int workspaceOrchestrationDebugOutputVisualizerY = 510;
@@ -307,7 +307,7 @@ inline constexpr int workspaceOrchestrationDebugVocsepOutputY = 1230;
 inline constexpr int workspaceOrchestrationDebugVocsepOutputWidth = 480;
 inline constexpr int workspaceOrchestrationDebugVocsepOutputHeight = 180;
 inline constexpr int workspaceOrchestrationDebugReductionModelInputX = 520;
-inline constexpr int workspaceOrchestrationDebugReductionModelInputY = 1030;
+inline constexpr int workspaceOrchestrationDebugReductionModelInputY = 1230;
 inline constexpr int workspaceOrchestrationDebugReductionModelInputWidth = 480;
 inline constexpr int workspaceOrchestrationDebugReductionModelInputHeight = 180;
 inline constexpr int workspaceGenerationButtonWidth = 100;
@@ -356,31 +356,39 @@ inline constexpr const char *workspaceSetDefaultViewEmptyMessage =
 
 // Workspace page: toolbar.
 inline constexpr int workspaceToolbarHeight = 36;
-inline constexpr int workspaceToolbarPaddingX = 8;
+inline constexpr int workspaceToolbarPaddingX = 12;
 inline constexpr int workspaceToolbarPaddingY = 4;
 inline constexpr int workspaceToolbarTitleWidth = 90;
 inline constexpr int workspaceToolbarTitleTrailingGap = 8;
-inline constexpr int workspaceToolbarControlGap = 6;
+inline constexpr int workspaceToolbarControlGap = 8;
 inline constexpr int workspaceToolbarButtonWidth = 72;
 inline constexpr int workspaceToolbarSaveAsButtonWidth = 88; // slightly wider for "Save As"
 inline constexpr int workspaceToolbarSetDefaultButtonWidth = 100;
-inline constexpr int workspaceToolbarViewComboWidth = 140;
+inline constexpr int workspaceToolbarViewComboWidth = 210;
 // Half-pixel nudge so the toolbar divider sits on a crisp line.
 inline constexpr float workspaceToolbarDividerPixelCenterOffset = 0.5f;
 
 // Workspace page: chrome colors.
-inline const juce::Colour workspacePageBackground{juce::Colours::black};
-inline const juce::Colour workspaceToolbarBackground{juce::Colours::darkgrey.darker(0.4f)};
-inline const juce::Colour workspaceToolbarDivider{juce::Colours::grey.withAlpha(0.5f)};
+inline const juce::Colour workspacePageBackground{0xff14181f};
+inline const juce::Colour workspaceToolbarBackground{0xff20252e};
+inline const juce::Colour workspaceToolbarDivider{0xff3b4554};
 inline constexpr float workspaceToolbarDividerThickness = 1.0f;
-inline const juce::Colour workspaceCanvasBackground{juce::Colours::black.brighter(0.08f)};
-inline const juce::Colour workspaceToolbarTitleColour{juce::Colours::lightgrey};
+inline const juce::Colour workspaceCanvasBackground{0xff14181f};
+inline const juce::Colour workspaceToolbarTitleColour{0xffeef2f7};
 
 // Workspace widget chrome.
 inline constexpr int workspaceWidgetTitleBarHeight = 28;
 inline constexpr int workspaceWidgetBorderThickness = 1;
-inline constexpr float workspaceWidgetCornerRadius = 10.0f;
-inline constexpr int workspaceWidgetTitlePaddingX = 8;
+inline constexpr float chromeCornerRadius = 6.0f;
+inline constexpr float chromeTitleFontSize = 16.0f;
+inline constexpr float chromeControlFontSize = 14.0f;
+
+inline auto measureTextWidth(const juce::Font &font, const juce::String &text) -> float {
+    juce::GlyphArrangement glyphs;
+    glyphs.addLineOfText(font, text, 0.0f, 0.0f);
+    return glyphs.getBoundingBox(0, -1, true).getWidth();
+}
+inline constexpr int workspaceWidgetTitlePaddingX = 12;
 inline constexpr int workspaceStubWidgetX = 40;
 inline constexpr int workspaceStubWidgetY = 40;
 inline constexpr int workspaceStubWidgetWidth = 320;
@@ -393,6 +401,12 @@ inline constexpr int workspaceWidgetResizeHandleThickness = 6;
 // Keep at least this much of the widget on the canvas when dragging/resizing.
 inline constexpr int workspaceWidgetMinVisibleEdge = 40;
 inline constexpr int workspaceWidgetCloseButtonWidth = 28;
+inline const juce::Colour controlBackground{0xff303947};
+inline const juce::Colour controlAccent{0xff87b8ff};
+inline const juce::Colour stringsColour{0xff6cc070};
+inline const juce::Colour woodwindsColour{0xff6aaef0};
+inline const juce::Colour brassColour{0xfff07a72};
+inline const juce::Colour percussionColour{0xffe6ba70};
 inline constexpr int workspaceWidgetCascadeOffsetX = 28;
 inline constexpr int workspaceWidgetCascadeOffsetY = 28;
 /** Design-space size for built-in / saved views; scaled to the live canvas. */
@@ -401,15 +415,15 @@ inline constexpr int workspaceLayoutReferenceHeight = 1440;
 inline constexpr const char *workspaceStubWidgetTitle = "Stub Widget";
 inline constexpr const char *workspaceWidgetCloseButtonText = "X";
 
-inline const juce::Colour workspaceWidgetBorderColour{juce::Colours::grey};
-inline const juce::Colour workspaceWidgetTitleBarBackground{juce::Colours::darkgrey.darker(0.2f)};
-inline const juce::Colour workspaceWidgetContentBackground{juce::Colours::black.brighter(0.12f)};
-inline const juce::Colour workspaceWidgetTitleTextColour{juce::Colours::lightgrey};
-inline const juce::Colour workspaceWidgetCloseButtonColour{juce::Colours::lightgrey};
-inline const juce::Colour workspacePromptEditorBackground{juce::Colours::black.brighter(0.06f)};
-inline const juce::Colour workspacePromptEditorTextColour{juce::Colours::lightgrey};
-inline const juce::Colour workspacePromptEditorEmptyTextColour{juce::Colours::grey};
-inline const juce::Colour workspaceTransportTimeColour{juce::Colours::lightgrey};
+inline const juce::Colour workspaceWidgetBorderColour{0xff3b4554};
+inline const juce::Colour workspaceWidgetTitleBarBackground{0xff2a323e};
+inline const juce::Colour workspaceWidgetContentBackground{0xff20252e};
+inline const juce::Colour workspaceWidgetTitleTextColour{0xffeef2f7};
+inline const juce::Colour workspaceWidgetCloseButtonColour{0xffeef2f7};
+inline const juce::Colour workspacePromptEditorBackground{0xff191e26};
+inline const juce::Colour workspacePromptEditorTextColour{0xffeef2f7};
+inline const juce::Colour workspacePromptEditorEmptyTextColour{0xffaab5c4};
+inline const juce::Colour workspaceTransportTimeColour{0xffeef2f7};
 
 // Piano roll view.
 inline constexpr int pianoRollTimerIntervalMs = 33;
@@ -421,13 +435,13 @@ inline constexpr float pianoRollNowbarFraction = 0.75f;  // unused if windows de
 inline constexpr float pianoRollNoteCornerRadius = 2.0f;
 /** When multiple instruments share a note cell, cycle colours along time every N centiseconds. */
 inline constexpr int32_t pianoRollMultiColourStripeCs = 30; // 0.3s
-inline const juce::Colour pianoRollBackground{juce::Colours::black.brighter(0.05f)};
-inline const juce::Colour pianoRollGridColour{juce::Colours::grey.withAlpha(0.25f)};
-inline const juce::Colour pianoRollNoteColour{juce::Colours::cornflowerblue.withAlpha(0.85f)};
-inline const juce::Colour pianoRollHistoryNoteColour{juce::Colours::red.withAlpha(0.85f)};
+inline const juce::Colour pianoRollBackground{0xff20252e};
+inline const juce::Colour pianoRollGridColour{0x485e6d83};
+inline const juce::Colour pianoRollNoteColour{0xdc77aafd};
+inline const juce::Colour pianoRollHistoryNoteColour{0xdcf07a72};
 /** Fill opacity of a provisional (still held) note; its outline stays solid. */
 inline constexpr float pianoRollProvisionalFillOpacity = 0.3f;
-inline const juce::Colour pianoRollPendingNoteColour{juce::Colours::grey.withAlpha(0.85f)};
-inline const juce::Colour pianoRollNowbarColour{juce::Colours::orange};
+inline const juce::Colour pianoRollPendingNoteColour{0xdc98a4b5};
+inline const juce::Colour pianoRollNowbarColour{0xffffb347};
 
 } // namespace UiConstants

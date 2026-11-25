@@ -16,9 +16,8 @@ TransportComponent::~TransportComponent() {
 }
 
 void TransportComponent::paint(Graphics &g) {
-    g.setColour(juce::Colours::black);
-    g.fillRect(0, 0, getWidth(), getHeight());
-    g.setColour(juce::Colours::lightgrey);
+    g.fillAll(getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
+    g.setColour(getLookAndFeel().findColour(juce::Label::textColourId));
     g.setFont(30 * scale);
 
     // Time

@@ -7,11 +7,27 @@ juce_add_gui_app(${PROJECT_NAME}
     COMPANY_NAME "MITMediaLab"
     PRODUCT_NAME "virtual-orch"
     NEEDS_MIDI_INPUT TRUE
+    CAMERA_PERMISSION_ENABLED TRUE
+    CAMERA_PERMISSION_TEXT "Virtual Orchestra uses a camera for conducting gestures and ArUco markers."
     ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/icon.png"
 )
 
-target_compile_definitions(${PROJECT_NAME} PUBLIC
-    JUCE_WEB_BROWSER=0
+set(virtual_orch_web_browser 0)
+if(APPLE)
+    set(virtual_orch_web_browser 1)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(virtual_orch_webkit QUIET IMPORTED_TARGET webkit2gtk-4.0 gtk+-x11-3.0)
+        if(virtual_orch_webkit_FOUND)
+            set(virtual_orch_web_browser 1)
+            target_link_libraries(${PROJECT_NAME} PRIVATE PkgConfig::virtual_orch_webkit)
+        endif()
+    endif()
+endif()
+
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    JUCE_WEB_BROWSER=${virtual_orch_web_browser}
     JUCE_USE_CURL=0
     JUCE_DISPLAY_SPLASH_SCREEN=0)
 
@@ -113,10 +129,7 @@ target_link_libraries(VirtualOrchLibrary
 # No link-time optimisation here: this library is only for the tests and tools (the app compiles its
 # own sources with it), and LTO's serial link made every test build take minutes.
 
-# Prevent GTK and curl dependencies
 target_compile_definitions(${PROJECT_NAME} PRIVATE
-  JUCE_WEB_BROWSER=0
-  JUCE_USE_CURL=0
   VIRTUAL_ORCH_APP_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_definitions(VirtualOrchLibrary PRIVATE
   JUCE_WEB_BROWSER=0
@@ -125,3 +138,24 @@ target_compile_definitions(VirtualOrchLibrary PRIVATE
 target_compile_definitions(cmp_plot PRIVATE
   JUCE_WEB_BROWSER=0
   JUCE_USE_CURL=0)
+
+
+set(controller_source "${CMAKE_CURRENT_SOURCE_DIR}/../sympathetic")
+if(APPLE)
+    set(controller_resources "$<TARGET_BUNDLE_CONTENT_DIR:${PROJECT_NAME}>/Resources/sympathetic")
+else()
+    set(controller_resources "$<TARGET_FILE_DIR:${PROJECT_NAME}>/sympathetic")
+endif()
+
+add_custom_target(VirtualOrchControllerResources
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${controller_resources}/aruco"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory "${controller_source}/public"
+            "${controller_resources}/public"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${controller_source}/sym_server.js"
+            "${controller_resources}/sym_server.js"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${controller_source}/aruco/worker.py"
+            "${controller_source}/aruco/marker_pdf.py" "${controller_source}/aruco/macos_camera.py"
+            "${controller_source}/aruco/requirements.txt" "${controller_source}/aruco/hand_markers.py"
+            "${controller_resources}/aruco"
+    VERBATIM)
+add_dependencies(${PROJECT_NAME} VirtualOrchControllerResources)

@@ -13,7 +13,8 @@ public:
     OctaveDeltaSnapshot snapshot;
 
     auto paint(juce::Graphics &g) -> void override {
-        g.fillAll(juce::Colour(0xff1a1a1a));
+        WorkspaceWidget::clipContent(g, getLocalBounds());
+        g.fillAll(UiConstants::workspaceWidgetContentBackground);
 
         auto area = getLocalBounds().toFloat().reduced(8.0f, 6.0f);
         if (area.getWidth() < 8.0f || area.getHeight() < 8.0f)
@@ -21,7 +22,7 @@ public:
 
         g.setColour(juce::Colours::grey);
         g.setFont(10.0f);
-        juce::String header = "IOD octave Δ";
+        juce::String header = "IOD octave shift";
         if (snapshot.total > 0)
             header << "  |  n=" << juce::String(static_cast<juce::int64>(snapshot.total));
         g.drawText(header, area.removeFromTop(14.0f).toNearestIntEdges(),
@@ -31,7 +32,7 @@ public:
         if (snapshot.total == 0) {
             g.setColour(juce::Colours::grey);
             g.setFont(12.0f);
-            g.drawText("Waiting for IOD decode…",
+            g.drawText("Waiting for IOD decode...",
                        area.toNearestIntEdges(),
                        juce::Justification::centred);
             return;

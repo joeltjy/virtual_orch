@@ -166,6 +166,21 @@ auto OrchestrationTransformer::applyTokenUpdates() -> void {
                 note.token.velocity = update.newNote.velocity;
         }
 
+        // Hybrid v1.3: a reduction note's real length (the model's OFF; it went out with a provisional one) for every
+        // note the OT made from it, whatever pitch / velocity it was given (matched by the source note id), and for
+        // the post-OT TD meter (a provisional 5 s tremolo would count 40 events).
+        if (update.oldNote.keyId < 0 && update.oldNote.noteId >= 0) {
+            for (auto &note: outputHistory) {
+                if (note.sourceNoteId != update.oldNote.noteId || note.token.duration == update.newNote.duration)
+                    continue;
+                TokenUpdate own{note.token, note.token};
+                own.newNote.duration = update.newNote.duration;
+                note.token.duration = update.newNote.duration;
+                outputDurationUpdates.push(own);
+            }
+            tdMeter.setDuration(update.oldNote.noteId, update.newNote.getRealDuration());
+        }
+
         // OT midi history is retagged as piano (15); note-off updates use reduction instr 0.
         {
             TokenUpdate midiUpdate = update;
@@ -493,7 +508,7 @@ auto OrchestrationTransformer::deliverOutputNote(const OrchestrationNote &noteIn
         tdMeter.clearFrom(note.token.time);
     else if (note.token.keyId < 0)
         tdMeter.add(note.token.time, note.token.getRealDuration(),
-                    note.localInstrumentId == OrchestraTdMeter::kTremoloLocalId);
+                    note.localInstrumentId == OrchestraTdMeter::kTremoloLocalId, note.sourceNoteId);
     currentOTTime = note.token.time;
     SessionLog::add("OT", juce::String(note.token.toUnderstandableString()) + " instr "
                               + juce::String(note.localInstrumentId) + " vel "

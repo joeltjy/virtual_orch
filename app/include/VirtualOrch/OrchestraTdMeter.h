@@ -36,6 +36,7 @@ public:
         int32_t onsetCs = 0;
         int32_t durationCs = 0;
         bool tremolo = false;
+        int32_t sourceNoteId = -1; // the reduction note it orchestrates (-1: unknown / the pianist's)
     };
 
     struct Reading {
@@ -81,12 +82,25 @@ public:
         return r;
     }
 
-    auto add(int32_t onsetCs, int32_t durationCs, bool tremolo) -> void {
+    auto add(int32_t onsetCs, int32_t durationCs, bool tremolo, int32_t sourceNoteId = -1) -> void {
         const std::lock_guard<std::mutex> lock(mutex);
-        notes.push_back({onsetCs, durationCs, tremolo});
+        notes.push_back({onsetCs, durationCs, tremolo, sourceNoteId});
         newest = std::max(newest, onsetCs);
         while (! notes.empty() && notes.front().onsetCs < newest - kKeepCs)
             notes.pop_front();
+    }
+
+    /**
+     * The real length of the notes made from reduction note `sourceNoteId` (Hybrid v1.3: a note goes out with a
+     * provisional length until the model's OFF); -1 changes nothing.
+     */
+    auto setDuration(int32_t sourceNoteId, int32_t durationCs) -> void {
+        if (sourceNoteId < 0)
+            return;
+        const std::lock_guard<std::mutex> lock(mutex);
+        for (auto &n: notes)
+            if (n.sourceNoteId == sourceNoteId)
+                n.durationCs = durationCs;
     }
 
     /** A ClearQueue at `fromCs`: the notes from it on will not sound. */

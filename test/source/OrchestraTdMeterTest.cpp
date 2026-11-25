@@ -77,6 +77,21 @@ TEST(OrchestraTdMeter, aClearRemovesTheNotesFromItsTime) {
     EXPECT_FALSE(m.read().has_value());
 }
 
+TEST(OrchestraTdMeter, aNotesRealLengthReplacesItsProvisionalOne) {
+    // Hybrid v1.3: a tremolo note goes out with 5 s until the model's OFF; the OFF's length then counts
+    OrchestraTdMeter meter;
+    meter.add(0, 500, true, 7);
+    auto r = meter.read(300);
+    ASSERT_TRUE(r.has_value());
+    EXPECT_DOUBLE_EQ(r->td, 16.0); // 8 x 3 s = 24 events
+    meter.setDuration(-1, 10);     // no source: nothing changes
+    EXPECT_DOUBLE_EQ(meter.read(300)->td, 16.0);
+    meter.setDuration(7, 50);
+    r = meter.read(300);
+    EXPECT_DOUBLE_EQ(r->events, 4.0); // 8 x 0.5 s
+    EXPECT_DOUBLE_EQ(r->td, 8.0 / 3.0);
+}
+
 TEST(TremoloBiasController, growsBelowTheTargetAndDecaysAtOrAboveIt) {
     TremoloBiasController c;
     EXPECT_DOUBLE_EQ(c.tick(16, 4.0), TremoloBiasController::kGain * 2.0); // e = 2

@@ -281,7 +281,8 @@ auto ScoreWidget::timerCallback() -> void {
 
     // Chords and their labels, then the melody and bass spelled in the key.
     const auto prepared = ScoreLayout::prepare(generated);
-    const auto chords = ScoreHarmony::chords(prepared, key, [this](const std::vector<int> &p) { return nameFor(p); });
+    const auto chords = ScoreHarmony::chords(prepared, key, [this](const std::vector<int> &p) { return nameFor(p); },
+                                             found.runnerUp, found.key.has_value());
     std::vector<ScoreView::DrawName> names;
     for (const auto &l: ScoreHarmony::labels(chords))
         names.push_back({l.onsetCs, l.text});

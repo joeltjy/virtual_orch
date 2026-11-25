@@ -1,9 +1,11 @@
 #include <gtest/gtest.h>
 
+#include <VirtualOrch/ChordNaming.h>
 #include <VirtualOrch/KeyDetector.h>
 #include <VirtualOrch/ScoreHarmony.h>
 #include <VirtualOrch/Spelling.h>
 
+#include <optional>
 #include <vector>
 
 namespace virtual_orch_test {
@@ -17,6 +19,8 @@ const Key kF{-1, false};
 const Key kAMinor{3, true};
 const Key kGSharpMinor{8, true};
 const Key kDb{-5, false};
+const Key kG{1, false};
+const Key kBMinor{5, true};
 
 auto names(const std::vector<ScoreHarmony::Label> &labels) -> std::vector<std::string> {
     std::vector<std::string> out;
@@ -25,8 +29,10 @@ auto names(const std::vector<ScoreHarmony::Label> &labels) -> std::vector<std::s
     return out;
 }
 
-auto labelsOf(std::vector<ScoreLayout::Note> notes, const Key &key = kC) -> std::vector<std::string> {
-    return names(ScoreHarmony::labels(ScoreHarmony::chords(ScoreLayout::prepare(std::move(notes)), key)));
+auto labelsOf(std::vector<ScoreLayout::Note> notes, const Key &key = kC,
+              const std::optional<Key> &runnerUp = std::nullopt) -> std::vector<std::string> {
+    return names(ScoreHarmony::labels(
+        ScoreHarmony::chords(ScoreLayout::prepare(std::move(notes)), key, ChordNaming::nameFor, runnerUp)));
 }
 
 /** Notes of a scale, `stepCs` apart, each `durCs` long. */
@@ -227,6 +233,57 @@ TEST(ScoreHarmony, rootsAndLineNotesAreSpelledInTheKey) {
     const auto v = ScoreHarmony::chords(ScoreLayout::prepare({{0, 50, 51}, {0, 50, 55}, {0, 50, 58}}), kGSharpMinor);
     EXPECT_EQ(v[0].text, "D#");
     EXPECT_EQ(Spelling::nameOf(ScoreHarmony::spellLine({{0, 50, 55}}, v, kGSharpMinor)[0]), "Fx");
+}
+
+// ---- Chords of the key (Joel, 2026-11-25)
+
+TEST(ScoreHarmony, twoNotesTakeTheKeysTriadWhoseRootIsTheBass) {
+    // A# and C# in B minor: A#dim over an A# bass, else F# (the V)
+    EXPECT_EQ(labelsOf({{0, 50, 58}, {0, 50, 61}}, kBMinor), (std::vector<std::string>{"A#dim"}));
+    EXPECT_EQ(labelsOf({{0, 50, 61}, {0, 50, 70}}, kBMinor), (std::vector<std::string>{"F#"}));
+    // E and G in C major: Em over E, else C (the I)
+    EXPECT_EQ(labelsOf({{0, 50, 52}, {0, 50, 55}}, kC), (std::vector<std::string>{"Em"}));
+    EXPECT_EQ(labelsOf({{0, 50, 55}, {0, 50, 64}}, kC), (std::vector<std::string>{"C"}));
+}
+
+TEST(ScoreHarmony, seventhsOnlyWhenNoTriadHoldsTheNotes) {
+    // A# C# E G in B minor: A#dim7 (shown as A#dim); F# A# C# E: F#7 (shown as F#)
+    const auto dim7 = ScoreHarmony::chords(ScoreLayout::prepare({{0, 50, 58}, {0, 50, 61}, {0, 50, 64}, {0, 50, 67}}), kBMinor);
+    ASSERT_EQ(dim7.size(), 1u);
+    EXPECT_EQ(dim7[0].text, "A#dim");
+    EXPECT_EQ(dim7[0].fullQuality, "dim7");
+    const auto v7 = ScoreHarmony::chords(ScoreLayout::prepare({{0, 50, 54}, {0, 50, 58}, {0, 50, 61}, {0, 50, 64}}), kBMinor);
+    EXPECT_EQ(v7[0].text, "F#");
+    EXPECT_EQ(v7[0].fullQuality, "7");
+    // C+ in A minor (III+)
+    EXPECT_EQ(labelsOf({{0, 50, 48}, {0, 50, 52}, {0, 50, 56}}, kAMinor), (std::vector<std::string>{"Caug"}));
+}
+
+TEST(ScoreHarmony, theRunnerUpKeysChordsCountToo) {
+    // F# and A in C major: the usual name is F#m; with G major as the runner-up, F#dim (its vii°)
+    EXPECT_EQ(labelsOf({{0, 50, 54}, {0, 50, 57}}, kC), (std::vector<std::string>{"F#m"}));
+    EXPECT_EQ(labelsOf({{0, 50, 54}, {0, 50, 57}}, kC, kG), (std::vector<std::string>{"F#dim"}));
+}
+
+TEST(ScoreHarmony, outsideTheKeyTheUsualNameSpelledNearTheKey) {
+    EXPECT_EQ(labelsOf({{0, 50, 50}, {0, 50, 54}, {0, 50, 57}}, kC), (std::vector<std::string>{"D"}));
+    EXPECT_EQ(labelsOf({{0, 50, 49}, {0, 50, 53}, {0, 50, 56}}, kC), (std::vector<std::string>{"Db"})) << "not C#";
+}
+
+TEST(ScoreHarmony, notesOfThePreviousChordKeepItsLabel) {
+    // C, then E + G: still C (E over the bass would otherwise be Em)
+    EXPECT_EQ(labelsOf({{0, 40, 48}, {0, 40, 52}, {0, 40, 55}, {50, 40, 52}, {50, 40, 55}}),
+              (std::vector<std::string>{"C"}));
+    // G7, then B D F: still G
+    EXPECT_EQ(labelsOf({{0, 40, 43}, {0, 40, 47}, {0, 40, 50}, {0, 40, 53}, {50, 40, 59}, {50, 40, 62}, {50, 40, 65}}),
+              (std::vector<std::string>{"G"}));
+    // C, then A C E: a new label (A is not in C)
+    EXPECT_EQ(labelsOf({{0, 40, 48}, {0, 40, 52}, {0, 40, 55}, {50, 40, 45}, {50, 40, 48}, {50, 40, 52}}),
+              (std::vector<std::string>{"C", "Am"}));
+    // after an N/C the next chord is named afresh
+    EXPECT_EQ(labelsOf({{0, 40, 48}, {0, 40, 52}, {0, 40, 55}, {50, 20, 72}, {75, 20, 74}, {100, 20, 76},
+                        {130, 40, 52}, {130, 40, 55}}),
+              (std::vector<std::string>{"C", "N/C", "Em"}));
 }
 
 } // namespace virtual_orch_test

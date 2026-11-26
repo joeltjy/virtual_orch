@@ -238,6 +238,12 @@ struct Token {
      * orchestration changed onset (chord snapping), pitch (octave delta) or velocity. -1 = none.
      */
     int32_t keyId = -1;
+    /**
+     * Hybrid v1.4: this note is a GROUP of notes on one onset (GroupChord.h): its pitch is the group's bass and
+     * this the SHAPE x N offset (0..327), not yet decoded into notes; the OT and reduction playback expand it
+     * (GroupChord::expand). -1 = a plain note.
+     */
+    int32_t chordShape = -1;
 
     auto getRealDuration() const -> int32_t {
         return duration - Vocab::DurOffset;

@@ -1,4 +1,5 @@
 #include "VirtualOrch/OrchestrationTransformer.h"
+#include "VirtualOrch/reduction/GroupChord.h"
 #include "VirtualOrch/TemporalDensity.h"
 #include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/AppTime.h"
@@ -626,6 +627,8 @@ auto OrchestrationTransformer::stepOnce() -> void {
         midiUpdate = drainIncoming(midiInputIncoming);
         conditioningUpdate = drainIncoming(conditioningIncoming);
         reductionUpdate = drainIncoming(reductionIncoming);
+        // Hybrid v1.4: a chord token (a group not decoded in the RT) becomes its notes here (GroupChord::expand)
+        reductionUpdate = GroupChord::expandAll(reductionUpdate);
     }
     applyVoiceRestamps(reductionUpdate);
     const bool logging = OpLog::on();

@@ -55,6 +55,10 @@ auto ActiveModelWidget::View::paint(juce::Graphics &g) -> void {
         paintHybrid(g, area, session.reductionTransformerHybridChord, "m2  chord-token WAIT");
         return;
     }
+    if (session.musicModelArch == MusicModelArch::DenseHybridGroup) {
+        paintHybrid(g, area, session.reductionTransformerHybridGroup, "m2  group-token WAIT (v1.4)");
+        return;
+    }
     if (session.musicModelArch != MusicModelArch::DenseHybrid) {
         g.setColour(text);
         g.setFont(juce::Font(18.0f, juce::Font::bold));

@@ -29,6 +29,7 @@
 #include "VirtualOrch/reduction/HybridInformativeWaitReductionTransformer.h"
 #include "VirtualOrch/reduction/HybridEventReductionTransformer.h"
 #include "VirtualOrch/reduction/HybridChordTokenReductionTransformer.h"
+#include "VirtualOrch/reduction/HybridGroupReductionTransformer.h"
 #include "VirtualOrch/orchestration-models/OrchestrationModel.h"
 #include "VirtualOrch/TestOrchestrationTransformerThread.h"
 #include "VirtualOrch/ui/ModelConfigurationComponent.h"
@@ -80,6 +81,7 @@ public:
     HybridInformativeWaitReductionTransformer reductionTransformerHybridIW;
     HybridEventReductionTransformer reductionTransformerHybridEvent; // Hybrid v1.3 (event models)
     HybridChordTokenReductionTransformer reductionTransformerHybridChord; // Hybrid v1.2 (chord-token model 2)
+    HybridGroupReductionTransformer reductionTransformerHybridGroup; // Hybrid v1.4 (group-token models m1_v4 / m2_v4)
     MelodyFirstReductionTransformer reductionTransformerMelodyFirst;
     OrchestrationTransformer orchestrationTransformer;
     VoiceSeparation voiceSeparation;

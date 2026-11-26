@@ -1,4 +1,5 @@
 #include "VirtualOrch/OutputPlayback.h"
+#include "VirtualOrch/reduction/GroupChord.h"
 #include "VirtualOrch/AppTime.h"
 #include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/PerformanceActivity.h"
@@ -414,7 +415,8 @@ auto OutputPlayback::stepOnce() -> void {
             if (pedalDrop.drops(rtToken.time, time))
                 continue;
 
-            scheduleNote(reductionMonitorNote(rtToken));
+            for (const auto &note: GroupChord::expand(rtToken)) // Hybrid v1.4: a chord token plays as its notes
+                scheduleNote(reductionMonitorNote(note));
         }
     }
 

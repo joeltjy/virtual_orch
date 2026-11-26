@@ -60,6 +60,7 @@ auto GenerationWidget::resized() -> void {
     area.removeFromTop(UiConstants::workspaceGenerationControlGap);
     timeLabel.setBounds(area.removeFromTop(
         juce::roundToInt(static_cast<float>(UiConstants::workspaceGenerationClockHeight) * getTextScale())));
+    playLateNotes.setBounds(area.removeFromTop(UiConstants::workspaceGenerationButtonHeight));
 }
 
 auto GenerationWidget::textScaleChanged() -> void {

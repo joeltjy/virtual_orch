@@ -264,6 +264,8 @@ private:
 
     OrchestraTdMeter tdMeter;
     TremoloBiasController tremoloBias;
+    /** Notes delivered since the last tremolo tick (OT thread): the bonus grows only after notes were drawn. */
+    std::atomic<int> notesSinceTremoloTick{0}; // deliverOutputNote may also run on a replay thread
     double lastTremoloTickMs = -1.0;
     std::atomic<float> tremoloBiasValue{0.0f};
     /** Every TremoloBiasController::kTickMs: the bonus from the TD target and tdMeter, handed to the model. */

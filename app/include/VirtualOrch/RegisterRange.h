@@ -9,10 +9,12 @@
 
 /**
  * Register control (Launchpad row 6): limits the pitch of every generated reduction note.
- * AUTO (the default) restricts nothing. Pitches are MIDI numbers with C4 = 60, so
- *   LOW    A0 to E3   21..52
+ * Every register, AUTO (the default) included, stays within 2.5 octaves of C4 (F#1 to F#6, 30..90; Nov 25 2026:
+ * the reduction went too high). Pitches are MIDI numbers with C4 = 60, so
+ *   AUTO   F#1 to F#6 30..90
+ *   LOW    F#1 to E3  30..52
  *   MEDIUM G3 to D5   55..74
- *   HIGH   F5 to C8   77..108
+ *   HIGH   F5 to F#6  77..90
  * The ranges do not overlap (a minor third between them), so each sounds clearly apart. Like TemporalDensity, only LaunchpadGrid writes it.
  */
 class RegisterRange {
@@ -23,26 +25,27 @@ public:
     static constexpr int32_t kHigh = 3;
     static constexpr int32_t kPianoLow = 21;   // A0
     static constexpr int32_t kPianoHigh = 108; // C8
+    /** The reduction's limits in every register: C4 -/+ 2.5 octaves. */
+    static constexpr int32_t kRtLow = 30;  // F#1
+    static constexpr int32_t kRtHigh = 90; // F#6
 
     [[nodiscard]] static auto get() -> int32_t { return value.load(std::memory_order_relaxed); }
     [[nodiscard]] static auto isAuto() -> bool { return get() == kAuto; }
     [[nodiscard]] static auto isValid(int32_t v) -> bool { return v >= kAuto && v <= kHigh; }
 
-    /** Lowest / highest allowed pitch (inclusive) of a register value; AUTO = the piano range. */
+    /** Lowest / highest allowed pitch (inclusive) of a register value; AUTO = kRtLow..kRtHigh. */
     [[nodiscard]] static auto lowPitch(int32_t v) -> int32_t {
         switch (v) {
-            case kLow: return kPianoLow;
             case kMedium: return 55; // G3
             case kHigh: return 77;   // F5
-            default: return kPianoLow;
+            default: return kRtLow;  // AUTO, LOW
         }
     }
     [[nodiscard]] static auto highPitch(int32_t v) -> int32_t {
         switch (v) {
             case kLow: return 52;    // E3
             case kMedium: return 74; // D5
-            case kHigh: return kPianoHigh;
-            default: return kPianoHigh;
+            default: return kRtHigh; // AUTO, HIGH
         }
     }
     [[nodiscard]] static auto lowPitch() -> int32_t { return lowPitch(get()); }
@@ -50,14 +53,12 @@ public:
 
     /**
      * Mask the note ids of a logit block (`instruments` bands of `pitchesPerInstrument` ids from
-     * `noteOffset`) whose pitch lies outside the current register. Does nothing in AUTO, and does
-     * nothing when it would leave no finite logit in the block (the register then conflicts with
+     * `noteOffset`) whose pitch lies outside the current register (in AUTO: outside kRtLow..kRtHigh).
+     * Does nothing when it would leave no finite logit in the block (the register then conflicts with
      * what the model may play, and generating at all is better than not).
      */
     static auto maskNoteBlock(std::vector<float> &logits, size_t noteOffset, int32_t instruments,
                               int32_t pitchesPerInstrument = 128) -> void {
-        if (isAuto())
-            return;
         const int32_t low = lowPitch();
         const int32_t high = highPitch();
         const auto id = [&](int32_t instr, int32_t pitch) {

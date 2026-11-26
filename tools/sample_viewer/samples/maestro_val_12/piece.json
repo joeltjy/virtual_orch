@@ -1,0 +1,11 @@
+{
+ "sample": "maestro_val_12",
+ "midi_filename": "2011/MIDI-Unprocessed_12_R3_2011_MID--AUDIO_R3-D4_02_Track02_wav.midi",
+ "composer": "Fr\u00e9d\u00e9ric Chopin",
+ "title": "Mazurka Op. 6 No. 2 in C-sharp Minor",
+ "clip_start_s": 34.927,
+ "total_s": 15.0,
+ "source": "maestro_validation",
+ "seed": 20261126,
+ "n_notes": 103
+}

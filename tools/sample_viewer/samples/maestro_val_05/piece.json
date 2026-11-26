@@ -1,0 +1,11 @@
+{
+ "sample": "maestro_val_05",
+ "midi_filename": "2015/MIDI-Unprocessed_R1_D1-1-8_mid--AUDIO-from_mp3_01_R1_2015_wav--2.midi",
+ "composer": "Fr\u00e9d\u00e9ric Chopin",
+ "title": "Nocturne Op. 48 No. 1 in C Minor",
+ "clip_start_s": 227.347,
+ "total_s": 15.0,
+ "source": "maestro_validation",
+ "seed": 20261126,
+ "n_notes": 304
+}

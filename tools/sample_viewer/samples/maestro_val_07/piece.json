@@ -1,0 +1,11 @@
+{
+ "sample": "maestro_val_07",
+ "midi_filename": "2015/MIDI-Unprocessed_R1_D1-9-12_mid--AUDIO-from_mp3_09_R1_2015_wav--4.midi",
+ "composer": "Fr\u00e9d\u00e9ric Chopin",
+ "title": "Berceuse, Op. 57",
+ "clip_start_s": 164.288,
+ "total_s": 15.0,
+ "source": "maestro_validation",
+ "seed": 20261126,
+ "n_notes": 83
+}

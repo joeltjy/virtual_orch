@@ -1,0 +1,11 @@
+{
+ "sample": "maestro_val_16",
+ "midi_filename": "2009/MIDI-Unprocessed_07_R1_2009_04-05_ORIG_MID--AUDIO_07_R1_2009_07_R1_2009_04_WAV.midi",
+ "composer": "Alexander Scriabin",
+ "title": "5 Preludes, Op.15",
+ "clip_start_s": 203.028,
+ "total_s": 15.0,
+ "source": "maestro_validation",
+ "seed": 20261126,
+ "n_notes": 173
+}

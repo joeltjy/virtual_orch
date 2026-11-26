@@ -1,0 +1,11 @@
+{
+ "sample": "maestro_val_06",
+ "midi_filename": "2008/MIDI-Unprocessed_07_R2_2008_01-05_ORIG_MID--AUDIO_07_R2_2008_wav--3.midi",
+ "composer": "Fr\u00e9d\u00e9ric Chopin",
+ "title": "Mazurka in D Major, Op. 33, No. 2",
+ "clip_start_s": 23.253,
+ "total_s": 15.0,
+ "source": "maestro_validation",
+ "seed": 20261126,
+ "n_notes": 231
+}

@@ -1,0 +1,11 @@
+{
+ "sample": "maestro_val_14",
+ "midi_filename": "2009/MIDI-Unprocessed_02_R1_2009_03-06_ORIG_MID--AUDIO_02_R1_2009_02_R1_2009_05_WAV.midi",
+ "composer": "Alexander Scriabin",
+ "title": "Etude Op. 8, No. 13",
+ "clip_start_s": 9.184,
+ "total_s": 15.0,
+ "source": "maestro_validation",
+ "seed": 20261126,
+ "n_notes": 218
+}

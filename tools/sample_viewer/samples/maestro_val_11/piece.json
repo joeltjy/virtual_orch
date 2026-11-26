@@ -1,0 +1,11 @@
+{
+ "sample": "maestro_val_11",
+ "midi_filename": "2008/MIDI-Unprocessed_05_R1_2008_01-04_ORIG_MID--AUDIO_05_R1_2008_wav--1.midi",
+ "composer": "Johann Sebastian Bach",
+ "title": "Prelude and Fugue in F-sharp Minor, WTC II",
+ "clip_start_s": 390.679,
+ "total_s": 15.0,
+ "source": "maestro_validation",
+ "seed": 20261126,
+ "n_notes": 109
+}

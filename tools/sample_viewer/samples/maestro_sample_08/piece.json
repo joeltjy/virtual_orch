@@ -1,0 +1,11 @@
+{
+  "sample": "sample_08",
+  "maestro_index": 637,
+  "midi_filename": "2008/MIDI-Unprocessed_12_R1_2008_01-04_ORIG_MID--AUDIO_12_R1_2008_wav--4.midi",
+  "clip_start_s": 536.1420804033918,
+  "prompt_s": 5.0,
+  "total_s": 15.0,
+  "source": "maestro_test",
+  "seed": 20260907,
+  "n_notes": 94
+}

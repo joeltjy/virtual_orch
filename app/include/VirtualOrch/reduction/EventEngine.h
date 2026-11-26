@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "VirtualOrch/OpLogDraw.h"
 #include "VirtualOrch/reduction/DensePitchBias.h"
 #include "VirtualOrch/reduction/StreamingKvCache.h"
 #include "VirtualOrch/reduction/VoicingBank.h"
@@ -135,6 +136,8 @@ public:
         int32_t velocity = 64;
         bool forcedRelease = false; // released by the engine (maxHoldCs), not by the model
         bool chord = false;         // a chord block's band note (or its release), or the block's leftover
+        /** The draws that made this note (onset, event, vel), while OpLog::on(): the operation log's RT_DRAW. */
+        std::vector<OpLogDraw::Draw> draws;
     };
 
     struct Stats {
@@ -186,6 +189,8 @@ public:
     [[nodiscard]] auto tokens() const -> std::vector<int32_t>;
     [[nodiscard]] auto events() const -> const std::vector<Event> & { return items; }
     [[nodiscard]] auto stats() const -> const Stats & { return st; }
+    /** The time the onset tokens count from (cs). */
+    [[nodiscard]] auto base() const -> int32_t { return baseCs; }
     [[nodiscard]] auto hasPending() const -> bool { return pending.has_value(); }
     [[nodiscard]] auto hasPendingWait() const -> bool { return wait.has_value(); }
     /** Orchestra notes sounding now (ON without OFF), as (onset, pitch). */
@@ -200,6 +205,7 @@ private:
         int32_t pitch = 60;
         int32_t velocity = 64;
         std::vector<int32_t> toks; // the drawn tokens (time, note / OFF [, vel])
+        std::vector<OpLogDraw::Draw> draws;
     };
 
     [[nodiscard]] auto timeToken(int32_t timeCs) const -> int32_t { return timeCs - baseCs; }
@@ -209,8 +215,14 @@ private:
     auto lastTime() const -> int32_t { return items.empty() ? baseCs : items.back().timeCs; }
     auto maybeRebuild(int32_t floorCs) -> void;
     auto logitsFor(const std::vector<int32_t> &desired) -> const std::vector<float> *;
-    auto pick(const std::vector<float> &logits, const std::vector<std::pair<int32_t, int32_t>> &ranges, float temperature)
-        -> int32_t;
+    /**
+     * Sample a token from `ranges` of `logits` (min-p, temperature). With `field` set and OpLog::on(), the draw is
+     * recorded in drawLog (p = the distribution drawn from, p_model = softmax of `raw` (default: `logits`) at
+     * temperature 1, the 10 most probable tokens by p).
+     */
+    auto pick(const std::vector<float> &logits, const std::vector<std::pair<int32_t, int32_t>> &ranges, float temperature,
+              const char *field = nullptr, const std::vector<float> *raw = nullptr) -> int32_t;
+    std::vector<OpLogDraw::Draw> drawLog; // draws of the event being drawn (draw())
     auto draw(int32_t nowCs) -> void;
     auto commitPending() -> std::vector<Out>;
     auto releaseLongHolds(int32_t nowCs) -> std::vector<Out>;

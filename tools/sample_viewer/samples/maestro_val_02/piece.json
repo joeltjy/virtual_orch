@@ -1,0 +1,11 @@
+{
+ "sample": "maestro_val_02",
+ "midi_filename": "2018/MIDI-Unprocessed_Recital5-7_MID--AUDIO_05_R1_2018_wav--3.midi",
+ "composer": "Sergei Rachmaninoff",
+ "title": "Etudes-Tableaux Op. 33",
+ "clip_start_s": 1297.402,
+ "total_s": 15.0,
+ "source": "maestro_validation",
+ "seed": 20261126,
+ "n_notes": 205
+}

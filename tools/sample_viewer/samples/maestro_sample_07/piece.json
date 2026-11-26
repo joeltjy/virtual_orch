@@ -1,0 +1,11 @@
+{
+  "sample": "sample_07",
+  "maestro_index": 126,
+  "midi_filename": "2017/MIDI-Unprocessed_059_PIANO059_MID--AUDIO-split_07-07-17_Piano-e_2-03_wav--4.midi",
+  "clip_start_s": 287.1323619458429,
+  "prompt_s": 5.0,
+  "total_s": 15.0,
+  "source": "maestro_test",
+  "seed": 20260907,
+  "n_notes": 135
+}

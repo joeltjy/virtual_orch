@@ -1,0 +1,11 @@
+{
+  "sample": "sample_00",
+  "maestro_index": 50,
+  "midi_filename": "2009/MIDI-Unprocessed_11_R1_2009_01-05_ORIG_MID--AUDIO_11_R1_2009_11_R1_2009_04_WAV.midi",
+  "clip_start_s": 6.242356999169357,
+  "prompt_s": 5.0,
+  "total_s": 15.0,
+  "source": "maestro_test",
+  "seed": 20260907,
+  "n_notes": 340
+}

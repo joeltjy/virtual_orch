@@ -1,4 +1,5 @@
 #include "VirtualOrch/reduction/HybridEventReductionTransformer.h"
+#include "VirtualOrch/OpLog.h"
 
 #include "VirtualOrch/PolyphonyCap.h"
 #include "VirtualOrch/RegisterRange.h"
@@ -190,7 +191,19 @@ auto HybridEventReductionTransformer::generate(int32_t now) -> bool {
             other.mirrorOn(o.timeCs, o.pitch, o.velocity);
         else
             other.mirrorOff(o.timeCs, o.pitch);
-        emitOrchestra(o, silent ? 0 : kSimultaneousVelocityBoost, nextNoteId.fetch_add(1, std::memory_order_relaxed));
+        const int32_t noteId = nextNoteId.fetch_add(1, std::memory_order_relaxed);
+        if (o.on && OpLog::on()) {
+            // As v1.2's RT_DRAW (tokens in the event model's vocab; the onset token is relative to base)
+            std::string fields = "[";
+            for (size_t i = 0; i < o.draws.size(); ++i)
+                fields += (i ? "," : "") + o.draws[i].json();
+            fields += "]";
+            OpLog::emit(OpLog::Src::Rt, "RT_DRAW",
+                        {{"model", silent ? "m1e" : "m2e"}, {"r", OpLog::id('r', noteId)}, {"now", now},
+                         {"base", active.base()}, {"source", o.draws.empty() ? "unlogged" : o.chord ? "chord" : "sampled"},
+                         {"onset", o.timeCs}, {"fields", OpLog::Raw{fields}}});
+        }
+        emitOrchestra(o, silent ? 0 : kSimultaneousVelocityBoost, noteId);
     }
     if (! active.lastError.empty()) {
         reportSamplingError(juce::String(label()) + ": " + juce::String(active.lastError));

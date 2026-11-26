@@ -1,0 +1,11 @@
+{
+ "sample": "maestro_val_03",
+ "midi_filename": "2013/ORIG-MIDI_02_7_6_13_Group__MID--AUDIO_06_R1_2013_wav--2.midi",
+ "composer": "Johann Sebastian Bach",
+ "title": "Prelude and Fugue in F-sharp Minor, WTC II, BWV 883",
+ "clip_start_s": 10.143,
+ "total_s": 15.0,
+ "source": "maestro_validation",
+ "seed": 20261126,
+ "n_notes": 65
+}

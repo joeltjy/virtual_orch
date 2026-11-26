@@ -1,0 +1,11 @@
+{
+  "sample": "sample_09",
+  "maestro_index": 672,
+  "midi_filename": "2018/MIDI-Unprocessed_Recital5-7_MID--AUDIO_06_R1_2018_wav--3.midi",
+  "clip_start_s": 873.3009214427958,
+  "prompt_s": 5.0,
+  "total_s": 15.0,
+  "source": "maestro_test",
+  "seed": 20260907,
+  "n_notes": 58
+}

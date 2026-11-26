@@ -1,0 +1,11 @@
+{
+ "sample": "maestro_val_10",
+ "midi_filename": "2018/MIDI-Unprocessed_Recital4_MID--AUDIO_04_R1_2018_wav--4.midi",
+ "composer": "Robert Schumann",
+ "title": "Sonata No. 2 in G Minor, Op. 22",
+ "clip_start_s": 68.303,
+ "total_s": 15.0,
+ "source": "maestro_validation",
+ "seed": 20261126,
+ "n_notes": 218
+}

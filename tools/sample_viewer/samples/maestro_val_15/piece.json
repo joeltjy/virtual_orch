@@ -1,0 +1,11 @@
+{
+ "sample": "maestro_val_15",
+ "midi_filename": "2017/MIDI-Unprocessed_083_PIANO083_MID--AUDIO-split_07-09-17_Piano-e_2_-06_wav--5.midi",
+ "composer": "Fr\u00e9d\u00e9ric Chopin",
+ "title": "Berceuse Op. 57 in D-flat Major",
+ "clip_start_s": 90.768,
+ "total_s": 15.0,
+ "source": "maestro_validation",
+ "seed": 20261126,
+ "n_notes": 132
+}

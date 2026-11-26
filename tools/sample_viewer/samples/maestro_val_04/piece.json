@@ -1,0 +1,11 @@
+{
+ "sample": "maestro_val_04",
+ "midi_filename": "2009/MIDI-Unprocessed_12_R1_2009_03-05_ORIG_MID--AUDIO_12_R1_2009_12_R1_2009_05_WAV.midi",
+ "composer": "Franz Liszt",
+ "title": "Hungarian Rhapsody",
+ "clip_start_s": 40.46,
+ "total_s": 15.0,
+ "source": "maestro_validation",
+ "seed": 20261126,
+ "n_notes": 67
+}

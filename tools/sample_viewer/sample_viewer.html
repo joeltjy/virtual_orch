@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sample Viewer</title>
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --ink: #1d1d1b; --ink2: #55554f; --muted: #8a8a82; --line: #e2e1dc;
+  --accent: #2f6fde; --accent-ink: #ffffff; --grid: #efeee9; --grid2: #e0dfd8; --sel: #e8a400; --link: #d9480f;
+  --piano: #6b6b66; --rt: #7048e8; --strings: #2f9e44; --wood: #1c7ed6; --brass: #e8590c; --perc: #ae3ec9; --other: #0c8599;
+  --bar: #2f6fde; --bar2: #adb5bd; --warn: #c92a2a; --prompt: rgba(47,111,222,0.06);
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #151514; --panel: #1f1f1d; --ink: #ecebe6; --ink2: #b9b8b1; --muted: #85847d; --line: #34332f;
+  --accent: #5b8def; --accent-ink: #0d0d0c; --grid: #232321; --grid2: #2e2d2a; --sel: #ffd43b; --link: #ff8c42;
+  --piano: #a6a69f; --rt: #9775fa; --strings: #51cf66; --wood: #4dabf7; --brass: #ff922b; --perc: #da77f2; --other: #3bc9db;
+  --bar: #5b8def; --bar2: #5c5f66; --warn: #ff6b6b; --prompt: rgba(91,141,239,0.08);
+} }
+:root[data-theme="dark"] {
+  --bg: #151514; --panel: #1f1f1d; --ink: #ecebe6; --ink2: #b9b8b1; --muted: #85847d; --line: #34332f;
+  --accent: #5b8def; --accent-ink: #0d0d0c; --grid: #232321; --grid2: #2e2d2a; --sel: #ffd43b; --link: #ff8c42;
+  --piano: #a6a69f; --rt: #9775fa; --strings: #51cf66; --wood: #4dabf7; --brass: #ff922b; --perc: #da77f2; --other: #3bc9db;
+  --bar: #5b8def; --bar2: #5c5f66; --warn: #ff6b6b; --prompt: rgba(91,141,239,0.08);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+header h1 { font-size: 15px; margin: 0 8px 0 0; }
+label { color: var(--ink2); white-space: nowrap; }
+select, input[type=text], input[type=number] { background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 5px; padding: 3px 6px; font: inherit; }
+input[type=number] { width: 64px; }
+button { background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 5px; padding: 4px 10px; font: inherit; cursor: pointer; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button:disabled { opacity: .5; cursor: default; }
+main { display: grid; grid-template-columns: 300px 1fr; gap: 0; min-height: calc(100vh - 50px); }
+aside { border-right: 1px solid var(--line); background: var(--panel); padding: 10px 12px; overflow: auto; max-height: calc(100vh - 50px); position: sticky; top: 50px; }
+aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 14px 0 6px; }
+aside h2:first-child { margin-top: 2px; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 0; }
+.row input[type=number] { width: 72px; }
+.note { color: var(--muted); font-size: 12px; }
+#status { color: var(--ink2); font-size: 12px; max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#status.err { color: var(--warn); }
+.content { min-width: 0; display: flex; flex-direction: column; }
+.transport { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 50px; z-index: 4; }
+#time { font-variant-numeric: tabular-nums; min-width: 90px; }
+#runInfo { color: var(--muted); font-size: 12px; }
+#lanesWrap { overflow-x: auto; overflow-y: hidden; position: relative; }
+#lanes { position: relative; }
+.lane { display: flex; border-bottom: 1px solid var(--line); }
+.laneLabel { position: sticky; left: 0; z-index: 2; width: 150px; flex: 0 0 150px; background: var(--panel); border-right: 1px solid var(--line); padding: 4px 8px; font-size: 12px; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+.laneLabel b { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; flex: 0 0 auto; }
+.laneLabel span { color: var(--muted); }
+.lane canvas { display: block; cursor: pointer; }
+#ruler { display: flex; border-bottom: 1px solid var(--line); position: sticky; top: 0; }
+#ruler .laneLabel { font-size: 11px; color: var(--muted); }
+#playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--link); pointer-events: none; z-index: 3; }
+#detail { border-top: 1px solid var(--line); background: var(--panel); padding: 10px 16px 24px; }
+#detail h3 { margin: 0 0 6px; font-size: 14px; }
+.draws { display: flex; flex-wrap: wrap; gap: 14px; }
+.draw { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-width: 270px; flex: 1 1 270px; max-width: 420px; }
+.draw .head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.draw .head b { text-transform: capitalize; }
+table.top { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+table.top td, table.top th { padding: 1px 4px; text-align: left; white-space: nowrap; }
+table.top th { color: var(--muted); font-weight: 500; }
+table.top tr.chosen td { font-weight: 700; color: var(--ink); }
+table.top tr.chosen td:first-child::before { content: "▶ "; color: var(--sel); }
+.pbar { display: inline-block; height: 8px; border-radius: 0 2px 2px 0; background: var(--bar); vertical-align: middle; }
+.pbar.m { background: var(--bar2); }
+.empty { color: var(--muted); padding: 30px 16px; }
+#tip { position: fixed; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 3px 7px; font-size: 12px; display: none; z-index: 10; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+details summary { cursor: pointer; color: var(--ink2); }
+pre { white-space: pre-wrap; font-size: 11px; color: var(--ink2); max-height: 160px; overflow: auto; background: var(--bg); padding: 6px; border-radius: 4px; }
+@media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { position: static; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); } .laneLabel { width: 100px; flex-basis: 100px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sample Viewer</h1>
+  <label>Server <input type="text" id="server" size="22"></label>
+  <label>Sample <select id="sample"></select></label>
+  <label>Model <select id="system"></select></label>
+  <label>Mode <select id="mode"><option value="simultaneous">simultaneous (on top of the piano)</option><option value="continuation">continuation (15 s after a prompt)</option></select></label>
+  <button class="primary" id="generate">Generate</button>
+  <span id="status">connecting…</span>
+</header>
+<main>
+<aside id="settings">
+  <h2>Run</h2>
+  <div class="row"><label>Prompt (continuation), s</label><input type="number" id="promptS" value="5" step="0.5" min="0.5"></div>
+  <div class="row"><label>Continuation length, s</label><input type="number" id="seconds" value="15" step="1" min="1"></div>
+  <div class="row"><label>Tail after the input, s</label><input type="number" id="tailS" value="3" step="1" min="0"></div>
+  <h2>Logit adjustments <button id="resetPreset" style="float:right;font-size:11px;padding:1px 6px">reset to preset</button></h2>
+  <div id="logitBox"></div>
+  <h2>Other settings</h2>
+  <div class="row"><label>TD</label><select id="td"><option>auto</option><option>1</option><option>2</option><option selected>4</option><option>8</option><option>16</option><option>32</option><option>64</option></select></div>
+  <div class="row"><label>Model 2 start delay, ms</label><input type="number" id="startDelayMs" step="500" min="0"></div>
+  <div class="row"><label>Orchestration mode</label><select id="orchMode"><option value="jam">Jam</option><option value="accompaniment">Accompaniment</option></select></div>
+  <div class="row"><label>OT temperatures</label><span><input type="number" id="temp0" step="0.05" style="width:52px"><input type="number" id="temp1" step="0.05" style="width:52px"><input type="number" id="temp2" step="0.05" style="width:52px"></span></div>
+  <div class="row"><label>OT: outer voices only shift outward</label><input type="checkbox" id="outerVoicesOutward" checked></div>
+  <div class="row"><label>OT: one instrument per octave shift</label><input type="checkbox" id="oneInstrumentPerOctave" checked></div>
+  <div class="row"><label>Send the sample's sustain pedal</label><input type="checkbox" id="sustainPedal"></div>
+  <p class="note">The app reads the piano's pedal as its pause pedal, so it is off by default.</p>
+  <h2>Earlier runs</h2>
+  <select id="history" style="width:100%"><option value="">(this session's runs and the server's)</option></select>
+  <details style="margin-top:10px"><summary>Server log</summary><pre id="log"></pre></details>
+</aside>
+<div class="content">
+  <div class="transport">
+    <button id="play" disabled>▶ Play</button>
+    <span id="time">0.00 s</span>
+    <label>Listen to <select id="listen"><option value="ot">OT (orchestra)</option><option value="rt">RT (reduction)</option></select></label>
+    <label><input type="checkbox" id="listenPiano" checked> piano</label>
+    <label><input type="checkbox" id="sf"> real instrument sounds (loads samples online)</label>
+    <label>Zoom <input type="range" id="zoom" min="30" max="600" value="140"></label>
+    <span id="runInfo"></span>
+  </div>
+  <div id="lanesWrap"><div id="lanes"><div class="empty">Choose a sample and a model, set the settings, and click Generate. A run takes as long as the music: the app plays it in real time.</div></div><div id="playhead" style="display:none"></div></div>
+  <div id="detail"><span class="note">Click a note to see the top 10 tokens of every draw that made it: p is the distribution it was drawn from (after the logit adjustments, top-p and temperature), p_model is the model's own softmax.</span></div>
+</div>
+</main>
+<div id="tip"></div>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const NN = "C C# D Eb E F F# G Ab A Bb B".split(" ");
+const pname = p => NN[p % 12] + (Math.floor(p / 12) - 1);
+const store = { get(k, d) { try { const v = localStorage.getItem("sv_" + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+                set(k, v) { try { localStorage.setItem("sv_" + k, JSON.stringify(v)); } catch (e) {} } };
+let CFG = null, RUN = null, selected = null, pxPerSec = 140, laneEls = [];
+const runs = {}; // id -> result (this page's cache)
+
+// ------------------------------------------------------------------ server
+const defaultServer = location.protocol.startsWith("http") ? location.origin : "http://localhost:8810";
+$("server").value = store.get("server", defaultServer);
+const api = (path, opts) => fetch($("server").value.replace(/\/$/, "") + path, opts).then(r => r.json().then(j => { if (!r.ok) throw new Error(j.error || r.status); return j; }));
+function status(msg, err) { const s = $("status"); s.textContent = msg; s.className = err ? "err" : ""; s.title = msg; }
+
+async function connect() {
+  store.set("server", $("server").value);
+  try {
+    CFG = await api("/api/config");
+  } catch (e) { status("cannot reach the server at " + $("server").value + " (start tools/sample_viewer/server.py there)", true); return; }
+  $("sample").innerHTML = CFG.samples.map(s => `<option value="${s.id}">${s.label} · ${s.notes} notes, ${s.seconds} s</option>`).join("");
+  $("system").innerHTML = CFG.systems.map(s => `<option value="${s.name}" title="${s.what}">${s.name}: ${s.what}</option>`).join("");
+  $("sample").value = store.get("sample", CFG.samples[0] && CFG.samples[0].id);
+  $("system").value = store.get("system", "v1.2");
+  $("mode").value = store.get("mode", "simultaneous");
+  if (!$("system").value && CFG.systems.length) $("system").value = CFG.systems[0].name;
+  loadSettings();
+  status("connected: " + CFG.samples.length + " samples, " + CFG.systems.length + " models");
+  refreshHistory();
+}
+$("server").addEventListener("change", connect);
+
+// ------------------------------------------------------------------ settings
+const MODEL_FLAGS = ["pitchBias", "durationBias", "onsetGapBias", "shortGapPenalty", "logitTd"];
+const MODEL_TAUS = ["pitchTau", "pitchTauPrime", "durationTau", "durationTauPrime", "onsetGapTau"];
+const sys = () => CFG.systems.find(s => s.name === $("system").value) || CFG.systems[0];
+function presetDefaults(s) {
+  const la = s.logitAdjustments || {};
+  return { biasesOn: la.biasesOn !== false, model: Object.assign({}, la.model || {}), hybridV1: Object.assign({}, la.hybridV1 || {}),
+           td: "4", startDelayMs: s.startDelayMs, orchestrationMode: s.orchestrationMode || "jam",
+           temps: (s.outputTemperatures || [0.5, 0.5, 0.5]).slice(), outerVoicesOutward: true, oneInstrumentPerOctave: true, sustainPedal: false };
+}
+function renderLogitBox(v) {
+  const row = (id, label, input) => `<div class="row"><label for="${id}">${label}</label>${input}</div>`;
+  let h = row("biasesOn", "<b>Biases on (global switch)</b>", `<input type="checkbox" id="biasesOn" ${v.biasesOn ? "checked" : ""}>`);
+  h += `<div class="note" style="margin:6px 0 2px">Model 2 (piano playing), v1.3: both models</div>`;
+  for (const f of MODEL_FLAGS) h += row("m_" + f, f, `<input type="checkbox" id="m_${f}" ${v.model[f] ? "checked" : ""}>`);
+  for (const f of MODEL_TAUS) h += row("m_" + f, f, `<input type="number" step="0.05" id="m_${f}" value="${v.model[f] ?? ""}" placeholder="app default">`);
+  h += `<div class="note" style="margin:6px 0 2px">Model 1 (piano silent)</div>`;
+  for (const f of MODEL_FLAGS) h += row("v_" + f, f, `<input type="checkbox" id="v_${f}" ${v.hybridV1[f] ? "checked" : ""}>`);
+  $("logitBox").innerHTML = h;
+}
+function applySettingsToForm(v) {
+  renderLogitBox(v);
+  $("td").value = v.td; $("startDelayMs").value = v.startDelayMs; $("orchMode").value = v.orchestrationMode;
+  [0, 1, 2].forEach(i => $("temp" + i).value = v.temps[i]);
+  $("outerVoicesOutward").checked = v.outerVoicesOutward; $("oneInstrumentPerOctave").checked = v.oneInstrumentPerOctave;
+  $("sustainPedal").checked = v.sustainPedal;
+}
+function formValues() {
+  const v = { biasesOn: $("biasesOn").checked, model: {}, hybridV1: {} };
+  for (const f of MODEL_FLAGS) { v.model[f] = $("m_" + f).checked; v.hybridV1[f] = $("v_" + f).checked; }
+  for (const f of MODEL_TAUS) { const x = $("m_" + f).value; if (x !== "") v.model[f] = parseFloat(x); }
+  v.td = $("td").value; v.startDelayMs = parseInt($("startDelayMs").value || "0"); v.orchestrationMode = $("orchMode").value;
+  v.temps = [0, 1, 2].map(i => parseFloat($("temp" + i).value));
+  v.outerVoicesOutward = $("outerVoicesOutward").checked; v.oneInstrumentPerOctave = $("oneInstrumentPerOctave").checked;
+  v.sustainPedal = $("sustainPedal").checked;
+  return v;
+}
+function loadSettings() { applySettingsToForm(store.get("settings_" + $("system").value, null) || presetDefaults(sys())); }
+function saveSettings() { if (CFG) store.set("settings_" + $("system").value, formValues()); }
+$("settings").addEventListener("change", e => { if (e.target.id !== "history") saveSettings(); });
+$("resetPreset").addEventListener("click", () => { applySettingsToForm(presetDefaults(sys())); saveSettings(); });
+$("system").addEventListener("change", () => { store.set("system", $("system").value); loadSettings(); });
+$("sample").addEventListener("change", () => store.set("sample", $("sample").value));
+$("mode").addEventListener("change", () => store.set("mode", $("mode").value));
+
+// ------------------------------------------------------------------ generate
+$("generate").addEventListener("click", async () => {
+  if (!CFG) return connect();
+  const v = formValues();
+  const settings = { logitAdjustments: { biasesOn: v.biasesOn, model: v.model, hybridV1: v.hybridV1 },
+                     td: v.td === "auto" ? "auto" : parseInt(v.td), startDelayMs: v.startDelayMs, orchestrationMode: v.orchestrationMode,
+                     outputTemperatures: v.temps, outerVoicesOutward: v.outerVoicesOutward, oneInstrumentPerOctave: v.oneInstrumentPerOctave,
+                     sustainPedal: v.sustainPedal };
+  const req = { sample: $("sample").value, system: $("system").value, mode: $("mode").value, settings,
+                prompt_s: parseFloat($("promptS").value), seconds: parseFloat($("seconds").value), tail_s: parseFloat($("tailS").value) };
+  $("generate").disabled = true;
+  try {
+    const { id } = await api("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req) });
+    const t0 = Date.now();
+    for (;;) {
+      await new Promise(r => setTimeout(r, 1000));
+      const j = await api("/api/job?id=" + encodeURIComponent(id) + "&result=1");
+      $("log").textContent = j.log.join("\n");
+      const last = j.log.length ? j.log[j.log.length - 1] : "";
+      status(`${j.state} · ${Math.round((Date.now() - t0) / 1000)} s · ${last}`, j.state === "failed");
+      if (j.state === "done") { runs[id] = j.result; showRun(j.result); refreshHistory(id); status("done: " + id); break; }
+      if (j.state === "failed") break;
+    }
+  } catch (e) { status("generate failed: " + e.message, true); }
+  $("generate").disabled = false;
+});
+async function refreshHistory(selectId) {
+  try {
+    const h = await api("/api/history");
+    $("history").innerHTML = `<option value="">(pick an earlier run)</option>` + h.runs.map(r => `<option value="${r}">${r}</option>`).join("");
+    if (selectId) $("history").value = selectId;
+  } catch (e) {}
+}
+$("history").addEventListener("change", async () => {
+  const id = $("history").value; if (!id) return;
+  try { const r = runs[id] || await api("/api/run?id=" + encodeURIComponent(id)); runs[id] = r; showRun(r); } catch (e) { status(e.message, true); }
+});
+
+// ------------------------------------------------------------------ tracks
+function colorOf(t) {
+  if (t.kind === "piano") return "--piano";
+  if (t.kind === "rt") return "--rt";
+  const i = t.instrument;
+  if (i <= 6) return "--strings"; if (i <= 10 || i === 19) return "--wood"; if (i <= 14) return "--brass"; if (i === 16 || i === 17) return "--perc";
+  return "--other";
+}
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function showRun(r) {
+  stop();
+  RUN = r; selected = null;
+  const req = r.request || {};
+  $("runInfo").textContent = `${req.system || ""} · ${req.mode || ""} · ${req.sample || ""} · ` +
+    r.tracks.map(t => t.notes.length).reduce((a, b) => a + b, 0) + " notes · " + Object.keys(r.rt_draws).length + " RT draws";
+  $("play").disabled = false;
+  $("detail").innerHTML = `<span class="note">Click a note to see the top 10 tokens of every draw that made it.</span>`;
+  layout();
+}
+function layout() {
+  if (!RUN) return;
+  const lanes = $("lanes"); lanes.innerHTML = ""; laneEls = [];
+  const W = Math.ceil((RUN.duration + 1) * pxPerSec);
+  const ruler = document.createElement("div"); ruler.id = "ruler";
+  ruler.innerHTML = `<div class="laneLabel">time (s)</div>`;
+  const rc = document.createElement("canvas"); ruler.appendChild(rc); lanes.appendChild(ruler);
+  sizeCanvas(rc, W, 20); drawRuler(rc, W);
+  for (const t of RUN.tracks) {
+    if (!t.notes.length && t.kind === "ot") continue;
+    const lane = document.createElement("div"); lane.className = "lane";
+    const lo = Math.min(...t.notes.map(n => n.pitch), 60) - 2, hi = Math.max(...t.notes.map(n => n.pitch), 60) + 2;
+    const H = Math.max(56, Math.min(240, (hi - lo + 1) * 4));
+    lane.innerHTML = `<div class="laneLabel"><b><span class="swatch" style="background:var(${colorOf(t)})"></span>${t.name}</b><span>${t.notes.length} notes · ${pname(lo + 2)}–${pname(hi - 2)}</span></div>`;
+    const c = document.createElement("canvas"); lane.appendChild(c); lanes.appendChild(lane);
+    sizeCanvas(c, W, H);
+    const L = { t, c, lo, hi, H, W };
+    laneEls.push(L);
+    c.addEventListener("click", e => clickLane(L, e));
+    c.addEventListener("mousemove", e => hoverLane(L, e));
+    c.addEventListener("mouseleave", () => $("tip").style.display = "none");
+  }
+  drawAll();
+  const ph = $("playhead"); ph.style.display = "block"; setPlayhead(playPos);
+}
+function sizeCanvas(c, w, h) { const d = window.devicePixelRatio || 1; c.width = w * d; c.height = h * d; c.style.width = w + "px"; c.style.height = h + "px"; c.getContext("2d").setTransform(d, 0, 0, d, 0, 0); }
+function drawRuler(c, W) {
+  const g = c.getContext("2d"); g.clearRect(0, 0, W, 20);
+  g.fillStyle = css("--muted"); g.font = "11px -apple-system, sans-serif";
+  const step = pxPerSec < 60 ? 5 : pxPerSec < 150 ? 1 : 0.5;
+  for (let s = 0; s <= RUN.duration + 1; s += step) { const x = s * pxPerSec; g.fillRect(x, 14, 1, 6); g.fillText((Math.round(s * 10) / 10) + "", x + 3, 12); }
+}
+const yOf = (L, p) => (L.hi - p) / (L.hi - L.lo + 1) * L.H;
+function linked() {
+  // the selected note and what it is linked to: an RT note r and every OT note played from it
+  if (!selected) return new Set();
+  const r = selected.n.src || (selected.t.kind === "rt" ? selected.n.id : null);
+  const s = new Set();
+  if (r) { s.add(r); for (const L of laneEls) for (const n of L.t.notes) if (n.src === r) s.add(n.id); }
+  return s;
+}
+function drawAll() {
+  const link = linked();
+  for (const L of laneEls) drawLane(L, link);
+}
+function drawLane(L, link) {
+  const g = L.c.getContext("2d"), { W, H, t } = L;
+  g.clearRect(0, 0, W, H);
+  if (RUN.prompt_s) { g.fillStyle = css("--prompt"); g.fillRect(0, 0, RUN.prompt_s * pxPerSec, H); }
+  const rowH = H / (L.hi - L.lo + 1);
+  for (let p = L.lo; p <= L.hi; p++) if (p % 12 === 0) { g.fillStyle = css("--grid2"); g.fillRect(0, yOf(L, p) + rowH - 0.5, W, 0.5); }
+  for (let s = 0; s <= RUN.duration + 1; s += 1) { g.fillStyle = css("--grid"); g.fillRect(s * pxPerSec, 0, 1, H); }
+  const col = css(colorOf(t)), sel = css("--sel"), lk = css("--link");
+  const h = Math.max(2, rowH - 1);
+  for (const n of t.notes) {
+    const x = n.start * pxPerSec, w = Math.max(2, (n.end - n.start) * pxPerSec - 1), y = yOf(L, n.pitch);
+    g.globalAlpha = 0.45 + 0.55 * Math.min(1, (n.vel || 64) / 110);
+    g.fillStyle = col;
+    if (t.kind === "rt" && !n.drawn) { g.globalAlpha *= 0.6; }
+    roundRect(g, x, y, w, h, 2); g.fill();
+    g.globalAlpha = 1;
+    const isSel = selected && selected.n === n, isLink = n.id && link.has(n.id);
+    if (isSel || isLink) { g.strokeStyle = isSel ? sel : lk; g.lineWidth = 2; roundRect(g, x - 1, y - 1, w + 2, h + 2, 2); g.stroke(); }
+  }
+}
+function roundRect(g, x, y, w, h, r) { r = Math.min(r, w / 2, h / 2); g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+function noteAt(L, e) {
+  const rect = L.c.getBoundingClientRect(), x = e.clientX - rect.left, y = e.clientY - rect.top;
+  const rowH = L.H / (L.hi - L.lo + 1);
+  let best = null, bd = 1e9;
+  for (const n of L.t.notes) {
+    const x0 = n.start * pxPerSec, x1 = Math.max(x0 + 4, n.end * pxPerSec), y0 = yOf(L, n.pitch);
+    if (x >= x0 - 3 && x <= x1 + 3 && y >= y0 - 3 && y <= y0 + rowH + 3) {
+      const d = Math.abs(y - (y0 + rowH / 2)) + (x < x0 ? x0 - x : x > x1 ? x - x1 : 0);
+      if (d < bd) { bd = d; best = n; }
+    }
+  }
+  return best;
+}
+function hoverLane(L, e) {
+  const n = noteAt(L, e), tip = $("tip");
+  if (!n) { tip.style.display = "none"; return; }
+  tip.style.display = "block"; tip.style.left = (e.clientX + 12) + "px"; tip.style.top = (e.clientY + 12) + "px";
+  tip.textContent = `${pname(n.pitch)} · ${n.start.toFixed(2)} s · ${(n.end - n.start).toFixed(2)} s · vel ${n.vel}` + (n.model ? " · " + n.model : "") + (n.src ? " · from " + n.src : "");
+}
+function clickLane(L, e) {
+  const n = noteAt(L, e);
+  selected = n ? { t: L.t, n } : null;
+  drawAll(); showDetail();
+}
+
+// ------------------------------------------------------------------ draws
+const pct = x => x == null ? "–" : (x * 100).toFixed(x < 0.01 ? 2 : 1) + "%";
+function drawCard(title, d) {
+  const top = d.top || [];
+  const chosenIn = top.some(r => r[0] === d.chosen);
+  const rows = top.map(([tk, p, pm, lab]) => `<tr class="${tk === d.chosen ? "chosen" : ""}"><td>${lab}</td><td>${pct(p)}</td>` +
+    `<td><span class="pbar" style="width:${Math.round(p * 90)}px"></span></td><td>${pct(pm)}</td><td><span class="pbar m" style="width:${Math.round(pm * 90)}px"></span></td></tr>`).join("");
+  const extra = chosenIn ? "" : `<tr class="chosen"><td>${d.label} (not in the top 10)</td><td>${pct(d.p)}</td><td></td><td>${pct(d.p_model)}</td><td></td></tr>`;
+  return `<div class="draw"><div class="head"><b>${title}</b><span>chose <b>${d.label}</b> · p ${pct(d.p)} · p_model ${pct(d.p_model)}${d.forced ? " · forced" : ""}</span></div>` +
+    `<table class="top"><tr><th>token</th><th>p</th><th></th><th>p_model</th><th></th></tr>${rows}${extra}</table></div>`;
+}
+function showDetail() {
+  const el = $("detail");
+  if (!selected) { el.innerHTML = `<span class="note">Click a note to see its draws.</span>`; return; }
+  const { t, n } = selected;
+  let h = `<h3>${t.name}: ${pname(n.pitch)} at ${n.start.toFixed(2)} s, ${(n.end - n.start).toFixed(2)} s, vel ${n.vel}</h3>`;
+  if (t.kind === "piano") { el.innerHTML = h + `<span class="note">A piano (input) note: given, not drawn.</span>`; return; }
+  const rid = t.kind === "rt" ? n.id : n.src;
+  const otd = t.kind === "ot" && n.src ? RUN.ot_draws[n.src] : null;
+  if (otd) {
+    h += `<p class="note">OT draw for ${n.src} at ${otd.t.toFixed(2)} s; instruments available ${JSON.stringify(otd.instruments)}; combo ${JSON.stringify(otd.combo)}</p>`;
+    h += `<div class="draws">` + otd.steps.map(s => drawCard("OT " + s.field, s)).join("") + `</div>`;
+  } else if (t.kind === "ot") {
+    h += `<p class="note">No OT draw logged for this note${n.src ? " (from " + n.src + ")" : ""}.</p>`;
+  }
+  const rtd = rid ? RUN.rt_draws[rid] : null;
+  if (rtd) {
+    h += `<p class="note" style="margin-top:10px">RT draw ${rid}: model ${rtd.model}, ${rtd.source}, at ${rtd.t.toFixed(2)} s${rtd.context_len ? ", context " + rtd.context_len + " tokens" : ""}</p>`;
+    h += rtd.fields.length ? `<div class="draws">` + rtd.fields.map(f => drawCard("RT " + f.field, f)).join("") + `</div>`
+                           : `<p class="note">No per-field draws (${rtd.source}: e.g. a precomputed WAIT fire).</p>`;
+  } else if (rid) {
+    h += `<p class="note">No RT draw logged for ${rid}: the note came without one (a chord block note, or a reduction that logs no draws).</p>`;
+  }
+  el.innerHTML = h;
+}
+
+// ------------------------------------------------------------------ audio
+let ctx = null, master = null, playing = false, playPos = 0, playStartCtx = 0, playStartPos = 0, raf = 0, sfCache = {};
+const FAMILY = i => i == null ? "piano" : i <= 3 || i === 6 ? "bowed" : i === 4 ? "trem" : i === 5 ? "pizz" : i <= 10 || i === 19 ? "wind" : i <= 14 ? "brass" : i === 15 ? "piano" : i <= 17 ? "perc" : "pluck";
+function synthNote(fam, when, dur, pitch, vel, dest) {
+  const f = 440 * Math.pow(2, (pitch - 69) / 12), g = ctx.createGain(), o = ctx.createOscillator(), flt = ctx.createBiquadFilter();
+  const peak = 0.05 + 0.13 * (vel / 127);
+  const type = { bowed: "sawtooth", trem: "sawtooth", pizz: "triangle", wind: "triangle", brass: "sawtooth", piano: "triangle", perc: "sine", pluck: "triangle" }[fam];
+  o.type = type; o.frequency.value = f;
+  flt.type = "lowpass"; flt.frequency.value = fam === "brass" ? 2600 : fam === "bowed" || fam === "trem" ? 1800 : 3500;
+  o.connect(flt); flt.connect(g); g.connect(dest);
+  const att = fam === "bowed" || fam === "wind" ? 0.05 : fam === "brass" ? 0.04 : 0.005;
+  const decaying = fam === "piano" || fam === "pizz" || fam === "perc" || fam === "pluck";
+  const end = when + (decaying ? Math.min(dur, fam === "pizz" ? 0.3 : 2.5) : dur);
+  g.gain.setValueAtTime(0, when); g.gain.linearRampToValueAtTime(peak, when + att);
+  if (decaying) g.gain.exponentialRampToValueAtTime(0.001, end + 0.2);
+  else { g.gain.setValueAtTime(peak * 0.85, Math.max(when + att, end - 0.02)); g.gain.linearRampToValueAtTime(0, end + 0.12); }
+  if (fam === "trem") { const lfo = ctx.createOscillator(), lg = ctx.createGain(); lfo.frequency.value = 12; lg.gain.value = peak * 0.5; lfo.connect(lg); lg.connect(g.gain); lfo.start(when); lfo.stop(end + 0.2); }
+  o.start(when); o.stop(end + 0.3);
+}
+async function soundfont(program) {
+  if (!window.Soundfont) await new Promise((res, rej) => { const s = document.createElement("script"); s.src = "https://unpkg.com/soundfont-player@0.12.0/dist/soundfont-player.min.js"; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+  const names = { 0: "acoustic_grand_piano", 40: "violin", 41: "viola", 42: "cello", 43: "contrabass", 44: "tremolo_strings", 45: "pizzicato_strings", 48: "string_ensemble_1", 73: "flute", 68: "oboe", 71: "clarinet", 70: "bassoon", 56: "trumpet", 60: "french_horn", 57: "trombone", 58: "tuba", 47: "timpani", 116: "taiko_drum", 25: "acoustic_guitar_steel", 52: "choir_aahs" };
+  const key = names[program] || "acoustic_grand_piano";
+  if (!sfCache[key]) sfCache[key] = Soundfont.instrument(ctx, key, { soundfont: "MusyngKite", destination: master });
+  return sfCache[key];
+}
+async function play() {
+  if (!RUN) return;
+  if (playing) return stop();
+  ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+  await ctx.resume();
+  master = ctx.createGain(); master.gain.value = 0.8; master.connect(ctx.destination);
+  const listen = $("listen").value, withPiano = $("listenPiano").checked, useSf = $("sf").checked;
+  const tracks = RUN.tracks.filter(t => (t.kind === "piano" && withPiano) || t.kind === listen);
+  const from = playPos >= RUN.duration ? 0 : playPos;
+  $("play").textContent = "■ Stop"; playing = true;
+  const startAt = ctx.currentTime + (useSf ? 0.6 : 0.1);
+  let players = {};
+  if (useSf) {
+    try { for (const t of tracks) players[t.key] = await soundfont(t.kind === "ot" ? t.program : 0); }
+    catch (e) { status("could not load the soundfonts (offline?): using the built-in synth", true); players = {}; }
+  }
+  if (!playing) return;
+  for (const t of tracks) {
+    const fam = t.kind === "ot" ? FAMILY(t.instrument) : "piano";
+    for (const n of t.notes) {
+      if (n.end <= from) continue;
+      const s = Math.max(n.start, from), when = startAt + (s - from), dur = n.end - s;
+      if (players[t.key]) players[t.key].play(n.pitch, when, { duration: dur, gain: 0.3 + 1.2 * (n.vel / 127) });
+      else synthNote(fam, when, dur, n.pitch, n.vel, master);
+    }
+  }
+  playStartCtx = startAt; playStartPos = from;
+  const tick = () => {
+    if (!playing) return;
+    playPos = playStartPos + Math.max(0, ctx.currentTime - playStartCtx);
+    setPlayhead(playPos, true);
+    if (playPos >= RUN.duration + 0.5) { stop(); playPos = 0; setPlayhead(0); return; }
+    raf = requestAnimationFrame(tick);
+  };
+  raf = requestAnimationFrame(tick);
+}
+function stop() {
+  if (!playing) return;
+  playing = false; cancelAnimationFrame(raf);
+  if (master) { try { master.gain.setTargetAtTime(0, ctx.currentTime, 0.02); const m = master; setTimeout(() => m.disconnect(), 200); } catch (e) {} }
+  for (const k in sfCache) sfCache[k].then(p => p.stop()).catch(() => {});
+  $("play").textContent = "▶ Play";
+}
+const LABEL_W = () => (document.querySelector(".laneLabel") || { offsetWidth: 150 }).offsetWidth;
+function setPlayhead(sec, follow) {
+  const ph = $("playhead"), x = LABEL_W() + sec * pxPerSec;
+  ph.style.left = x + "px"; $("time").textContent = sec.toFixed(2) + " s";
+  if (follow) {
+    const w = $("lanesWrap"), vis = w.clientWidth - LABEL_W();
+    if (x - w.scrollLeft > LABEL_W() + vis * 0.8 || x < w.scrollLeft + LABEL_W()) w.scrollLeft = Math.max(0, x - LABEL_W() - vis * 0.2);
+  }
+}
+$("play").addEventListener("click", play);
+document.addEventListener("keydown", e => { if (e.code === "Space" && !/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) { e.preventDefault(); play(); } });
+$("lanesWrap").addEventListener("dblclick", e => {
+  // double-click a lane: move the playhead there
+  const rect = $("lanes").getBoundingClientRect(), x = e.clientX - rect.left - LABEL_W();
+  if (x < 0) return; const was = playing; stop(); playPos = x / pxPerSec; setPlayhead(playPos); if (was) play();
+});
+$("zoom").value = pxPerSec = store.get("zoom", 140);
+$("zoom").addEventListener("input", () => { pxPerSec = +$("zoom").value; store.set("zoom", pxPerSec); layout(); });
+["listen", "listenPiano", "sf"].forEach(id => $(id).addEventListener("change", () => { if (playing) { stop(); play(); } }));
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (RUN) layout(); });
+connect();
+</script>
+</body>
+</html>

@@ -1,4 +1,5 @@
 #include "VirtualOrch/reduction/EventEngine.h"
+#include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/reduction/DenseOnsetGapBias.h"
 #include "VirtualOrch/reduction/DenseTypes.h"
 
@@ -196,7 +197,7 @@ auto EventEngine::logitsFor(const std::vector<int32_t> &desired) -> const std::v
 }
 
 auto EventEngine::pick(const std::vector<float> &logits, const std::vector<std::pair<int32_t, int32_t>> &ranges,
-                       float temperature) -> int32_t {
+                       float temperature, const char *field, const std::vector<float> *raw) -> int32_t {
     float peak = kNegInf;
     for (const auto &[lo, hi]: ranges)
         for (int32_t t = std::max(lo, 0); t < std::min(hi, static_cast<int32_t>(logits.size())); ++t)
@@ -219,12 +220,34 @@ auto EventEngine::pick(const std::vector<float> &logits, const std::vector<std::
     if (p.empty() || ! (total > 0))
         return -1;
     double u = std::uniform_real_distribution<double>(0.0, total)(rng);
+    int32_t chosen = p.back().second;
     for (const auto &[w, t]: p) {
         u -= w;
-        if (u <= 0)
-            return t;
+        if (u <= 0) {
+            chosen = t;
+            break;
+        }
     }
-    return p.back().second;
+    if (field != nullptr && OpLog::on()) {
+        const auto &src = raw != nullptr ? *raw : logits;
+        const auto pm = OpLogDraw::softmax(src.data(), src.size());
+        const auto pModel = [&](int32_t t) { return t >= 0 && static_cast<size_t>(t) < pm.size() ? pm[static_cast<size_t>(t)] : 0.0f; };
+        OpLogDraw::Draw d;
+        d.name = field;
+        d.chosen = chosen;
+        d.pModel = pModel(chosen);
+        auto sorted = p;
+        const size_t k = std::min<size_t>(10, sorted.size());
+        std::partial_sort(sorted.begin(), sorted.begin() + static_cast<std::ptrdiff_t>(k), sorted.end(),
+                          [](const auto &a, const auto &b) { return a.first > b.first; });
+        for (const auto &[w, t]: p)
+            if (t == chosen)
+                d.p = static_cast<float>(w / total);
+        for (size_t i = 0; i < k; ++i)
+            d.top.push_back({sorted[i].second, static_cast<float>(sorted[i].first / total), pModel(sorted[i].second)});
+        drawLog.push_back(std::move(d));
+    }
+    return chosen;
 }
 
 // ---------------------------------------------------------------- model 2 event: WAIT family and chord blocks
@@ -361,12 +384,13 @@ auto EventEngine::writeBlock(int32_t /*now*/) -> std::vector<Out> {
     fire.reset();
     const int32_t t = std::max(f.onsetCs, lastTime());
     auto desired = tokens();
+    drawLog.clear(); // the block's draws (chord, bass, vel) go with each of its notes
     int32_t chord = f.firstChord;
     if (chord < 0) {
         const auto *l = logitsFor(desired);
         if (l == nullptr)
             return out;
-        chord = pick(*l, chordRanges(f.k), cfg.otherTemperature);
+        chord = pick(*l, chordRanges(f.k), cfg.otherTemperature, "chord");
         if (chord < 0)
             return out;
     }
@@ -386,14 +410,14 @@ auto EventEngine::writeBlock(int32_t /*now*/) -> std::vector<Out> {
             bassR.push_back({kOrch0 + p, kOrch0 + p + 1});
     if (bassR.empty())
         bassR.push_back({kOrch0 + std::max(cfg.pitchLow, 0), kOrch0 + std::min(cfg.pitchHigh, 127) + 1});
-    const int32_t bassTok = pick(*lb, bassR, cfg.otherTemperature);
+    const int32_t bassTok = pick(*lb, bassR, cfg.otherTemperature, "bass");
     if (bassTok < 0)
         return out;
     desired.push_back(bassTok);
     const auto *lv = logitsFor(desired);
     if (lv == nullptr)
         return out;
-    const int32_t svel = pick(*lv, {{kVel0 + 1, kVel0 + 128}}, cfg.otherTemperature);
+    const int32_t svel = pick(*lv, {{kVel0 + 1, kVel0 + 128}}, cfg.otherTemperature, "vel");
     if (svel < 0)
         return out;
     special(t, {chord, bassTok, svel});
@@ -425,8 +449,12 @@ auto EventEngine::writeBlock(int32_t /*now*/) -> std::vector<Out> {
     }
     if (! pitches.empty())
         stacks.push_back({t, pitches});
-    for (const int32_t p: pitches)
+    const auto blockDraws = std::move(drawLog);
+    drawLog.clear();
+    for (const int32_t p: pitches) {
         out.push_back(Out{true, t, p, svel - kVel0, false, true});
+        out.back().draws = blockDraws;
+    }
     lastOrchCs = std::max(lastOrchCs, t);
     floorCs = std::max(floorCs, t);
     // the leftover ON: at the block's onset
@@ -442,16 +470,18 @@ auto EventEngine::writeBlock(int32_t /*now*/) -> std::vector<Out> {
             for (int32_t p = std::max(cfg.pitchLow, 0); p <= std::min(cfg.pitchHigh, 127); ++p)
                 if (std::find(busyNow.begin(), busyNow.end(), p) == busyNow.end())
                     r.push_back({kOrch0 + p, kOrch0 + p + 1});
-        const int32_t note = r.empty() ? -1 : pick(*lo, r, cfg.otherTemperature);
+        const int32_t note = r.empty() ? -1 : pick(*lo, r, cfg.otherTemperature, "event");
         if (note >= 0) {
             desired.push_back(note);
             const auto *lv2 = logitsFor(desired);
-            const int32_t vel = lv2 == nullptr ? -1 : pick(*lv2, {{kVel0 + 1, kVel0 + 128}}, cfg.otherTemperature);
+            const int32_t vel = lv2 == nullptr ? -1 : pick(*lv2, {{kVel0 + 1, kVel0 + 128}}, cfg.otherTemperature, "vel");
             if (vel >= 0) {
                 append({Kind::OrchOn, t, note - kOrch0, vel - kVel0, true, {}});
                 ++st.ons;
                 out.push_back(Out{true, t, note - kOrch0, vel - kVel0, false, true});
+                out.back().draws = std::move(drawLog);
             }
+            drawLog.clear();
         }
     }
     return out;
@@ -513,10 +543,12 @@ auto EventEngine::draw(int32_t now) -> void {
     int32_t hiTime = std::min(floor + cfg.maxAheadCs, baseCs + kMaxTime);
     if (wait.has_value())
         hiTime = std::min(hiTime, wait->refCs + wait->d - 1); // releases only, before the target (Q9)
+    drawLog.clear();
     auto desired = tokens();
     const auto *l = logitsFor(desired);
     if (l == nullptr)
         return;
+    const auto *rawTime = l;
     std::vector<std::pair<int32_t, int32_t>> first;
     if (hiTime >= floor)
         first.push_back({timeToken(floor), timeToken(hiTime) + 1});
@@ -534,7 +566,7 @@ auto EventEngine::draw(int32_t now) -> void {
         DenseOnsetGapBias::applyOnsetLogitsBias(timeBiased, window, cfg.onsetGapTau, baseCs);
         l = &timeBiased;
     }
-    const int32_t firstTok = pick(*l, first, cfg.onsetTemperature);
+    const int32_t firstTok = pick(*l, first, cfg.onsetTemperature, "onset", rawTime);
     if (firstTok < 0)
         return;
     if (chordMode() && firstTok >= kWait0 && firstTok < kK0) {
@@ -584,13 +616,14 @@ auto EventEngine::draw(int32_t now) -> void {
     const auto *l2 = logitsFor(desired);
     if (l2 == nullptr)
         return;
+    const auto *rawWhat = l2;
     std::vector<float> whatBiased;
     if (cfg.pitchBias && orchRanges > 0) {
         whatBiased = *l2;
         applyPitchBias(whatBiased, ranges, t);
         l2 = &whatBiased;
     }
-    const int32_t what = ranges.empty() ? -1 : pick(*l2, ranges, cfg.otherTemperature);
+    const int32_t what = ranges.empty() ? -1 : pick(*l2, ranges, cfg.otherTemperature, "event", rawWhat);
     const bool piano = (what >= kNote0 && what < kOrch0) || (what >= cfg.off0 && what < cfg.off0 + (kOrch0 - kNote0));
     if (what < 0 || piano) {
         if (piano)
@@ -610,7 +643,7 @@ auto EventEngine::draw(int32_t now) -> void {
         const auto *l3 = logitsFor(desired);
         if (l3 == nullptr)
             return;
-        const int32_t vel = pick(*l3, {{kVel0 + 1, kVel0 + 128}}, cfg.otherTemperature);
+        const int32_t vel = pick(*l3, {{kVel0 + 1, kVel0 + 128}}, cfg.otherTemperature, "vel");
         if (vel < 0)
             return;
         pd.velocity = vel - kVel0;
@@ -622,6 +655,8 @@ auto EventEngine::draw(int32_t now) -> void {
         pd.on = false;
         pd.pitch = what - cfg.off0 - (kOrch0 - kNote0);
     }
+    pd.draws = std::move(drawLog);
+    drawLog.clear();
     pending = pd;
 }
 
@@ -646,7 +681,9 @@ auto EventEngine::commitPending() -> std::vector<Out> {
         ++st.ons;
     else
         ++st.offs;
-    return {Out{pd.on, pd.timeCs, pd.pitch, pd.velocity, false, false}};
+    Out o{pd.on, pd.timeCs, pd.pitch, pd.velocity, false, false};
+    o.draws = pd.draws;
+    return {o};
 }
 
 auto EventEngine::releaseLongHolds(int32_t now) -> std::vector<Out> {

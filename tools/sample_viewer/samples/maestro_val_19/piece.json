@@ -1,0 +1,11 @@
+{
+ "sample": "maestro_val_19",
+ "midi_filename": "2006/MIDI-Unprocessed_13_R1_2006_01-06_ORIG_MID--AUDIO_13_R1_2006_05_Track05_wav.midi",
+ "composer": "Mily Balakirev",
+ "title": "Islamey",
+ "clip_start_s": 456.61,
+ "total_s": 15.0,
+ "source": "maestro_validation",
+ "seed": 20261126,
+ "n_notes": 335
+}

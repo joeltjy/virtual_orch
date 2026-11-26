@@ -1,0 +1,11 @@
+{
+ "sample": "maestro_val_13",
+ "midi_filename": "2009/MIDI-Unprocessed_09_R1_2009_05-06_ORIG_MID--AUDIO_09_R1_2009_09_R1_2009_05_WAV.midi",
+ "composer": "Johannes Brahms",
+ "title": "Sonata No. 1 in C Major, Op. 1",
+ "clip_start_s": 421.418,
+ "total_s": 15.0,
+ "source": "maestro_validation",
+ "seed": 20261126,
+ "n_notes": 80
+}

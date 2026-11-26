@@ -1,0 +1,11 @@
+{
+ "sample": "maestro_val_00",
+ "midi_filename": "2018/MIDI-Unprocessed_Recital4_MID--AUDIO_04_R1_2018_wav--1.midi",
+ "composer": "Johann Sebastian Bach",
+ "title": "Prelude and Fugue in C-sharp Minor, Book I, BWV 849",
+ "clip_start_s": 360.013,
+ "total_s": 15.0,
+ "source": "maestro_validation",
+ "seed": 20261126,
+ "n_notes": 97
+}

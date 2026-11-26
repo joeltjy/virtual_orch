@@ -1,0 +1,11 @@
+{
+ "sample": "maestro_val_09",
+ "midi_filename": "2004/MIDI-Unprocessed_SMF_13_01_2004_01-05_ORIG_MID--AUDIO_13_R1_2004_12_Track12_wav.midi",
+ "composer": "Sergei Rachmaninoff",
+ "title": "Polka de W.R.",
+ "clip_start_s": 122.463,
+ "total_s": 15.0,
+ "source": "maestro_validation",
+ "seed": 20261126,
+ "n_notes": 185
+}

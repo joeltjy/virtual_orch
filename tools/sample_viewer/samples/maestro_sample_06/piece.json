@@ -1,0 +1,11 @@
+{
+  "sample": "sample_06",
+  "maestro_index": 1246,
+  "midi_filename": "2013/ORIG-MIDI_03_7_10_13_Group_MID--AUDIO_17_R3_2013_wav--1.midi",
+  "clip_start_s": 100.04976435619501,
+  "prompt_s": 5.0,
+  "total_s": 15.0,
+  "source": "maestro_test",
+  "seed": 20260907,
+  "n_notes": 180
+}

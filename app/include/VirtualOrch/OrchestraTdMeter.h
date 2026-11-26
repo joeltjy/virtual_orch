@@ -138,20 +138,30 @@ private:
  * The OT's second lever on TD: a logit bonus for tremolo strings (Nov 25 2026). Every tick (the OT's 2 s): below the
  * TD target the bonus grows, at or above it (or at TD AUTO / TD <= 4) it decays; it is never negative (it only ever
  * adds density, it never takes tremolo away from what the model would pick).
- *   bonus += kGain x clamp(log2(target / measured), -2, 2)    (target > 4, a reading)
+ *   bonus += kGain x clamp(log2(target / measured), -2, 2)    (target > 4, a reading, notes orchestrated since)
  *   bonus *= kDecay                                           (otherwise, or when measured >= target)
  * The OT adds the bonus to the GROUPS tokens that include strings and to the strings tokens that include tremolo.
+ *
+ * Slow on purpose (Nov 25 2026): with kGain 0.5 and kMax 4 the bonus went 0.9 -> 4 in 14 s at TD 16, mostly while
+ * the model drew next to nothing (so the reading stayed low and the bonus wound up), and when notes came most of
+ * the strings turned tremolo at once: the meter went 3 -> 100 in 4 s and took ~25 s to come back. Now it grows at
+ * most 0.2 per 2 s, stops at kMax 2, and only in a tick in which the OT orchestrated notes (no wind-up while the
+ * model is silent or waiting); a held tremolo takes a few seconds to show in the 3 s window, so the slow growth
+ * also leaves time to see the effect of the last step.
  */
 class TremoloBiasController {
 public:
     static constexpr double kTickMs = 2000.0;
-    static constexpr double kGain = 0.5;
+    static constexpr double kGain = 0.1; // at most 0.2 per tick (the error is clamped to 2)
     static constexpr double kDecay = 0.5;
-    static constexpr double kMax = 4.0;
+    static constexpr double kMax = 2.0;
 
-    auto tick(int32_t target, std::optional<double> measured) -> double {
+    /** `drew`: the OT orchestrated notes since the last tick; without, the bonus holds (no wind-up). */
+    auto tick(int32_t target, std::optional<double> measured, bool drew = true) -> double {
         if (target == TemporalDensity::kAuto || target <= 4 || ! measured.has_value()) {
             bonusValue *= kDecay;
+        } else if (! drew && static_cast<double>(target) > *measured) {
+            // below the target but nothing new was orchestrated: hold
         } else {
             const double e = std::clamp(std::log2(static_cast<double>(target) / std::max(*measured, 0.1)), -2.0, 2.0);
             if (e > 0.0)

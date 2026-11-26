@@ -514,6 +514,8 @@ auto OrchestrationTransformer::deliverOutputNote(const OrchestrationNote &noteIn
                               + juce::String(note.localInstrumentId) + " vel "
                               + juce::String(note.velocity) + " voice "
                               + juce::String(note.token.voiceId));
+    if (note.token.note != static_cast<int32_t>(Vocab::ClearQueue))
+        ++notesSinceTremoloTick;
     outputTokenQueue.push(note);
     outputHistory.push_back(note);
     NoteWindow::trimToLastNotes(outputHistory);
@@ -548,7 +550,9 @@ auto OrchestrationTransformer::tickTremoloBias() -> void {
     const bool running = ! paused.get() && (clock == nullptr || clock->isRunning());
     const auto reading = running ? orchestraTd() : std::nullopt;
     const int32_t target = TemporalDensity::get();
-    const double bonus = tremoloBias.tick(target, reading.has_value() ? std::optional<double>(reading->td) : std::nullopt);
+    const bool drew = notesSinceTremoloTick.exchange(0) > 0;
+    const double bonus =
+        tremoloBias.tick(target, reading.has_value() ? std::optional<double>(reading->td) : std::nullopt, drew);
     tremoloBiasValue.store(static_cast<float>(bonus));
     if (orchestrationModel != nullptr)
         orchestrationModel->setTremoloBias(static_cast<float>(bonus));
@@ -557,7 +561,7 @@ auto OrchestrationTransformer::tickTremoloBias() -> void {
                     {{"td", target}, {"measured", reading.has_value() ? reading->td : -1.0},
                      {"events", reading.has_value() ? reading->events : 0.0},
                      {"tremolo_events", reading.has_value() ? reading->tremoloEvents : 0.0},
-                     {"tremolo_bias", bonus}});
+                     {"tremolo_bias", bonus}, {"drew", drew}});
 }
 
 void OrchestrationTransformer::threadRun() {

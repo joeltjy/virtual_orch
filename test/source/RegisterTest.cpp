@@ -56,14 +56,14 @@ struct Pads {
 namespace virtual_orch_test {
 
 TEST(RegisterRange, rangesFollowTheSpecWithC4AsMidi60) {
-    EXPECT_EQ(RegisterRange::lowPitch(RegisterRange::kLow), 21);
+    EXPECT_EQ(RegisterRange::lowPitch(RegisterRange::kLow), 30) << "F#1: C4 - 2.5 octaves";
     EXPECT_EQ(RegisterRange::highPitch(RegisterRange::kLow), 52) << "E3";
     EXPECT_EQ(RegisterRange::lowPitch(RegisterRange::kMedium), 55) << "G3";
     EXPECT_EQ(RegisterRange::highPitch(RegisterRange::kMedium), 74) << "D5";
     EXPECT_EQ(RegisterRange::lowPitch(RegisterRange::kHigh), 77) << "F5";
-    EXPECT_EQ(RegisterRange::highPitch(RegisterRange::kHigh), 108);
-    EXPECT_EQ(RegisterRange::lowPitch(RegisterRange::kAuto), 21);
-    EXPECT_EQ(RegisterRange::highPitch(RegisterRange::kAuto), 108);
+    EXPECT_EQ(RegisterRange::highPitch(RegisterRange::kHigh), 90) << "F#6: C4 + 2.5 octaves";
+    EXPECT_EQ(RegisterRange::lowPitch(RegisterRange::kAuto), 30);
+    EXPECT_EQ(RegisterRange::highPitch(RegisterRange::kAuto), 90);
 }
 
 TEST(RegisterRange, aRegisterPressAsksTheAppToCutTheFuture) {
@@ -85,7 +85,7 @@ TEST(RegisterRange, maskNoteBlockLimitsEveryInstrumentBand) {
     RegisterRange::maskNoteBlock(logits, 11000, 5);
     for (int instr = 0; instr < 5; ++instr)
         for (int pitch = 0; pitch < 128; ++pitch)
-            EXPECT_EQ(std::isfinite(logits[11000 + instr * 128 + pitch]), pitch >= 21 && pitch <= 52)
+            EXPECT_EQ(std::isfinite(logits[11000 + instr * 128 + pitch]), pitch >= 30 && pitch <= 52)
                 << instr << "/" << pitch;
     EXPECT_TRUE(std::isfinite(logits[0])) << "ids outside the note block are untouched";
     EXPECT_TRUE(std::isfinite(logits.back()));
@@ -93,7 +93,7 @@ TEST(RegisterRange, maskNoteBlockLimitsEveryInstrumentBand) {
 
 TEST(RegisterRange, maskNoteBlockLeavesTheLogitsAloneWhenNothingWouldBeLeft) {
     Pads pads;
-    pads.press(LaunchpadGrid::kRegisterRow, 2); // HIGH: 77..108
+    pads.press(LaunchpadGrid::kRegisterRow, 2); // HIGH: 77..90
     std::vector<float> logits(11000 + 128, -INFINITY);
     for (int pitch = 36; pitch <= 60; ++pitch) // the model may only play 36..60 here
         logits[11000 + pitch] = 0.0f;
@@ -101,12 +101,12 @@ TEST(RegisterRange, maskNoteBlockLeavesTheLogitsAloneWhenNothingWouldBeLeft) {
     EXPECT_TRUE(std::isfinite(logits[11000 + 50])) << "the register conflicts: generate anyway";
 }
 
-TEST(RegisterRange, autoDoesNotRestrictAnything) {
+TEST(RegisterRange, autoKeepsTheReductionWithinTwoAndAHalfOctavesOfC4) {
     EXPECT_TRUE(RegisterRange::isAuto());
     std::vector<float> logits(11000 + 128, 0.0f);
     RegisterRange::maskNoteBlock(logits, 11000, 1);
     for (int pitch = 0; pitch < 128; ++pitch)
-        EXPECT_TRUE(std::isfinite(logits[11000 + pitch]));
+        EXPECT_EQ(std::isfinite(logits[11000 + pitch]), pitch >= 30 && pitch <= 90) << pitch;
 }
 
 TEST(RegisterGrid, padsSelectTheRegisterAndAutoRestoresTheLastOne) {

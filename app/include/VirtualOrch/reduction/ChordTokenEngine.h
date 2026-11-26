@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "VirtualOrch/RegisterMix.h"
 #include "VirtualOrch/reduction/DenseDurationBias.h"
 #include "VirtualOrch/reduction/DenseOnsetGapBias.h"
 #include "VirtualOrch/OpLogDraw.h"
@@ -275,6 +276,8 @@ public:
          * WAIT / COUNT logits are never touched.
          */
         bool pitchBias = false;
+        /** The mood preset's register mix (RegisterMix): shares below C3 / C3-C5 / above C5; empty = off. */
+        std::optional<RegisterMix::Mix> registerMix;
         bool durationBias = false;
         bool onsetGapBias = false;
         bool shortGap = false;
@@ -560,6 +563,9 @@ private:
     /** A precomputed branch's notes committed at a fire: the τ schedulers count them, as a decoded fire's. */
     auto countCommittedForBias(int32_t onsetCs, int notes) -> void;
     DensePitchBias::PitchTauScheduler pitchScheduler;
+    RegisterMix::Controller registerMixCtl;
+    /** The register mix on orchestra pitch logits (cfg.registerMix), from the committed history. */
+    auto applyRegisterMix(std::vector<float> &logits, const std::vector<int32_t> &history) -> void;
     DenseDurationBias::DurationTauScheduler durationScheduler;
     double sensitivitySum = 0.0;
     int sensitivityDraws = 0;

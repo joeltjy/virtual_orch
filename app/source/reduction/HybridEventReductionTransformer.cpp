@@ -1,6 +1,7 @@
 #include "VirtualOrch/reduction/HybridEventReductionTransformer.h"
 
 #include "VirtualOrch/PolyphonyCap.h"
+#include "VirtualOrch/RegisterMix.h"
 #include "VirtualOrch/RegisterRange.h"
 #include "VirtualOrch/SessionLog.h"
 #include "VirtualOrch/reduction/DenseTypes.h"
@@ -84,6 +85,7 @@ auto HybridEventReductionTransformer::applySettings() -> void {
         const bool biases = biasesActiveNow();
         const bool silentSide = e == &silentEngine;
         s.pitchBias = biases && (silentSide ? hybridV1PitchBias.load() : isPitchBiasEnabled());
+        s.registerMix = biases ? RegisterMix::Target::get() : std::nullopt; // the mood preset's register mix
         s.onsetGapBias = biases && (silentSide ? hybridV1OnsetGapBias.load() : isOnsetGapBiasEnabled());
         s.pitchTau = silentSide ? DensePitchBias::TauBase : getPitchTauBase();
         s.pitchTauPrime = silentSide ? DensePitchBias::TauBase : getPitchTauPrimeBase();

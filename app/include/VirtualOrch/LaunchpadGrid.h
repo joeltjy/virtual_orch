@@ -17,6 +17,7 @@
 #include "VirtualOrch/LaunchpadLighting.h"
 #include "VirtualOrch/LaunchpadProgrammerMap.h"
 #include "VirtualOrch/MoodPresets.h"
+#include "VirtualOrch/RegisterMix.h"
 #include "VirtualOrch/OrchestrationTransformer.h"
 #include "VirtualOrch/PerformanceActivity.h"
 #include "VirtualOrch/PolyphonyCap.h"
@@ -322,6 +323,7 @@ public:
         // The pads now control the other side: relight both sides, Flush / Reset; a preset
         // applied to the old side is no longer the active one.
         activePreset.store(-1, std::memory_order_relaxed);
+        RegisterMix::Target::set(std::nullopt);
         refreshInstrumentLeds();
         refreshPresetLeds();
         refreshSideLed(kFlushRow);
@@ -510,6 +512,7 @@ public:
             auto &lastMs = gridLastAcceptMs[static_cast<size_t>(rowIdx)][static_cast<size_t>(colIdx)];
             if (acceptPress(lastMs, now)) {
                 markPresetModified();
+                RegisterMix::Target::set(std::nullopt); // a register picked by hand replaces the preset's mix
                 selectRegister(*reg);
                 emitAction({PerformanceActivity::LaunchpadAction::Kind::Register, 0, *reg, false, false});
                 if (register_callback)
@@ -523,6 +526,7 @@ public:
             auto &lastMs = sideLastAcceptMs[static_cast<size_t>(rowIdx)];
             if (acceptPress(lastMs, now)) {
                 markPresetModified();
+                RegisterMix::Target::set(std::nullopt); // a register picked by hand replaces the preset's mix
                 setRegisterAuto(! RegisterRange::isAuto());
                 emitAction({PerformanceActivity::LaunchpadAction::Kind::RegisterAuto, 0, 0,
                             RegisterRange::isAuto(), false});
@@ -690,10 +694,16 @@ private:
         forEachSidePad(controlledTarget(), [this, &preset](int row, int col, int32_t localId) {
             setPadOn(row, col, MoodPresets::contains(preset, localId));
         });
-        if (preset.registerValue == RegisterRange::kAuto)
-            setRegisterAuto(true);
-        else
-            selectRegister(preset.registerValue);
+        if (RegisterMix::Target::presetsUseMix() && preset.registerMix.has_value()) {
+            setRegisterAuto(true); // C4 +/- 2.5 octaves; the mix steers within it
+            RegisterMix::Target::set(preset.registerMix);
+        } else {
+            RegisterMix::Target::set(std::nullopt);
+            if (preset.registerValue == RegisterRange::kAuto)
+                setRegisterAuto(true);
+            else
+                selectRegister(preset.registerValue);
+        }
         if (preset.tdLevelIndex < 0)
             setTdAuto(true);
         else

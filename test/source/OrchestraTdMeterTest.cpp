@@ -114,4 +114,21 @@ TEST(TremoloBiasController, offAtAutoLowTdOrWithoutAReading) {
     EXPECT_DOUBLE_EQ(low.tick(16, std::nullopt), 0.0) << "no reading (paused, stale): no growth";
 }
 
+TEST(TremoloBiasController, growsSlowlyAndHoldsWhileNothingIsOrchestrated) {
+    TremoloBiasController c;
+    // the largest step: 0.2 per tick, so the cap takes at least 10 ticks (20 s)
+    EXPECT_DOUBLE_EQ(c.tick(64, 1.0), 0.2);
+    for (int i = 0; i < 8; ++i)
+        c.tick(64, 1.0);
+    EXPECT_LT(c.bonus(), TremoloBiasController::kMax);
+    // below the target but the model drew nothing since the last tick: no wind-up
+    const double held = c.bonus();
+    for (int i = 0; i < 5; ++i)
+        c.tick(64, 1.0, false);
+    EXPECT_DOUBLE_EQ(c.bonus(), held);
+    // ... though an overshoot still decays it without new notes
+    c.tick(16, 40.0, false);
+    EXPECT_DOUBLE_EQ(c.bonus(), held * TremoloBiasController::kDecay);
+}
+
 } // namespace virtual_orch_test

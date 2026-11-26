@@ -50,6 +50,8 @@ private:
     /** Global (BiasSettings): biases on/off, and if on, only while the piano is silent > 1 s. */
     juce::ToggleButton biasesOnToggle{"Logit biases on"};
     juce::ToggleButton biasGateToggle{"Only when the piano is silent > 1 s"};
+    /** RegisterMix::Target::presetsUseMix: the mood presets set a register mix instead of LOW / MEDIUM / HIGH. */
+    juce::ToggleButton presetMixToggle{"Presets: register mix (below C3 / C3-C5 / above C5)"};
     /** TdOnsetBias: shorter onset gaps for higher Launchpad TD (independent of the toggle above). */
     juce::ToggleButton logitTdToggle{"LogitTD (shorter onset gaps for higher TD)"};
     /** T3'' / W2-W3 / Hybrid only (the older models always use it): the 1..8 cs penalty. */

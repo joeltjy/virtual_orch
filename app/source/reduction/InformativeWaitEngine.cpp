@@ -76,6 +76,7 @@ auto InformativeWaitEngine::setSettings(const Settings &s) -> void {
 
 auto InformativeWaitEngine::reset(int32_t startCs) -> void {
     pitchScheduler.reset();
+    registerMixCtl.reset();
     durationScheduler.reset();
     items.clear();
     before.clear();
@@ -859,6 +860,13 @@ auto InformativeWaitEngine::applyPitchBias(std::vector<float> &logits, const std
     DensePitchBias::applyNoteLogitsBias(logits, window, taus.tau, taus.tauPrime);
 }
 
+auto InformativeWaitEngine::applyRegisterMix(std::vector<float> &logits, const std::vector<int32_t> &history) -> void {
+    if (! cfg.registerMix.has_value())
+        return;
+    RegisterMix::apply(logits, kOrch0, registerMixCtl.update(history, *cfg.registerMix), cfg.otherTemperature,
+                       *cfg.registerMix);
+}
+
 auto InformativeWaitEngine::countCommittedForBias(int32_t onsetCs, int notes) -> void {
     if (! cfg.durationBias && ! cfg.pitchBias)
         return;
@@ -887,7 +895,7 @@ auto InformativeWaitEngine::drawBody(int32_t onsetCs, int32_t minPitch) -> std::
     if (l1 == nullptr)
         return std::nullopt;
     std::vector<int32_t> history;
-    if (cfg.durationBias || cfg.pitchBias)
+    if (cfg.durationBias || cfg.pitchBias || cfg.registerMix.has_value())
         history = orchestraHistory();
     std::vector<float> biased;
     if (cfg.durationBias) {
@@ -916,9 +924,11 @@ auto InformativeWaitEngine::drawBody(int32_t onsetCs, int32_t minPitch) -> std::
     const auto *l2 = logitsFor(desired);
     if (l2 == nullptr)
         return std::nullopt;
-    if (cfg.pitchBias) {
+    if (cfg.pitchBias || cfg.registerMix.has_value()) {
         biased = *l2;
-        applyPitchBias(biased, history, onsetCs, pitchScheduler);
+        if (cfg.pitchBias)
+            applyPitchBias(biased, history, onsetCs, pitchScheduler);
+        applyRegisterMix(biased, history);
         l2 = &biased;
     }
     const int32_t note = pick(*l2, {{kOrch0 + lo, kOrch0 + hi + 1}}, cfg.otherTemperature, cfg.minP);
@@ -1282,8 +1292,9 @@ auto InformativeWaitEngine::precomputeStep() -> void {
         // statistics nor the τ schedulers (copies here; countCommittedForBias counts them at the fire).
         const bool biasDur = r == 0 && cfg.durationBias;
         const bool biasPitch = r == 1 && cfg.pitchBias;
+        const bool mixPitch = r == 1 && cfg.registerMix.has_value();
         std::vector<int32_t> history;
-        if (biasDur || biasPitch)
+        if (biasDur || biasPitch || mixPitch)
             history = orchestraHistory();
         for (int b = 0; b < kBranches; ++b) {
             auto &br = pc.branches[static_cast<size_t>(b)];
@@ -1297,6 +1308,8 @@ auto InformativeWaitEngine::precomputeStep() -> void {
                 auto scheduler = pitchScheduler;
                 applyPitchBias(lg, history, pc.targetCs, scheduler);
             }
+            if (mixPitch)
+                applyRegisterMix(lg, history); // committed history: the branch's own notes do not count
             if (r == 0)
                 applyTdDurationTaper(lg);
             if (r == 0) {

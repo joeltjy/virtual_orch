@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "VirtualOrch/RegisterMix.h"
 #include "VirtualOrch/reduction/DensePitchBias.h"
 #include "VirtualOrch/reduction/StreamingKvCache.h"
 #include "VirtualOrch/reduction/VoicingBank.h"
@@ -94,6 +95,8 @@ public:
          * The event models have no duration token: no duration bias.
          */
         bool pitchBias = false;
+        /** The mood preset's register mix (RegisterMix): shares below C3 / C3-C5 / above C5; empty = off. */
+        std::optional<RegisterMix::Mix> registerMix;
         bool onsetGapBias = false;
         float pitchTau = DensePitchBias::TauBase;
         float pitchTauPrime = DensePitchBias::TauBase;
@@ -266,4 +269,7 @@ private:
     std::vector<Stack> stacks;
     Stats st;
     DensePitchBias::PitchTauScheduler pitchScheduler;
+    RegisterMix::Controller registerMixCtl;
+    /** The register mix on orchestra pitch logits (cfg.registerMix), from the committed history. */
+    auto applyRegisterMix(std::vector<float> &logits, const std::vector<int32_t> &history) -> void;
 };

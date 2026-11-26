@@ -56,6 +56,7 @@ auto EventEngine::reset(int32_t now) -> void {
     stacks.clear();
     st = {};
     pitchScheduler.reset();
+    registerMixCtl.reset();
     rng.seed(cfg.seed);
     if (cache != nullptr)
         cache->reset();
@@ -585,9 +586,11 @@ auto EventEngine::draw(int32_t now) -> void {
     if (l2 == nullptr)
         return;
     std::vector<float> whatBiased;
-    if (cfg.pitchBias && orchRanges > 0) {
+    if ((cfg.pitchBias || cfg.registerMix.has_value()) && orchRanges > 0) {
         whatBiased = *l2;
-        applyPitchBias(whatBiased, ranges, t);
+        if (cfg.pitchBias)
+            applyPitchBias(whatBiased, ranges, t);
+        applyRegisterMix(whatBiased, orchestraQuads()); // keeps the ONs' total mass: only the register changes
         l2 = &whatBiased;
     }
     const int32_t what = ranges.empty() ? -1 : pick(*l2, ranges, cfg.otherTemperature);
@@ -710,4 +713,11 @@ auto EventEngine::step(int32_t now) -> std::vector<Out> {
         out.insert(out.end(), c.begin(), c.end());
     }
     return out;
+}
+
+auto EventEngine::applyRegisterMix(std::vector<float> &logits, const std::vector<int32_t> &history) -> void {
+    if (! cfg.registerMix.has_value())
+        return;
+    RegisterMix::apply(logits, kOrch0, registerMixCtl.update(history, *cfg.registerMix), cfg.otherTemperature,
+                       *cfg.registerMix);
 }

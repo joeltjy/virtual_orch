@@ -3,6 +3,7 @@
 #include "VirtualOrch/KeyLanding.h"
 #include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/PolyphonyCap.h"
+#include "VirtualOrch/RegisterMix.h"
 #include "VirtualOrch/RegisterRange.h"
 #include "VirtualOrch/SessionLog.h"
 #include "VirtualOrch/vocsep/VoiceSeparation.h"
@@ -127,6 +128,7 @@ auto HybridInformativeWaitReductionTransformer::applySettings() -> void {
     const int32_t low = PolyphonyCap::lowestPitch(getMaxPolyphony(), RegisterRange::lowPitch(), high); // Mono: above C4
     // model 1: the silent side's adjustments, with the base taus (the legacy Hybrid's v1)
     s.pitchBias = biases && hybridV1PitchBias.load();
+    s.registerMix = biases ? RegisterMix::Target::get() : std::nullopt; // the mood preset's register mix
     s.durationBias = biases && hybridV1DurationBias.load();
     s.onsetGapBias = biases && hybridV1OnsetGapBias.load();
     s.shortGap = hybridV1ShortGapPenalty.load();
@@ -174,6 +176,7 @@ auto HybridInformativeWaitReductionTransformer::applySettings() -> void {
     w.tdGamma = tdGamma(false);
     // model 2: the main adjustments (all OFF by default) with the widget's taus
     w.pitchBias = biases && isPitchBiasEnabled();
+    w.registerMix = biases ? RegisterMix::Target::get() : std::nullopt; // the mood preset's register mix
     w.durationBias = biases && isDurationBiasEnabled();
     w.onsetGapBias = biases && isOnsetGapBiasEnabled();
     w.shortGap = isShortGapPenaltyEnabled();

@@ -1,3 +1,4 @@
+#include "VirtualOrch/RegisterMix.h"
 #include "VirtualOrch/AppSession.h"
 #include "VirtualOrch/UserSettings.h"
 #include "VirtualOrch/OpLog.h"
@@ -833,6 +834,7 @@ auto AppSession::logitAdjustmentsToVar() -> juce::var {
     auto *root = new juce::DynamicObject();
     root->setProperty("biasesOn", BiasSettings::enabled());
     root->setProperty("biasesOnlyWhenPianoSilent", BiasSettings::onlyWhenPianoSilent());
+    root->setProperty("presetRegisterMix", RegisterMix::Target::presetsUseMix());
     root->setProperty("logitTdStrength", TdOnsetBias::strength());
     if (auto *m = activeAnticipated()) {
         auto *model = new juce::DynamicObject();
@@ -868,6 +870,8 @@ auto AppSession::applyLogitAdjustments(const juce::var &a) -> void {
         BiasSettings::setEnabled(static_cast<bool>(a["biasesOn"]));
     if (a.hasProperty("biasesOnlyWhenPianoSilent"))
         BiasSettings::setOnlyWhenPianoSilent(static_cast<bool>(a["biasesOnlyWhenPianoSilent"]));
+    if (a.hasProperty("presetRegisterMix"))
+        RegisterMix::Target::setPresetsUseMix(static_cast<bool>(a["presetRegisterMix"]));
     if (a.hasProperty("logitTdStrength"))
         TdOnsetBias::setStrength(static_cast<float>(a["logitTdStrength"]));
     auto *m = activeAnticipated();

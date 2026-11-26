@@ -155,6 +155,19 @@ TEST(DensePitchBias, TauPrimeResetsWhenNewIntervalEnters) {
     EXPECT_FLOAT_EQ(r.tauPrime, 0.5f);
 }
 
+TEST(DensePitchBias, ANewIntervalHalvesARampedTauPrime) {
+    DensePitchBias::PitchTauScheduler sched;
+    for (int i = 0; i < 20; ++i)
+        sched.evaluate(i * 5, {60, 62}, {2}, 0.5f, 0.5f, true);
+    EXPECT_FLOAT_EQ(sched.evaluate(100, {60, 62}, {2}, 0.5f, 0.5f, false).tauPrime, 2.0f);
+    // 20 notes → a new interval keeps 10 (+ this note): 0.5 · 2^1.1, about half of 2, not back to 0.5
+    auto r = sched.evaluate(100, {60, 62}, {-1, 2}, 0.5f, 0.5f, true);
+    EXPECT_FLOAT_EQ(r.tauPrime, 0.5f * std::pow(2.0f, 11.0f / 10.0f));
+    // and it keeps ramping from there
+    r = sched.evaluate(105, {60, 62}, {-1, 2}, 0.5f, 0.5f, true);
+    EXPECT_FLOAT_EQ(r.tauPrime, 0.5f * std::pow(2.0f, 12.0f / 10.0f));
+}
+
 TEST(DensePitchBias, TauKeepsRampingWhenSOnlyShrinks) {
     DensePitchBias::PitchTauScheduler sched;
     for (int i = 0; i < 10; ++i)

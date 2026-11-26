@@ -57,6 +57,7 @@ auto EventEngine::reset(int32_t now) -> void {
     stacks.clear();
     st = {};
     pitchScheduler.reset();
+    registerMixCtl.reset();
     rng.seed(cfg.seed);
     if (cache != nullptr)
         cache->reset();
@@ -511,6 +512,8 @@ auto EventEngine::applyPitchBias(std::vector<float> &logits, const std::vector<s
         return;
     const auto taus = pitchScheduler.evaluate(timeCs, window.uniquePitches, window.uniqueDeltas, cfg.pitchTau,
                                               cfg.pitchTauPrime, true);
+    liveTausValue.pitchTau = taus.tau;
+    liveTausValue.pitchTauPrime = taus.tauPrime;
     // the orchestra ON ids the pick allows
     std::vector<int32_t> ons;
     for (const auto &[lo, hi]: ranges)
@@ -564,6 +567,7 @@ auto EventEngine::draw(int32_t now) -> void {
         timeBiased = *l;
         const auto window = DenseOnsetGapBias::collectOnsetGapWindow(orchestraQuads(), now, -1);
         DenseOnsetGapBias::applyOnsetLogitsBias(timeBiased, window, cfg.onsetGapTau, baseCs);
+        liveTausValue.onsetGapTau = cfg.onsetGapTau;
         l = &timeBiased;
     }
     const int32_t firstTok = pick(*l, first, cfg.onsetTemperature, "onset", rawTime);
@@ -618,9 +622,11 @@ auto EventEngine::draw(int32_t now) -> void {
         return;
     const auto *rawWhat = l2;
     std::vector<float> whatBiased;
-    if (cfg.pitchBias && orchRanges > 0) {
+    if ((cfg.pitchBias || cfg.registerMix.has_value()) && orchRanges > 0) {
         whatBiased = *l2;
-        applyPitchBias(whatBiased, ranges, t);
+        if (cfg.pitchBias)
+            applyPitchBias(whatBiased, ranges, t);
+        applyRegisterMix(whatBiased, orchestraQuads()); // keeps the ONs' total mass: only the register changes
         l2 = &whatBiased;
     }
     const int32_t what = ranges.empty() ? -1 : pick(*l2, ranges, cfg.otherTemperature, "event", rawWhat);
@@ -747,4 +753,15 @@ auto EventEngine::step(int32_t now) -> std::vector<Out> {
         out.insert(out.end(), c.begin(), c.end());
     }
     return out;
+}
+
+auto EventEngine::applyRegisterMix(std::vector<float> &logits, const std::vector<int32_t> &history) -> void {
+    if (! cfg.registerMix.has_value()) {
+        liveTausValue.recordMix<RegisterMix::Mix>(nullptr, {}, 0, {});
+        return;
+    }
+    const auto &offsets = registerMixCtl.update(history, *cfg.registerMix);
+    const auto [measured, notes] = RegisterMix::measure(history);
+    liveTausValue.recordMix(&*cfg.registerMix, measured, notes, offsets); // RT_DRAW "taus" "mix"
+    RegisterMix::apply(logits, kOrch0, offsets, cfg.otherTemperature, *cfg.registerMix);
 }

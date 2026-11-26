@@ -39,6 +39,7 @@ SYSTEMS = {  # name -> preset file (app/presets/version<name>.json); kind of mod
     "v1.2": "chord tokens, round 3b (model 1 rt_continuation_latest / model 2 v1.2_simultaneous)",
     "v1.2_r4": "chord tokens, round 4 (model 1 rt_continuation_latest / model 2 v1.2_r4_simultaneous)",
     "v1.3": "event models (model 1 v1.3_continuation / model 2 v1.3_simultaneous)",
+    "v1.4": "group tokens (model 1 rt_continuation_chordal / model 2 rt_simultaneous_chordal; groups decoded at the RT)",
 }
 INSTRUMENTS = {0: "Violin", 1: "Viola", 2: "Cello", 3: "Contrabass", 4: "Tremolo Strings", 5: "Pizzicato Strings",
                6: "String Ensemble", 7: "Flute", 8: "Oboe", 9: "Clarinet", 10: "Bassoon", 11: "Trumpet",
@@ -318,8 +319,67 @@ def parse(rows, piano, prompt_s=None):
                  for s, e, p, v, o in sorted(ot[ins])]
         tracks.append(dict(key=f"ot{ins}", name=INSTRUMENTS.get(ins, f"instrument {ins}"), kind="ot", instrument=ins,
                            program=GM.get(ins, 0), notes=notes))
-    return dict(tracks=tracks, rt_draws=rt_draws, ot_draws=ot_draws, waits=waits,
+    return dict(tracks=tracks, rt_draws=rt_draws, ot_draws=ot_draws, waits=waits, params=live_params(rows, t0),
                 duration=round(max([end] + [n["end"] for t in tracks for n in t["notes"]]), 2), prompt_s=prompt_s)
+
+
+def live_params(rows, t0):
+    """The parameters that change while the app runs, as step series [[t (s), value], ...] grouped into lanes:
+    TD (target, measured by the RT controller, measured after the OT), the logit-TD gamma per model, the OT's
+    tremolo bonus, and the tau / tau' each model drew with (RT_DRAW "taus"; -1 = that bias not applied yet)."""
+    series = {}
+
+    def add(group, label, t, v):
+        if v is None:
+            return
+        s = series.setdefault((group, label), [])
+        pt = [round((t - t0) / 1000, 3), round(float(v), 4)]
+        s.append(pt)
+
+    names = {"m1": "model 1", "m2": "model 2", "m1e": "model 1", "m2e": "model 2"}
+    for r in rows:
+        op = r.get("op")
+        if op == "TD_CTRL":
+            m = names.get(r.get("model"), r.get("model"))
+            if r.get("td"):  # 0 = AUTO: no target
+                add("TD", "target", r["t"], r.get("td"))
+            if r.get("model") == "m1":
+                add("TD", "measured (RT controller)", r["t"], r.get("measured"))
+            add("γ (logit TD)", m, r["t"], r.get("gamma"))
+            if r.get("why") == "tremolo first":  # gamma held 2 s so the OT's tremolo bonus acts first
+                add("γ (logit TD)", f"{m} held: tremolo first", r["t"], r.get("gamma"))
+        elif op == "OT_TD":
+            if r.get("td"):
+                add("TD", "target", r["t"], r.get("td"))
+            if (r.get("measured") or -1) >= 0:
+                add("TD", "measured after the OT", r["t"], r.get("measured"))
+            add("OT tremolo bonus", "tremolo bias", r["t"], r.get("tremolo_bias"))
+        elif op == "RT_DRAW" and isinstance(r.get("taus"), dict):
+            m = names.get(r.get("model"), r.get("model"))
+            tau = r["taus"]
+            for key, group, label in (("pitch_tau", "Pitch τ, τ′", "τ"), ("pitch_tau_prime", "Pitch τ, τ′", "τ′"),
+                                      ("dur_tau", "Duration τ, τ′", "τ"), ("dur_tau_prime", "Duration τ, τ′", "τ′"),
+                                      ("gap_tau", "Onset-gap τ", "τ")):
+                v = tau.get(key, -1)
+                if v is not None and v >= 0:
+                    add(group, f"{m} {label}", r["t"], v)
+            mix = tau.get("mix")
+            if isinstance(mix, dict):
+                for b, band in enumerate(("below C3", "C3–C5", "C5 and up")):
+                    g = f"Register mix: {band}"
+                    add(g, "target", r["t"], mix["target"][b])
+                    if mix.get("notes", 0) >= 4:  # the controller's minimum: below it the share is not steered yet
+                        add(g, f"{m} current (last 16 notes)", r["t"], mix["measured"][b])
+                    add("Register mix offsets", f"{m} {band}", r["t"], mix["offset"][b])
+    # the target TD: one series (TD_CTRL and OT_TD both report it); keep it sorted
+    order = ["TD", "γ (logit TD)", "OT tremolo bonus", "Register mix: C5 and up", "Register mix: C3–C5",
+             "Register mix: below C3", "Register mix offsets", "Pitch τ, τ′", "Duration τ, τ′", "Onset-gap τ"]
+    groups = []
+    for g in order:
+        lines = [dict(label=l, points=sorted(pts)) for (gg, l), pts in series.items() if gg == g]
+        if lines:
+            groups.append(dict(name=g, lines=sorted(lines, key=lambda x: x["label"])))
+    return groups
 
 
 # ---------------------------------------------------------------- jobs
@@ -465,6 +525,10 @@ def main():
         for t in res["tracks"]:
             print(f"{t['name']:24s} {len(t['notes'])} notes")
         print(len(res["rt_draws"]), "RT draws,", len(res["ot_draws"]), "OT draws")
+        for g in res["params"]:
+            for ln in g["lines"]:
+                vs = [v for _, v in ln["points"]]
+                print(f"  {g['name']:18s} {ln['label']:28s} {len(vs):4d} points, {min(vs):.3g}..{max(vs):.3g}")
         return
     if not os.path.exists(a.render):
         print(f"warning: no sample_render at {a.render} (build it: cmake --build build --target SampleRender)")

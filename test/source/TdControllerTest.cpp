@@ -112,11 +112,12 @@ TEST(TdController, theNov23BurstMovesGammaAtMostOneStepPerUpdate) {
     double prev = start;
     for (int i = 0; i < 4; ++i) {
         c.tick({4, measured[i], s[i], true, false});
-        EXPECT_LE(std::abs(c.current().gamma - prev), TdController::kMaxStep + 1e-12);
+        // near the target at most kMaxStep; at least 2x over it (Nov 26 2026) at most kMaxStepFar
+        const double limit = c.current().error <= TdController::kFarError ? TdController::kMaxStepFar : TdController::kMaxStep;
+        EXPECT_LE(std::abs(c.current().gamma - prev), limit + 1e-12);
         prev = c.current().gamma;
     }
-    EXPECT_GE(c.current().gamma, start - 4 * TdController::kMaxStep);
-    EXPECT_GT(c.current().gamma, -1.0) << "4 updates (8 s) cannot reach the old -3";
+    EXPECT_GE(c.current().gamma, TdController::kMinGamma) << "never past the floor: the old -3 is out of reach";
     EXPECT_DOUBLE_EQ(TdController::kTickMs, 2000.0);
 }
 
@@ -129,6 +130,21 @@ TEST(TdController, resetGoesBackToGammaZeroAndKeepsTheTarget) {
     EXPECT_DOUBLE_EQ(c.current().m, 1.0);
     EXPECT_EQ(c.current().target, 4);
     EXPECT_TRUE(c.current().frozen);
+}
+
+TEST(TdController, farUnderTheTargetTremoloGoesFirst) {
+    TdController c;
+    c.tick({32, 4.0, 0.3, true, false}); // TD 32, measured 4: far under
+    EXPECT_EQ(c.current().why, "tremolo first");
+    EXPECT_DOUBLE_EQ(c.current().gamma, TdController::startGamma(32)) << "held for 2 s";
+    c.tick({32, 4.0, 0.3, true, false});
+    EXPECT_GT(c.current().gamma, TdController::startGamma(32)) << "then it moves";
+    c.tick({32, 4.0, 0.3, true, false});
+    EXPECT_NE(c.current().why, "tremolo first") << "once per episode, not every update";
+    // at TD 4 and below there is no tremolo bonus: no hold
+    TdController d;
+    d.tick({4, 1.0, 0.3, true, false});
+    EXPECT_NE(d.current().why, "tremolo first");
 }
 
 TEST(TdController, negativeGammaBonusStopsGrowingFarAhead) {
@@ -214,12 +230,36 @@ TEST(TdController, aPedalPressKeepsAPositiveGammaAndDropsANegativeOne) {
 
 TEST(TdController, gammaRisesFasterThanItFalls) {
     TdController c;
-    c.tick({16, 1.0, 0.05, true, false}); // far too sparse (error +2), low sensitivity: K e = 0.86
+    c.tick({16, 1.0, 0.05, true, false}); // far too sparse (error +2): first the 2 s tremolo-first hold
+    ASSERT_EQ(c.current().why, "tremolo first");
+    c.tick({16, 1.0, 0.05, true, false}); // then low sensitivity: K e = 0.86
     EXPECT_GT(c.current().gamma - TdController::startGamma(16), 3 * TdController::kMaxStep) << "more than the old 0.25";
     EXPECT_LE(c.current().gamma - TdController::startGamma(16), TdController::kMaxStepUp + 1e-12);
     TdController d;
-    d.tick({4, 64.0, 0.05, true, false}); // far too dense
+    d.tick({4, 7.5, 0.05, true, false}); // too dense, but under 2x the target: K e = -0.27, capped
     EXPECT_NEAR(d.current().gamma, -TdController::kMaxStep, 1e-12);
+}
+
+TEST(TdController, farOverTheTargetGammaDropsFaster) {
+    // the sample viewer's Solemn run (Nov 26 2026): TD 2, a repeated 13 cs chord measured 15-16
+    TdController c;
+    c.tick({2, 16.0, 0.3, true, false});
+    EXPECT_NEAR(c.current().gamma, -TdController::kMaxStepFar, 1e-12) << "error -2: the full far step";
+    c.tick({2, 16.0, 0.3, true, false});
+    EXPECT_NEAR(c.current().gamma, TdController::kMinGamma, 1e-12) << "the floor in 2 updates (4 s), not 8";
+    TdController d;
+    d.tick({2, 4.0, 0.3, true, false}); // exactly 2x: error -1, at least kFarGain x 1
+    EXPECT_NEAR(d.current().gamma, -TdController::kFarGain, 1e-12);
+}
+
+TEST(TdController, farUnderTheTargetGammaComesBackFaster) {
+    // after a pull-back to the floor the model went near silent (measured 0.67 at TD 2)
+    TdController c;
+    c.tick({2, 16.0, 0.3, true, false});
+    c.tick({2, 16.0, 0.3, true, false});
+    ASSERT_NEAR(c.current().gamma, TdController::kMinGamma, 1e-12);
+    c.tick({2, 0.67, 0.3, true, false}); // error log2(2 / 0.67) = 1.58
+    EXPECT_GE(c.current().gamma - TdController::kMinGamma, TdController::kFarGain * 1.5) << "not ~0.03 an update";
 }
 
 TEST(TdController, reachesTd16ThoughThePedalIsPressedEveryFourSeconds) {

@@ -54,6 +54,12 @@ aside h2:first-child { margin-top: 2px; }
 .swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; flex: 0 0 auto; }
 .laneLabel span { color: var(--muted); }
 .lane canvas { display: block; cursor: pointer; }
+.lane.param canvas { cursor: crosshair; }
+.lane.param .laneLabel { justify-content: flex-start; padding-top: 6px; }
+.lane.param .key { display: flex; align-items: center; gap: 5px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lane.param .key i { width: 12px; height: 2px; flex: 0 0 auto; display: inline-block; }
+.paramHead { display: flex; border-bottom: 1px solid var(--line); background: var(--panel); }
+.paramHead .laneLabel { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 #ruler { display: flex; border-bottom: 1px solid var(--line); position: sticky; top: 0; }
 #ruler .laneLabel { font-size: 11px; color: var(--muted); }
 #playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--link); pointer-events: none; z-index: 3; }
@@ -98,6 +104,10 @@ pre { white-space: pre-wrap; font-size: 11px; color: var(--ink2); max-height: 16
   <h2>Other settings</h2>
   <div class="row"><label>TD</label><select id="td"><option>auto</option><option>1</option><option>2</option><option selected>4</option><option>8</option><option>16</option><option>32</option><option>64</option></select></div>
   <div class="row"><label>Model 2 start delay, ms</label><input type="number" id="startDelayMs" step="500" min="0"></div>
+  <div class="row"><label>Mood preset</label><select id="moodPreset"><option value="">none</option></select></div>
+  <div class="row"><label>Preset sets its register mix</label><input type="checkbox" id="presetRegisterMix" checked></div>
+  <div class="note" id="presetNote" style="display:none">The preset sets the instruments, TD and register (with the mix: AUTO and its register mix), over the two settings below.</div>
+  <div class="row"><label>OT instruments</label><select id="otInstruments"></select></div>
   <div class="row"><label>Orchestration mode</label><select id="orchMode"><option value="jam">Jam</option><option value="accompaniment">Accompaniment</option></select></div>
   <div class="row"><label>OT temperatures</label><span><input type="number" id="temp0" step="0.05" style="width:52px"><input type="number" id="temp1" step="0.05" style="width:52px"><input type="number" id="temp2" step="0.05" style="width:52px"></span></div>
   <div class="row"><label>OT: outer voices only shift outward</label><input type="checkbox" id="outerVoicesOutward" checked></div>
@@ -159,12 +169,27 @@ $("server").addEventListener("change", connect);
 // ------------------------------------------------------------------ settings
 const MODEL_FLAGS = ["pitchBias", "durationBias", "onsetGapBias", "shortGapPenalty", "logitTd"];
 const MODEL_TAUS = ["pitchTau", "pitchTauPrime", "durationTau", "durationTauPrime", "onsetGapTau"];
+// model 1's taus when a preset does not set them (the app's base values)
+const V1_TAU_DEFAULTS = { pitchTau: 0.2, pitchTauPrime: 0.2, durationTau: 0.5, durationTauPrime: 0, onsetGapTau: 0.5 };
 const sys = () => CFG.systems.find(s => s.name === $("system").value) || CFG.systems[0];
+// the OT's instruments, as the Launchpad's mood presets (app/include/VirtualOrch/MoodPresets.h)
+const INSTRUMENT_SETS = {
+  "Grand": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16], "Solemn": [6, 10, 12, 13, 14], "Mysterious": [4, 9, 10],
+  "Tender": [6, 9, 12], "Playful": [5, 7, 8, 10], "Passionate": [6, 8, 9, 12, 13], "Heroic": [6, 11, 12, 13, 16],
+  "Stormy": [4, 11, 13, 14, 16] };
+$("otInstruments").innerHTML = Object.keys(INSTRUMENT_SETS).map(k => `<option>${k}</option>`).join("");
+$("moodPreset").innerHTML += ["Solemn", "Mysterious", "Tender", "Playful", "Passionate", "Heroic", "Stormy", "Grand"].map(k => `<option>${k}</option>`).join("");
+function syncPresetUi() {
+  const on = $("moodPreset").value !== "";
+  $("td").disabled = on; $("otInstruments").disabled = on; $("presetRegisterMix").disabled = !on;
+  $("presetNote").style.display = on ? "block" : "none";
+}
+$("moodPreset").addEventListener("change", syncPresetUi);
 function presetDefaults(s) {
   const la = s.logitAdjustments || {};
   return { biasesOn: la.biasesOn !== false, model: Object.assign({}, la.model || {}), hybridV1: Object.assign({}, la.hybridV1 || {}),
            td: "4", startDelayMs: s.startDelayMs, orchestrationMode: s.orchestrationMode || "jam",
-           temps: (s.outputTemperatures || [0.5, 0.5, 0.5]).slice(), outerVoicesOutward: true, oneInstrumentPerOctave: true, sustainPedal: false };
+           temps: (s.outputTemperatures || [0.5, 0.5, 0.5]).slice(), instruments: "Grand", outerVoicesOutward: true, oneInstrumentPerOctave: true, sustainPedal: false };
 }
 function renderLogitBox(v) {
   const row = (id, label, input) => `<div class="row"><label for="${id}">${label}</label>${input}</div>`;
@@ -174,6 +199,7 @@ function renderLogitBox(v) {
   for (const f of MODEL_TAUS) h += row("m_" + f, f, `<input type="number" step="0.05" id="m_${f}" value="${v.model[f] ?? ""}" placeholder="app default">`);
   h += `<div class="note" style="margin:6px 0 2px">Model 1 (piano silent)</div>`;
   for (const f of MODEL_FLAGS) h += row("v_" + f, f, `<input type="checkbox" id="v_${f}" ${v.hybridV1[f] ? "checked" : ""}>`);
+  for (const f of MODEL_TAUS) h += row("v_" + f, f, `<input type="number" step="0.05" id="v_${f}" value="${v.hybridV1[f] ?? V1_TAU_DEFAULTS[f]}">`);
   $("logitBox").innerHTML = h;
 }
 function applySettingsToForm(v) {
@@ -182,15 +208,21 @@ function applySettingsToForm(v) {
   [0, 1, 2].forEach(i => $("temp" + i).value = v.temps[i]);
   $("outerVoicesOutward").checked = v.outerVoicesOutward; $("oneInstrumentPerOctave").checked = v.oneInstrumentPerOctave;
   $("sustainPedal").checked = v.sustainPedal;
+  $("otInstruments").value = INSTRUMENT_SETS[v.instruments] ? v.instruments : "Grand";
+  $("moodPreset").value = v.moodPreset || ""; $("presetRegisterMix").checked = v.presetRegisterMix !== false;
+  syncPresetUi();
 }
 function formValues() {
   const v = { biasesOn: $("biasesOn").checked, model: {}, hybridV1: {} };
   for (const f of MODEL_FLAGS) { v.model[f] = $("m_" + f).checked; v.hybridV1[f] = $("v_" + f).checked; }
   for (const f of MODEL_TAUS) { const x = $("m_" + f).value; if (x !== "") v.model[f] = parseFloat(x); }
+  for (const f of MODEL_TAUS) { const x = $("v_" + f).value; if (x !== "") v.hybridV1[f] = parseFloat(x); }
   v.td = $("td").value; v.startDelayMs = parseInt($("startDelayMs").value || "0"); v.orchestrationMode = $("orchMode").value;
   v.temps = [0, 1, 2].map(i => parseFloat($("temp" + i).value));
   v.outerVoicesOutward = $("outerVoicesOutward").checked; v.oneInstrumentPerOctave = $("oneInstrumentPerOctave").checked;
   v.sustainPedal = $("sustainPedal").checked;
+  v.instruments = $("otInstruments").value;
+  v.moodPreset = $("moodPreset").value; v.presetRegisterMix = $("presetRegisterMix").checked;
   return v;
 }
 function loadSettings() { applySettingsToForm(store.get("settings_" + $("system").value, null) || presetDefaults(sys())); }
@@ -208,7 +240,8 @@ $("generate").addEventListener("click", async () => {
   const settings = { logitAdjustments: { biasesOn: v.biasesOn, model: v.model, hybridV1: v.hybridV1 },
                      td: v.td === "auto" ? "auto" : parseInt(v.td), startDelayMs: v.startDelayMs, orchestrationMode: v.orchestrationMode,
                      outputTemperatures: v.temps, outerVoicesOutward: v.outerVoicesOutward, oneInstrumentPerOctave: v.oneInstrumentPerOctave,
-                     sustainPedal: v.sustainPedal };
+                     sustainPedal: v.sustainPedal, instruments: INSTRUMENT_SETS[v.instruments] || INSTRUMENT_SETS.Grand,
+                     moodPreset: v.moodPreset || "", presetRegisterMix: v.presetRegisterMix };
   const req = { sample: $("sample").value, system: $("system").value, mode: $("mode").value, settings,
                 prompt_s: parseFloat($("promptS").value), seconds: parseFloat($("seconds").value), tail_s: parseFloat($("tailS").value) };
   $("generate").disabled = true;
@@ -266,6 +299,10 @@ function layout() {
   ruler.innerHTML = `<div class="laneLabel">time (s)</div>`;
   const rc = document.createElement("canvas"); ruler.appendChild(rc); lanes.appendChild(ruler);
   sizeCanvas(rc, W, 20); drawRuler(rc, W);
+  layoutParams(lanes, W);
+  const th = document.createElement("div"); th.className = "paramHead";
+  th.innerHTML = `<div class="laneLabel">tracks</div><div class="note" style="padding:4px 10px">click a note for its draws</div>`;
+  lanes.appendChild(th);
   for (const t of RUN.tracks) {
     if (!t.notes.length && t.kind === "ot") continue;
     const lane = document.createElement("div"); lane.className = "lane";
@@ -302,6 +339,84 @@ function linked() {
 function drawAll() {
   const link = linked();
   for (const L of laneEls) drawLane(L, link);
+  for (const P of paramEls) drawParam(P);
+}
+
+// ------------------------------------------------------------------ live parameters (TD, gamma, tau, tau')
+const PARAM_COLORS = ["--accent", "--brass", "--strings", "--perc", "--other", "--rt", "--link"];
+let paramEls = [];
+function layoutParams(lanes, W) {
+  paramEls = [];
+  const groups = RUN.params || [];
+  const head = document.createElement("div"); head.className = "paramHead";
+  head.innerHTML = `<div class="laneLabel">live parameters</div><div class="note" style="padding:4px 10px">` +
+    (groups.length ? "hover a lane to read the values at that time" : "none in this run (runs from before Nov 26 have no τ log)") + `</div>`;
+  lanes.appendChild(head);
+  for (const grp of groups) {
+    const lane = document.createElement("div"); lane.className = "lane param";
+    const lines = grp.lines.map((ln, i) => ({ ...ln, color: PARAM_COLORS[i % PARAM_COLORS.length] }));
+    let lo = Infinity, hi = -Infinity;
+    for (const ln of lines) for (const [, v] of ln.points) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    if (grp.name === "TD") lo = Math.min(lo, 0);
+    if (grp.name.startsWith("Register mix:")) { lo = 0; hi = 1; }
+    if (hi - lo < 1e-6) { hi += 0.5; lo -= 0.5; }
+    const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+    const H = 78 + 14 * Math.max(0, lines.length - 3);
+    lane.innerHTML = `<div class="laneLabel"><b>${grp.name}</b>` +
+      lines.map(ln => `<span class="key"><i style="background:var(${ln.color})"></i>${ln.label}</span>`).join("") + `</div>`;
+    const c = document.createElement("canvas"); lane.appendChild(c); lanes.appendChild(lane);
+    sizeCanvas(c, W, H);
+    const P = { grp, lines, c, lo, hi, H, W };
+    paramEls.push(P);
+    c.addEventListener("mousemove", e => hoverParam(P, e));
+    c.addEventListener("mouseleave", () => $("tip").style.display = "none");
+    c.addEventListener("click", e => { const x = e.clientX - c.getBoundingClientRect().left; const was = playing; stop(); playPos = x / pxPerSec; setPlayhead(playPos); if (was) play(); });
+  }
+}
+const pyOf = (P, v) => 4 + (P.hi - v) / (P.hi - P.lo) * (P.H - 8);
+function valueAt(points, sec) {
+  // a step series: the latest point at or before sec
+  let v = null;
+  for (const [t, x] of points) { if (t > sec) break; v = x; }
+  return v;
+}
+function drawParam(P) {
+  const g = P.c.getContext("2d"), { W, H } = P;
+  g.clearRect(0, 0, W, H);
+  if (RUN.prompt_s) { g.fillStyle = css("--prompt"); g.fillRect(0, 0, RUN.prompt_s * pxPerSec, H); }
+  for (let s = 0; s <= RUN.duration + 1; s += 1) { g.fillStyle = css("--grid"); g.fillRect(s * pxPerSec, 0, 1, H); }
+  // the axis: top and bottom values, and 0 when it is in range
+  g.font = "10px -apple-system, sans-serif"; g.fillStyle = css("--muted");
+  const fmt = v => Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(2);
+  if (P.lo < 0 && P.hi > 0) { g.fillStyle = css("--grid2"); g.fillRect(0, pyOf(P, 0), W, 1); }
+  for (const ln of P.lines) {
+    const pts = ln.points; if (!pts.length) continue;
+    if (ln.label.includes("held")) { // markers only: the moments gamma was held
+      g.fillStyle = css(ln.color);
+      for (const [t, v] of pts) { g.beginPath(); g.arc(t * pxPerSec, pyOf(P, v), 5, 0, 2 * Math.PI); g.fill(); }
+      continue;
+    }
+    g.strokeStyle = css(ln.color); g.lineWidth = 1.6; g.beginPath();
+    let [t0, v0] = pts[0]; g.moveTo(t0 * pxPerSec, pyOf(P, v0));
+    for (let i = 1; i < pts.length; i++) {
+      const [t, v] = pts[i];
+      g.lineTo(t * pxPerSec, pyOf(P, v0)); g.lineTo(t * pxPerSec, pyOf(P, v)); v0 = v;
+    }
+    g.lineTo((RUN.duration + 1) * pxPerSec, pyOf(P, v0)); g.stroke();
+    g.fillStyle = css(ln.color);
+    for (const [t, v] of pts) g.fillRect(t * pxPerSec - 1.5, pyOf(P, v) - 1.5, 3, 3);
+  }
+  // axis labels last, on the left edge of the visible part
+  const left = $("lanesWrap").scrollLeft + 4;
+  g.fillStyle = css("--muted");
+  g.fillText(fmt(P.hi), left, 11); g.fillText(fmt(P.lo), left, H - 3);
+}
+function hoverParam(P, e) {
+  const rect = P.c.getBoundingClientRect(), sec = (e.clientX - rect.left) / pxPerSec;
+  const rows = P.lines.map(ln => { const v = valueAt(ln.points, sec); return `${ln.label}: <b>${v === null ? "–" : +v.toFixed(3)}</b>`; });
+  const tip = $("tip");
+  tip.innerHTML = `<div>${P.grp.name} at ${sec.toFixed(2)} s</div>` + rows.join("<br>");
+  tip.style.display = "block"; tip.style.left = (e.clientX + 12) + "px"; tip.style.top = (e.clientY + 12) + "px";
 }
 function drawLane(L, link) {
   const g = L.c.getContext("2d"), { W, H, t } = L;
@@ -386,7 +501,7 @@ function showDetail() {
 }
 
 // ------------------------------------------------------------------ audio
-let ctx = null, master = null, playing = false, playPos = 0, playStartCtx = 0, playStartPos = 0, raf = 0, sfCache = {};
+let ctx = null, master = null, sfOut = null, playing = false, playPos = 0, playStartCtx = 0, playStartPos = 0, raf = 0, sfCache = {};
 const FAMILY = i => i == null ? "piano" : i <= 3 || i === 6 ? "bowed" : i === 4 ? "trem" : i === 5 ? "pizz" : i <= 10 || i === 19 ? "wind" : i <= 14 ? "brass" : i === 15 ? "piano" : i <= 17 ? "perc" : "pluck";
 function synthNote(fam, when, dur, pitch, vel, dest) {
   const f = 440 * Math.pow(2, (pitch - 69) / 12), g = ctx.createGain(), o = ctx.createOscillator(), flt = ctx.createBiquadFilter();
@@ -408,7 +523,9 @@ async function soundfont(program) {
   if (!window.Soundfont) await new Promise((res, rej) => { const s = document.createElement("script"); s.src = "https://unpkg.com/soundfont-player@0.12.0/dist/soundfont-player.min.js"; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
   const names = { 0: "acoustic_grand_piano", 40: "violin", 41: "viola", 42: "cello", 43: "contrabass", 44: "tremolo_strings", 45: "pizzicato_strings", 48: "string_ensemble_1", 73: "flute", 68: "oboe", 71: "clarinet", 70: "bassoon", 56: "trumpet", 60: "french_horn", 57: "trombone", 58: "tuba", 47: "timpani", 116: "taiko_drum", 25: "acoustic_guitar_steel", 52: "choir_aahs" };
   const key = names[program] || "acoustic_grand_piano";
-  if (!sfCache[key]) sfCache[key] = Soundfont.instrument(ctx, key, { soundfont: "MusyngKite", destination: master });
+  // the instruments are cached, so they play into sfOut (kept), which each play routes to its own master
+  if (!sfCache[key]) sfCache[key] = Soundfont.instrument(ctx, key, { soundfont: "MusyngKite", destination: sfOut })
+    .catch(e => { delete sfCache[key]; throw e; });
   return sfCache[key];
 }
 async function play() {
@@ -417,17 +534,25 @@ async function play() {
   ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
   await ctx.resume();
   master = ctx.createGain(); master.gain.value = 0.8; master.connect(ctx.destination);
+  if (!sfOut) sfOut = ctx.createGain();
+  sfOut.disconnect(); sfOut.connect(master);
   const listen = $("listen").value, withPiano = $("listenPiano").checked, useSf = $("sf").checked;
   const tracks = RUN.tracks.filter(t => (t.kind === "piano" && withPiano) || t.kind === listen);
   const from = playPos >= RUN.duration ? 0 : playPos;
   $("play").textContent = "■ Stop"; playing = true;
-  const startAt = ctx.currentTime + (useSf ? 0.6 : 0.1);
   let players = {};
   if (useSf) {
-    try { for (const t of tracks) players[t.key] = await soundfont(t.kind === "ot" ? t.program : 0); }
-    catch (e) { status("could not load the soundfonts (offline?): using the built-in synth", true); players = {}; }
+    // load every instrument at once, then start: the start time is set after loading (set before, a first play
+    // that waited ~7 s for the samples scheduled every note in the past and was silent or a burst)
+    status("loading the instrument sounds…");
+    try {
+      const loaded = await Promise.all(tracks.map(t => soundfont(t.kind === "ot" ? t.program : 0)));
+      tracks.forEach((t, i) => players[t.key] = loaded[i]);
+      status("instrument sounds loaded");
+    } catch (e) { status("could not load the instrument sounds (offline?): using the built-in synth", true); players = {}; }
   }
   if (!playing) return;
+  const startAt = ctx.currentTime + 0.15;
   for (const t of tracks) {
     const fam = t.kind === "ot" ? FAMILY(t.instrument) : "piano";
     for (const n of t.notes) {
@@ -465,6 +590,7 @@ function setPlayhead(sec, follow) {
 }
 $("play").addEventListener("click", play);
 document.addEventListener("keydown", e => { if (e.code === "Space" && !/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) { e.preventDefault(); play(); } });
+$("lanesWrap").addEventListener("scroll", () => { if (RUN) for (const P of paramEls) drawParam(P); });
 $("lanesWrap").addEventListener("dblclick", e => {
   // double-click a lane: move the playhead there
   const rect = $("lanes").getBoundingClientRect(), x = e.clientX - rect.left - LABEL_W();

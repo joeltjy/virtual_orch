@@ -1,5 +1,9 @@
 #pragma once
 
+#include "VirtualOrch/reduction/ForcedChordNote.h"
+
+#include "VirtualOrch/reduction/LiveTaus.h"
+
 #include <array>
 #include <chrono>
 #include <climits>
@@ -14,6 +18,7 @@
 
 #include "VirtualOrch/reduction/DenseDurationBias.h"
 #include "VirtualOrch/reduction/DenseOnsetGapBias.h"
+#include "VirtualOrch/RegisterMix.h"
 #include "VirtualOrch/OpLogDraw.h"
 #include "VirtualOrch/reduction/DensePitchBias.h"
 #include "VirtualOrch/reduction/StreamingKvCache.h"
@@ -172,6 +177,9 @@ public:
         /** A chord's next note: at least the previous pitch (true), or any (false). At most maxChordNotes. */
         bool ascendingChords = true;
         int32_t maxChordNotes = 10;
+        /** A stacked chord note whose allowed pitches hold less than this share of the model's own pitch
+         *  distribution is not drawn: the chord ends (ForcedChordNote.h). 0 = off. */
+        float minChordNoteShare = ForcedChordNote::kDefaultMinShare;
         /** Line A: a legato fill whose start is more than this in the past is skipped (the engine is behind). */
         int32_t lagGuardCs = 10;
         /** Context window: past `maxTokens` the oldest events go (re-based to onset 0), down to `keepTokens`. */
@@ -218,6 +226,8 @@ public:
          * WAIT / COUNT logits are never touched.
          */
         bool pitchBias = false;
+        /** The mood preset's register mix (RegisterMix): shares below C3 / C3-C5 / above C5; empty = off. */
+        std::optional<RegisterMix::Mix> registerMix;
         bool durationBias = false;
         bool onsetGapBias = false;
         bool shortGap = false;
@@ -246,6 +256,7 @@ public:
     };
 
     struct Stats {
+        int forcedChordNoteDrops = 0; // stacked chord notes the model did not want: chord ended
         int orchestraNotes = 0;
         int pianoGroups = 0;
         int waitsDrawn = 0;       // model-drawn WAITs
@@ -313,6 +324,8 @@ public:
      * one anticipation call). Returns the orchestra notes to play (several at a fire).
      */
     auto step(int32_t stepNowCs) -> std::vector<OutNote>;
+    /** The bias strengths of the latest draw (RT_DRAW "taus"). */
+    [[nodiscard]] auto liveTaus() const -> const LiveTaus & { return liveTausValue; }
     /** Hybrid, the model that is not drawing: apply input (piano groups, note-offs, mirrored notes) and nothing else. */
     auto absorb(int32_t stepNowCs) -> void;
     /** Hybrid: a note the OTHER model generated joins this context (applied in onset order at the next step). */
@@ -477,7 +490,11 @@ private:
                         DensePitchBias::PitchTauScheduler &scheduler) const -> void;
     /** A precomputed branch's notes committed at a fire: the τ schedulers count them, as a decoded fire's. */
     auto countCommittedForBias(int32_t onsetCs, int notes) -> void;
+    mutable LiveTaus liveTausValue;
     DensePitchBias::PitchTauScheduler pitchScheduler;
+    RegisterMix::Controller registerMixCtl;
+    /** The register mix on orchestra pitch logits (cfg.registerMix), from the committed history. */
+    auto applyRegisterMix(std::vector<float> &logits, const std::vector<int32_t> &history) -> void;
     DenseDurationBias::DurationTauScheduler durationScheduler;
     double sensitivitySum = 0.0;
     int sensitivityDraws = 0;
@@ -497,6 +514,7 @@ private:
     auto takeAfter(int32_t onsetCs) -> std::vector<Item>;
     auto drawEvent() -> std::vector<OutNote>;
     auto drawBody(int32_t onsetCs, int32_t minPitch) -> std::optional<OutNote>;
+    bool drewForcedChordNote = false; // drawBody: a stacked chord note under minChordNoteShare
     auto fire(const PianoNote &head) -> std::vector<OutNote>;
     auto expire() -> std::vector<OutNote>;
     auto noteAt(int32_t onsetCs) -> std::vector<OutNote>;

@@ -100,7 +100,8 @@ auto applyNoteLogitsBias(std::vector<float> &logits,
  * Strength of the pitch / interval bias over time (independent clocks):
  * - τ: after S *gains* a pitch → hold base for min(2 s, 10 notes), then
  *   base · 2^(notes/10).
- * - τ′: after the window *gains* an in-range pitch interval Δ → same hold/ramp.
+ * - τ′: after the window *gains* an in-range pitch interval Δ → halved (10 notes back on the ramp; under
+ *   10 notes, the hold: base).
  * Shrinkage alone (pitches / intervals leaving) does not reset.
  * Empty S / D snaps back to base.
  */

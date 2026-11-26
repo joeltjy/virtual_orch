@@ -200,15 +200,18 @@ auto PitchTauScheduler::evaluate(int32_t nowCs,
             ++sNotesSinceReset;
     }
 
-    // τ′: empty D → base. Else reset when a new in-range interval enters.
+    // τ′: empty D → base. Else a new in-range interval halves τ′ (Nov 26 2026: it went back to base, so a
+    // repeated interval pattern with an occasional variation, -7 +6 with one -8, never ramped): 10 notes back
+    // on the ramp (base · 2^(n/10)); below 10 notes the hold applies again, so it is base.
     if (uniqueDeltas.empty()) {
         lastDeltas.clear();
         hasDeltas = false;
         deltaNotesSinceReset = 0;
     } else if (gainedElement(hasDeltas, lastDeltas, uniqueDeltas)) {
+        const int kept = hasDeltas ? std::max(0, deltaNotesSinceReset - TauHoldNotes) : 0;
         lastDeltas = uniqueDeltas;
         deltaStableSinceCs = nowCs;
-        deltaNotesSinceReset = countNote ? 1 : 0;
+        deltaNotesSinceReset = kept + (countNote ? 1 : 0);
         hasDeltas = true;
     } else {
         lastDeltas = uniqueDeltas;

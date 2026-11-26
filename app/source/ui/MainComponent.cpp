@@ -38,6 +38,8 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     session.presetStore.setLogitAdjustmentsProvider([this] { return session.logitAdjustmentsToVar(); });
     session.presetStore.setReductionTypeProvider([this]() -> juce::String {
         switch (reductionTypeList.getSelectedId()) {
+            case 13:
+                return "hybridGroup";
             case 12:
                 return "hybridChordToken";
             case 11:
@@ -532,6 +534,7 @@ MainComponent::MainComponent(AppSession &sessionIn) : session(sessionIn) {
     reductionTypeList.addItem("Informative WAIT (model 2: unconstrained / line A / line B)", 9);
     reductionTypeList.addItem("Hybrid v1.1 (model 1 silent / informative WAIT playing)", 10);
     reductionTypeList.addItem("Hybrid v1.2 (model 1 silent / chord-token model 2 playing)", 12);
+    reductionTypeList.addItem("Hybrid v1.4 (group tokens: m1_v4 silent / m2_v4 playing)", 13);
     reductionTypeList.addItem("Hybrid v1.3 (event models: m1e silent / m2e playing)", 11);
     reductionTypeList.setSelectedId(10, juce::dontSendNotification); // Hybrid v1.1
     reductionTypeList.onChange = [this] {
@@ -1083,7 +1086,9 @@ void MainComponent::loadPresetFromName(const juce::String &presetName) {
     const juce::String reductionKey =
         preset.getProperty("reduction", checkpoint->isDense ? "v1" : "amt").toString().toLowerCase();
     int desiredReductionId = 1;
-    if (reductionKey == "hybridchordtoken")
+    if (reductionKey == "hybridgroup")
+        desiredReductionId = 13;
+    else if (reductionKey == "hybridchordtoken")
         desiredReductionId = 12;
     else if (reductionKey == "hybridevent")
         desiredReductionId = 11;
@@ -1275,6 +1280,9 @@ auto MainComponent::selectPreferredCheckpointForCurrentReduction() -> bool {
             break;
         case 12: // Hybrid v1.2
             preferred = "hybrid_v12";
+            break;
+        case 13: // Hybrid v1.4
+            preferred = "hybrid_v14";
             break;
         case 11: // Hybrid v1.3
             preferred = "hybrid_v13";
@@ -1483,6 +1491,44 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
                     return;
                 }
                 SessionLog::add("HYBRID12", "loaded " + modelName);
+            } else if (reductionId == 13) {
+                session.setMusicModelArch(MusicModelArch::DenseHybridGroup);
+                // "onnx" = model 2 (piano playing), "silentOnnx" = model 1 (piano silent)
+                juce::String silentStem = parsedJson.getProperty("silentOnnx", {}).toString().trim();
+                if (silentStem.endsWithIgnoreCase(".onnx"))
+                    silentStem = silentStem.dropLastCharacters(5);
+                const auto silentFile = silentStem.isNotEmpty() ? modelsDir().getChildFile(silentStem + ".onnx") : juce::File();
+                auto &hy = session.reductionTransformerHybridGroup;
+                hy.setWaitMode(static_cast<GroupTokenEngine::Mode>(InformativeWaitReductionTransformer::modeFromName(
+                    parsedJson.getProperty("iwMode", "unconstrained").toString())));
+                hy.setPrecompute(static_cast<bool>(parsedJson.getProperty("precompute", true)));
+                hy.setMinWaitCs(static_cast<int32_t>(parsedJson.getProperty("minWaitCs", 0)));
+                hy.setShortWaitRedraw(static_cast<bool>(parsedJson.getProperty("shortWaitRedraw", false)));
+                // model 2's start delay (default 3000 ms)
+                hy.setStartDelayMs(static_cast<int32_t>(parsedJson.getProperty("startDelayMs", 3000)));
+                // v1.4: the voicing bank v4 the OT / playback decode groups with (voicing_bank_v4.json). An absolute
+                // path, or a file name looked up next to the ONNX exports, then next to the JSON.
+                hy.setVoicingBank(nullptr);
+                const juce::String bankPath = parsedJson.getProperty("voicingBank", {}).toString().trim();
+                if (bankPath.isNotEmpty()) {
+                    juce::File bank = juce::File::isAbsolutePath(bankPath) ? juce::File(bankPath) : modelsDir().getChildFile(bankPath);
+                    if (! bank.existsAsFile() && ! juce::File::isAbsolutePath(bankPath))
+                        bank = checkpoint->jsonFile.getSiblingFile(bankPath);
+                    if (! bank.existsAsFile() && juce::File::isAbsolutePath(bankPath))
+                        bank = modelsDir().getChildFile(juce::File(bankPath).getFileName()); // another machine's path
+                    hy.loadVoicingBank(bank.getFullPathName().toStdString());
+                }
+                if (! silentFile.existsAsFile()
+                    || ! hy.init(silentFile.getFullPathName().toRawUTF8(), modelPathStr.toRawUTF8())) {
+                    juce::AlertWindow::showMessageBoxAsync(
+                        juce::AlertWindow::WarningIcon, "Error",
+                        "Failed to load '" + modelName + "' for Hybrid v1.4: it needs m1_v4's export ('" + silentStem
+                            + "', vocab 12096) and m2_v4's export (vocab 12239) in virtual_orch_models. "
+                            + juce::String(hy.lastInitError));
+                    checkpointList.setSelectedId(0, juce::dontSendNotification);
+                    return;
+                }
+                SessionLog::add("HYBRID14", "loaded " + modelName);
             } else if (reductionId == 10) {
                 session.setMusicModelArch(MusicModelArch::DenseHybridInformativeWait);
                 // "onnx" = model 2 (piano playing), "silentOnnx" = model 1 (piano silent)

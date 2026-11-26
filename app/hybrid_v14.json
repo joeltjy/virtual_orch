@@ -1,0 +1,16 @@
+{
+  "arch": "dense",
+  "contextNotes": 40,
+  "outputInstruments": [
+    1
+  ],
+  "defaultPreset": {},
+  "onnx": "rt_simultaneous_chordal",
+  "silentOnnx": "rt_continuation_chordal",
+  "reductionType": 13,
+  "iwMode": "unconstrained",
+  "precompute": true,
+  "voicingBank": "voicing_bank_v4.json",
+  "startDelayMs": 3000,
+  "notes": "Hybrid v1.4 (2026-11-26): the v1.4 group-token models (orchestration docs/model_specs/v14_group_tokens.txt). Model 1 = m1_v4 (rt_continuation_chordal.onnx = ovn_m1v4_r1 best step 6000, vocab 12096) while the piano is silent; model 2 = m2_v4 (rt_simultaneous_chordal.onnx = ovn_m2v4_r1 best step 4500, vocab 12239) while it plays; v1.2's switching rules. A group of orchestra notes is [onset][dur][BASS][SHAPE x N][vel]; the WAIT block is [SDUR][BASS][SHAPE x N][SVEL] (or [SDUR][PITCH][SVEL] when k = 1). Groups go to the OT / playback as one chord token, decoded there with voicing_bank_v4.json (in virtual_orch_models). Model 2 draws nothing for the first startDelayMs."
+}

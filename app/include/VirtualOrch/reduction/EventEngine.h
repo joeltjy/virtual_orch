@@ -1,5 +1,7 @@
 #pragma once
 
+#include "VirtualOrch/reduction/LiveTaus.h"
+
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -9,6 +11,7 @@
 #include <vector>
 
 #include "VirtualOrch/OpLogDraw.h"
+#include "VirtualOrch/RegisterMix.h"
 #include "VirtualOrch/reduction/DensePitchBias.h"
 #include "VirtualOrch/reduction/StreamingKvCache.h"
 #include "VirtualOrch/reduction/VoicingBank.h"
@@ -95,6 +98,8 @@ public:
          * The event models have no duration token: no duration bias.
          */
         bool pitchBias = false;
+        /** The mood preset's register mix (RegisterMix): shares below C3 / C3-C5 / above C5; empty = off. */
+        std::optional<RegisterMix::Mix> registerMix;
         bool onsetGapBias = false;
         float pitchTau = DensePitchBias::TauBase;
         float pitchTauPrime = DensePitchBias::TauBase;
@@ -184,6 +189,8 @@ public:
 
     /** Draw / commit at clock `nowCs`: the orchestra events that start now. */
     auto step(int32_t nowCs) -> std::vector<Out>;
+    /** The bias strengths of the latest draw (RT_DRAW "taus"). */
+    [[nodiscard]] auto liveTaus() const -> const LiveTaus & { return liveTausValue; }
 
     /** The context as model tokens (times relative to the base). */
     [[nodiscard]] auto tokens() const -> std::vector<int32_t>;
@@ -277,5 +284,9 @@ private:
     std::optional<Fire> fire;
     std::vector<Stack> stacks;
     Stats st;
+    LiveTaus liveTausValue;
     DensePitchBias::PitchTauScheduler pitchScheduler;
+    RegisterMix::Controller registerMixCtl;
+    /** The register mix on orchestra pitch logits (cfg.registerMix), from the committed history. */
+    auto applyRegisterMix(std::vector<float> &logits, const std::vector<int32_t> &history) -> void;
 };

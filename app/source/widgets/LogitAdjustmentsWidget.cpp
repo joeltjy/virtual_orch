@@ -1,3 +1,4 @@
+#include "VirtualOrch/RegisterMix.h"
 #include "VirtualOrch/widgets/LogitAdjustmentsWidget.h"
 
 #include "VirtualOrch/BiasSettings.h"
@@ -60,7 +61,7 @@ LogitAdjustmentsWidget::LogitAdjustmentsWidget(AppSession &sessionIn)
     hybridSideToggle.onClick = [this] { refreshFromSession(); };
     styleLive(statusLabel);
 
-    for (auto *toggle: {&biasesOnToggle, &biasGateToggle, &logitTdToggle, &shortGapToggle, &pitchToggle, &durationToggle,
+    for (auto *toggle: {&biasesOnToggle, &biasGateToggle, &presetMixToggle, &logitTdToggle, &shortGapToggle, &pitchToggle, &durationToggle,
                         &onsetGapToggle, &proportionToggle}) {
         content.addAndMakeVisible(*toggle);
         toggle->setClickingTogglesState(true);
@@ -143,6 +144,10 @@ LogitAdjustmentsWidget::LogitAdjustmentsWidget(AppSession &sessionIn)
         if (! ignoreToggleCallbacks)
             BiasSettings::setOnlyWhenPianoSilent(biasGateToggle.getToggleState());
     };
+    presetMixToggle.onClick = [this] {
+        if (! ignoreToggleCallbacks)
+            RegisterMix::Target::setPresetsUseMix(presetMixToggle.getToggleState()); // takes effect at the next preset
+    };
     logitTdToggle.onClick = [this] {
         if (ignoreToggleCallbacks)
             return;
@@ -197,6 +202,8 @@ auto LogitAdjustmentsWidget::resized() -> void {
     biasesOnToggle.setBounds(area.removeFromTop(kRowH));
     area.removeFromTop(kGap);
     biasGateToggle.setBounds(area.removeFromTop(kRowH).withTrimmedLeft(18));
+    area.removeFromTop(kGap);
+    presetMixToggle.setBounds(area.removeFromTop(kRowH));
     area.removeFromTop(kGap);
     logitTdToggle.setBounds(area.removeFromTop(kRowH));
     area.removeFromTop(kGap);
@@ -253,6 +260,7 @@ auto LogitAdjustmentsWidget::syncRtBiasTogglesFromModels() -> void {
     biasesOnToggle.setToggleState(BiasSettings::enabled(), juce::dontSendNotification);
     biasGateToggle.setToggleState(BiasSettings::onlyWhenPianoSilent(), juce::dontSendNotification);
     biasGateToggle.setEnabled(BiasSettings::enabled());
+    presetMixToggle.setToggleState(RegisterMix::Target::presetsUseMix(), juce::dontSendNotification);
     auto *model = anticipatedModel();
     const bool v1 = showsHybridV1();
     hybridSideToggle.setVisible(model != nullptr && model->hasSilentSide());
@@ -377,6 +385,8 @@ auto LogitAdjustmentsWidget::anticipatedModel() const -> RtLogitAdjustments * {
             return &session.reductionTransformerHybridIW;
         case MusicModelArch::DenseHybridChordToken:
             return &session.reductionTransformerHybridChord;
+        case MusicModelArch::DenseHybridGroup:
+            return &session.reductionTransformerHybridGroup;
         default:
             return nullptr;
     }

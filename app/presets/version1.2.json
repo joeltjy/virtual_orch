@@ -84,9 +84,13 @@
     "hybridV1": {
       "pitchBias": true,
       "durationBias": true,
-      "onsetGapBias": true,
+      "onsetGapBias": false,
       "shortGapPenalty": true,
-      "logitTd": true
+      "logitTd": true,
+      "pitchTau": 0.2,
+      "pitchTauPrime": 0.2,
+      "durationTau": 0.1,
+      "durationTauPrime": 0.0
     }
   }
 }

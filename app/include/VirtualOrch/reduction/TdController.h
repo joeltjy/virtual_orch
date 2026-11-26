@@ -15,7 +15,9 @@
  *
  * Every tick (kTickMs):
  *   e     = clamp(log2(target / measured), -kMaxError, kMaxError)       (TD steps)
- *   gamma = gamma + clamp(K e, -kMaxStep, kMaxStepUp),
+ *   gamma = gamma + clamp(K e, -kMaxStep, kMaxStepUp),   or, far over the target (e <= -1),
+ *   gamma = gamma - min(kMaxStepFar, max(-K e, kFarGain m |e|)),   and far under it (e >= 1)
+ *   gamma = gamma + min(kMaxStepUp, max(K e, kFarGain m e)),
  *            K = (kTickMs / kTauMs) / max(S, kMinSensitivity) x N / (N + kNoiseN) x m
  *
  *  - measured: the orchestra's onsets in the 3 s ending at its newest generated note, in TD units
@@ -47,6 +49,26 @@ public:
     static constexpr double kTauMs = 20000.0; // gain per update kTickMs / kTauMs = 0.1, as before
     /** The largest DECREASE of gamma in one update (thinning out stays slow: the Nov 23 burst, below). */
     static constexpr double kMaxStep = 0.25;
+    /**
+     * Far over the target (measured at least 2x the target, error <= kFarError), gamma drops faster (Nov 26 2026):
+     * by at least kFarGain x |error| and up to kMaxStepFar per update. At 0.25 per 2 s a model that fell into a
+     * repeated 13 cs chord at TD 2 (measured 16) took 10 s to get gamma to -1.3 (sample viewer, Solemn).
+     * The mirror far UNDER the target (error >= 1): gamma rises by at least kFarGain x error. With the stronger
+     * negative gamma (TdOnsetBias::kernelFor) a burst was pulled back, then the model sat near silent for 5-8 s
+     * while gamma crept up from -2 by ~0.03 an update.
+     */
+    static constexpr double kFarError = -1.0;
+    /**
+     * Tremolo first (Nov 26 2026): when the orchestra falls far UNDER the target (measured at most half of it,
+     * error >= kTremoloFirstError) after not being so, gamma is held for kTremoloFirstMs (one update) so the OT's
+     * tremolo bonus (TremoloBiasController, which rises whenever the measured TD is below the target) acts
+     * first; then gamma moves as usual. Only above TD 4, where the tremolo bonus works. Logged as why
+     * "tremolo first".
+     */
+    static constexpr double kTremoloFirstError = 1.0;
+    static constexpr double kTremoloFirstMs = 2000.0;
+    static constexpr double kFarGain = 0.5;
+    static constexpr double kMaxStepFar = 1.0;
     /**
      * The largest INCREASE of gamma in one update. At 0.25 per 2 s, TD 16 (gamma ~2-5 for model 1 in the Nov 25 2026
      * sweep) took 16-40 s of uninterrupted drawing; the pedal reset it every few seconds.
@@ -117,6 +139,8 @@ public:
             lastCheckError.reset();
             lastUpdateError.reset();
             signChanged = false;
+            wasFarUnder = false;
+            tremoloFirstTicks = 0;
         }
         state.target = in.target;
         state.measured = in.measured.value_or(0.0);
@@ -140,6 +164,14 @@ public:
             return freeze("waiting");
         if (! in.sensitivity.has_value())
             return freeze("not drawing");
+        const bool farUnder = in.target > 4 && state.error >= kTremoloFirstError;
+        if (farUnder && ! wasFarUnder)
+            tremoloFirstTicks = static_cast<int>(std::ceil(kTremoloFirstMs / kTickMs));
+        wasFarUnder = farUnder;
+        if (tremoloFirstTicks > 0) {
+            --tremoloFirstTicks;
+            return freeze("tremolo first");
+        }
         state.frozen = false;
 
         const double n = 1.5 * target;
@@ -148,7 +180,13 @@ public:
             return state;
         }
         state.k = (kTickMs / kTauMs) / std::max(state.sensitivity, kMinSensitivity) * n / (n + kNoiseN) * state.m;
-        const double next = state.gamma + std::clamp(state.k * state.error, -kMaxStep, kMaxStepUp);
+        double step = std::clamp(state.k * state.error, -kMaxStep, kMaxStepUp);
+        // far from the target: at least kFarGain x |e|, scaled by m like K, so the overshoot rule can still damp it
+        if (state.error <= kFarError)
+            step = -std::min(kMaxStepFar, std::max(-state.k * state.error, kFarGain * state.m * -state.error));
+        else if (state.error >= -kFarError) // far under (measured at most half the target): the mirror, up to kMaxStepUp
+            step = std::min(kMaxStepUp, std::max(state.k * state.error, kFarGain * state.m * state.error));
+        const double next = state.gamma + step;
         if ((state.gamma >= kMaxGamma && state.error > 0) || (state.gamma <= kMinGamma && state.error < 0)) {
             state.why = "at limit"; // no further into the limit
         } else {
@@ -204,5 +242,7 @@ private:
     std::optional<double> lastCheckError;
     std::optional<double> lastUpdateError;
     bool signChanged = false;
+    bool wasFarUnder = false;   // the last active update was far under the target (tremolo first)
+    int tremoloFirstTicks = 0;  // updates left to hold gamma for the tremolo bonus
     int32_t lastLevel = TemporalDensity::kAuto; // the last TD level warm-started (AUTO and back keeps gamma)
 };

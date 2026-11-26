@@ -1,4 +1,5 @@
 #include "VirtualOrch/OrchestrationTransformer.h"
+#include "VirtualOrch/reduction/GroupChord.h"
 #include "VirtualOrch/TemporalDensity.h"
 #include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/AppTime.h"
@@ -552,7 +553,7 @@ auto OrchestrationTransformer::tickTremoloBias() -> void {
     tremoloBiasValue.store(static_cast<float>(bonus));
     if (orchestrationModel != nullptr)
         orchestrationModel->setTremoloBias(static_cast<float>(bonus));
-    if (OpLog::on() && target != TemporalDensity::kAuto)
+    if (OpLog::on()) // td 0 = AUTO (no target)
         OpLog::emit(OpLog::Src::Ot, "OT_TD",
                     {{"td", target}, {"measured", reading.has_value() ? reading->td : -1.0},
                      {"events", reading.has_value() ? reading->events : 0.0},
@@ -626,6 +627,8 @@ auto OrchestrationTransformer::stepOnce() -> void {
         midiUpdate = drainIncoming(midiInputIncoming);
         conditioningUpdate = drainIncoming(conditioningIncoming);
         reductionUpdate = drainIncoming(reductionIncoming);
+        // Hybrid v1.4: a chord token (a group not decoded in the RT) becomes its notes here (GroupChord::expand)
+        reductionUpdate = GroupChord::expandAll(reductionUpdate);
     }
     applyVoiceRestamps(reductionUpdate);
     const bool logging = OpLog::on();

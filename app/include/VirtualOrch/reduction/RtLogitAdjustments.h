@@ -15,10 +15,14 @@
  *    pitch, duration and onset-gap biases with their tau, the short-gap penalty, LogitTD; all OFF
  *    by default. The global BiasSettings switch and silence gate apply to the three biases.
  *  - A hybrid's silent side (v1 / model 1): its own switches, hybridV1*, all ON by default, with
- *    the base taus.
+ *    its own taus (hybridV1*Tau*, the base values by default).
  */
 class RtLogitAdjustments {
 public:
+    /** The duration bias (both hybrid models) only below this TD (Nov 26 2026); AUTO (0) keeps it. */
+    static constexpr int32_t kDurationBiasBelowTd = 16;
+    [[nodiscard]] static auto durationBiasAtTd(int32_t td) -> bool { return td < kDurationBiasBelowTd; }
+
     static constexpr float kDefaultWaitMinPlay = 0.30f;
 
     virtual ~RtLogitAdjustments() = default;
@@ -60,6 +64,12 @@ public:
     std::atomic<bool> hybridV1OnsetGapBias{true};
     std::atomic<bool> hybridV1ShortGapPenalty{true};
     std::atomic<bool> hybridV1LogitTd{true};
+    /** Its tau / tau' (Nov 26 2026; before, always the base values): presets' "hybridV1" pitchTau, ... */
+    std::atomic<float> hybridV1PitchTau{DensePitchBias::TauBase};
+    std::atomic<float> hybridV1PitchTauPrime{DensePitchBias::TauBase};
+    std::atomic<float> hybridV1DurationTau{DenseDurationBias::TauBase};
+    std::atomic<float> hybridV1DurationTauPrime{DenseDurationBias::TauPrimeBase};
+    std::atomic<float> hybridV1OnsetGapTau{DenseOnsetGapBias::TauBase};
 
 protected:
     std::atomic<bool> pitchBiasEnabled{false};

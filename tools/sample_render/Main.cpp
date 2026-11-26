@@ -3,7 +3,7 @@
 // The sample viewer (tools/sample_viewer) runs it on every Generate and reads the RT notes, the OT notes, the
 // MIDI out and every draw's top 10 from the oplog.
 //
-//   sample_render --app APP_DIR --system v1.1|v1.2|v1.2_r4|v1.3 --input piano.mid --oplog out.jsonl.gz
+//   sample_render --app APP_DIR --system v1.1|v1.2|v1.2_r4|v1.3|v1.4 --input piano.mid --oplog out.jsonl.gz
 //                 [--models DIR] [--mode simultaneous|continuation] [--prompt-s 5] [--seconds 15]
 //                 [--tail-s 3] [--settings settings.json]
 //
@@ -11,11 +11,13 @@
 // --models: the ONNX folder (default ~/Documents/virtual_orch_models, as the app).
 // simultaneous: the whole input is played; the run ends --tail-s after its last note.
 // continuation: only the notes that start in the first --prompt-s are played (cut at --prompt-s), then the piano is
-//   silent for --seconds: the hybrid's model 1 (piano-silent side) continues. Model 2 is kept off (its start delay
+//   silent for --seconds: the hybrid's model 1 (piano-silent side) continues from the cut (it draws nothing before
+//   it: setSilentStartDelayMs). Model 2 is kept off (its start delay
 //   is set past the end), so everything the orchestra plays is model 1's.
 // --settings (JSON, all optional): {"logitAdjustments": {...preset format...}, "td": 1..64 | "auto",
 //   "outputTemperatures": [a, b, c], "startDelayMs": n, "orchestrationMode": "jam" | "accompaniment",
-//   "outerVoicesOutward": bool, "oneInstrumentPerOctave": bool, "sustainPedal": bool (send the file's CC64:
+//   "instruments": [OT instrument ids] (default: the Grand preset's), "moodPreset": "Solemn" ... (instruments, TD,
+//   register; overrides "td" and "instruments"), "presetRegisterMix": bool (the preset sets AUTO + its register mix), "outerVoicesOutward": bool, "oneInstrumentPerOctave": bool, "sustainPedal": bool (send the file's CC64:
 //   the app reads the pianos' pedal as its pause pedal; default false)}
 //
 // Progress goes to stdout (unbuffered). Exit 0 when the oplog was written.
@@ -23,6 +25,8 @@
 #include <JuceHeader.h>
 
 #include "VirtualOrch/AppSession.h"
+#include "VirtualOrch/MoodPresets.h"
+#include "VirtualOrch/RegisterMix.h"
 #include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/SessionLog.h"
 #include "VirtualOrch/TemporalDensity.h"
@@ -223,11 +227,29 @@ int main(int argc, char **argv) {
     const int32_t runMs = static_cast<int32_t>((continuation ? promptS + seconds : 0.0) * 1000.0);
     const int32_t startDelay = continuation ? runMs + 60000
                                             : static_cast<int32_t>(settings.getProperty("startDelayMs", config.getProperty("startDelayMs", 3000)));
+    // continuation: model 1 listens to the prompt and plays from the cut
+    const int32_t silentDelay = continuation ? static_cast<int32_t>(promptS * 1000.0) : 0;
     std::printf("system %s (type %d): %s + %s\n", system.toRawUTF8(), type, silentFile.getFileName().toRawUTF8(),
                 modelFile.getFileName().toRawUTF8());
     if (! modelFile.existsAsFile() || ! silentFile.existsAsFile())
         fail("model files missing in " + models.getFullPathName());
-    if (type == 12) {
+    if (type == 13) {
+        s.setMusicModelArch(MusicModelArch::DenseHybridGroup);
+        auto &hy = s.reductionTransformerHybridGroup;
+        hy.setWaitMode(static_cast<GroupTokenEngine::Mode>(
+            InformativeWaitReductionTransformer::modeFromName(config.getProperty("iwMode", "unconstrained").toString())));
+        hy.setPrecompute(static_cast<bool>(config.getProperty("precompute", true)));
+        hy.setMinWaitCs(static_cast<int32_t>(config.getProperty("minWaitCs", 0)));
+        hy.setShortWaitRedraw(static_cast<bool>(config.getProperty("shortWaitRedraw", false)));
+        hy.setStartDelayMs(startDelay);
+        hy.setSilentStartDelayMs(silentDelay);
+        hy.setDecodeGroupsAtRt(true); // for now: groups decoded at the RT, the OT gets their notes
+        hy.setVoicingBank(nullptr);
+        if (bank != juce::File())
+            hy.loadVoicingBank(bank.getFullPathName().toStdString());
+        if (! hy.init(silentFile.getFullPathName().toRawUTF8(), modelFile.getFullPathName().toRawUTF8()))
+            fail("v1.4 init: " + juce::String(hy.lastInitError));
+    } else if (type == 12) {
         s.setMusicModelArch(MusicModelArch::DenseHybridChordToken);
         auto &hy = s.reductionTransformerHybridChord;
         hy.setWaitMode(static_cast<ChordTokenEngine::Mode>(
@@ -236,6 +258,7 @@ int main(int argc, char **argv) {
         hy.setMinWaitCs(static_cast<int32_t>(config.getProperty("minWaitCs", 0)));
         hy.setShortWaitRedraw(static_cast<bool>(config.getProperty("shortWaitRedraw", false)));
         hy.setStartDelayMs(startDelay);
+        hy.setSilentStartDelayMs(silentDelay);
         hy.setVoicingBank(nullptr);
         if (bank != juce::File())
             hy.loadVoicingBank(bank.getFullPathName().toStdString());
@@ -245,6 +268,7 @@ int main(int argc, char **argv) {
         s.setMusicModelArch(MusicModelArch::DenseHybridEvent);
         auto &hy = s.reductionTransformerHybridEvent;
         hy.setStartDelayMs(startDelay);
+        hy.setSilentStartDelayMs(silentDelay);
         hy.setForceAfterMs(static_cast<int32_t>(config.getProperty("forceAfterMs", 2000)));
         hy.setVoicingBank(nullptr);
         if (bank != juce::File())
@@ -258,12 +282,13 @@ int main(int argc, char **argv) {
         hy.setPrecompute(static_cast<bool>(config.getProperty("precompute", true)));
         hy.setMinWaitCs(static_cast<int32_t>(config.getProperty("minWaitCs", 0)));
         hy.setShortWaitRedraw(static_cast<bool>(config.getProperty("shortWaitRedraw", false)));
+        hy.setSilentStartDelayMs(silentDelay);
         if (continuation)
             std::printf("note: v1.1 has no start delay; in continuation mode model 2 may play during the prompt\n");
         if (! hy.init(silentFile.getFullPathName().toRawUTF8(), modelFile.getFullPathName().toRawUTF8()))
             fail("v1.1 init: " + juce::String(hy.lastInitError));
     } else {
-        fail("reduction type " + juce::String(type) + " is not supported (v1.1 = 10, v1.2 = 12, v1.3 = 11)");
+        fail("reduction type " + juce::String(type) + " is not supported (v1.1 = 10, v1.2 = 12, v1.3 = 11, v1.4 = 13)");
     }
     s.applyLogitAdjustments(preset.getProperty("logitAdjustments", {}));
     if (! s.setOrchestrationModel(preset.getProperty("orchestrationModel", "IodPretrained").toString()))
@@ -295,6 +320,48 @@ int main(int argc, char **argv) {
         }
     }
 
+    // The OT's instruments: live, the Launchpad's model-side pads; here the settings' "instruments" (instrument
+    // ids), by default the Grand preset's (every orchestra family). Without any the OT plays nothing.
+    {
+        std::set<int32_t> wanted;
+        if (auto *ins = settings.getProperty("instruments", juce::var()).getArray())
+            for (const auto &v: *ins)
+                wanted.insert(static_cast<int32_t>(v));
+        else
+            for (const auto &p: MoodPresets::all())
+                if (juce::String(p.name) == "Grand")
+                    wanted.insert(p.instruments.begin(), p.instruments.end());
+        auto &g = s.midiInputProcess.getLaunchpadGrid();
+        juce::String on;
+        for (int row = 0; row < LaunchpadGrid::kRows; ++row)
+            for (int col = 0; col < LaunchpadGrid::kCols; ++col) {
+                const auto &id = g.padInstruments[static_cast<size_t>(row)][static_cast<size_t>(col)];
+                const auto side = LaunchpadGrid::targetForPad(row, col);
+                if (id.has_value() && side == InstrumentUpdateTarget::Model)
+                    g.setPadOn(row, col, wanted.count(*id) > 0);
+            }
+        for (const auto id: wanted)
+            on << id << " ";
+        std::printf("OT instruments: %s\n", on.toRawUTF8());
+    }
+
+    // A mood preset (the Launchpad's bottom row): sets the model side's instruments, TD and register (or, with
+    // "presetRegisterMix", AUTO and its register mix), over the "td" and "instruments" above.
+    if (const auto name = settings.getProperty("moodPreset", "").toString(); name.isNotEmpty()) {
+        RegisterMix::Target::setPresetsUseMix(static_cast<bool>(settings.getProperty("presetRegisterMix", false)));
+        int index = -1;
+        for (int i = 0; i < MoodPresets::kCount; ++i)
+            if (name == MoodPresets::all()[static_cast<size_t>(i)].name)
+                index = i;
+        if (index < 0)
+            fail("no mood preset " + name);
+        s.midiInputProcess.getLaunchpadGrid().handleInput(LaunchpadGrid::kPresetRow, index, true, 1u);
+        const auto mix = RegisterMix::Target::get();
+        std::printf("mood preset %s: TD %d, register %d, register mix %s\n", name.toRawUTF8(), TemporalDensity::get(),
+                    RegisterRange::get(),
+                    mix ? juce::String::formatted("%.2f / %.2f / %.2f", (*mix)[0], (*mix)[1], (*mix)[2]).toRawUTF8() : "off");
+    }
+
     const bool pedal = static_cast<bool>(settings.getProperty("sustainPedal", false));
     const auto events = readInput(input, pedal, continuation ? promptS * 1000.0 : -1.0);
     const double lastMs = events.empty() ? 0.0 : events.back().ms;
@@ -309,7 +376,7 @@ int main(int argc, char **argv) {
     OpLog::emit(OpLog::Src::Ui, "SAMPLE_RENDER",
                 {{"system", system.toStdString()}, {"mode", mode.toStdString()}, {"input", input.getFullPathName().toStdString()},
                  {"prompt_s", promptS}, {"seconds", seconds}, {"settings", OpLog::Raw{juce::JSON::toString(settings, true).toStdString()}},
-                 {"start_delay_ms", startDelay}});
+                 {"start_delay_ms", startDelay}, {"model1_start_delay_ms", silentDelay}});
     std::printf("input: %zu events, %.1f s; running %.1f s ...\n", events.size(), lastMs / 1000.0, endMs / 1000.0);
 
     s.startGeneration();

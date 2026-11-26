@@ -98,6 +98,9 @@ public:
     auto setMinWaitCs(int32_t cs) -> void { minWaitCs.store(cs); }
     /** Model 2's start delay (ms; 0 = none): ChordTokenEngine::Settings::startDelayCs. */
     auto setStartDelayMs(int32_t ms) -> void { startDelayMs.store(ms); }
+    /** Model 1 draws nothing for the first ms of a performance (0 = none); the piano still goes into its context.
+     *  The sample viewer's continuation: model 1 listens to the prompt and plays from the cut. */
+    auto setSilentStartDelayMs(int32_t ms) -> void { silentStartDelayMs.store(ms); }
     /** A short WAIT's orchestra note: at its predicted onset (false) or at a redrawn onset (true). */
     auto setShortWaitRedraw(bool on) -> void { shortWaitRedraw.store(on); }
     [[nodiscard]] auto usesSilentModel() const -> bool { return silentActive.load(); }
@@ -181,6 +184,8 @@ private:
     std::atomic<bool> precompute{true};
     std::atomic<int32_t> minWaitCs{0};
     std::atomic<int32_t> startDelayMs{0};
+    std::atomic<int32_t> silentStartDelayMs{0};
+    int32_t startedAtCs = 0;
     std::atomic<bool> shortWaitRedraw{false};
     std::atomic<bool> chordModel{true}; // v1.2: always the chord-token model 2 (tests may switch it off)
     std::shared_ptr<const VoicingBank> voicings;

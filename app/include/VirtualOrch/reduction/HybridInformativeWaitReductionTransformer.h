@@ -80,6 +80,9 @@ public:
     auto setMinWaitCs(int32_t cs) -> void { minWaitCs.store(cs); }
     /** A short WAIT's orchestra note: at its predicted onset (false) or at a redrawn onset (true). */
     auto setShortWaitRedraw(bool on) -> void { shortWaitRedraw.store(on); }
+    /** Model 1 draws nothing for the first ms of a performance (0 = none); the piano still goes into its context.
+     *  The sample viewer's continuation: model 1 listens to the prompt and plays from the cut. */
+    auto setSilentStartDelayMs(int32_t ms) -> void { silentStartDelayMs.store(ms); }
     [[nodiscard]] auto usesSilentModel() const -> bool { return silentActive.load(); }
     [[nodiscard]] auto reason() const -> Reason { return reasonValue.load(); }
     /** ms the pianist has been playing (-1 = not playing): the Active Model widget's progress to model 2. */
@@ -161,6 +164,8 @@ private:
     std::atomic<bool> precompute{true};
     std::atomic<int32_t> minWaitCs{0};
     std::atomic<bool> shortWaitRedraw{false};
+    std::atomic<int32_t> silentStartDelayMs{0};
+    int32_t startedAtCs = 0;
     int64_t playingSinceMs = -1;
     std::atomic<int64_t> playingForValue{-1};
     uint64_t silentSeed = 0; // random per run (threadRun); fixed in tests

@@ -3,6 +3,7 @@
 #include "VirtualOrch/KeyLanding.h"
 #include "VirtualOrch/OpLog.h"
 #include "VirtualOrch/PolyphonyCap.h"
+#include "VirtualOrch/RegisterMix.h"
 #include "VirtualOrch/RegisterRange.h"
 #include "VirtualOrch/SessionLog.h"
 #include "VirtualOrch/vocsep/VoiceSeparation.h"
@@ -127,17 +128,18 @@ auto HybridInformativeWaitReductionTransformer::applySettings() -> void {
     const int32_t low = PolyphonyCap::lowestPitch(getMaxPolyphony(), RegisterRange::lowPitch(), high); // Mono: above C4
     // model 1: the silent side's adjustments, with the base taus (the legacy Hybrid's v1)
     s.pitchBias = biases && hybridV1PitchBias.load();
-    s.durationBias = biases && hybridV1DurationBias.load();
+    s.registerMix = biases ? RegisterMix::Target::get() : std::nullopt; // the mood preset's register mix
+    s.durationBias = biases && hybridV1DurationBias.load() && durationBiasAtTd(td);
     s.onsetGapBias = biases && hybridV1OnsetGapBias.load();
     s.shortGap = hybridV1ShortGapPenalty.load();
     s.logitTd = hybridV1LogitTd.load();
     // a polyphony cap: the density follows the durations, so they get the TD taper too (Nov 25 2026)
     s.tdDurationTaper = s.logitTd && getMaxPolyphony() > 0 && td > 4;
-    s.pitchTau = DensePitchBias::TauBase;
-    s.pitchTauPrime = DensePitchBias::TauBase;
-    s.durationTau = DenseDurationBias::TauBase;
-    s.durationTauPrime = DenseDurationBias::TauPrimeBase;
-    s.onsetGapTau = DenseOnsetGapBias::TauBase;
+    s.pitchTau = hybridV1PitchTau.load();
+    s.pitchTauPrime = hybridV1PitchTauPrime.load();
+    s.durationTau = hybridV1DurationTau.load();
+    s.durationTauPrime = hybridV1DurationTauPrime.load();
+    s.onsetGapTau = hybridV1OnsetGapTau.load();
     s.pitchLow = low;
     s.pitchHigh = high;
     silentEngine.setSettings(s);
@@ -174,7 +176,8 @@ auto HybridInformativeWaitReductionTransformer::applySettings() -> void {
     w.tdGamma = tdGamma(false);
     // model 2: the main adjustments (all OFF by default) with the widget's taus
     w.pitchBias = biases && isPitchBiasEnabled();
-    w.durationBias = biases && isDurationBiasEnabled();
+    w.registerMix = biases ? RegisterMix::Target::get() : std::nullopt; // the mood preset's register mix
+    w.durationBias = biases && isDurationBiasEnabled() && durationBiasAtTd(td);
     w.onsetGapBias = biases && isOnsetGapBiasEnabled();
     w.shortGap = isShortGapPenaltyEnabled();
     w.logitTd = isLogitTdEnabled();
@@ -194,6 +197,7 @@ auto HybridInformativeWaitReductionTransformer::resetStreams(int32_t now) -> voi
     silentEngine.reset(now);
     waitEngine.reset(now);
     waitTracker.clear();
+    startedAtCs = now;
     streamsStarted = true;
     tdResetRequested.store(true); // a restart starts from gamma 0, not the last stream's
     currentTime = now;
@@ -368,7 +372,7 @@ auto HybridInformativeWaitReductionTransformer::tickTdControl() -> void {
         const bool waiting = ! sensitivity.has_value() && engine.hasPendingWait();
         const auto &state = controller.tick({td, measured, sensitivity, clockRunning, waiting});
         views.push_back({model, state});
-        if (OpLog::on() && td != TemporalDensity::kAuto)
+        if (OpLog::on()) // td 0 = AUTO (no target: the controller holds)
             OpLog::emit(OpLog::Src::Rt, "TD_CTRL",
                         {{"model", model}, {"td", td}, {"measured", state.measured},
                          {"measured_by", measuredAfterOt ? "ot" : "rt"}, {"error", state.error},
@@ -423,6 +427,11 @@ auto HybridInformativeWaitReductionTransformer::generate(int32_t now) -> bool {
     // params right before drawing. With the one from the top of the loop, model 1 drew past the notes
     // just cut, seconds ahead, and model 2 was switched out at once (Nov 24 2026).
     applySettings();
+    if (silentActive.load() && now < startedAtCs + silentStartDelayMs.load() / 10) {
+        silentEngine.absorb(now); // model 1's start delay: it listens, draws nothing
+        waitEngine.absorb(now);
+        return false;
+    }
     auto &active = silentActive.load() ? silentEngine : waitEngine;
     auto &other = silentActive.load() ? waitEngine : silentEngine;
     const bool logging = OpLog::on();
@@ -596,7 +605,7 @@ auto HybridInformativeWaitReductionTransformer::logDraw(const InformativeWaitEng
     OpLog::emit(OpLog::Src::Rt, "RT_DRAW",
                 {{"model", model}, {"r", OpLog::id('r', noteId)}, {"now", now}, {"floor", onsetLowerBoundCs()},
                  {"base", engine.base()}, {"context_len", engine.tokens().size()}, {"source", source},
-                 {"onset", n.onsetCs}, {"fields", OpLog::Raw{fields}}});
+                 {"onset", n.onsetCs}, {"fields", OpLog::Raw{fields}}, {"taus", OpLog::Raw{engine.liveTaus().json()}}});
 }
 
 auto HybridInformativeWaitReductionTransformer::logWaitEvent(const InformativeWaitEngine::Event &e) -> void {

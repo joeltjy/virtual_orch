@@ -602,6 +602,9 @@ TEST(InformativeWaitEngine, LineRestsDrawsItsOwnWaitWithCountOne) {
 TEST(InformativeWaitEngine, NoBatchingStillAnticipates) {
     Rig rig(Engine::Mode::Unconstrained);
     rig.model.batching = false;
+    auto s = rig.engine.settings();
+    s.minChordNoteShare = 0.0f; // the scripted pitches favour 60 and below: a stacked note would be "forced"
+    rig.engine.setSettings(s);
     rig.engine.noteOn(0, 60, 80);
     rig.run(0, 29);
     EXPECT_FALSE(rig.engine.precomputeComplete());

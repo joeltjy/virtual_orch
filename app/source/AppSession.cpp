@@ -1,3 +1,4 @@
+#include "VirtualOrch/RegisterMix.h"
 #include "VirtualOrch/AppSession.h"
 #include "VirtualOrch/UserSettings.h"
 #include "VirtualOrch/OpLog.h"
@@ -71,6 +72,7 @@ AppSession::AppSession()
       reductionTransformerHybridIW(modelConfig),
       reductionTransformerHybridEvent(modelConfig),
       reductionTransformerHybridChord(modelConfig),
+      reductionTransformerHybridGroup(modelConfig),
       reductionTransformerMelodyFirst(modelConfig),
       orchestrationModel(createOrchestrationModel("IodPretrained")),
       inputFilter(createInputFilter(modelConfig.inputFilterType,
@@ -123,6 +125,7 @@ AppSession::AppSession()
     reductionTransformerHybridIW.pianoSilentForMs = pianoSilent;
     reductionTransformerHybridEvent.pianoSilentForMs = pianoSilent;
     reductionTransformerHybridChord.pianoSilentForMs = pianoSilent;
+    reductionTransformerHybridGroup.pianoSilentForMs = pianoSilent;
     // Hybrid v1.1's TD controller steers on the orchestra as it will sound (after the OT, tremolo 8 a second)
     reductionTransformerHybridIW.measuredTdProvider = [this]() -> std::optional<double> {
         if (const auto r = orchestrationTransformer.orchestraTd())
@@ -130,6 +133,11 @@ AppSession::AppSession()
         return std::nullopt;
     };
     reductionTransformerHybridChord.measuredTdProvider = [this]() -> std::optional<double> {
+        if (const auto r = orchestrationTransformer.orchestraTd())
+            return r->td;
+        return std::nullopt;
+    };
+    reductionTransformerHybridGroup.measuredTdProvider = [this]() -> std::optional<double> {
         if (const auto r = orchestrationTransformer.orchestraTd())
             return r->td;
         return std::nullopt;
@@ -316,6 +324,7 @@ AppSession::AppSession()
     reductionTransformerHybridIW.clock = &clock;
     reductionTransformerHybridEvent.clock = &clock;
     reductionTransformerHybridChord.clock = &clock;
+    reductionTransformerHybridGroup.clock = &clock;
     reductionTransformerMelodyFirst.clock = &clock;
     musicTransformer.samplingAlert = &modelSamplingAlert;
     reductionTransformerV1.samplingAlert = &modelSamplingAlert;
@@ -328,6 +337,7 @@ AppSession::AppSession()
     reductionTransformerHybridIW.samplingAlert = &modelSamplingAlert;
     reductionTransformerHybridEvent.samplingAlert = &modelSamplingAlert;
     reductionTransformerHybridChord.samplingAlert = &modelSamplingAlert;
+    reductionTransformerHybridGroup.samplingAlert = &modelSamplingAlert;
     reductionTransformerMelodyFirst.samplingAlert = &modelSamplingAlert;
     if (orchestrationModel != nullptr) {
         orchestrationModel->samplingAlert = &modelSamplingAlert;
@@ -347,6 +357,7 @@ AppSession::AppSession()
     reductionTransformerHybridIW.onPausedChanged = syncLeds;
     reductionTransformerHybridEvent.onPausedChanged = syncLeds;
     reductionTransformerHybridChord.onPausedChanged = syncLeds;
+    reductionTransformerHybridGroup.onPausedChanged = syncLeds;
     reductionTransformerMelodyFirst.onPausedChanged = syncLeds;
 }
 
@@ -372,6 +383,7 @@ AppSession::~AppSession() {
     reductionTransformerHybridIW.stopThread(threadStopTimeoutMs);
     reductionTransformerHybridEvent.stopThread(threadStopTimeoutMs);
     reductionTransformerHybridChord.stopThread(threadStopTimeoutMs);
+    reductionTransformerHybridGroup.stopThread(threadStopTimeoutMs);
     reductionTransformerMelodyFirst.stopThread(threadStopTimeoutMs);
     orchestrationTransformer.stopThread(threadStopTimeoutMs);
     outputPlayback.stopThread(threadStopTimeoutMs);
@@ -404,6 +416,8 @@ auto AppSession::activeReduction() -> ReductionTransformer & {
             return reductionTransformerHybridEvent;
         case MusicModelArch::DenseHybridChordToken:
             return reductionTransformerHybridChord;
+        case MusicModelArch::DenseHybridGroup:
+            return reductionTransformerHybridGroup;
         case MusicModelArch::DenseMelodyFirst:
             return reductionTransformerMelodyFirst;
         case MusicModelArch::Amt:
@@ -434,6 +448,8 @@ auto AppSession::activeReduction() const -> const ReductionTransformer & {
             return reductionTransformerHybridEvent;
         case MusicModelArch::DenseHybridChordToken:
             return reductionTransformerHybridChord;
+        case MusicModelArch::DenseHybridGroup:
+            return reductionTransformerHybridGroup;
         case MusicModelArch::DenseMelodyFirst:
             return reductionTransformerMelodyFirst;
         case MusicModelArch::Amt:
@@ -470,6 +486,7 @@ auto AppSession::bindActiveMusicBackend() -> void {
     reductionTransformerHybridIW.orchestrationReductionIncoming = nullptr;
     reductionTransformerHybridEvent.orchestrationReductionIncoming = nullptr;
     reductionTransformerHybridChord.orchestrationReductionIncoming = nullptr;
+    reductionTransformerHybridGroup.orchestrationReductionIncoming = nullptr;
     reductionTransformerMelodyFirst.orchestrationReductionIncoming = nullptr;
     reductionTransformerPianoReduction.orchestrationUpdatesIncoming = nullptr;
     reductionTransformerAnticipated.orchestrationUpdatesIncoming = nullptr;
@@ -479,6 +496,7 @@ auto AppSession::bindActiveMusicBackend() -> void {
     reductionTransformerHybridIW.orchestrationUpdatesIncoming = nullptr;
     reductionTransformerHybridEvent.orchestrationUpdatesIncoming = nullptr;
     reductionTransformerHybridChord.orchestrationUpdatesIncoming = nullptr;
+    reductionTransformerHybridGroup.orchestrationUpdatesIncoming = nullptr;
     reductionTransformerMelodyFirst.orchestrationUpdatesIncoming = nullptr;
     musicTransformer.orchestrationRestampsIncoming = nullptr;
     reductionTransformerV1.orchestrationRestampsIncoming = nullptr;
@@ -491,6 +509,7 @@ auto AppSession::bindActiveMusicBackend() -> void {
     reductionTransformerHybridIW.orchestrationRestampsIncoming = nullptr;
     reductionTransformerHybridEvent.orchestrationRestampsIncoming = nullptr;
     reductionTransformerHybridChord.orchestrationRestampsIncoming = nullptr;
+    reductionTransformerHybridGroup.orchestrationRestampsIncoming = nullptr;
     reductionTransformerMelodyFirst.orchestrationRestampsIncoming = nullptr;
 
     auto &reduction = activeReduction();
@@ -509,6 +528,7 @@ auto AppSession::bindActiveMusicBackend() -> void {
     reductionTransformerHybridIW.voiceSeparation = nullptr;
     reductionTransformerHybridEvent.voiceSeparation = nullptr;
     reductionTransformerHybridChord.voiceSeparation = nullptr;
+    reductionTransformerHybridGroup.voiceSeparation = nullptr;
     reductionTransformerMelodyFirst.voiceSeparation = nullptr;
     reduction.voiceSeparation = voiceSeparation.isLoaded() ? &voiceSeparation : nullptr;
 
@@ -553,6 +573,7 @@ auto AppSession::setOnInputDataChanged(std::function<void(std::vector<int32_t>)>
     reductionTransformerHybridIW.onInputDataChanged = nullptr;
     reductionTransformerHybridEvent.onInputDataChanged = nullptr;
     reductionTransformerHybridChord.onInputDataChanged = nullptr;
+    reductionTransformerHybridGroup.onInputDataChanged = nullptr;
     reductionTransformerMelodyFirst.onInputDataChanged = nullptr;
     activeReduction().onInputDataChanged = std::move(callback);
 }
@@ -700,6 +721,7 @@ auto AppSession::stopGenerationForReplay() -> void {
           static_cast<ReductionTransformer *>(&reductionTransformerHybridIW),
           static_cast<ReductionTransformer *>(&reductionTransformerHybridEvent),
           static_cast<ReductionTransformer *>(&reductionTransformerHybridChord),
+          static_cast<ReductionTransformer *>(&reductionTransformerHybridGroup),
           static_cast<ReductionTransformer *>(&reductionTransformerMelodyFirst)})
         reduction->resetAheadThrottle();
     clock.stop();
@@ -717,6 +739,7 @@ auto AppSession::stopGenerationForReplay() -> void {
           static_cast<ReductionTransformer *>(&reductionTransformerHybridIW),
           static_cast<ReductionTransformer *>(&reductionTransformerHybridEvent),
           static_cast<ReductionTransformer *>(&reductionTransformerHybridChord),
+          static_cast<ReductionTransformer *>(&reductionTransformerHybridGroup),
           static_cast<ReductionTransformer *>(&reductionTransformerMelodyFirst)})
         reduction->clearOutputHistory();
     if (outputProcessor != nullptr) {
@@ -740,6 +763,7 @@ auto AppSession::stopGeneration() -> void {
     reductionTransformerHybridIW.signalThreadShouldExit();
     reductionTransformerHybridEvent.signalThreadShouldExit();
     reductionTransformerHybridChord.signalThreadShouldExit();
+    reductionTransformerHybridGroup.signalThreadShouldExit();
     reductionTransformerMelodyFirst.signalThreadShouldExit();
     orchestrationTransformer.signalThreadShouldExit();
     outputPlayback.signalThreadShouldExit();
@@ -756,6 +780,7 @@ auto AppSession::stopGeneration() -> void {
     reductionTransformerHybridIW.resetAheadThrottle();
     reductionTransformerHybridEvent.resetAheadThrottle();
     reductionTransformerHybridChord.resetAheadThrottle();
+    reductionTransformerHybridGroup.resetAheadThrottle();
     reductionTransformerMelodyFirst.resetAheadThrottle();
     clock.stop();
     outputPlayback.resetProgress();
@@ -771,6 +796,7 @@ auto AppSession::stopGeneration() -> void {
     reductionTransformerHybridIW.clearOutputHistory();
     reductionTransformerHybridEvent.clearOutputHistory();
     reductionTransformerHybridChord.clearOutputHistory();
+    reductionTransformerHybridGroup.clearOutputHistory();
     reductionTransformerMelodyFirst.clearOutputHistory();
     if (outputProcessor != nullptr) {
         outputProcessor->clear();
@@ -794,6 +820,7 @@ auto AppSession::stopGeneration() -> void {
         stopThreadOrReport(reductionTransformerHybridIW, modelSamplingAlert);
         stopThreadOrReport(reductionTransformerHybridEvent, modelSamplingAlert);
         stopThreadOrReport(reductionTransformerHybridChord, modelSamplingAlert);
+        stopThreadOrReport(reductionTransformerHybridGroup, modelSamplingAlert);
         stopThreadOrReport(reductionTransformerMelodyFirst, modelSamplingAlert);
         stopThreadOrReport(orchestrationTransformer, modelSamplingAlert);
         stopThreadOrReport(outputPlayback, modelSamplingAlert);
@@ -811,6 +838,7 @@ auto AppSession::stopGeneration() -> void {
               static_cast<ReductionTransformer *>(&reductionTransformerHybridIW),
               static_cast<ReductionTransformer *>(&reductionTransformerHybridEvent),
               static_cast<ReductionTransformer *>(&reductionTransformerHybridChord),
+              static_cast<ReductionTransformer *>(&reductionTransformerHybridGroup),
               static_cast<ReductionTransformer *>(&reductionTransformerMelodyFirst)})
             reduction->clearOutputHistory();
         stopJoinInFlight.store(false, std::memory_order_release);
@@ -825,6 +853,7 @@ auto AppSession::activeAnticipated() -> RtLogitAdjustments * {
         case MusicModelArch::DenseHybridInformativeWait: return &reductionTransformerHybridIW;
         case MusicModelArch::DenseHybridEvent: return &reductionTransformerHybridEvent;
         case MusicModelArch::DenseHybridChordToken: return &reductionTransformerHybridChord;
+        case MusicModelArch::DenseHybridGroup: return &reductionTransformerHybridGroup;
         default: return nullptr;
     }
 }
@@ -833,6 +862,7 @@ auto AppSession::logitAdjustmentsToVar() -> juce::var {
     auto *root = new juce::DynamicObject();
     root->setProperty("biasesOn", BiasSettings::enabled());
     root->setProperty("biasesOnlyWhenPianoSilent", BiasSettings::onlyWhenPianoSilent());
+    root->setProperty("presetRegisterMix", RegisterMix::Target::presetsUseMix());
     root->setProperty("logitTdStrength", TdOnsetBias::strength());
     if (auto *m = activeAnticipated()) {
         auto *model = new juce::DynamicObject();
@@ -855,6 +885,11 @@ auto AppSession::logitAdjustmentsToVar() -> juce::var {
             v1->setProperty("onsetGapBias", m->hybridV1OnsetGapBias.load());
             v1->setProperty("shortGapPenalty", m->hybridV1ShortGapPenalty.load());
             v1->setProperty("logitTd", m->hybridV1LogitTd.load());
+            v1->setProperty("pitchTau", m->hybridV1PitchTau.load());
+            v1->setProperty("pitchTauPrime", m->hybridV1PitchTauPrime.load());
+            v1->setProperty("durationTau", m->hybridV1DurationTau.load());
+            v1->setProperty("durationTauPrime", m->hybridV1DurationTauPrime.load());
+            v1->setProperty("onsetGapTau", m->hybridV1OnsetGapTau.load());
             root->setProperty("hybridV1", juce::var(v1));
         }
     }
@@ -868,6 +903,8 @@ auto AppSession::applyLogitAdjustments(const juce::var &a) -> void {
         BiasSettings::setEnabled(static_cast<bool>(a["biasesOn"]));
     if (a.hasProperty("biasesOnlyWhenPianoSilent"))
         BiasSettings::setOnlyWhenPianoSilent(static_cast<bool>(a["biasesOnlyWhenPianoSilent"]));
+    if (a.hasProperty("presetRegisterMix"))
+        RegisterMix::Target::setPresetsUseMix(static_cast<bool>(a["presetRegisterMix"]));
     if (a.hasProperty("logitTdStrength"))
         TdOnsetBias::setStrength(static_cast<float>(a["logitTdStrength"]));
     auto *m = activeAnticipated();
@@ -900,6 +937,17 @@ auto AppSession::applyLogitAdjustments(const juce::var &a) -> void {
         flag(v1, "onsetGapBias", [m](bool on) { m->hybridV1OnsetGapBias.store(on); });
         flag(v1, "shortGapPenalty", [m](bool on) { m->hybridV1ShortGapPenalty.store(on); });
         flag(v1, "logitTd", [m](bool on) { m->hybridV1LogitTd.store(on); });
+        // its taus: a preset without them gets the base values (as before they existed)
+        m->hybridV1PitchTau.store(DensePitchBias::TauBase);
+        m->hybridV1PitchTauPrime.store(DensePitchBias::TauBase);
+        m->hybridV1DurationTau.store(DenseDurationBias::TauBase);
+        m->hybridV1DurationTauPrime.store(DenseDurationBias::TauPrimeBase);
+        m->hybridV1OnsetGapTau.store(DenseOnsetGapBias::TauBase);
+        value(v1, "pitchTau", [m](float t) { m->hybridV1PitchTau.store(t); });
+        value(v1, "pitchTauPrime", [m](float t) { m->hybridV1PitchTauPrime.store(t); });
+        value(v1, "durationTau", [m](float t) { m->hybridV1DurationTau.store(t); });
+        value(v1, "durationTauPrime", [m](float t) { m->hybridV1DurationTauPrime.store(t); });
+        value(v1, "onsetGapTau", [m](float t) { m->hybridV1OnsetGapTau.store(t); });
     }
 }
 
@@ -935,6 +983,7 @@ auto AppSession::setOrchestrationMode(OrchestrationMode mode) -> void {
           static_cast<ReductionTransformer *>(&reductionTransformerHybridIW),
           static_cast<ReductionTransformer *>(&reductionTransformerHybridEvent),
           static_cast<ReductionTransformer *>(&reductionTransformerHybridChord),
+          static_cast<ReductionTransformer *>(&reductionTransformerHybridGroup),
           static_cast<ReductionTransformer *>(&reductionTransformerMelodyFirst)})
     {
         reduction->setKeepQueueOnInput(accompaniment);
@@ -963,6 +1012,7 @@ auto AppSession::applyAccompanimentCap() -> void {
     reductionTransformerHybridIW.setMaxPolyphony(cap);
     reductionTransformerHybridEvent.setMaxPolyphony(cap);
     reductionTransformerHybridChord.setMaxPolyphony(cap);
+    reductionTransformerHybridGroup.setMaxPolyphony(cap);
     reductionTransformerMelodyFirst.setMaxPolyphony(cap);
 }
 

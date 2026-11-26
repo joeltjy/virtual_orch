@@ -2,6 +2,7 @@
 #include "VirtualOrch/OpLog.h"
 
 #include "VirtualOrch/PolyphonyCap.h"
+#include "VirtualOrch/RegisterMix.h"
 #include "VirtualOrch/RegisterRange.h"
 #include "VirtualOrch/SessionLog.h"
 #include "VirtualOrch/reduction/DenseTypes.h"
@@ -85,10 +86,11 @@ auto HybridEventReductionTransformer::applySettings() -> void {
         const bool biases = biasesActiveNow();
         const bool silentSide = e == &silentEngine;
         s.pitchBias = biases && (silentSide ? hybridV1PitchBias.load() : isPitchBiasEnabled());
+        s.registerMix = biases ? RegisterMix::Target::get() : std::nullopt; // the mood preset's register mix
         s.onsetGapBias = biases && (silentSide ? hybridV1OnsetGapBias.load() : isOnsetGapBiasEnabled());
-        s.pitchTau = silentSide ? DensePitchBias::TauBase : getPitchTauBase();
-        s.pitchTauPrime = silentSide ? DensePitchBias::TauBase : getPitchTauPrimeBase();
-        s.onsetGapTau = silentSide ? DenseOnsetGapBias::TauBase : getOnsetGapTauBase();
+        s.pitchTau = silentSide ? hybridV1PitchTau.load() : getPitchTauBase();
+        s.pitchTauPrime = silentSide ? hybridV1PitchTauPrime.load() : getPitchTauPrimeBase();
+        s.onsetGapTau = silentSide ? hybridV1OnsetGapTau.load() : getOnsetGapTauBase();
         if (e == &silentEngine) {
             s.off0 = EventEngine::kM1eOff0;
             s.vocab = EventEngine::kM1eVocab;
@@ -183,6 +185,8 @@ auto HybridEventReductionTransformer::generate(int32_t now) -> bool {
     const bool silent = silentActive.load();
     if (! silent && now < startedAtCs + startDelayMs.load() / 10)
         return false; // model 2's start delay: the piano only
+    if (silent && now < startedAtCs + silentStartDelayMs.load() / 10)
+        return false; // model 1's start delay: it listens (feedPiano), draws nothing
     auto &active = silent ? silentEngine : waitEngine;
     auto &other = silent ? waitEngine : silentEngine;
     const auto out = active.step(now);
@@ -201,7 +205,7 @@ auto HybridEventReductionTransformer::generate(int32_t now) -> bool {
             OpLog::emit(OpLog::Src::Rt, "RT_DRAW",
                         {{"model", silent ? "m1e" : "m2e"}, {"r", OpLog::id('r', noteId)}, {"now", now},
                          {"base", active.base()}, {"source", o.draws.empty() ? "unlogged" : o.chord ? "chord" : "sampled"},
-                         {"onset", o.timeCs}, {"fields", OpLog::Raw{fields}}});
+                         {"onset", o.timeCs}, {"fields", OpLog::Raw{fields}}, {"taus", OpLog::Raw{active.liveTaus().json()}}});
         }
         emitOrchestra(o, silent ? 0 : kSimultaneousVelocityBoost, noteId);
     }

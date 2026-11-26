@@ -1,0 +1,96 @@
+{
+  "model": "hybrid_v14",
+  "reduction": "hybridGroup",
+  "orchestrationModel": "IodPretrained",
+  "orchestrationMode": "jam",
+  "inputMode": "direct",
+  "inputFilterType": "passthrough",
+  "directInputWindowLength": 0,
+  "directInputSendNoteOffs": true,
+  "directInputStartOnInput": false,
+  "directInputStartDelay": 0,
+  "directInputHoldBass": false,
+  "directInputBassLow": 24,
+  "directInputBassHigh": 36,
+  "directInputInitialBass": -1,
+  "inputInstrument": 0,
+  "inputLow": 36,
+  "inputHigh": 120,
+  "inputDuration": 400,
+  "inputInitialData": "",
+  "contextNotes": 40,
+  "outputMinimumDuration": 10,
+  "outputMaximumDuration": 999,
+  "outputTemperatures": [
+    0.5,
+    0.5,
+    0.5
+  ],
+  "outputStartTime": 0,
+  "outputForceStartTime": false,
+  "outputMaxAheadSeconds": 5,
+  "outputAheadThrottleSeconds": 2,
+  "outputInstruments": [
+    {
+      "id": 0,
+      "active": false,
+      "monophony": false,
+      "low": 36,
+      "high": 120
+    },
+    {
+      "id": 1,
+      "active": false,
+      "monophony": false,
+      "low": 36,
+      "high": 120
+    },
+    {
+      "id": 2,
+      "active": false,
+      "monophony": false,
+      "low": 36,
+      "high": 120
+    },
+    {
+      "id": 3,
+      "active": false,
+      "monophony": false,
+      "low": 36,
+      "high": 120
+    },
+    {
+      "id": 4,
+      "active": false,
+      "monophony": false,
+      "low": 36,
+      "high": 120
+    }
+  ],
+  "logitAdjustments": {
+    "biasesOn": true,
+    "model": {
+      "pitchBias": true,
+      "durationBias": true,
+      "onsetGapBias": true,
+      "shortGapPenalty": true,
+      "logitTd": true,
+      "pitchTau": 0.2,
+      "pitchTauPrime": 0.2,
+      "durationTau": 0.5,
+      "durationTauPrime": 0.3,
+      "onsetGapTau": 0.5
+    },
+    "hybridV1": {
+      "pitchBias": true,
+      "durationBias": true,
+      "onsetGapBias": false,
+      "shortGapPenalty": true,
+      "logitTd": true,
+      "pitchTau": 0.2,
+      "pitchTauPrime": 0.2,
+      "durationTau": 0.1,
+      "durationTauPrime": 0.0
+    }
+  }
+}

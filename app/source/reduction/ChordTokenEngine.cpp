@@ -76,6 +76,7 @@ auto ChordTokenEngine::setSettings(const Settings &s) -> void {
 
 auto ChordTokenEngine::reset(int32_t startCs) -> void {
     pitchScheduler.reset();
+    registerMixCtl.reset();
     durationScheduler.reset();
     items.clear();
     before.clear();
@@ -901,12 +902,16 @@ auto ChordTokenEngine::applyDurationBias(std::vector<float> &logits, const std::
         const auto window = DenseDurationBias::collectCoarseDurationWindowAt(history, onsetCs, 1);
         const auto taus = scheduler.evaluate(onsetCs, window.uniqueBins, window.uniqueMoves, cfg.durationTau,
                                              cfg.durationTauPrime, true);
+        liveTausValue.durationTau = taus.tau;
+        liveTausValue.durationTauPrime = taus.tauPrime;
         DenseDurationBias::applyCoarseDurationLogitsBias(logits, window, taus.tau, taus.tauPrime);
         return;
     }
     const auto window = DenseDurationBias::collectDurationWindowAt(history, onsetCs, -1, 1);
     const auto taus = scheduler.evaluate(onsetCs, window.uniqueDurations, window.uniqueDeltas, cfg.durationTau,
                                          cfg.durationTauPrime, true);
+    liveTausValue.durationTau = taus.tau;
+    liveTausValue.durationTauPrime = taus.tauPrime;
     DenseDurationBias::applyDurationLogitsBias(logits, window, taus.tau, taus.tauPrime);
 }
 
@@ -916,6 +921,8 @@ auto ChordTokenEngine::applyPitchBias(std::vector<float> &logits, const std::vec
     const auto window = DensePitchBias::collectPitchWindowAt(history, onsetCs, -1);
     const auto taus = scheduler.evaluate(onsetCs, window.uniquePitches, window.uniqueDeltas, cfg.pitchTau,
                                          cfg.pitchTauPrime, true);
+    liveTausValue.pitchTau = taus.tau;
+    liveTausValue.pitchTauPrime = taus.tauPrime;
     DensePitchBias::applyNoteLogitsBias(logits, window, taus.tau, taus.tauPrime);
 }
 
@@ -942,13 +949,15 @@ auto ChordTokenEngine::countCommittedForBias(int32_t onsetCs, int notes) -> void
 
 auto ChordTokenEngine::drawBody(int32_t onsetCs, int32_t minPitch, bool pianoAllowed) -> std::optional<OutNote> {
     drewPianoPitch = false;
+    if (! cfg.durationBias)
+        liveTausValue.durationTau = liveTausValue.durationTauPrime = -1.0f; // off (e.g. TD 16+): not plotted
     auto desired = tokens();
     desired.push_back(rel(onsetCs));
     const auto *l1 = logitsFor(desired);
     if (l1 == nullptr)
         return std::nullopt;
     std::vector<int32_t> history;
-    if (cfg.durationBias || cfg.pitchBias)
+    if (cfg.durationBias || cfg.pitchBias || cfg.registerMix.has_value())
         history = orchestraHistory();
     std::vector<float> biased;
     if (cfg.durationBias) {
@@ -977,14 +986,23 @@ auto ChordTokenEngine::drawBody(int32_t onsetCs, int32_t minPitch, bool pianoAll
     const auto *l2 = logitsFor(desired);
     if (l2 == nullptr)
         return std::nullopt;
-    if (cfg.pitchBias) {
-        biased = *l2;
-        applyPitchBias(biased, history, onsetCs, pitchScheduler);
-        l2 = &biased;
-    }
     std::vector<std::pair<int32_t, int32_t>> pitchRanges{{kOrch0 + lo, kOrch0 + hi + 1}};
     if (pianoAllowed)
         pitchRanges.push_back({kPiano0 + kPianoLow, kPiano0 + kPianoHigh + 1}); // the model may want a piano note
+    drewForcedChordNote = false;
+    if (minPitch > kPianoLow && cfg.minChordNoteShare > 0.0f
+        && ForcedChordNote::share(*l2, pitchRanges, {{kOrch0, kOrch0 + 128}, {kPiano0, kPiano0 + 128}})
+               < cfg.minChordNoteShare) {
+        drewForcedChordNote = true; // a stacked note the model does not want above the last: the chord ends
+        return std::nullopt;
+    }
+    if (cfg.pitchBias || cfg.registerMix.has_value()) {
+        biased = *l2;
+        if (cfg.pitchBias)
+            applyPitchBias(biased, history, onsetCs, pitchScheduler);
+        applyRegisterMix(biased, history);
+        l2 = &biased;
+    }
     const int32_t note = pick(*l2, pitchRanges, cfg.otherTemperature, cfg.minP);
     if (note < 0)
         return std::nullopt;
@@ -1079,6 +1097,7 @@ auto ChordTokenEngine::drawEvent() -> std::vector<OutNote> {
         if (cfg.onsetGapBias) {
             const auto window = DenseOnsetGapBias::collectOnsetGapWindow(orchestraHistory(), std::max(nowCs, cur.clockCs), -1);
             DenseOnsetGapBias::applyOnsetLogitsBias(shifted, window, cfg.onsetGapTau, baseCs);
+            liveTausValue.onsetGapTau = cfg.onsetGapTau;
         }
         if (cfg.shortGap)
             for (int32_t t = std::max(loRel, 0); t <= hiRel && t < static_cast<int32_t>(shifted.size()); ++t)
@@ -1219,6 +1238,15 @@ auto ChordTokenEngine::drawEvent() -> std::vector<OutNote> {
     // 12-note cluster. A piano pitch drops the onset and duration, and the next plain onset is strictly later.
     auto note = drawBody(onset, same && cfg.ascendingChords ? cur.lastOrchPitch : kPianoLow, chordMode());
     if (! note.has_value()) {
+        if (drewForcedChordNote) {
+            drawLog.clear();
+            ++st.forcedChordNoteDrops;
+            cur.exclHiCs = std::max(cur.exclHiCs, onset);
+            cur.chordOnCs = INT32_MIN; // the chord is done: the next note is later
+            cur.chordCount = 0;
+            event("drop", onset, cur.lastOrchPitch, 0, "chord note: the model gave the pitches above the last < min share");
+            return out;
+        }
         if (drewPianoPitch) {
             drawLog.clear();
             ++st.pianoPitchDrops;
@@ -1282,18 +1310,22 @@ auto ChordTokenEngine::decodeBlock(std::vector<int32_t> desired, int32_t k, int3
     }
     // SDUR and BASS take the duration / pitch bias as a decoded note's duration and pitch (the engine's schedulers:
     // this block is committed)
-    const auto history = cfg.durationBias || cfg.pitchBias ? orchestraHistory() : std::vector<int32_t>{};
+    const auto history = cfg.durationBias || cfg.pitchBias || cfg.registerMix.has_value() ? orchestraHistory()
+                                                                                           : std::vector<int32_t>{};
     const auto next = [&](const std::vector<std::pair<int32_t, int32_t>> &ranges, int32_t step, int bias = 0) -> bool {
         const auto *l = logitsFor(desired);
         if (l == nullptr)
             return false;
         std::vector<float> biased;
-        if ((bias == 1 && cfg.durationBias) || (bias == 2 && cfg.pitchBias)) {
+        if ((bias == 1 && cfg.durationBias) || (bias == 2 && (cfg.pitchBias || cfg.registerMix.has_value()))) {
             biased = *l;
             if (bias == 1)
                 applyDurationBias(biased, history, onsetCs, durationScheduler);
-            else
-                applyPitchBias(biased, history, onsetCs, pitchScheduler);
+            else {
+                if (cfg.pitchBias)
+                    applyPitchBias(biased, history, onsetCs, pitchScheduler);
+                applyRegisterMix(biased, history);
+            }
             l = &biased;
         }
         if (bias == 1 && cfg.tdDurationTaper && cfg.tdLevel > 1) { // SDUR / the leftover's duration, as drawBody
@@ -1844,7 +1876,8 @@ auto ChordTokenEngine::precomputeStep() -> void {
         // committed notes only, with copies of the schedulers (countCommittedForBias counts them at a match)
         const bool biasDur = (r == 1 || r == 4) && cfg.durationBias;
         const bool biasPitch = (r == 2 || r == 5) && cfg.pitchBias;
-        const auto history = biasDur || biasPitch ? orchestraHistory() : std::vector<int32_t>{};
+        const bool mixPitch = (r == 2 || r == 5) && cfg.registerMix.has_value();
+        const auto history = biasDur || biasPitch || mixPitch ? orchestraHistory() : std::vector<int32_t>{};
         for (int b = 0; b < kBranches && r > 0; ++b) {
             auto &br = pc.branches[static_cast<size_t>(b)];
             std::vector<float> lg(pc.logits.begin() + static_cast<std::ptrdiff_t>(static_cast<size_t>(b) * V),
@@ -1856,6 +1889,8 @@ auto ChordTokenEngine::precomputeStep() -> void {
                 auto scheduler = pitchScheduler;
                 applyPitchBias(lg, history, pc.targetCs, scheduler);
             }
+            if (mixPitch)
+                applyRegisterMix(lg, history); // committed history: the branch's own notes do not count
             if (r == 1 || r == 4)
                 applyTdDurationTaper(lg); // chord branches: SDUR / the leftover's duration (no-op unless tapering)
             int32_t tok = -1;
@@ -1900,8 +1935,9 @@ auto ChordTokenEngine::precomputeStep() -> void {
         // statistics nor the τ schedulers (copies here; countCommittedForBias counts them at the fire).
         const bool biasDur = r == 0 && cfg.durationBias;
         const bool biasPitch = r == 1 && cfg.pitchBias;
+        const bool mixPitch = r == 1 && cfg.registerMix.has_value();
         std::vector<int32_t> history;
-        if (biasDur || biasPitch)
+        if (biasDur || biasPitch || mixPitch)
             history = orchestraHistory();
         for (int b = 0; b < kBranches; ++b) {
             auto &br = pc.branches[static_cast<size_t>(b)];
@@ -1915,6 +1951,8 @@ auto ChordTokenEngine::precomputeStep() -> void {
                 auto scheduler = pitchScheduler;
                 applyPitchBias(lg, history, pc.targetCs, scheduler);
             }
+            if (mixPitch)
+                applyRegisterMix(lg, history); // committed history: the branch's own notes do not count
             if (r == 0)
                 applyTdDurationTaper(lg);
             if (r == 0) {
@@ -2185,4 +2223,15 @@ auto ChordTokenEngine::step(int32_t stepNowCs) -> std::vector<OutNote> {
     out = drawEvent();
     maybeShrinkContext();
     return out;
+}
+
+auto ChordTokenEngine::applyRegisterMix(std::vector<float> &logits, const std::vector<int32_t> &history) -> void {
+    if (! cfg.registerMix.has_value()) {
+        liveTausValue.recordMix<RegisterMix::Mix>(nullptr, {}, 0, {});
+        return;
+    }
+    const auto &offsets = registerMixCtl.update(history, *cfg.registerMix);
+    const auto [measured, notes] = RegisterMix::measure(history);
+    liveTausValue.recordMix(&*cfg.registerMix, measured, notes, offsets); // RT_DRAW "taus" "mix"
+    RegisterMix::apply(logits, kOrch0, offsets, cfg.otherTemperature, *cfg.registerMix);
 }

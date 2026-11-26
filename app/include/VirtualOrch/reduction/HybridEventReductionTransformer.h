@@ -63,6 +63,9 @@ public:
     auto setVoicingBank(std::shared_ptr<const VoicingBank> bank) -> void { voicings = std::move(bank); }
     /** Model 2's start delay (ms). */
     auto setStartDelayMs(int32_t ms) -> void { startDelayMs.store(ms); }
+    /** Model 1 draws nothing for the first ms of a performance (0 = none); the piano still goes into its context.
+     *  The sample viewer's continuation: model 1 listens to the prompt and plays from the cut. */
+    auto setSilentStartDelayMs(int32_t ms) -> void { silentStartDelayMs.store(ms); }
     /** Orchestra silent this long: the model's piano tokens are masked (spec section 8). */
     auto setForceAfterMs(int32_t ms) -> void { forceAfterMs.store(ms); }
 
@@ -99,6 +102,7 @@ private:
     std::atomic<Reason> reasonValue{Reason::Start};
     std::atomic<bool> pedalReleased{false};
     std::atomic<int32_t> startDelayMs{3000};
+    std::atomic<int32_t> silentStartDelayMs{0};
     std::atomic<int32_t> forceAfterMs{2000};
     std::shared_ptr<const VoicingBank> voicings;
     int64_t playingSinceMs = -1;

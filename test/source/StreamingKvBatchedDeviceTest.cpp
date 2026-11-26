@@ -26,17 +26,15 @@ auto argmax(const float *x, size_t n) -> size_t { return static_cast<size_t>(std
 } // namespace
 
 // The informative-WAIT precompute tiles the context into 5 branches and runs them in one call. With
-// the KV kept on the GPU (the CUDA session), every branch must give what a batch-1 run on the same
+// the KV kept in backend-owned tensors, every branch must give what a batch-1 run on the same
 // state gives: after tiling, after a second batched step, and after evicting rows.
-TEST(StreamingKvBatchedDevice, batchedBranchesOnTheGpuEqualBatchOneRuns) {
+TEST(StreamingKvBatchedDevice, batchedBranchesEqualBatchOneRuns) {
     const auto model = modelsDir().getChildFile("rt_simultaneous_latest.onnx");
     if (! model.existsAsFile())
         GTEST_SKIP() << "no " << model.getFullPathName();
     OnnxBackend backend;
     std::string error;
     ASSERT_TRUE(backend.init(model.getFullPathName().toRawUTF8(), error)) << error;
-    if (! backend.keepsKvOnDevice())
-        GTEST_SKIP() << "the KV is not kept on the GPU here";
     const auto dims = backend.dims();
     const size_t vocab = backend.vocabSize();
     constexpr int kBranches = 5;
@@ -49,7 +47,8 @@ TEST(StreamingKvBatchedDevice, batchedBranchesOnTheGpuEqualBatchOneRuns) {
     State base;
     std::vector<float> baseLogits;
     ASSERT_TRUE(backend.run({}, context, base, baseLogits)) << backend.lastError;
-    ASSERT_NE(base.device, nullptr);
+    if (base.device == nullptr)
+        GTEST_SKIP() << "this backend copies KV into vectors";
 
     BatchState tiled;
     ASSERT_TRUE(tileState(base, dims, kBranches, tiled));
@@ -78,7 +77,7 @@ TEST(StreamingKvBatchedDevice, batchedBranchesOnTheGpuEqualBatchOneRuns) {
         State a2;
         std::vector<float> la2;
         ASSERT_TRUE(backend.run(base, {11060, 11700, 200}, a2, la2));
-        std::printf("GPU noise: one call vs one token at a time %.4g, the same call twice %.4g\n",
+        std::printf("Backend numerical variation: one call vs one token at a time %.4g, the same call twice %.4g\n",
                     maxDiff(la, lz.data(), vocab), maxDiff(la, la2.data(), vocab));
         EXPECT_LT(maxDiff(la, lz.data(), vocab), kTol);
     }
@@ -124,7 +123,7 @@ TEST(StreamingKvBatchedDevice, batchedBranchesOnTheGpuEqualBatchOneRuns) {
         const double single1 = ms([&] { (void) backend.run(single[0], {feed2[0]}, one, lg); });
         BatchState t;
         const double tiling = ms([&] { (void) tileState(base, dims, kBranches, t); });
-        std::printf("GPU step: 5 branches %.1f ms, 1 branch %.1f ms; tiling %.1f ms\n", batched, single1, tiling);
+        std::printf("Backend step: 5 branches %.1f ms, 1 branch %.1f ms; tiling %.1f ms\n", batched, single1, tiling);
     }
 
     // eviction on the device: the sink rows and the newest rows, as for a batch-1 state

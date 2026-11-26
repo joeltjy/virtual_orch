@@ -361,6 +361,89 @@ auto findMemcpy2D() -> OnnxBackend::CudaContext::Memcpy2D {
     return nullptr;
 }
 
+// Keep CPU outputs alive so the next inference can borrow their storage directly.
+struct HostKv final : DeviceKv {
+    std::shared_ptr<Ort::Session> session;
+    Ort::Value key;
+    Ort::Value value;
+
+    HostKv(std::shared_ptr<Ort::Session> owner, Ort::Value k, Ort::Value v)
+        : session(std::move(owner)), key(std::move(k)), value(std::move(v)) {}
+
+    auto keepRows(int head, int tailFrom) const -> std::shared_ptr<const DeviceKv> override {
+        auto shape = key.GetTensorTypeAndShapeInfo().GetShape();
+        const auto rows = shape[3];
+        const auto tail = rows - tailFrom;
+        const auto width = shape[4];
+        const auto blocks = shape[0] * shape[1] * shape[2];
+        shape[3] = head + tail;
+        return transform(shape, [&](const float *src, float *dst) {
+            for (int64_t block = 0; block < blocks; ++block) {
+                const auto *from = src + block * rows * width;
+                auto *to = dst + block * shape[3] * width;
+                std::copy_n(from, head * width, to);
+                std::copy_n(from + tailFrom * width, tail * width, to + head * width);
+            }
+        });
+    }
+
+    auto tile(int batch) const -> std::shared_ptr<const DeviceKv> override {
+        auto shape = key.GetTensorTypeAndShapeInfo().GetShape();
+        const auto layerSize = shape[2] * shape[3] * shape[4];
+        shape[1] = batch;
+        return transform(shape, [&](const float *src, float *dst) {
+            for (int64_t layer = 0; layer < shape[0]; ++layer)
+                for (int branch = 0; branch < batch; ++branch)
+                    std::copy_n(src + layer * layerSize, layerSize,
+                                dst + (layer * batch + branch) * layerSize);
+        });
+    }
+
+private:
+    template <typename Copy>
+    auto transform(const std::vector<int64_t> &shape, Copy copy) const -> std::shared_ptr<const DeviceKv> {
+        try {
+            Ort::AllocatorWithDefaultOptions allocator;
+            auto k = Ort::Value::CreateTensor<float>(allocator, shape.data(), shape.size());
+            auto v = Ort::Value::CreateTensor<float>(allocator, shape.data(), shape.size());
+            if (shape[3] > 0) {
+                copy(key.GetTensorData<float>(), k.GetTensorMutableData<float>());
+                copy(value.GetTensorData<float>(), v.GetTensorMutableData<float>());
+            }
+            return std::make_shared<HostKv>(session, std::move(k), std::move(v));
+        } catch (const Ort::Exception &) {
+            return nullptr;
+        }
+    }
+};
+
+auto reuseHostKv() -> bool {
+#if defined(__APPLE__) && defined(__aarch64__)
+    static const bool enabled = std::getenv("VIRTUAL_ORCH_COPY_HOST_KV") == nullptr;
+    return enabled;
+#else
+    return false;
+#endif
+}
+
+template <typename Kv>
+auto storeHostKv(Kv &present, const std::shared_ptr<Ort::Session> &session,
+                 Ort::Value key, Ort::Value value) -> void {
+    if (reuseHostKv()) {
+        present.key.clear();
+        present.value.clear();
+        present.device = std::make_shared<HostKv>(session, std::move(key), std::move(value));
+        return;
+    }
+    present.device.reset();
+    const auto copy = [](const Ort::Value &tensor, std::vector<float> &out) {
+        const auto *data = tensor.GetTensorData<float>();
+        out.assign(data, data + tensor.GetTensorTypeAndShapeInfo().GetElementCount());
+    };
+    copy(key, present.key);
+    copy(value, present.value);
+}
+
 /** Rows with no data behind them (a failed device slice, or a foreign state). */
 auto missingData(const State &past, const Dims &d) -> bool {
     const auto expected = static_cast<size_t>(d.layers) * static_cast<size_t>(d.heads)
@@ -478,7 +561,9 @@ auto OnnxBackend::run(const State &past, const std::vector<int64_t> &ids, State 
         lastError = "past KV has rows but no data";
         return false;
     }
-    if (past.device != nullptr && dynamic_cast<const CudaKv *>(past.device.get()) == nullptr) {
+    const bool compatible = cuda != nullptr ? dynamic_cast<const CudaKv *>(past.device.get()) != nullptr
+                                            : dynamic_cast<const HostKv *>(past.device.get()) != nullptr;
+    if (past.device != nullptr && ! compatible) {
         lastError = "past KV belongs to another backend";
         return false;
     }
@@ -576,6 +661,13 @@ auto OnnxBackend::runOnHost(const State &past, const std::vector<int64_t> &ids, 
         auto *keyPtr = const_cast<float *>(past.key.empty() ? &emptyData : past.key.data());
         auto *valuePtr = const_cast<float *>(past.value.empty() ? &emptyData : past.value.data());
 
+        const auto *host = static_cast<const HostKv *>(past.device.get());
+        if (host != nullptr && past.rows > 0) {
+            keyPtr = const_cast<float *>(host->key.GetTensorData<float>());
+            valuePtr = const_cast<float *>(host->value.GetTensorData<float>());
+        }
+        const auto count = static_cast<size_t>(dimsValue.layers * pastShape[1] * dimsValue.heads
+                                               * past.rows * dimsValue.headDim);
         std::vector<Ort::Value> inputs;
         std::vector<const char *> inputNamePtrs;
         for (const auto &name: inputNames) {
@@ -588,10 +680,10 @@ auto OnnxBackend::runOnHost(const State &past, const std::vector<int64_t> &ids, 
                     memoryInfo, positions.data(), positions.size(), idsShape.data(), idsShape.size()));
             else if (name == "past_key")
                 inputs.push_back(Ort::Value::CreateTensor<float>(
-                    memoryInfo, keyPtr, past.key.size(), pastShape.data(), pastShape.size()));
+                    memoryInfo, keyPtr, count, pastShape.data(), pastShape.size()));
             else if (name == "past_value")
                 inputs.push_back(Ort::Value::CreateTensor<float>(
-                    memoryInfo, valuePtr, past.value.size(), pastShape.data(), pastShape.size()));
+                    memoryInfo, valuePtr, count, pastShape.data(), pastShape.size()));
             else {
                 lastError = "unexpected input " + name;
                 return false;
@@ -603,6 +695,7 @@ auto OnnxBackend::runOnHost(const State &past, const std::vector<int64_t> &ids, 
 
         auto outputs = session->Run(Ort::RunOptions{nullptr}, inputNamePtrs.data(), inputs.data(),
                                     inputs.size(), outputNamePtrs.data(), outputNamePtrs.size());
+        Ort::Value key{nullptr}, value{nullptr};
         for (size_t i = 0; i < outputNames.size(); ++i) {
             const auto &name = outputNames[i];
             const auto info = outputs[i].GetTensorTypeAndShapeInfo();
@@ -618,12 +711,12 @@ auto OnnxBackend::runOnHost(const State &past, const std::vector<int64_t> &ids, 
                 if (shape.size() != 5)
                     return false;
                 present.rows = static_cast<int>(shape[3]);
-                present.device.reset();
-                present.key.assign(data, data + info.GetElementCount());
+                key = std::move(outputs[i]);
             } else if (name == "present_value") {
-                present.value.assign(data, data + info.GetElementCount());
+                value = std::move(outputs[i]);
             }
         }
+        storeHostKv(present, session, std::move(key), std::move(value));
         return true;
     } catch (const Ort::Exception &ex) {
         lastError = ex.what();
@@ -644,12 +737,11 @@ auto OnnxBackend::runBatched(const BatchState &past, const std::vector<int64_t> 
     }
     if (cuda != nullptr)
         return runBatchedOnDevice(past, ids, present, logits);
-    if (past.device != nullptr) {
+    if (past.device != nullptr && dynamic_cast<const HostKv *>(past.device.get()) == nullptr) {
         lastError = "past batch KV is on a device this session cannot read";
         return false;
     }
     try {
-        present.device = nullptr;
         std::vector<int64_t> idsCopy = ids;
         const auto batch = static_cast<int64_t>(past.batch);
         const auto perBranch = static_cast<int64_t>(ids.size()) / batch;
@@ -662,6 +754,13 @@ auto OnnxBackend::runBatched(const BatchState &past, const std::vector<int64_t> 
         static float emptyData = 0.0f;
         auto *keyPtr = const_cast<float *>(past.key.empty() ? &emptyData : past.key.data());
         auto *valuePtr = const_cast<float *>(past.value.empty() ? &emptyData : past.value.data());
+        const auto *host = static_cast<const HostKv *>(past.device.get());
+        if (host != nullptr && past.rows > 0) {
+            keyPtr = const_cast<float *>(host->key.GetTensorData<float>());
+            valuePtr = const_cast<float *>(host->value.GetTensorData<float>());
+        }
+        const auto count = static_cast<size_t>(dimsValue.layers * pastShape[1] * dimsValue.heads
+                                               * past.rows * dimsValue.headDim);
         std::vector<Ort::Value> inputs;
         std::vector<const char *> inputNamePtrs;
         for (const auto &name: inputNames) {
@@ -674,10 +773,10 @@ auto OnnxBackend::runBatched(const BatchState &past, const std::vector<int64_t> 
                     memoryInfo, positions.data(), positions.size(), idsShape.data(), idsShape.size()));
             else if (name == "past_key")
                 inputs.push_back(Ort::Value::CreateTensor<float>(
-                    memoryInfo, keyPtr, past.key.size(), pastShape.data(), pastShape.size()));
+                    memoryInfo, keyPtr, count, pastShape.data(), pastShape.size()));
             else if (name == "past_value")
                 inputs.push_back(Ort::Value::CreateTensor<float>(
-                    memoryInfo, valuePtr, past.value.size(), pastShape.data(), pastShape.size()));
+                    memoryInfo, valuePtr, count, pastShape.data(), pastShape.size()));
             else {
                 lastError = "unexpected input " + name;
                 return false;
@@ -688,6 +787,7 @@ auto OnnxBackend::runBatched(const BatchState &past, const std::vector<int64_t> 
             outputNamePtrs.push_back(name.c_str());
         auto outputs = session->Run(Ort::RunOptions{nullptr}, inputNamePtrs.data(), inputs.data(),
                                     inputs.size(), outputNamePtrs.data(), outputNamePtrs.size());
+        Ort::Value key{nullptr}, value{nullptr};
         for (size_t i = 0; i < outputNames.size(); ++i) {
             const auto &name = outputNames[i];
             const auto info = outputs[i].GetTensorTypeAndShapeInfo();
@@ -708,11 +808,12 @@ auto OnnxBackend::runBatched(const BatchState &past, const std::vector<int64_t> 
                     return false;
                 present.rows = static_cast<int>(shape[3]);
                 present.batch = static_cast<int>(batch);
-                present.key.assign(data, data + info.GetElementCount());
+                key = std::move(outputs[i]);
             } else if (name == "present_value") {
-                present.value.assign(data, data + info.GetElementCount());
+                value = std::move(outputs[i]);
             }
         }
+        storeHostKv(present, session, std::move(key), std::move(value));
         return true;
     } catch (const Ort::Exception &ex) {
         lastError = ex.what();

@@ -30,6 +30,7 @@ private:
     CustomProgressBarLookAndFeel progressBarLookAndFeel;
     std::unique_ptr<juce::ProgressBar> progressBar;
     juce::Label timeLabel;
+    juce::ToggleButton playLateNotes{"Play Late Notes"};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GenerationWidget)
 };

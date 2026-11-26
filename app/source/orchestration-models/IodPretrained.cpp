@@ -15,12 +15,37 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <unordered_map>
+
+#if defined(__APPLE__) && defined(__aarch64__) && ORT_API_VERSION >= 20
+#include <sys/stat.h>
+#endif
 
 namespace {
 
 constexpr float kNegInf = -std::numeric_limits<float>::infinity();
 /** Softmax temperature for all IOD combo AR steps (GROUPS + family). */
 constexpr float kComboSampleTemperature = 1.0f;
+
+#if defined(__APPLE__) && defined(__aarch64__) && ORT_API_VERSION >= 20
+auto coreMlCacheDirectory(const char *path) -> juce::File {
+    struct stat model {};
+    if (stat(path, &model) != 0)
+        return {};
+
+    // A replaced or edited ONNX file needs a fresh cache even when its path is unchanged.
+    const auto identity = juce::String(static_cast<juce::int64>(model.st_dev)) + "-"
+                          + juce::String(static_cast<juce::int64>(model.st_ino)) + "-"
+                          + juce::String(static_cast<juce::int64>(model.st_size)) + "-"
+                          + juce::String(static_cast<juce::int64>(model.st_ctimespec.tv_sec)) + "-"
+                          + juce::String(static_cast<juce::int64>(model.st_ctimespec.tv_nsec));
+    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+        .getChildFile("Caches/virtual-orch/CoreML")
+        .getChildFile("mlprogram-gpu-v1")
+        .getChildFile(Ort::GetVersionString())
+        .getChildFile(identity);
+}
+#endif
 
 auto createOrchestrationSession(const char *path) -> std::unique_ptr<Ort::Session> {
     auto &env = sharedOrtEnv();
@@ -31,9 +56,15 @@ auto createOrchestrationSession(const char *path) -> std::unique_ptr<Ort::Sessio
             Ort::SessionOptions options;
             // Both the full model and the split pair receive one encoder window per call.
             Ort::ThrowOnError(Ort::GetApi().AddFreeDimensionOverrideByName(options, "batch", 1));
-            options.AppendExecutionProvider("CoreML", {{"ModelFormat", "MLProgram"},
-                                                       {"MLComputeUnits", "CPUAndGPU"},
-                                                       {"RequireStaticInputShapes", "1"}});
+            std::unordered_map<std::string, std::string> providerOptions{
+                {"ModelFormat", "MLProgram"},
+                {"MLComputeUnits", "CPUAndGPU"},
+                {"RequireStaticInputShapes", "1"},
+            };
+            const auto cache = coreMlCacheDirectory(path);
+            if (cache != juce::File{} && cache.createDirectory().wasOk())
+                providerOptions.emplace("ModelCacheDirectory", cache.getFullPathName().toStdString());
+            options.AppendExecutionProvider("CoreML", providerOptions);
             auto session = std::make_unique<Ort::Session>(env, path, options);
             std::fprintf(stderr, "[ort] %s: Core ML enabled with CPU fallback\n", path);
             return session;

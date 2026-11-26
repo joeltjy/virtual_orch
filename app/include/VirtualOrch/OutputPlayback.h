@@ -63,6 +63,8 @@ public:
     auto beginSteps() -> void;
     auto stepOnce() -> void;
 
+    std::atomic<bool> playLateNotes{false};
+
     /** Bound by the generation-status ProgressBar. */
     double progress = 0.0;
 

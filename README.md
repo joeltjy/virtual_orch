@@ -205,10 +205,26 @@ Needs the Xcode command-line tools, CMake ≥ 3.22 and Ninja (`brew install cmak
   ```
 
   With ONNX Runtime 1.20 or later, the IodPretrained orchestration model uses the Core ML
-  provider with CPU and GPU compute units. Core ML compiles the model during loading. If
-  session creation fails, the app retries on CPU. To force CPU on Apple Silicon, launch the
+  provider with CPU and GPU compute units. Core ML stores compiled models in
+  `~/Library/Caches/virtual-orch/CoreML` and reuses them across launches. Replacing a model
+  or updating ONNX Runtime creates a fresh cache. If session creation fails, the app retries on CPU. To force CPU on Apple Silicon, launch the
   executable with `VIRTUAL_ORCH_ORT_BACKEND=cpu`. The streaming reduction models use CPU on
-  macOS because the tested Core ML configuration increased single-token latency.
+  macOS because the tested Core ML configuration increased single-token latency. On Apple Silicon
+  they reuse the previous ONNX Runtime KV tensors. Set `VIRTUAL_ORCH_COPY_HOST_KV=1` to measure the
+  original copy-based path.
+
+  IodPretrained automatically uses `ot_robust_enc.onnx` and `ot_robust_dec.onnx` when both are
+  beside `ot_robust.onnx`. To regenerate the pair for this export, install the Python `onnx`
+  package and run:
+
+  ```bash
+  python model_preparation/onnx_split/split_iod.py \
+    "$HOME/Documents/virtual_orch_models/ot_robust.onnx" "$HOME/Documents/virtual_orch_models"
+  ```
+
+  The full model stays available for fallback. Generate a new pair whenever you replace the full model.
+  The optional Metal benchmark in `model_preparation/onnx_to_mlx/benchmark_rt.py` requires Python
+  `onnx`, `onnxruntime`, and `mlx` and reports latency and numerical agreement for batch sizes 1 and 5.
 
 - **Build.** Build the JUCE header first (otherwise a fresh build can race on it), then everything.
   On a Mac with 8 GB of RAM keep `-j2`; a full build takes roughly 30–60 minutes.

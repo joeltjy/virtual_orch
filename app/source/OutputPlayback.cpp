@@ -22,6 +22,10 @@ auto orchestrationNoteOnsetLess(const OrchestrationNote &a, const OrchestrationN
     return a.token.note < b.token.note;
 }
 
+struct PlayingNote : OrchestrationNote {
+    int32_t onsetDelay = 0;
+};
+
 auto orchestrationNoteEndLess(const OrchestrationNote &a, const OrchestrationNote &b) -> bool {
     const auto aEnd = a.token.time + a.token.getRealDuration();
     const auto bEnd = b.token.time + b.token.getRealDuration();
@@ -192,7 +196,7 @@ auto OutputPlayback::clearNoteOnHistory() -> void {
 /** Loop state of the playback thread (one per run, or per simulator session). */
 struct OutputPlayback::StepState {
     std::multiset<OrchestrationNote, decltype(&orchestrationNoteOnsetLess)> nextTokens{orchestrationNoteOnsetLess};
-    std::multiset<OrchestrationNote, decltype(&orchestrationNoteEndLess)> currentlyPlaying{orchestrationNoteEndLess};
+    std::multiset<PlayingNote, decltype(&orchestrationNoteEndLess)> currentlyPlaying{orchestrationNoteEndLess};
     // Unmatched duration updates retry until the note appears or its default end has passed.
     std::vector<TokenUpdate> pendingDurationUpdates;
     int32_t playbackTime = 0;
@@ -266,7 +270,7 @@ auto OutputPlayback::stepOnce() -> void {
 
     // Keyboard notes are matched by keyId and keep their onset (chord snapping) and their
     // instrument-scaled velocity: only the duration changes.
-    auto revise = [](OrchestrationNote note, const TokenUpdate &update) {
+    auto revise = [](auto note, const TokenUpdate &update) {
         note.token.duration = update.newNote.duration;
         if (update.oldNote.keyId < 0)
             note.token.velocity = update.newNote.velocity;
@@ -289,12 +293,14 @@ auto OutputPlayback::stepOnce() -> void {
         }
 
         for (auto it = currentlyPlaying.begin(); it != currentlyPlaying.end();) {
-            if (! tokenMatchesUpdateSource(it->token, durationUpdate.oldNote)) {
+            auto original = it->token;
+            original.time -= it->onsetDelay;
+            if (! tokenMatchesUpdateSource(original, durationUpdate.oldNote)) {
                 ++it;
                 continue;
             }
             ++matched;
-            const OrchestrationNote revised = revise(*it, durationUpdate);
+            const auto revised = revise(*it, durationUpdate);
             if (logging)
                 OpLog::emit(OpLog::Src::Play, "PLAY_LENGTH", {{"o", playId(revised)}, {"dur", revised.token.getRealDuration()}, {"sounding", true}});
             it = currentlyPlaying.erase(it);
@@ -466,8 +472,15 @@ auto OutputPlayback::stepOnce() -> void {
 
     for (auto it = nextTokens.begin(); it != nextTokens.end();) {
         if (it->token.time <= time) {
-            if (handleNoteForOutput(*it, TokenNoteType::TokenNoteOn, reductionMonitor))
-                currentlyPlaying.insert(*it);
+            PlayingNote note{*it};
+            const auto duration = note.token.getRealDuration();
+            if (playLateNotes.load(std::memory_order_relaxed) && duration > 0
+                && note.token.time + duration <= time) {
+                note.onsetDelay = time - note.token.time;
+                note.token.time = time;
+            }
+            if (handleNoteForOutput(note, TokenNoteType::TokenNoteOn, reductionMonitor))
+                currentlyPlaying.insert(note);
             it = nextTokens.erase(it);
         } else {
             break;

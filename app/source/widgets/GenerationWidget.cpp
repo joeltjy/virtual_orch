@@ -25,6 +25,13 @@ GenerationWidget::GenerationWidget(AppSession &sessionIn)
     timeLabel.setInterceptsMouseClicks(false, false);
     body.addAndMakeVisible(timeLabel);
 
+    playLateNotes.setTooltip("Play notes that arrive after their scheduled end for their original duration.");
+    playLateNotes.setToggleState(session.outputPlayback.playLateNotes.load(), juce::dontSendNotification);
+    playLateNotes.onClick = [this] {
+        session.outputPlayback.playLateNotes.store(playLateNotes.getToggleState());
+    };
+    body.addAndMakeVisible(playLateNotes);
+
     updateTimeDisplay();
     startTimer(UiConstants::workspaceGenerationClockTimerIntervalMs);
 }
@@ -75,4 +82,5 @@ auto GenerationWidget::updateTimeDisplay() -> void {
     const juce::String timeStr =
         hours + ":" + minutes + ":" + seconds + "." + juce::String(time).paddedLeft('0', 2);
     timeLabel.setText(timeStr, juce::dontSendNotification);
+    playLateNotes.setToggleState(session.outputPlayback.playLateNotes.load(), juce::dontSendNotification);
 }

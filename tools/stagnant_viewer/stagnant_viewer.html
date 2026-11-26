@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stagnant Viewer</title>
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --ink: #1d1d1b; --ink2: #55554f; --muted: #8a8a82; --line: #e2e1dc;
+  --accent: #2f6fde; --accent-ink: #ffffff; --grid: #efeee9; --grid2: #e0dfd8; --sel: #e8a400; --link: #d9480f;
+  --piano: #6b6b66; --rt: #7048e8; --strings: #2f9e44; --wood: #1c7ed6; --brass: #e8590c; --perc: #ae3ec9; --other: #0c8599;
+  --bar: #2f6fde; --bar2: #adb5bd; --warn: #c92a2a; --prompt: rgba(47,111,222,0.06); --ev: #c98a10; --mode: #0c8599;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #151514; --panel: #1f1f1d; --ink: #ecebe6; --ink2: #b9b8b1; --muted: #85847d; --line: #34332f;
+  --accent: #5b8def; --accent-ink: #0d0d0c; --grid: #232321; --grid2: #2e2d2a; --sel: #ffd43b; --link: #ff8c42;
+  --piano: #a6a69f; --rt: #9775fa; --strings: #51cf66; --wood: #4dabf7; --brass: #ff922b; --perc: #da77f2; --other: #3bc9db;
+  --bar: #5b8def; --bar2: #5c5f66; --warn: #ff6b6b; --prompt: rgba(91,141,239,0.08); --ev: #e0a640; --mode: #3bc9db;
+} }
+:root[data-theme="dark"] {
+  --bg: #151514; --panel: #1f1f1d; --ink: #ecebe6; --ink2: #b9b8b1; --muted: #85847d; --line: #34332f;
+  --accent: #5b8def; --accent-ink: #0d0d0c; --grid: #232321; --grid2: #2e2d2a; --sel: #ffd43b; --link: #ff8c42;
+  --piano: #a6a69f; --rt: #9775fa; --strings: #51cf66; --wood: #4dabf7; --brass: #ff922b; --perc: #da77f2; --other: #3bc9db;
+  --bar: #5b8def; --bar2: #5c5f66; --warn: #ff6b6b; --prompt: rgba(91,141,239,0.08); --ev: #e0a640; --mode: #3bc9db;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+header h1 { font-size: 15px; margin: 0 6px 0 0; }
+label { color: var(--ink2); white-space: nowrap; }
+select, input[type=text], input[type=search] { background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 5px; padding: 3px 6px; font: inherit; }
+#source { max-width: 320px; } #item { max-width: 460px; } #filter { width: 150px; }
+button { background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 5px; padding: 4px 10px; font: inherit; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+#status { color: var(--ink2); font-size: 12px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#status.err { color: var(--warn); }
+.transport { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 49px; z-index: 4; }
+#time { font-variant-numeric: tabular-nums; min-width: 90px; }
+#runInfo { color: var(--muted); font-size: 12px; }
+#lanesWrap { overflow-x: auto; overflow-y: hidden; position: relative; }
+#scroller { position: relative; }
+#lanes { position: sticky; left: 0; }
+.lane { display: flex; border-bottom: 1px solid var(--line); }
+.laneLabel { width: 150px; flex: 0 0 150px; background: var(--panel); border-right: 1px solid var(--line); padding: 4px 8px; font-size: 12px; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+.laneLabel b { font-weight: 600; display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.laneLabel label { font-size: 11px; color: var(--muted); }
+.swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; flex: 0 0 auto; }
+.laneLabel span { color: var(--muted); }
+.lane canvas { display: block; cursor: pointer; }
+#playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--link); pointer-events: none; z-index: 3; }
+#detail { border-top: 1px solid var(--line); background: var(--panel); padding: 10px 16px 24px; }
+#detail h3 { margin: 0 0 6px; font-size: 14px; }
+.draws { display: flex; flex-wrap: wrap; gap: 14px; }
+.draw { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; min-width: 270px; flex: 1 1 270px; max-width: 420px; }
+.draw .head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.draw { overflow: hidden; }
+.draw .head .ttl { font-weight: 700; text-transform: capitalize; }
+.draw .dnote { color: var(--muted); font-size: 11px; margin: -2px 0 4px; }
+table.top { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+table.top td, table.top th { padding: 1px 4px; text-align: left; white-space: nowrap; }
+table.top th { color: var(--muted); font-weight: 500; }
+table.top tr.chosen td { font-weight: 700; color: var(--ink); }
+table.top tr.chosen td:first-child::before { content: "▶ "; color: var(--sel); }
+.pbar { display: inline-block; height: 8px; border-radius: 0 2px 2px 0; background: var(--bar); vertical-align: middle; }
+.pbar.m { background: var(--bar2); }
+.empty { color: var(--muted); padding: 30px 16px; }
+.note { color: var(--muted); font-size: 12px; }
+#tip { position: fixed; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 3px 7px; font-size: 12px; display: none; z-index: 10; box-shadow: 0 2px 8px rgba(0,0,0,.15); max-width: 420px; }
+details summary { cursor: pointer; color: var(--ink2); }
+pre { white-space: pre-wrap; font-size: 11px; color: var(--ink2); max-height: 220px; overflow: auto; background: var(--bg); padding: 6px; border-radius: 4px; }
+@media (max-width: 760px) { .laneLabel { width: 100px; flex-basis: 100px; } #item { max-width: 100%; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Stagnant Viewer</h1>
+  <label>Source <select id="source"></select></label>
+  <input type="search" id="filter" placeholder="filter…">
+  <label>Sample <select id="item"></select></label>
+  <button id="prev" title="previous (←)">◀</button><button id="next" title="next (→)">▶</button>
+  <span id="status">connecting…</span>
+</header>
+<div class="transport">
+  <button id="play" disabled>▶ Play</button>
+  <span id="time">0.00 s</span>
+  <label><input type="checkbox" id="lpiano" checked> piano</label>
+  <label><input type="checkbox" id="lrt"> model / RT</label>
+  <label><input type="checkbox" id="lot" checked> orchestra (OT)</label>
+  <label><input type="checkbox" id="sf"> real instrument sounds (loads samples online)</label>
+  <label>Zoom <input type="range" id="zoom" min="10" max="600" value="140"></label>
+  <span id="runInfo"></span>
+</div>
+<div id="lanesWrap"><div id="scroller"><div id="lanes"><div class="empty">Choose a source and a sample. Nothing is computed here: it shows what is on disk.</div></div></div><div id="playhead" style="display:none"></div></div>
+<div id="detail"><span class="note">Click a note to see the top 10 tokens of every draw that made it: p is the distribution it was drawn from (after the logit adjustments, mask, min-p, temperature and top-p), p_model is the model's own softmax.</span></div>
+<div id="tip"></div>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const NN = "C C# D Eb E F F# G Ab A Bb B".split(" ");
+const pname = p => NN[p % 12] + (Math.floor(p / 12) - 1);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const store = { get(k, d) { try { const v = localStorage.getItem("stv_" + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+                set(k, v) { try { localStorage.setItem("stv_" + k, JSON.stringify(v)); } catch (e) {} } };
+const SERVER = location.protocol.startsWith("http") ? "" : "http://localhost:8811";
+const api = path => fetch(SERVER + path).then(r => r.json().then(j => { if (!r.ok) throw new Error(j.error || r.status); return j; }));
+function status(msg, err) { const s = $("status"); s.textContent = msg; s.className = err ? "err" : ""; s.title = msg; }
+let RUN = null, ITEMS = [], selected = null, pxPerSec = 140, laneEls = [], drawIndex = {};
+
+// ------------------------------------------------------------------ sources and items
+async function init() {
+  let j;
+  try { j = await api("/api/sources"); } catch (e) { status("cannot reach the server (python3 tools/stagnant_viewer/server.py)", true); return; }
+  $("source").innerHTML = j.sources.map(s => `<option value="${esc(s.name)}">${esc(s.name)}</option>`).join("");
+  const [hs, hi] = decodeURIComponent(location.hash.slice(1)).split("|");
+  $("source").value = hs && j.sources.some(s => s.name === hs) ? hs : store.get("source", j.sources[0] && j.sources[0].name);
+  if (!$("source").value && j.sources.length) $("source").value = j.sources[0].name;
+  await loadItems(hi || store.get("item_" + $("source").value, null));
+}
+async function loadItems(want) {
+  status("listing…");
+  try { ITEMS = (await api("/api/items?source=" + encodeURIComponent($("source").value))).items; }
+  catch (e) { status(e.message, true); return; }
+  fillItems(want);
+  status(`${ITEMS.length} samples, ${ITEMS.filter(i => i.draws).length} with draws`);
+}
+function fillItems(want) {
+  const f = $("filter").value.toLowerCase().split(/\s+/).filter(Boolean);
+  const vis = ITEMS.filter(i => f.every(w => i.label.toLowerCase().includes(w)));
+  const groups = {};
+  for (const i of vis) (groups[i.group] = groups[i.group] || []).push(i);
+  $("item").innerHTML = Object.entries(groups).map(([g, is]) => `<optgroup label="${esc(g)}">` +
+    is.map(i => `<option value="${esc(i.id)}">${esc(i.label)}${i.draws ? "" : "  (notes only)"}</option>`).join("") + `</optgroup>`).join("");
+  if (want && vis.some(i => i.id === want)) $("item").value = want;
+  if ($("item").value) load();
+}
+$("source").addEventListener("change", () => { store.set("source", $("source").value); loadItems(store.get("item_" + $("source").value, null)); });
+$("filter").addEventListener("input", () => fillItems($("item").value));
+$("item").addEventListener("change", load);
+function step(d) { const o = [...$("item").options], i = o.findIndex(x => x.selected) + d; if (i >= 0 && i < o.length) { $("item").value = o[i].value; load(); } }
+$("prev").addEventListener("click", () => step(-1)); $("next").addEventListener("click", () => step(1));
+async function load() {
+  const src = $("source").value, id = $("item").value; if (!id) return;
+  store.set("item_" + src, id); history.replaceState(null, "", "#" + encodeURIComponent(src + "|" + id));
+  status("loading " + id + "…");
+  try { const r = await api(`/api/load?source=${encodeURIComponent(src)}&id=${encodeURIComponent(id)}`); showRun(r, id); status(id); }
+  catch (e) { status("load failed: " + e.message, true); }
+}
+
+// ------------------------------------------------------------------ tracks
+function colorOf(t) {
+  if (t.kind === "piano") return "--piano";
+  if (t.kind === "rt") return "--rt";
+  const i = t.instrument;
+  if (i <= 6) return "--strings"; if (i <= 10 || i === 19) return "--wood"; if (i <= 14) return "--brass"; if (i === 16 || i === 17) return "--perc";
+  return "--other";
+}
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function showRun(r, id) {
+  stop();
+  RUN = r; selected = null; playPos = 0;
+  for (const t of RUN.tracks) { t.notes.sort((a, b) => a.start - b.start); t.maxDur = Math.max(0.5, ...t.notes.map(n => n.end - n.start)); }
+  drawIndex = {};
+  for (const t of RUN.tracks) for (const n of t.notes) { const k = n.draw || n.src || (t.kind === "rt" ? n.id : null); if (k) (drawIndex[k] = drawIndex[k] || []).push(n); }
+  RUN.waits = (RUN.waits || []).slice().sort((a, b) => a.t - b.t);
+  const nNotes = RUN.tracks.reduce((a, t) => a + t.notes.length, 0);
+  const meta = RUN.meta || {}, req = RUN.request || {};
+  $("runInfo").textContent = [meta.model || req.system, meta.mode || req.mode, nNotes + " notes", Object.keys(RUN.rt_draws || {}).length + " draws",
+    Object.keys(RUN.ot_draws || {}).length ? Object.keys(RUN.ot_draws).length + " OT draws" : "", RUN.duration + " s"].filter(Boolean).join(" · ");
+  $("play").disabled = false;
+  $("lrt").checked = !RUN.tracks.some(t => t.kind === "ot");  // samplers: the model's notes are the music
+  showDetail();
+  layout();
+}
+function layout() {
+  if (!RUN) return;
+  const lanes = $("lanes"); lanes.innerHTML = ""; laneEls = [];
+  const LW = LABEL_W(), vw = $("lanesWrap").clientWidth, CW = Math.max(100, vw - LW);
+  $("scroller").style.width = (LW + (RUN.duration + 1) * pxPerSec) + "px";
+  lanes.style.width = vw + "px";
+  const mk = (label, H, t) => {
+    const lane = document.createElement("div"); lane.className = "lane";
+    lane.innerHTML = `<div class="laneLabel">${label}</div>`;
+    const c = document.createElement("canvas"); lane.appendChild(c); lanes.appendChild(lane);
+    sizeCanvas(c, CW, H);
+    return c;
+  };
+  const rc = mk(`<span>time (s)</span>`, 20); laneEls.push({ ruler: true, c: rc, W: CW, H: 20 });
+  if (RUN.waits.length) {
+    const ec = mk(`<b><span class="swatch" style="background:var(--ev)"></span>Events</b><span>${RUN.waits.length} (WAIT, FIRE, mode…)</span>`, 26);
+    const L = { events: true, c: ec, W: CW, H: 26 }; laneEls.push(L);
+    ec.addEventListener("mousemove", e => hoverEvents(L, e)); ec.addEventListener("mouseleave", () => $("tip").style.display = "none");
+  }
+  for (const t of RUN.tracks) {
+    if (!t.notes.length && t.kind === "ot") continue;
+    const lo = Math.min(...t.notes.map(n => n.pitch), 60) - 2, hi = Math.max(...t.notes.map(n => n.pitch), 60) + 2;
+    const H = Math.max(56, Math.min(240, (hi - lo + 1) * 4));
+    const c = mk(`<b title="${esc(t.name)}"><span class="swatch" style="background:var(${colorOf(t)})"></span>${esc(t.name)}</b><span>${t.notes.length} notes · ${pname(lo + 2)}–${pname(hi - 2)}</span>`, H, t);
+    const L = { t, c, lo, hi, H, W: CW };
+    laneEls.push(L);
+    c.addEventListener("click", e => clickLane(L, e));
+    c.addEventListener("mousemove", e => hoverLane(L, e));
+    c.addEventListener("mouseleave", () => $("tip").style.display = "none");
+  }
+  drawAll();
+  $("playhead").style.display = "block"; setPlayhead(playPos);
+}
+function sizeCanvas(c, w, h) { const d = window.devicePixelRatio || 1; c.width = w * d; c.height = h * d; c.style.width = w + "px"; c.style.height = h + "px"; c.getContext("2d").setTransform(d, 0, 0, d, 0, 0); }
+const X0 = () => $("lanesWrap").scrollLeft;                 // seconds-to-pixels: x = t * pxPerSec - X0()
+const visSec = L => [X0() / pxPerSec, (X0() + L.W) / pxPerSec];
+function firstFrom(notes, t) { let lo = 0, hi = notes.length; while (lo < hi) { const m = (lo + hi) >> 1; if (notes[m].start < t) lo = m + 1; else hi = m; } return lo; }
+function drawRuler(L) {
+  const g = L.c.getContext("2d"); g.clearRect(0, 0, L.W, 20);
+  g.fillStyle = css("--muted"); g.font = "11px -apple-system, sans-serif";
+  const step = pxPerSec < 25 ? 10 : pxPerSec < 60 ? 5 : pxPerSec < 150 ? 1 : 0.5, [a, b] = visSec(L);
+  for (let s = Math.floor(a / step) * step; s <= b; s += step) { const x = s * pxPerSec - X0(); g.fillRect(x, 14, 1, 6); g.fillText(s >= 60 ? `${Math.floor(s / 60)}:${String(Math.round(s % 60 * 10) / 10).padStart(2, "0")}` : (Math.round(s * 10) / 10) + "", x + 3, 12); }
+}
+function drawEvents(L) {
+  const g = L.c.getContext("2d"); g.clearRect(0, 0, L.W, L.H);
+  const [a, b] = visSec(L), ev = css("--ev"), md = css("--mode");
+  g.font = "10px -apple-system, sans-serif";
+  let lastX = -1e9;
+  for (const e of RUN.waits) {
+    if (e.t < a - 1 || e.t > b + 1) continue;
+    const x = e.t * pxPerSec - X0();
+    g.fillStyle = e.kind === "mode" ? md : ev; g.fillRect(x, 2, 2, L.H - 4);
+    if (x - lastX > 60) { g.fillText(e.text.slice(0, 14), x + 4, 16); lastX = x; }
+  }
+}
+const yOf = (L, p) => (L.hi - p) / (L.hi - L.lo + 1) * L.H;
+function linked() {
+  if (!selected) return new Set();
+  const n = selected.n, k = n.draw || n.src || (selected.t.kind === "rt" ? n.id : null);
+  const s = new Set();
+  if (k) { for (const m of drawIndex[k] || []) s.add(m); if (n.src) for (const L of laneEls) if (L.t && L.t.kind === "rt") for (const m of L.t.notes) if (m.id === n.src) s.add(m); }
+  return s;
+}
+function drawAll() { const link = linked(); for (const L of laneEls) { if (L.ruler) drawRuler(L); else if (L.events) drawEvents(L); else drawLane(L, link); } }
+function drawLane(L, link) {
+  const g = L.c.getContext("2d"), { W, H, t } = L, x0 = X0(), [a, b] = visSec(L);
+  g.clearRect(0, 0, W, H);
+  if (RUN.prompt_s) { g.fillStyle = css("--prompt"); g.fillRect(-x0, 0, RUN.prompt_s * pxPerSec, H); }
+  const rowH = H / (L.hi - L.lo + 1);
+  g.fillStyle = css("--grid2");
+  for (let p = L.lo; p <= L.hi; p++) if (p % 12 === 0) g.fillRect(0, yOf(L, p) + rowH - 0.5, W, 0.5);
+  g.fillStyle = css("--grid");
+  const gs = pxPerSec < 25 ? 10 : 1;
+  for (let s = Math.floor(a / gs) * gs; s <= b; s += gs) g.fillRect(s * pxPerSec - x0, 0, 1, H);
+  const col = css(colorOf(t)), sel = css("--sel"), lk = css("--link"), h = Math.max(2, rowH - 1);
+  for (let i = firstFrom(t.notes, a - t.maxDur); i < t.notes.length; i++) {
+    const n = t.notes[i]; if (n.start > b) break; if (n.end < a) continue;
+    const x = n.start * pxPerSec - x0, w = Math.max(2, (n.end - n.start) * pxPerSec - 1), y = yOf(L, n.pitch);
+    g.globalAlpha = (0.45 + 0.55 * Math.min(1, (n.vel || 64) / 110)) * (t.kind === "rt" && n.drawn === false ? 0.6 : 1);
+    g.fillStyle = col; roundRect(g, x, y, w, h, 2); g.fill(); g.globalAlpha = 1;
+    const isSel = selected && selected.n === n, isLink = link.has(n);
+    if (isSel || isLink) { g.strokeStyle = isSel ? sel : lk; g.lineWidth = 2; roundRect(g, x - 1, y - 1, w + 2, h + 2, 2); g.stroke(); }
+  }
+}
+function roundRect(g, x, y, w, h, r) { r = Math.min(r, w / 2, h / 2); g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+function noteAt(L, e) {
+  const rect = L.c.getBoundingClientRect(), x = e.clientX - rect.left + X0(), y = e.clientY - rect.top;
+  const rowH = L.H / (L.hi - L.lo + 1), ts = x / pxPerSec;
+  let best = null, bd = 1e9;
+  for (let i = firstFrom(L.t.notes, ts - L.t.maxDur - 0.1); i < L.t.notes.length; i++) {
+    const n = L.t.notes[i]; const x0 = n.start * pxPerSec; if (x0 > x + 4) break;
+    const x1 = Math.max(x0 + 4, n.end * pxPerSec), y0 = yOf(L, n.pitch);
+    if (x >= x0 - 3 && x <= x1 + 3 && y >= y0 - 3 && y <= y0 + rowH + 3) {
+      const d = Math.abs(y - (y0 + rowH / 2)) + (x < x0 ? x0 - x : x > x1 ? x - x1 : 0);
+      if (d < bd) { bd = d; best = n; }
+    }
+  }
+  return best;
+}
+function tipAt(e, text) { const tip = $("tip"); if (!text) { tip.style.display = "none"; return; } tip.style.display = "block"; tip.style.left = (e.clientX + 12) + "px"; tip.style.top = (e.clientY + 12) + "px"; tip.textContent = text; }
+function hoverLane(L, e) {
+  const n = noteAt(L, e);
+  tipAt(e, n && `${pname(n.pitch)} · ${n.start.toFixed(2)} s · ${(n.end - n.start).toFixed(2)} s · vel ${n.vel}` + (n.model ? " · " + n.model : "") + (n.src ? " · from " + n.src : "") + (n.draw ? " · " + n.draw : ""));
+}
+function hoverEvents(L, e) {
+  const rect = L.c.getBoundingClientRect(), t = (e.clientX - rect.left + X0()) / pxPerSec, tol = 6 / pxPerSec;
+  const near = RUN.waits.filter(w => Math.abs(w.t - t) <= tol);
+  tipAt(e, near.length ? near.slice(0, 6).map(w => `${w.t.toFixed(2)} s  ${w.text}`).join("\n") : null);
+}
+function clickLane(L, e) { const n = noteAt(L, e); selected = n ? { t: L.t, n } : null; drawAll(); showDetail(); }
+$("lanesWrap").addEventListener("scroll", () => { if (RUN) { drawAll(); setPlayhead(playPos); } });
+window.addEventListener("resize", () => { if (RUN) layout(); });
+
+// ------------------------------------------------------------------ draws
+const pct = x => x == null ? "–" : (x * 100).toFixed(x < 0.01 ? 2 : 1) + "%";
+function drawCard(title, d) {
+  const top = d.top || [], w = x => Math.round(Math.min(1, x || 0) * 60);
+  const chosenIn = top.some(r => r[0] === d.chosen);
+  const rows = top.map(([tk, p, pm, lab]) => `<tr class="${tk === d.chosen ? "chosen" : ""}"><td>${esc(lab)}</td><td>${pct(p)}</td>` +
+    `<td><span class="pbar" style="width:${w(p)}px"></span></td><td>${pct(pm)}</td><td><span class="pbar m" style="width:${w(pm)}px"></span></td></tr>`).join("");
+  const extra = chosenIn ? "" : `<tr class="chosen"><td>${esc(d.label)} (${d.p == null ? "chosen" : "not in the top 10"})</td><td>${pct(d.p)}</td><td></td><td>${pct(d.p_model)}</td><td></td></tr>`;
+  const head = d.p == null ? `chose <b>${esc(d.label)}</b>` : `chose <b>${esc(d.label)}</b> · p ${pct(d.p)} · p_model ${pct(d.p_model)}${d.forced ? " · forced" : ""}`;
+  const cols = d.p == null && top.every(r => r[2] == null) ? `<tr><th>candidate</th><th>score</th><th></th><th></th><th></th></tr>` : `<tr><th>token</th><th>p</th><th></th><th>p_model</th><th></th></tr>`;
+  return `<div class="draw"><div class="head"><span class="ttl">${esc(title)}</span><span>${head}</span></div>${d.note ? `<div class="dnote">${esc(d.note)}</div>` : ""}<table class="top">${cols}${rows}${extra}</table></div>`;
+}
+function infoBlock() {
+  const info = Object.assign({}, RUN.meta || {}, RUN.info || {}, RUN.request ? { request: RUN.request } : {});
+  return (RUN.note ? `<p class="note">${esc(RUN.note)}</p>` : "") +
+    (Object.keys(info).length ? `<details><summary>About this sample</summary><pre>${esc(JSON.stringify(info, null, 1))}</pre></details>` : "");
+}
+function showDetail() {
+  const el = $("detail");
+  if (!RUN) return;
+  if (!selected) { el.innerHTML = infoBlock() + `<p class="note">Click a note to see the top 10 tokens of every draw that made it: p is the distribution it was drawn from (after the logit adjustments, mask, min-p, temperature and top-p), p_model is the model's own softmax.</p>`; return; }
+  const { t, n } = selected;
+  let h = `<h3>${esc(t.name)}: ${pname(n.pitch)} at ${n.start.toFixed(2)} s, ${(n.end - n.start).toFixed(2)} s, vel ${n.vel}</h3>`;
+  if (t.kind === "piano") { el.innerHTML = h + `<span class="note">A piano (input) note: given, not drawn.</span>`; return; }
+  const otd = t.kind === "ot" && n.src ? (RUN.ot_draws || {})[n.src] : null;
+  if (otd) {
+    h += `<p class="note">OT draw for ${esc(n.src)} at ${otd.t.toFixed(2)} s; instruments available ${esc(JSON.stringify(otd.instruments))}; combo ${esc(JSON.stringify(otd.combo))}</p>`;
+    h += `<div class="draws">` + otd.steps.map(s => drawCard("OT " + s.field, s)).join("") + `</div>`;
+  } else if (t.kind === "ot") h += `<p class="note">No OT draw logged for this note${n.src ? " (from " + esc(n.src) + ")" : ""}.</p>`;
+  const rid = n.draw || (t.kind === "rt" ? n.id : n.src);
+  const rtd = rid ? (RUN.rt_draws || {})[rid] : null;
+  const shared = (drawIndex[rid] || []).length;
+  if (rtd) {
+    h += `<p class="note" style="margin-top:10px">${t.kind === "ot" ? "RT draw" : "Draw"} ${esc(rid)}: model ${esc(rtd.model)}, ${esc(rtd.source)}, at ${rtd.t.toFixed(2)} s${rtd.context_len ? ", context " + rtd.context_len + " tokens" : ""}${shared > 1 ? ` · shared by ${shared} notes (one group, outlined)` : ""}</p>`;
+    h += rtd.fields.length ? `<div class="draws">` + rtd.fields.map(f => drawCard(f.field, f)).join("") + `</div>`
+                           : `<p class="note">No per-field draws (${esc(rtd.source)}: e.g. a precomputed WAIT fire).</p>`;
+  } else if (rid || t.kind === "rt") {
+    h += `<p class="note">No draws stored for this note${RUN.note ? " (this sample has notes only)" : ""}.</p>`;
+  }
+  el.innerHTML = h;
+}
+
+// ------------------------------------------------------------------ audio (scheduled a little ahead, so long runs play)
+let ctx = null, master = null, playing = false, playPos = 0, playStartCtx = 0, playStartPos = 0, raf = 0, sfCache = {}, queue = [], qi = 0, timer = 0, players = {};
+const FAMILY = i => i == null ? "piano" : i <= 3 || i === 6 ? "bowed" : i === 4 ? "trem" : i === 5 ? "pizz" : i <= 10 || i === 19 ? "wind" : i <= 14 ? "brass" : i === 15 ? "piano" : i <= 17 ? "perc" : "pluck";
+function synthNote(fam, when, dur, pitch, vel, dest) {
+  const f = 440 * Math.pow(2, (pitch - 69) / 12), g = ctx.createGain(), o = ctx.createOscillator(), flt = ctx.createBiquadFilter();
+  const peak = 0.05 + 0.13 * (vel / 127);
+  o.type = { bowed: "sawtooth", trem: "sawtooth", pizz: "triangle", wind: "triangle", brass: "sawtooth", piano: "triangle", perc: "sine", pluck: "triangle" }[fam]; o.frequency.value = f;
+  flt.type = "lowpass"; flt.frequency.value = fam === "brass" ? 2600 : fam === "bowed" || fam === "trem" ? 1800 : 3500;
+  o.connect(flt); flt.connect(g); g.connect(dest);
+  const att = fam === "bowed" || fam === "wind" ? 0.05 : fam === "brass" ? 0.04 : 0.005;
+  const decaying = fam === "piano" || fam === "pizz" || fam === "perc" || fam === "pluck";
+  const end = when + (decaying ? Math.min(dur, fam === "pizz" ? 0.3 : 2.5) : dur);
+  g.gain.setValueAtTime(0, when); g.gain.linearRampToValueAtTime(peak, when + att);
+  if (decaying) g.gain.exponentialRampToValueAtTime(0.001, end + 0.2);
+  else { g.gain.setValueAtTime(peak * 0.85, Math.max(when + att, end - 0.02)); g.gain.linearRampToValueAtTime(0, end + 0.12); }
+  if (fam === "trem") { const lfo = ctx.createOscillator(), lg = ctx.createGain(); lfo.frequency.value = 12; lg.gain.value = peak * 0.5; lfo.connect(lg); lg.connect(g.gain); lfo.start(when); lfo.stop(end + 0.2); }
+  o.start(when); o.stop(end + 0.3);
+}
+async function soundfont(program) {
+  if (!window.Soundfont) await new Promise((res, rej) => { const s = document.createElement("script"); s.src = "https://unpkg.com/soundfont-player@0.12.0/dist/soundfont-player.min.js"; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+  const names = { 0: "acoustic_grand_piano", 40: "violin", 41: "viola", 42: "cello", 43: "contrabass", 44: "tremolo_strings", 45: "pizzicato_strings", 48: "string_ensemble_1", 73: "flute", 68: "oboe", 71: "clarinet", 70: "bassoon", 56: "trumpet", 60: "french_horn", 57: "trombone", 58: "tuba", 47: "timpani", 116: "taiko_drum", 25: "acoustic_guitar_steel", 52: "choir_aahs" };
+  const key = names[program] || "acoustic_grand_piano";
+  if (!sfCache[key]) sfCache[key] = Soundfont.instrument(ctx, key, { soundfont: "MusyngKite", destination: master });
+  return sfCache[key];
+}
+async function play() {
+  if (!RUN) return;
+  if (playing) return stop();
+  ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+  await ctx.resume();
+  master = ctx.createGain(); master.gain.value = 0.8; master.connect(ctx.destination);
+  const on = { piano: $("lpiano").checked, rt: $("lrt").checked, ot: $("lot").checked }, useSf = $("sf").checked;
+  const tracks = RUN.tracks.filter(t => on[t.kind]);
+  const from = playPos >= RUN.duration ? 0 : playPos;
+  $("play").textContent = "■ Stop"; playing = true;
+  players = {};
+  if (useSf) {
+    try { for (const t of tracks) players[t.key] = await soundfont(t.kind === "ot" ? t.program : t.kind === "rt" ? (t.program || 48) : 0); }
+    catch (e) { status("could not load the soundfonts (offline?): using the built-in synth", true); players = {}; }
+  }
+  if (!playing) return;
+  queue = [];
+  for (const t of tracks) { const fam = t.kind === "ot" ? FAMILY(t.instrument) : t.kind === "rt" ? "bowed" : "piano"; for (const n of t.notes) if (n.end > from) queue.push([Math.max(n.start, from), n, t.key, fam]); }
+  queue.sort((a, b) => a[0] - b[0]); qi = 0;
+  playStartCtx = ctx.currentTime + (useSf ? 0.6 : 0.1); playStartPos = from;
+  const schedule = () => {
+    const until = playStartPos + (ctx.currentTime - playStartCtx) + 2.0;
+    for (; qi < queue.length && queue[qi][0] < until; qi++) {
+      const [s, n, key, fam] = queue[qi], when = playStartCtx + (s - playStartPos), dur = n.end - s;
+      if (when < ctx.currentTime - 0.05) continue;
+      if (players[key]) players[key].play(n.pitch, when, { duration: dur, gain: 0.3 + 1.2 * (n.vel / 127) });
+      else synthNote(fam, when, dur, n.pitch, n.vel, master);
+    }
+  };
+  schedule(); timer = setInterval(schedule, 400);
+  const tick = () => {
+    if (!playing) return;
+    playPos = playStartPos + Math.max(0, ctx.currentTime - playStartCtx);
+    setPlayhead(playPos, true);
+    if (playPos >= RUN.duration + 0.5) { stop(); playPos = 0; setPlayhead(0); return; }
+    raf = requestAnimationFrame(tick);
+  };
+  raf = requestAnimationFrame(tick);
+}
+function stop() {
+  if (!playing) return;
+  playing = false; cancelAnimationFrame(raf); clearInterval(timer);
+  if (master) { try { master.gain.setTargetAtTime(0, ctx.currentTime, 0.02); const m = master; setTimeout(() => m.disconnect(), 200); } catch (e) {} }
+  for (const k in sfCache) sfCache[k].then(p => p.stop()).catch(() => {});
+  $("play").textContent = "▶ Play";
+}
+function LABEL_W() { const l = document.querySelector(".laneLabel"); return l ? l.offsetWidth : (innerWidth <= 760 ? 100 : 150); }
+function setPlayhead(sec, follow) {
+  const w = $("lanesWrap"), vis = w.clientWidth - LABEL_W();
+  if (follow) { const xs = sec * pxPerSec; if (xs - w.scrollLeft > vis * 0.8 || xs < w.scrollLeft) w.scrollLeft = Math.max(0, xs - vis * 0.2); }
+  const x = LABEL_W() + sec * pxPerSec;
+  $("playhead").style.left = x + "px"; $("time").textContent = sec.toFixed(2) + " s";
+  $("playhead").style.visibility = sec * pxPerSec < w.scrollLeft ? "hidden" : "visible";
+}
+$("play").addEventListener("click", play);
+document.addEventListener("keydown", e => {
+  if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName) && e.target.type !== "checkbox" && e.target.type !== "range") return;
+  if (e.code === "Space") { e.preventDefault(); play(); }
+  else if (e.key === "ArrowLeft" && e.altKey) step(-1); else if (e.key === "ArrowRight" && e.altKey) step(1);
+});
+$("lanesWrap").addEventListener("dblclick", e => {
+  const rect = $("lanesWrap").getBoundingClientRect(), x = e.clientX - rect.left - LABEL_W();
+  if (x < 0) return; const was = playing; stop(); playPos = (x + X0()) / pxPerSec; setPlayhead(playPos); if (was) play();
+});
+$("zoom").value = pxPerSec = store.get("zoom", 140);
+$("zoom").addEventListener("input", () => {
+  const mid = (X0() + $("lanesWrap").clientWidth / 2) / pxPerSec;
+  pxPerSec = +$("zoom").value; store.set("zoom", pxPerSec); layout();
+  $("lanesWrap").scrollLeft = Math.max(0, mid * pxPerSec - $("lanesWrap").clientWidth / 2); drawAll(); setPlayhead(playPos);
+});
+["lpiano", "lrt", "lot", "sf"].forEach(id => $(id).addEventListener("change", () => { if (playing) { stop(); play(); } }));
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (RUN) layout(); });
+init();
+</script>
+</body>
+</html>

@@ -11,6 +11,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 
@@ -19,6 +21,29 @@ namespace {
 constexpr float kNegInf = -std::numeric_limits<float>::infinity();
 /** Softmax temperature for all IOD combo AR steps (GROUPS + family). */
 constexpr float kComboSampleTemperature = 1.0f;
+
+auto createOrchestrationSession(const char *path) -> std::unique_ptr<Ort::Session> {
+    auto &env = sharedOrtEnv();
+#if defined(__APPLE__) && defined(__aarch64__) && ORT_API_VERSION >= 20
+    const auto *backend = std::getenv("VIRTUAL_ORCH_ORT_BACKEND");
+    if (backend == nullptr || std::strcmp(backend, "cpu") != 0) {
+        try {
+            Ort::SessionOptions options;
+            // Both the full model and the split pair receive one encoder window per call.
+            Ort::ThrowOnError(Ort::GetApi().AddFreeDimensionOverrideByName(options, "batch", 1));
+            options.AppendExecutionProvider("CoreML", {{"ModelFormat", "MLProgram"},
+                                                       {"MLComputeUnits", "CPUAndGPU"},
+                                                       {"RequireStaticInputShapes", "1"}});
+            auto session = std::make_unique<Ort::Session>(env, path, options);
+            std::fprintf(stderr, "[ort] %s: Core ML enabled with CPU fallback\n", path);
+            return session;
+        } catch (const Ort::Exception &ex) {
+            std::fprintf(stderr, "[ort] %s: Core ML init failed (%s), using CPU\n", path, ex.what());
+        }
+    }
+#endif
+    return std::make_unique<Ort::Session>(env, path, Ort::SessionOptions{});
+}
 
 auto findNameIndex(const std::vector<std::string> &names, const char *want) -> int {
     for (size_t i = 0; i < names.size(); ++i) {
@@ -136,9 +161,8 @@ auto IodPretrained::init(const char *modelPath) -> void {
 #endif
             if (decoderSession == nullptr) {
                 try {
-                    Ort::SessionOptions e, d;
-                    encoderSession = std::make_unique<Ort::Session>(sharedOrtEnv(), enc.getFullPathName().toRawUTF8(), e);
-                    decoderSession = std::make_unique<Ort::Session>(sharedOrtEnv(), dec.getFullPathName().toRawUTF8(), d);
+                    encoderSession = createOrchestrationSession(enc.getFullPathName().toRawUTF8());
+                    decoderSession = createOrchestrationSession(dec.getFullPathName().toRawUTF8());
                     splitOnCuda = false;
                 } catch (const Ort::Exception &ex) {
                     lastError = ex.what();
@@ -154,17 +178,13 @@ auto IodPretrained::init(const char *modelPath) -> void {
         }
     }
 
-    const auto tryCreate = [&](Ort::SessionOptions &opts) {
-        session = std::make_unique<Ort::Session>(sharedOrtEnv(), modelPath, opts);
-    };
-
 #ifdef __linux__
     (void) sharedOrtEnv(); // the ORT environment must exist before the CUDA provider is appended
     try {
         Ort::SessionOptions cudaOptions;
         OrtCUDAProviderOptions cudaProvider{};
         cudaOptions.AppendExecutionProvider_CUDA(cudaProvider);
-        tryCreate(cudaOptions);
+        session = std::make_unique<Ort::Session>(sharedOrtEnv(), modelPath, cudaOptions);
     } catch (const Ort::Exception &ex) {
         lastError = ex.what();
         session.reset();
@@ -173,8 +193,7 @@ auto IodPretrained::init(const char *modelPath) -> void {
 
     if (session == nullptr) {
         try {
-            Ort::SessionOptions cpuOptions;
-            tryCreate(cpuOptions);
+            session = createOrchestrationSession(modelPath);
         } catch (const Ort::Exception &ex) {
             lastError = ex.what();
             session.reset();

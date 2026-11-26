@@ -196,15 +196,19 @@ Needs the Xcode command-line tools, CMake ≥ 3.22 and Ninja (`brew install cmak
   mkdir -p libs
   ```
 
-- **ONNX Runtime 1.18.0.** The automatic download URL in `CMakeLists.txt` currently returns 404, so download
-  the macOS arm64 1.18.0 archive from the
-  [ONNX Runtime v1.18.0 release](https://github.com/microsoft/onnxruntime/releases/tag/v1.18.0), unpack it to
-  `libs/onnxruntime` (so that `libs/onnxruntime/include` and `libs/onnxruntime/lib` exist), and pass both
-  paths to CMake:
+- **ONNX Runtime.** On Apple Silicon, install the arm64 Homebrew package and configure the project:
 
   ```bash
-  cd sympathetic_virtual_orchestra && cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DONNXRUNTIME_INCLUDE=$PWD/../libs/onnxruntime/include -DONNXRUNTIME_LIB_DIR=$PWD/../libs/onnxruntime/lib
+  brew install onnxruntime
+  cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+    -DCMAKE_PREFIX_PATH="$(brew --prefix onnxruntime)"
   ```
+
+  With ONNX Runtime 1.20 or later, the IodPretrained orchestration model uses the Core ML
+  provider with CPU and GPU compute units. Core ML compiles the model during loading. If
+  session creation fails, the app retries on CPU. To force CPU on Apple Silicon, launch the
+  executable with `VIRTUAL_ORCH_ORT_BACKEND=cpu`. The streaming reduction models use CPU on
+  macOS because the tested Core ML configuration increased single-token latency.
 
 - **Build.** Build the JUCE header first (otherwise a fresh build can race on it), then everything.
   On a Mac with 8 GB of RAM keep `-j2`; a full build takes roughly 30–60 minutes.

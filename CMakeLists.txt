@@ -5,7 +5,14 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(BUILD_ONNXRUNTIME "Build ONNX Runtime from source" OFF)
 option(BUILD_ONNXRUNTIME_CCACHE "Use Ccache when building ONNX Runtime" OFF)
-set(ONNXRUNTIME_VERSION 1.18.0 CACHE STRING "The version to use for ONNX Runtime")
+set(default_ort_version 1.18.0)
+if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+    set(default_ort_version 1.20.1) # Core ML provider options
+    if(NOT BUILD_ONNXRUNTIME AND NOT DEFINED ONNXRUNTIME_INCLUDE AND NOT DEFINED ONNXRUNTIME_LIB_DIR)
+        find_package(onnxruntime CONFIG QUIET)
+    endif()
+endif()
+set(ONNXRUNTIME_VERSION ${default_ort_version} CACHE STRING "The version to use for ONNX Runtime")
 
 set(ONNX_BUILD_CONFIG Release)
 
@@ -23,7 +30,7 @@ if (BUILD_ONNXRUNTIME)
     # Set platform-dependent args to build ONNXRuntime
     if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
         set(MACOS TRUE)
-        set(ONNXRUNTIME_BUILD_ARGS "--cmake_extra_defines" "CMAKE_OSX_ARCHITECTURES=arm64")
+        set(ONNXRUNTIME_BUILD_ARGS "--use_coreml" "--cmake_extra_defines" "CMAKE_OSX_ARCHITECTURES=arm64")
         # TODO: Try --osx_arch arm64, --osx_arch arm64e, --osx_arch x86_64 instead
     else ()
         find_package(CUDAToolkit REQUIRED)
@@ -81,7 +88,9 @@ elseif(DEFINED ONNXRUNTIME_INCLUDE AND DEFINED ONNXRUNTIME_LIB_DIR)
         ${ONNXRUNTIME_INCLUDE}/onnxruntime/core/session # Windows local install or source
         CACHE PATH "ONNX Runtime include directories"
     )
-elseif(DEFINED ONNXRUNTIME_INCLUDE AND DEFINED ONNXRUNTIME_LIB_DIR)
+elseif(TARGET onnxruntime::onnxruntime)
+    add_library(onnxruntime ALIAS onnxruntime::onnxruntime)
+elseif(DEFINED ONNXRUNTIME_INCLUDE OR DEFINED ONNXRUNTIME_LIB_DIR)
     message(FATAL_ERROR "Please set both ONNXRUNTIME_INCLUDE and ONNXRUNTIME_LIB_DIR or neither to donwload automatically. Use BUILD_ONNXRUNTIME to build instead.")
 else (DOWNLOAD_ONNXRUNTIME)
     include(FetchContent)

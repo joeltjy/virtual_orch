@@ -968,7 +968,7 @@ auto GroupTokenEngine::drawBody(int32_t onsetCs, int32_t minPitch, bool pianoAll
         applyTdDurationTaper(biased);
         l1 = &biased;
     }
-    const int32_t dur = pick(*l1, {{kDur0 + cfg.minDurationCs, kDur0 + cfg.maxDurationCs + 1}}, cfg.otherTemperature, cfg.minP, 5);
+    const int32_t dur = pickDuration(*l1, {{kDur0 + cfg.minDurationCs, kDur0 + cfg.maxDurationCs + 1}});
     if (dur < 0)
         return std::nullopt;
     desired.push_back(dur);
@@ -1090,6 +1090,7 @@ auto GroupTokenEngine::drawEvent() -> std::vector<OutNote> {
         ranges.push_back({rel(cur.chordOnCs), rel(cur.chordOnCs) + 1});
     // chord mode: [EXPIRED] then a WAIT was drawn, so the next token is that WAIT (with the same K, as in training)
     bool chain = chordMode() && cur.chainK != 0;
+    bool waitInRanges = false; // the WAIT range is ranges.back()
     const bool waitOk = cfg.mode != Mode::LineLegato && ! cfg.continuation
                         && (chain || ! (cfg.noWaitAfterExpiry && cur.afterExpired));
     if (waitOk) {
@@ -1101,6 +1102,7 @@ auto GroupTokenEngine::drawEvent() -> std::vector<OutNote> {
             if (chain)
                 ranges.clear(); // the chain: a WAIT only
             ranges.push_back({waitToken(((dMin + kGrid - 1) / kGrid) * kGrid), kCount0});
+            waitInRanges = true;
         } else if (chain) {
             cur.chainK = 0; // the engine is too far behind for any chained WAIT: the model draws freely
             chain = false;
@@ -1131,6 +1133,40 @@ auto GroupTokenEngine::drawEvent() -> std::vector<OutNote> {
                 chord += TdOnsetBias::chordShift(cfg.tdLevel, cur.chordCount);
         }
         logits = &shifted;
+    }
+    if (cfg.waitCeiling > 0.0f && cfg.waitCeiling < 1.0f && waitInRanges && ! chain && ranges.size() > 1) {
+        // WAIT's share of WAIT + onsets at the sampling temperature (plain softmax: the 0.98 nucleus would drop every
+        // onset when WAIT is near-certain); above the ceiling, every WAIT logit is shifted by T ln a,
+        // a = c po / ((1 - c) pw), so the share is c (within-family ratios unchanged)
+        const float temp = std::max(cfg.onsetTemperature, 1e-4f);
+        const auto [w0, w1] = ranges.back();
+        const auto n = static_cast<int32_t>(logits->size());
+        float peak = kNegInf;
+        for (const auto &[lo, hi]: ranges)
+            for (int32_t i = std::max(lo, 0); i < std::min(hi, n); ++i)
+                peak = std::max(peak, (*logits)[static_cast<size_t>(i)]);
+        double pw = 0, po = 0;
+        if (std::isfinite(peak))
+            for (const auto &[lo, hi]: ranges)
+                for (int32_t i = std::max(lo, 0); i < std::min(hi, n); ++i) {
+                    const float x = (*logits)[static_cast<size_t>(i)];
+                    if (! std::isfinite(x))
+                        continue;
+                    const double e = std::exp(static_cast<double>((x - peak) / temp));
+                    (i >= w0 && i < w1 ? pw : po) += e;
+                }
+        const double c = cfg.waitCeiling;
+        if (po > 0 && pw > c * (pw + po)) {
+            if (logits != &shifted) {
+                shifted = *logits;
+                logits = &shifted;
+            }
+            const auto delta = static_cast<float>(temp * std::log(c * po / ((1.0 - c) * pw)));
+            for (int32_t i = std::max(w0, 0); i < std::min(w1, static_cast<int32_t>(shifted.size())); ++i)
+                if (std::isfinite(shifted[static_cast<size_t>(i)]))
+                    shifted[static_cast<size_t>(i)] += delta;
+            ++st.waitCeilingCuts;
+        }
     }
     int32_t t = pick(*logits, ranges, cfg.onsetTemperature, 0.0f);
     if (cfg.minWaitCs > 0 && waitOk && t >= kWait0 && t < kCount0 && waitValue(t) < cfg.minWaitCs) {
@@ -1340,7 +1376,7 @@ auto GroupTokenEngine::decodeBlock(std::vector<int32_t> desired, int32_t k, int3
             applyTdDurationTaper(biased);
             l = &biased;
         }
-        const int32_t t = pick(*l, ranges, cfg.otherTemperature, cfg.minP, step);
+        const int32_t t = bias == 1 ? pickDuration(*l, ranges) : pick(*l, ranges, cfg.otherTemperature, cfg.minP, step);
         if (t < 0)
             return -1;
         block.push_back(t);
@@ -1914,7 +1950,8 @@ auto GroupTokenEngine::precomputeStep() -> void {
             }
             if (stage == 0 || stage == 4)
                 applyTdDurationTaper(lg); // no-op unless tapering
-            const int32_t tok = pick(lg, ranges, cfg.otherTemperature, cfg.minP, step);
+            const int32_t tok = (stage == 0 || stage == 4) ? pickDuration(lg, ranges)
+                                                           : pick(lg, ranges, cfg.otherTemperature, cfg.minP, step);
             if (tok < 0)
                 return finish(false);
             if (stage == 1 || stage == 2)
@@ -1978,7 +2015,7 @@ auto GroupTokenEngine::precomputeStep() -> void {
             if (r == 0)
                 applyTdDurationTaper(lg);
             if (r == 0) {
-                const int32_t tok = pick(lg, {{kDur0 + cfg.minDurationCs, kDur0 + cfg.maxDurationCs + 1}}, cfg.otherTemperature, cfg.minP, 5);
+                const int32_t tok = pickDuration(lg, {{kDur0 + cfg.minDurationCs, kDur0 + cfg.maxDurationCs + 1}});
                 br.notes.push_back({tok - kDur0, 0, 0});
                 feed.push_back(tok);
             } else if (r == 1) {

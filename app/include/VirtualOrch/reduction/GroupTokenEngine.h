@@ -198,6 +198,21 @@ public:
         float otherTemperature = 0.5f; // duration / pitch / velocity
         float minP = 0.25f;            // duration / pitch / velocity (0 = off)
         float topP = 0.98f;
+        /**
+         * Durations (DUR, and m2's SDUR) only: their own temperature / min-p, instead of otherTemperature / minP
+         * (unset = those). orchestration 2026-11-27: at 0.5 / 0.25 the free durations collapse to 10 cs (74% vs the
+         * data's 18%) and the long block durations are cut; 1.0 / 0 is close to the data, no more bursts.
+         */
+        std::optional<float> durationTemperature;
+        std::optional<float> durationMinP;
+        /**
+         * The onset step (m2): WAIT's share of WAIT + orchestra onsets is cut to at most waitCeiling (0 = off); the
+         * WAIT lengths keep their relative probabilities, as do the onsets. orchestration 2026-11-27: m2v4_d3 WAITs
+         * ~90% on dense piano (the data ~45-80% at the same density); offline 0.7-0.8 gave 64-67%, no bursts. Offline
+         * the free side was the onsets before the next piano onset; live that is unknown, so here it is every
+         * orchestra onset allowed now (the effect may be weaker). The share is the plain softmax at onsetTemperature (no nucleus).
+         */
+        float waitCeiling = 0.0f;
         bool precompute = true;
         /** A fired WAIT whose piano pitch is not in the anticipated top 5 plays the rank-1 branch's notes. */
         bool outsideTopFiveAsRankOne = true;
@@ -336,6 +351,7 @@ public:
         int contextRebuilds = 0;
         int lagSkips = 0;         // line A fills skipped because the engine was behind
         int shortWaitsReplaced = 0; // WAITs under minWaitCs drawn, replaced by an orchestra onset
+        int waitCeilingCuts = 0;    // onset steps whose WAIT share was cut to waitCeiling
         // chord-token mode
         int lates = 0;       // [LATE d] written
         int lateForced = 0;  // ... with d set from a piano onset already known to be past the close
@@ -555,6 +571,12 @@ private:
     auto logitsFor(const std::vector<int32_t> &desired) -> const std::vector<float> *;
     auto pick(const std::vector<float> &logits, const std::vector<std::pair<int32_t, int32_t>> &ranges,
               float temperature, float minP, int32_t step = 1) -> int32_t;
+    /** A duration draw: durationTemperature / durationMinP if set, else otherTemperature / minP. */
+    auto pickDuration(const std::vector<float> &logits, const std::vector<std::pair<int32_t, int32_t>> &ranges)
+        -> int32_t {
+        return pick(logits, ranges, cfg.durationTemperature.value_or(cfg.otherTemperature),
+                    cfg.durationMinP.value_or(cfg.minP), 5);
+    }
     auto pickFrom(std::vector<float> scores, float temperature) -> int32_t;
     /** pickFrom's distribution (temperature, then top-p), for the draw log. */
     auto samplingProbs(const std::vector<float> &scores, float temperature) const -> std::vector<float>;

@@ -1506,6 +1506,10 @@ void MainComponent::updateModel(const bool loadDefaultPreset) {
                 hy.setShortWaitRedraw(static_cast<bool>(parsedJson.getProperty("shortWaitRedraw", false)));
                 // model 2's start delay (default 3000 ms)
                 hy.setStartDelayMs(static_cast<int32_t>(parsedJson.getProperty("startDelayMs", 3000)));
+                // duration sampling of both models (-1 = the engine's otherTemperature / minP) and model 2's WAIT cap
+                hy.setDurationSampling(static_cast<float>(static_cast<double>(parsedJson.getProperty("durationTemperature", -1.0))),
+                                       static_cast<float>(static_cast<double>(parsedJson.getProperty("durationMinP", -1.0))));
+                hy.setWaitCeiling(static_cast<float>(static_cast<double>(parsedJson.getProperty("waitCeiling", 0.0))));
                 // v1.4: the voicing bank v4 the OT / playback decode groups with (voicing_bank_v4.json). An absolute
                 // path, or a file name looked up next to the ONNX exports, then next to the JSON.
                 hy.setVoicingBank(nullptr);

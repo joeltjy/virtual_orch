@@ -229,6 +229,32 @@ TEST(GroupTokenEngine, AFreeGroupIsOneNoteWithItsShape) {
     EXPECT_EQ(*(it + 1), Engine::kVel0 + 64);
 }
 
+/** waitCeiling (2026-11-27): the scripted onset step puts ~99% on [WAIT 30]; capped at 0.5, about half the first
+ *  onset-step draws over many seeds are a free onset instead (off: all WAITs). */
+TEST(GroupTokenEngine, WaitCeilingCapsTheWaitShareAtTheOnsetStep) {
+    const auto waits = [](float ceiling) {
+        int n = 0;
+        for (uint64_t seed = 1; seed <= 200; ++seed) {
+            GroupRig rig;
+            auto s = rig.engine.settings();
+            s.seed = seed;
+            s.waitCeiling = ceiling;
+            rig.engine.setSettings(s);
+            rig.engine.reset(0);
+            rig.engine.noteOn(0, 60, 80);
+            rig.run(0, 6);
+            // the first onset-step token, right after the piano quad (a free note may be followed by a WAIT)
+            const auto toks = rig.engine.tokens();
+            n += toks.size() > 4 && toks[4] >= Engine::kWait0 && toks[4] < Engine::kK0 ? 1 : 0;
+        }
+        return n;
+    };
+    EXPECT_GE(waits(0.0f), 195);
+    const int capped = waits(0.5f);
+    EXPECT_GE(capped, 70);
+    EXPECT_LE(capped, 130);
+}
+
 TEST(GroupTokenEngine, HybridV14LoadsTheGroupModels) {
     const auto dir = juce::File::getSpecialLocation(juce::File::userHomeDirectory).getChildFile("Documents/virtual_orch_models");
     const auto m1 = dir.getChildFile("rt_continuation_chordal.onnx");

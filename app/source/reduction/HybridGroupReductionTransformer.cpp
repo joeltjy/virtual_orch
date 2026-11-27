@@ -166,6 +166,10 @@ auto HybridGroupReductionTransformer::applySettings() -> void {
     s.onsetGapTau = DenseOnsetGapBias::TauBase;
     s.pitchLow = low;
     s.pitchHigh = high;
+    const float durT = durationTemperature.load();
+    const float durP = durationMinP.load();
+    s.durationTemperature = durT >= 0 ? std::optional<float>(durT) : std::nullopt;
+    s.durationMinP = durP >= 0 ? std::optional<float>(durP) : std::nullopt;
     silentEngine.setSettings(s);
     auto w = waitEngine.settings();
     w.continuation = false;
@@ -186,6 +190,9 @@ auto HybridGroupReductionTransformer::applySettings() -> void {
     w.fireWindowCs = 6;         // +-6 cs, as in training
     w.waitTopK = 3;             // a piano onset at any of the model's 3 most likely WAIT lengths fires
     w.minWaitCs = minWaitCs.load(); // the checkpoint JSON's "minWaitCs" (0 = any length)
+    w.durationTemperature = s.durationTemperature; // ... "durationTemperature" / "durationMinP" (both models)
+    w.durationMinP = s.durationMinP;
+    w.waitCeiling = waitCeiling.load();            // ... and "waitCeiling" (0 = off)
     w.startDelayCs = startDelayMs.load() / 10; // ... and "startDelayMs" (v1.2 default 3000)
     w.shortWaitRedraw = shortWaitRedraw.load(); // ... and "shortWaitRedraw"
     w.expiryGraceCs = 20;       // live input arrives ~12 cs late (p90 ~15): wait for it before expiring

@@ -103,6 +103,17 @@ public:
     auto setPrecompute(bool on) -> void { precompute.store(on); }
     /** Model 2's shortest allowed WAIT (cs; 0 = any): GroupTokenEngine::Settings::minWaitCs. */
     auto setMinWaitCs(int32_t cs) -> void { minWaitCs.store(cs); }
+    /**
+     * Both models' duration draws (DUR / SDUR): temperature and min-p (< 0 = the engine's otherTemperature /
+     * minP): GroupTokenEngine::Settings::durationTemperature / durationMinP. The checkpoint JSON's
+     * "durationTemperature" / "durationMinP".
+     */
+    auto setDurationSampling(float temperature, float minP) -> void {
+        durationTemperature.store(temperature);
+        durationMinP.store(minP);
+    }
+    /** Model 2's WAIT share cap at the onset step (0 = off): Settings::waitCeiling, the JSON's "waitCeiling". */
+    auto setWaitCeiling(float c) -> void { waitCeiling.store(c); }
     /** Model 2's start delay (ms; 0 = none): GroupTokenEngine::Settings::startDelayCs. */
     auto setStartDelayMs(int32_t ms) -> void { startDelayMs.store(ms); }
     /** A short WAIT's orchestra note: at its predicted onset (false) or at a redrawn onset (true). */
@@ -187,6 +198,9 @@ private:
     std::atomic<int> waitMode{0};
     std::atomic<bool> precompute{true};
     std::atomic<int32_t> minWaitCs{0};
+    std::atomic<float> durationTemperature{-1.0f};
+    std::atomic<float> durationMinP{-1.0f};
+    std::atomic<float> waitCeiling{0.0f};
     std::atomic<int32_t> startDelayMs{0};
     std::atomic<bool> shortWaitRedraw{false};
     std::atomic<bool> chordModel{true}; // v1.2: always the chord-token model 2 (tests may switch it off)
